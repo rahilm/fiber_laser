@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools>=68"]
+requires = ["setuptools>=77"]   # PEP 639 licence metadata
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -7,6 +7,8 @@ name = "mlaser"
 version = "0.1.0"
 description = "Cross-platform rebuild of the Gweike Mlaser fiber-laser cutting CAM/CNC software (reverse-engineered, untested on hardware)"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.11"
 dependencies = [
     "PySide6>=6.5",

@@ -24,6 +24,27 @@ simulator, and the main window.
 >
 > You use this at your own risk. It is not a certified machine controller.
 
+## Notice
+
+- **Independent reimplementation.** mlaser is an independent reimplementation written for
+  interoperability: it reads and writes the original's file formats and speaks the MCC100 card
+  protocol so that owners can drive their own machines from any OS. It is not affiliated with,
+  endorsed by or supported by Gweike or the motion-card vendor; their names are used only to
+  identify what this software interoperates with.
+- **No vendor code.** No vendor source code, binaries or DLLs are included in this repository or
+  in its packages. The original binaries are used only on the owner's own machine, under Wine,
+  as a reference to compare behaviour against (`../parity/`, not part of this project).
+- **Vendor assets are being removed.** Earlier snapshots bundled icons extracted from the
+  original program and its language files (`mlaser/ui/resources/icons`,
+  `mlaser/ui/resources/lang`). These are being replaced by an open icon set, and the language
+  files will be read at runtime from the user's own Mlaser install instead of being shipped.
+  Until that work lands, do not redistribute builds that contain them.
+- **Licence checks are deliberately not implemented.** The original's licensing, dongle/HID
+  checks, activation codes, laser rental lock, user locks, vendor passwords and cloud phone-home
+  are left out on purpose (see the end of this file). Nothing in this project circumvents or
+  emulates them; the parity harness runs the original unpatched with its checks intact.
+- **Licence.** mlaser is released under the [MIT licence](LICENSE).
+
 ## Install
 
 ```bash
