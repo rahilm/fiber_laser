@@ -39,8 +39,9 @@ jobs:
           python-version: ${{ matrix.python }}
           enable-cache: true
 
+      # all extras: the optional modern options (OR-Tools, spyrrow, Ruckig) are tested too
       - name: Install (locked)
-        run: uv sync --locked
+        run: uv sync --locked --all-extras
 
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected)"
         run: uv run --locked pytest -q --durations=15
