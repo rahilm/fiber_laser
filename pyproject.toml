@@ -50,6 +50,7 @@ include = ["mlaser*"]
 "mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*"]
 "mlaser.i18n" = ["*.json"]
 "mlaser.formats" = ["data/*"]
+"mlaser.cad" = ["fontdata/*"]   # bundled Noto Sans SC / Arabic subsets + OFL (tools/build_bundled_fonts.py)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -153,10 +154,6 @@ source_modules = [
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 ignore_imports = [
-    # TEXT outlines come from Qt's font engine (QPainterPath) when no TrueType file is found;
-    # ROADMAP Wave 2 "fontTools + uharfbuzz text" removes the Qt fallback
-    "mlaser.cad.text -> PySide6",
-    "mlaser.io.dxf_import -> PySide6",
     # UiController emits Qt signals to the GUI thread (optional, PySide6 may be missing);
     # ROADMAP Wave 2 "typed MachineAPI plus an event bus" replaces them
     "mlaser.controller.ui_adapter -> PySide6",
