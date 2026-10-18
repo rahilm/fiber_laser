@@ -33,6 +33,7 @@ writes the frame (one closed 5-line graph) and loses the engraving.  :func:`rast
 packs such per-segment Parts (a .nc opened with ``parse_gcode`` or a .chf saved that way) back
 into one raster object.
 """
+
 from __future__ import annotations
 
 import copy
@@ -43,22 +44,48 @@ from typing import TYPE_CHECKING, Optional, Sequence
 import numpy as np
 
 from ..model import Contour, Craft, Document, LayerParams, Line, Part, Point
-from ..toolpath.items import (CutArc, CutLine, Delay, Follow, LaserOff, LaserOn, LayerChange, Marker,
-                              MotionItem, Pierce, Rapid)
+from ..toolpath.items import (
+    CutArc,
+    CutLine,
+    Delay,
+    Follow,
+    LaserOff,
+    LaserOn,
+    LayerChange,
+    Marker,
+    MotionItem,
+    Pierce,
+    Rapid,
+)
 
-if TYPE_CHECKING:                      # pragma: no cover
+if TYPE_CHECKING:  # pragma: no cover
     from .toolpath import CamParams
 
-__all__ = ["RASTER_KEY", "FRAME_KEY", "RasterEngraving", "RasterFrameError", "Placement",
-           "f3_values", "make_raster_part", "raster_of_part", "raster_part_indices", "placement",
-           "frame_contour", "expand_parts", "expand_document", "raster_from_parts",
-           "raster_motion_items", "emit_raster_parts", "segment_arrays"]
+__all__ = [
+    "RASTER_KEY",
+    "FRAME_KEY",
+    "RasterEngraving",
+    "RasterFrameError",
+    "Placement",
+    "f3_values",
+    "make_raster_part",
+    "raster_of_part",
+    "raster_part_indices",
+    "placement",
+    "frame_contour",
+    "expand_parts",
+    "expand_document",
+    "raster_from_parts",
+    "raster_motion_items",
+    "emit_raster_parts",
+    "segment_arrays",
+]
 
-RASTER_KEY = "raster"            # Part.extra key of the RasterEngraving
-FRAME_KEY = "raster_frame"       # Contour.extra flag of the frame contour
-CLOSE_TOL = 1e-3                 # parse_gcode: a run is a closed contour when |end - start| < 1e-3
-MIN_LEN = 1e-6                   # prepare_contour drops contours shorter than this
-_Q = 0.25                        # frame marker vertex: a quarter along the bottom edge
+RASTER_KEY = "raster"  # Part.extra key of the RasterEngraving
+FRAME_KEY = "raster_frame"  # Contour.extra flag of the frame contour
+CLOSE_TOL = 1e-3  # parse_gcode: a run is a closed contour when |end - start| < 1e-3
+MIN_LEN = 1e-6  # prepare_contour drops contours shorter than this
+_Q = 0.25  # frame marker vertex: a quarter along the bottom edge
 
 
 class RasterFrameError(ValueError):
@@ -99,6 +126,7 @@ class RasterEngraving:
     The arrays are read-only and shared by ``copy.deepcopy`` (undo snapshots and array copies
     stay cheap); the placement lives in the part's frame contour.
     """
+
     x0: np.ndarray
     x1: np.ndarray
     row: np.ndarray
@@ -132,7 +160,7 @@ class RasterEngraving:
         if n:
             new = np.empty(n, dtype=bool)
             new[0] = True
-            bits = y.view(np.int64)        # bitwise: -0.0 and 0.0 stay apart
+            bits = y.view(np.int64)  # bitwise: -0.0 and 0.0 stay apart
             new[1:] = bits[1:] != bits[:-1]
             row = np.cumsum(new) - 1
             row_y = y[new]
@@ -168,7 +196,7 @@ class RasterEngraving:
         return (xa, ya, xb, yb)
 
     def __deepcopy__(self, memo) -> "RasterEngraving":
-        new = copy.copy(self)          # read-only arrays are shared
+        new = copy.copy(self)  # read-only arrays are shared
         new.params = copy.deepcopy(self.params, memo)
         memo[id(self)] = new
         return new
@@ -203,8 +231,7 @@ def make_raster_part(r: RasterEngraving, craft: Optional[Craft] = None, name: st
     """One Part holding the raster (``extra['raster']``) and its frame contour."""
     if len(r) == 0:
         raise ValueError("raster engraving without burn runs")
-    part = Part(contours=[frame_contour(r)], craft=copy.deepcopy(craft) if craft else Craft(),
-                name=name)
+    part = Part(contours=[frame_contour(r)], craft=copy.deepcopy(craft) if craft else Craft(), name=name)
     part.extra[RASTER_KEY] = r
     return part
 
@@ -222,6 +249,7 @@ def raster_part_indices(doc: Document) -> set[int]:
 class Placement:
     """Affine map local -> document: ``(a*x + b*y + tx, c*x + d*y + ty)``; ``translate`` is set
     when the map is a pure translation (then ``(x + tx, y + ty)`` is used)."""
+
     a: float
     b: float
     c: float
@@ -256,13 +284,14 @@ def _corners(c: Contour) -> tuple[Point, Point, Point, Point, Point]:
     def bend(k: int) -> float:
         a, b, d = v[k - 1], v[k], v[(k + 1) % 5]
         return abs((b[0] - a[0]) * (d[1] - b[1]) - (b[1] - a[1]) * (d[0] - b[0]))
+
     k = min(range(5), key=bend)
     prev, nxt = v[k - 1], v[(k + 1) % 5]
     if math.dist(prev, v[k]) <= math.dist(v[k], nxt):
         p0, p1, p2, p3 = prev, nxt, v[(k + 2) % 5], v[(k + 3) % 5]
     else:
         p0, p1, p2, p3 = nxt, prev, v[(k - 2) % 5], v[(k - 3) % 5]
-    return p0, v[k], p1, p2, p3     # type: ignore[return-value]
+    return p0, v[k], p1, p2, p3  # type: ignore[return-value]
 
 
 def placement(part: Part) -> Optional[Placement]:
@@ -280,12 +309,14 @@ def placement(part: Part) -> Optional[Placement]:
     if P0 == (xa, ya) and P1 == (xb, ya) and P3 == (xa, yb) and P2 == (xb, yb):
         return None
     w, h = xb - xa, yb - ya
-    ux, uy = (P1[0] - P0[0]) / w, (P1[1] - P0[1]) / w      # image of the local x unit
-    vx, vy = (P3[0] - P0[0]) / h, (P3[1] - P0[1]) / h      # image of the local y unit
+    ux, uy = (P1[0] - P0[0]) / w, (P1[1] - P0[1]) / w  # image of the local x unit
+    vx, vy = (P3[0] - P0[0]) / h, (P3[1] - P0[1]) / h  # image of the local y unit
     size = max(math.dist(P0, P2), math.dist(P1, P3))
     tol = 1e-6 * max(1.0, size)
-    if math.dist(P2, (P1[0] + P3[0] - P0[0], P1[1] + P3[1] - P0[1])) > tol \
-            or math.dist(Q, (P0[0] + (P1[0] - P0[0]) * _Q, P0[1] + (P1[1] - P0[1]) * _Q)) > tol:
+    if (
+        math.dist(P2, (P1[0] + P3[0] - P0[0], P1[1] + P3[1] - P0[1])) > tol
+        or math.dist(Q, (P0[0] + (P1[0] - P0[0]) * _Q, P0[1] + (P1[1] - P0[1]) * _Q)) > tol
+    ):
         raise RasterFrameError("raster frame edited: no longer a parallelogram")
     if abs(ux * vy - uy * vx) < 1e-12:
         raise RasterFrameError("raster frame collapsed")
@@ -322,8 +353,13 @@ def expand_parts(part: Part, first_index: int = 0) -> list[Part]:
     out = []
     for i in range(len(sx)):
         c = Contour([Line((sx[i], sy[i]), (ex[i], ey[i]))], closed[i])
-        out.append(Part(contours=[c], craft=Craft() if default else copy.deepcopy(part.craft),
-                        name=f"nc#{first_index + i}"))
+        out.append(
+            Part(
+                contours=[c],
+                craft=Craft() if default else copy.deepcopy(part.craft),
+                name=f"nc#{first_index + i}",
+            )
+        )
     return out
 
 
@@ -374,14 +410,15 @@ def _plain(craft: Craft, prm: "CamParams") -> bool:
     return True
 
 
-def _generic_items(doc: Document, pi: int, prm: "CamParams", pos: Point,
-                   layer: Optional[int]) -> tuple[list[MotionItem], Point, Optional[int]]:
+def _generic_items(
+    doc: Document, pi: int, prm: "CamParams", pos: Point, layer: Optional[int]
+) -> tuple[list[MotionItem], Point, Optional[int]]:
     """The per-segment pipeline itself on the expanded runs (sort mode 0, starting at ``pos``)."""
     from .toolpath import build_toolpath
+
     part = doc.parts[pi]
     tmp = Document(parts=expand_parts(part), layers=doc.layers)
-    sub = replace(prm, sort_mode=0, small_first=False, origin=pos, return_to_origin=False,
-                  avoid_cut=False)
+    sub = replace(prm, sort_mode=0, small_first=False, origin=pos, return_to_origin=False, avoid_cut=False)
     items = build_toolpath(tmp, sub)
     out: list[MotionItem] = []
     first_lc = True
@@ -395,14 +432,15 @@ def _generic_items(doc: Document, pi: int, prm: "CamParams", pos: Point,
         out.append(it)
     for it in reversed(out):
         if isinstance(it, (CutLine, CutArc)):
-            pos = tuple(it.end)           # type: ignore[assignment]
+            pos = tuple(it.end)  # type: ignore[assignment]
             break
     lcs = [it.layer for it in out if isinstance(it, LayerChange)]
     return out, pos, (lcs[-1] if lcs else layer)
 
 
-def raster_motion_items(doc: Document, pi: int, prm: "CamParams", pos: Point,
-                        layer: Optional[int]) -> tuple[list[MotionItem], Point, Optional[int]]:
+def raster_motion_items(
+    doc: Document, pi: int, prm: "CamParams", pos: Point, layer: Optional[int]
+) -> tuple[list[MotionItem], Point, Optional[int]]:
     """MotionItems of raster part ``pi`` starting at ``pos`` with the current process layer
     ``layer``; returns (items, new pos, new layer).  Identical to the items of the per-segment
     Parts under sort mode 0 except for the markers' (part, contour) = (pi, run index)."""
@@ -426,11 +464,11 @@ def raster_motion_items(doc: Document, pi: int, prm: "CamParams", pos: Point,
     for i in range(len(sx)):
         s = (sx[i], sy[i])
         e = (ex[i], ey[i])
-        if dist(s, e) < MIN_LEN:          # prepare_contour drops it (no marker either)
+        if dist(s, e) < MIN_LEN:  # prepare_contour drops it (no marker either)
             continue
         add(Marker("contour", pi, i))
         if dist(pos, s) > 1e-9:
-            add(Rapid(tuple(pos), s))      # type: ignore[arg-type]
+            add(Rapid(tuple(pos), s))  # type: ignore[arg-type]
         if layer != L:
             add(LayerChange(L))
             layer = L
@@ -448,12 +486,12 @@ def raster_motion_items(doc: Document, pi: int, prm: "CamParams", pos: Point,
     return items, pos, layer
 
 
-def emit_raster_parts(doc: Document, indices, prm: "CamParams", items: list, pos: Point,
-                      layer: Optional[int]) -> tuple[Point, Optional[int]]:
+def emit_raster_parts(
+    doc: Document, indices, prm: "CamParams", items: list, pos: Point, layer: Optional[int]
+) -> tuple[Point, Optional[int]]:
     """``build_toolpath`` hook: append the items of the raster parts ``indices`` (document order)
     to ``items``; returns the new (pos, layer)."""
     for pi in sorted(indices):
         blk, pos, layer = raster_motion_items(doc, pi, prm, pos, layer)
         items += blk
     return pos, layer
-

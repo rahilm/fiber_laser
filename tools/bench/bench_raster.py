@@ -9,6 +9,7 @@ per-segment document cut to its first K parts (the full one is out of reach: bui
 O(n^2)).  ``--compile K``: compile_job of the first K burn runs both ways, asserting identical
 wire and frames, plus the JumpAddTime settle share of the steps.
 """
+
 import argparse
 import copy
 import gc
@@ -49,14 +50,16 @@ def mem(label, fn, *a):
 def first_runs(r, k):
     """RasterEngraving of the first k runs."""
     k = min(k, len(r))
-    return R.RasterEngraving(r.x0[:k], r.x1[:k], r.row[:k], r.row_y, r.power[:k], rho=r.rho,
-                             overscan=r.overscan, params=r.params)
+    return R.RasterEngraving(
+        r.x0[:k], r.x1[:k], r.row[:k], r.row_y, r.power[:k], rho=r.rho, overscan=r.overscan, params=r.params
+    )
 
 
 def canvas_open(doc, label):
     from PySide6.QtGui import QImage, QPainter
     from PySide6.QtWidgets import QApplication
     from mlaser.ui.canvas import CanvasView
+
     app = QApplication.instance() or QApplication([])
     v = CanvasView()
     v.resize(1600, 1000)
@@ -66,15 +69,19 @@ def canvas_open(doc, label):
     T(f"[{label}] canvas.set_document", v.set_document, doc)
     items = T(f"[{label}] build_toolpath sort 0", build_toolpath, doc, CamParams(sort_mode=0))
     T(f"[{label}] canvas.set_toolpath", v.set_toolpath, items)
-    print(f"[{label}] open total (set_document + toolpath + set_toolpath) "
-          f"{(time.perf_counter() - t0) * 1000:10.1f} ms; {len(items)} items, "
-          f"{len(v.scene().items())} scene items", flush=True)
+    print(
+        f"[{label}] open total (set_document + toolpath + set_toolpath) "
+        f"{(time.perf_counter() - t0) * 1000:10.1f} ms; {len(items)} items, "
+        f"{len(v.scene().items())} scene items",
+        flush=True,
+    )
     img = QImage(1600, 1000, QImage.Format_ARGB32)
 
     def paint():
         p = QPainter(img)
         v.render(p)
         p.end()
+
     T(f"[{label}] render", paint)
     T(f"[{label}] render again", paint)
     T(f"[{label}] deepcopy (undo snapshot)", copy.deepcopy, doc)
@@ -98,13 +105,14 @@ def main():
     if a.old:
         full = mem("parse_gcode (per-segment Parts) retained", parse_gcode, text)
         print(f"{len(full.parts)} parts")
-        old = Document(parts=full.parts[:a.old])
+        old = Document(parts=full.parts[: a.old])
         canvas_open(old, f"old {a.old} parts")
     canvas_open(new, "new raster part")
     if a.compile:
         from mlaser.nc import compile_job
         from mlaser.nc.machine import Machine
         from mlaser.protocol import frames as F
+
         sub = first_runs(r, a.compile)
         dn = Document(parts=[R.make_raster_part(sub)])
         do = R.expand_document(dn)
@@ -126,8 +134,10 @@ def main():
             if cur >= settle:
                 runs += 1
             cur, prev = 0, None
-        print(f"steps {jn.steps}, replay {jn.duration_s:.0f} s; >= {settle}-step idle runs: {runs} "
-              f"(~{runs * settle} steps, {100.0 * runs * settle / max(1, jn.steps):.0f}% of the steps)")
+        print(
+            f"steps {jn.steps}, replay {jn.duration_s:.0f} s; >= {settle}-step idle runs: {runs} "
+            f"(~{runs * settle} steps, {100.0 * runs * settle / max(1, jn.steps):.0f}% of the steps)"
+        )
     print(f"maxrss {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.0f} MB")
 
 

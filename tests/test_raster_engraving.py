@@ -1,6 +1,7 @@
 """Raster engraving object (mlaser.cam.raster_engraving): identity with today's per-segment
 Parts (``parse_gcode`` of the raster G-code) for the burn lines, the MotionItems, the compiled
 wire and frames, and the .chf bytes; frame placement under document edits."""
+
 import copy
 import math
 import os
@@ -13,8 +14,13 @@ from hypothesis import strategies as st
 
 from mlaser.cam import raster_engraving as R
 from mlaser.cam.toolpath import CamParams, build_toolpath
-from mlaser.engrave.raster import (RasterParams, format_f3, gcode_from_bitmap, process_image,
-                                   raster_from_bitmap)
+from mlaser.engrave.raster import (
+    RasterParams,
+    format_f3,
+    gcode_from_bitmap,
+    process_image,
+    raster_from_bitmap,
+)
 from mlaser.io.gcode import parse_gcode
 from mlaser.model import Contour, Craft, Document, LayerParams, Line, Part
 from mlaser.toolpath.items import Marker
@@ -26,8 +32,14 @@ def _image(h=40, w=60, seed=1):
     return np.clip(img + rng.integers(-40, 40, img.shape), 0, 255).astype(np.uint8)
 
 
-CASES = [("none", 10, 6), ("halftone", 10, 6), ("dither", 10, 6), ("dither", 13, 7),
-         ("halftone", 8, 10), ("none", 7, 3)]
+CASES = [
+    ("none", 10, 6),
+    ("halftone", 10, 6),
+    ("dither", 10, 6),
+    ("dither", 13, 7),
+    ("halftone", 8, 10),
+    ("none", 7, 3),
+]
 
 
 def _both(mode, width, rho, power=20, img=None):
@@ -82,8 +94,9 @@ def test_burn_lines_identical(mode, width, rho):
     old, new, r = _both(mode, width, rho)
     assert len(r) == len(old.parts) > 0
     exp = R.expand_document(new)
-    assert _bits([p.contours[0].segments for p in exp.parts]) == \
-        _bits([p.contours[0].segments for p in old.parts])
+    assert _bits([p.contours[0].segments for p in exp.parts]) == _bits(
+        [p.contours[0].segments for p in old.parts]
+    )
     assert [p.contours[0].closed for p in exp.parts] == [p.contours[0].closed for p in old.parts]
     assert [p.name for p in exp.parts] == [p.name for p in old.parts]
 
@@ -104,11 +117,14 @@ def test_motion_items_identical(mode, width, rho):
     assert _bits(_norm(b)) == _bits(a)
 
 
-@pytest.mark.parametrize("prm", [
-    CamParams(sort_mode=0, start_delay_s=0.1, end_delay_s=0.05, pierce_time_s=0.3),
-    CamParams(sort_mode=0, origin=(20.0, -3.0), return_to_origin=True),
-    CamParams(sort_mode=0, leads_on_open=True),
-])
+@pytest.mark.parametrize(
+    "prm",
+    [
+        CamParams(sort_mode=0, start_delay_s=0.1, end_delay_s=0.05, pierce_time_s=0.3),
+        CamParams(sort_mode=0, origin=(20.0, -3.0), return_to_origin=True),
+        CamParams(sort_mode=0, leads_on_open=True),
+    ],
+)
 def test_motion_items_identical_cam_params(prm):
     old, new, _ = _both("dither", 10, 6)
     for d in (old, new):
@@ -132,21 +148,31 @@ def test_non_plain_craft_uses_generic_pipeline():
     for p in old.parts:
         p.craft = copy.deepcopy(craft)
     assert R._plain(craft, CamParams()) is False
-    assert _bits(_norm(build_toolpath(new, CamParams(sort_mode=0)))) == \
-        _bits(build_toolpath(old, CamParams(sort_mode=0)))
+    assert _bits(_norm(build_toolpath(new, CamParams(sort_mode=0)))) == _bits(
+        build_toolpath(old, CamParams(sort_mode=0))
+    )
 
 
 def test_mixed_document_raster_after_contours():
     """Other parts first, raster outside them: the same as today's document order (sort 0)."""
     old, new, _ = _both("dither", 10, 6)
-    sq = Part(contours=[Contour([Line((-30, 0), (-20, 0)), Line((-20, 0), (-20, 10)),
-                                 Line((-20, 10), (-30, 10)), Line((-30, 10), (-30, 0))])])
+    sq = Part(
+        contours=[
+            Contour(
+                [
+                    Line((-30, 0), (-20, 0)),
+                    Line((-20, 0), (-20, 10)),
+                    Line((-20, 10), (-30, 10)),
+                    Line((-30, 10), (-30, 0)),
+                ]
+            )
+        ]
+    )
     old.parts.insert(0, copy.deepcopy(sq))
     new.parts.insert(0, copy.deepcopy(sq))
     a = build_toolpath(old, CamParams(sort_mode=0))
     b = build_toolpath(new, CamParams(sort_mode=0))
-    nb = [Marker(m.kind, m.contour + 1, 0, m.info) if isinstance(m, Marker) and m.part == 1 else m
-          for m in b]
+    nb = [Marker(m.kind, m.contour + 1, 0, m.info) if isinstance(m, Marker) and m.part == 1 else m for m in b]
     assert _bits(nb) == _bits(a)
 
 
@@ -161,6 +187,7 @@ def test_raster_order_independent_of_sort_mode():
 def test_compiled_wire_and_frames_identical(mode, width, rho):
     from mlaser.nc import compile_job
     from mlaser.nc.machine import Machine
+
     old, new, _ = _both(mode, width, rho, img=_image(24, 36))
     ja = compile_job(old, CamParams(sort_mode=0), Machine())
     jb = compile_job(new, CamParams(sort_mode=0), Machine())
@@ -175,11 +202,13 @@ def test_compiled_wire_and_frames_identical(mode, width, rho):
 def test_compiled_identity_large_image():
     from mlaser.nc import compile_job
     from mlaser.nc.machine import Machine
+
     img = (np.indices((150, 200)).sum(0) % 255).astype(np.uint8)
     for mode in ("none", "halftone", "dither"):
         old, new, _ = _both(mode, 25, 8, img=img)
-        assert _bits(_norm(build_toolpath(new, CamParams(sort_mode=0)))) == \
-            _bits(build_toolpath(old, CamParams(sort_mode=0)))
+        assert _bits(_norm(build_toolpath(new, CamParams(sort_mode=0)))) == _bits(
+            build_toolpath(old, CamParams(sort_mode=0))
+        )
         ja = compile_job(old, CamParams(sort_mode=0), Machine())
         jb = compile_job(new, CamParams(sort_mode=0), Machine())
         assert ja.wire == jb.wire and ja.frames() == jb.frames()
@@ -187,6 +216,7 @@ def test_compiled_identity_large_image():
 
 def test_chf_bytes_identical_after_expand():
     from mlaser.formats.chf import dumps_chf
+
     old, new, _ = _both("dither", 10, 6)
     assert dumps_chf(R.expand_document(new)) == dumps_chf(old)
 
@@ -197,8 +227,9 @@ def test_pack_parts_roundtrip():
     assert q is not None and len(q) == len(r)
     assert _bits(q.x0.tolist()) == _bits(r.x0.tolist()) and _bits(q.y.tolist()) == _bits(r.y.tolist())
     doc = Document(parts=[R.make_raster_part(q)])
-    assert _bits(_norm(build_toolpath(doc, CamParams(sort_mode=0)))) == \
-        _bits(build_toolpath(old, CamParams(sort_mode=0)))
+    assert _bits(_norm(build_toolpath(doc, CamParams(sort_mode=0)))) == _bits(
+        build_toolpath(old, CamParams(sort_mode=0))
+    )
     bad = copy.deepcopy(old.parts)
     bad[0].craft.layer = 3
     assert R.raster_from_parts(bad) is None
@@ -210,8 +241,11 @@ def test_deepcopy_shares_arrays_and_survives():
     r2 = R.raster_of_part(d2.parts[0])
     assert r2 is not r and r2.x0 is r.x0 and not r.x0.flags.writeable
     assert d2.parts[0].contours[0] is not new.parts[0].contours[0]
-    assert _bits(build_toolpath(d2, CamParams(sort_mode=0))) == _bits(build_toolpath(new, CamParams(sort_mode=0)))
+    assert _bits(build_toolpath(d2, CamParams(sort_mode=0))) == _bits(
+        build_toolpath(new, CamParams(sort_mode=0))
+    )
     import pickle
+
     r3 = pickle.loads(pickle.dumps(r))
     assert np.array_equal(r3.x1, r.x1) and not r3.x1.flags.writeable
 
@@ -225,6 +259,7 @@ def test_bbox_is_frame():
 
 def _old_transformed(old, fn):
     from mlaser.ui import docops
+
     d = copy.deepcopy(old)
     fn(docops, d)
     return [(s.start, s.end) for p in d.parts for s in p.contours[0].segments]
@@ -233,6 +268,7 @@ def _old_transformed(old, fn):
 @pytest.mark.parametrize("op", ["translate", "rotate", "mirror_h", "mirror_v", "scale", "reverse"])
 def test_docops_transforms(op):
     from mlaser.ui import docops
+
     old, new, r = _both("halftone", 10, 6)
     ops = {
         "translate": lambda D, d: D.translate(d, 12.5, -3.25, list(d.parts)),
@@ -250,7 +286,7 @@ def test_docops_transforms(op):
         assert old.bbox() == new.bbox()
     fn(docops, d)
     sx, sy, ex, ey = R.segment_arrays(d.parts[0])
-    if op == "reverse":          # reversing the frame does not change the engraving
+    if op == "reverse":  # reversing the frame does not change the engraving
         assert _bits(sx.tolist()) == _bits(r.x0.tolist())
         return
     want = _old_transformed(old, fn)
@@ -266,7 +302,7 @@ def test_docops_transforms(op):
 def test_restarted_frame_keeps_placement():
     _, new, r = _both("dither", 10, 6)
     c = new.parts[0].contours[0]
-    c.segments = c.segments[2:] + c.segments[:2]      # start point moved to another vertex
+    c.segments = c.segments[2:] + c.segments[:2]  # start point moved to another vertex
     assert R.placement(new.parts[0]) is None
 
 
