@@ -106,6 +106,8 @@ INTERFACES: dict[str, type] = {
     "spline": SplineCurves,
     "sampling": Sampler,
     "process": ProcessEncoder,
+    "ordering": Orderer,
+    "arcfit": ArcFitter,
     "dxf": DxfRules,
     "chf": ChfCodec,
 }
@@ -171,6 +173,8 @@ class ParityProfile:
     spline: Implementation
     sampling: Implementation
     process: Implementation
+    ordering: Implementation
+    arcfit: Implementation
     dxf: Implementation
     chf: Implementation
 
@@ -220,6 +224,18 @@ ORIGINAL = ParityProfile(
     process=Implementation(
         "process",
         ManuEncoder=f"{_PP}.ncmodule.manu:ManuEncoder",
+    ),
+    ordering=Implementation(
+        "ordering",
+        import_sort=f"{_PP}.cadmodule.ordering:import_sort",
+        local_optimal_elems=f"{_PP}.cadmodule.ordering:local_optimal_elems",
+        containers_last_faithful=f"{_PP}.cadmodule.ordering:containers_last_faithful",
+        ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
+        choose_start=f"{_PP}.cadmodule.ordering:choose_start",
+    ),
+    arcfit=Implementation(
+        "arcfit",
+        fit_arcs=f"{_PP}.circlefit.fit:fit_arcs",
     ),
     dxf=Implementation(
         "dxf",
