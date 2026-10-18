@@ -13,7 +13,7 @@ Implementations:
 | `mlaser/formats/chf.py` | `.chf` drawings: `load_chf`, `save_chf`, `loads_chf`, `dumps_chf` |
 | `mlaser/formats/scfile.py` | AutosaveParam, ManuContour, tempIsBreak, PithCompensate, softPara.ini, JumpAddTime.txt, calib.csv |
 | `mlaser/formats/params.py` + `data/mlaser_params.json` | machine and process parameter XML files and descriptor table; `LayerParams` |
-| `mlaser/formats/lang.py` | `Translator` for `Lang/*.txt` and `lang.ini` |
+| `mlaser/i18n/langfile.py` | `Translator` for `Lang/*.txt` and `lang.ini` |
 
 Tests: `tests/test_formats.py`. Both `.chf` samples and all the small files round-trip byte for byte.
 
@@ -233,7 +233,7 @@ it raw). The meaning of these link records is UNKNOWN.
 
 Geometry conversion is in `gly_segments()`. **Spline flattening** (D-15) is a port of the original's
 (CEditableSpline FUN_100953d0 → splineAnalyer vtable+0x2c FUN_100bf350 / FUN_100befa0), in
-`io.geom.flatten_bspline`: the analyser gets d = sqrt(2·R·e) = 0.632 mm and α = acos(1 − e/R) =
+`geom.curves.flatten_bspline`: the analyser gets d = sqrt(2·R·e) = 0.632 mm and α = acos(1 − e/R) =
 18.19° from the glyph's tolerance e = 0.1 (+0x10) and reference radius R = 2 (+0x180). Each knot
 span [u0, u1] is examined at u0, the middle and u1: with A = tangent turning start→middle→end and
 D = |Δx|+|Δy| start→middle + middle→end, the span is cut into n = even(max(round(A/α), round(D/d), 1))

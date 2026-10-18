@@ -121,21 +121,31 @@ Translators: `mlaser/i18n/en.json` maps readable ids (`cmd.machine.home`) to tex
 `mlaser/i18n/<code>.json` with the same ids. `tools/i18n_keys.py` checks that every key the
 code uses has an English text.
 
-## Layout
+## Architecture
 
-| Package | Content | Doc |
-|---|---|---|
-| `mlaser/model.py` | shared document model (parts, contours of lines/arcs, craft, layers) | |
-| `mlaser/formats` | `.chf` load/save (byte-identical round trip), parameter XML, lang files, ini/aux files | [formats.md](docs/formats.md) |
-| `mlaser/io` | DXF (ezdxf), SVG, G-code import/export | [cam.md](docs/cam.md) §1 |
-| `mlaser/cam` | toolpath: start point, kerf, leads, overcut/gap, micro-joints, cool points, ordering | [cam.md](docs/cam.md) |
-| `mlaser/motion` | S-curve profiles, look-ahead velocity planner, interpolators, simulation, time estimate | [motion.md](docs/motion.md) |
-| `mlaser/nc` | job compiler (sampling, pulse quantisation, step items, frames) and job streamer | [nc.md](docs/nc.md) |
-| `mlaser/controller` | MCC100 frame codec, process items, UDP/TCP client, alarms, FIFO streaming (thread or separate process), card simulator, UI adapter | [protocol.md](docs/protocol.md) |
-| `mlaser/devices` | height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC wireless pendant | [devices.md](docs/devices.md) |
-| `mlaser/nest` | true-shape nester, `.nestproj` project files | [nest.md](docs/nest.md) |
-| `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, SVG icons | [ui.md](docs/ui.md) |
-| `mlaser/i18n` | English string catalogue, importer for an original install's translations | [ASSETS.md](docs/ASSETS.md) |
+The packages are layered; dependencies point downward only, and the domain packages import no Qt.
+[docs/dev/ARCHITECTURE.md](docs/dev/ARCHITECTURE.md) has the full map, the rules and how they are
+checked (import-linter and mypy in CI), the moved modules, and the parity fence.
+
+| Layer | Package | Content | Doc |
+|---|---|---|---|
+| apps | `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, SVG icons | [ui.md](docs/ui.md) |
+| | `mlaser/diag`, `report`, `engrave` | diagnostics, production report, bitmap engraving | [diag.md](docs/diag.md) |
+| machine | `mlaser/controller` | UDP/TCP card client, alarms, job streamer (thread or separate process), card simulator, UI adapter | [protocol.md](docs/protocol.md) |
+| | `mlaser/machine`, `devices` | `machine.api` (ControllerFacade, MachineState); height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC pendant | [devices.md](docs/devices.md) |
+| NC | `mlaser/nc` | job compiler (sampling, quantisation, step items, frames), process sequences, resume | [nc.md](docs/nc.md) |
+| CAM | `mlaser/io`, `nest` | DXF (ezdxf), SVG, G-code import/export; true-shape nester, `.nestproj` | [cam.md](docs/cam.md) §1, [nest.md](docs/nest.md) |
+| | `mlaser/cam` | toolpath: start point, kerf, leads, overcut/gap, micro-joints, cool points, ordering | [cam.md](docs/cam.md) |
+| | `mlaser/motion` | path planning over the toolpath, simulation, time estimate | [motion.md](docs/motion.md) |
+| | `mlaser/formats`, `cad` | `.chf` (byte-identical round trip), parameter XML and registry, ini/aux files; drawing primitives, text | [formats.md](docs/formats.md) |
+| parity fence | `mlaser/parity_ports` | the bit-exact ports of the original (planner, smoother, quantisation, NC encoder, sort modes, start point, CircleFit, DXF import rules, `.chf` codec) behind a `ParityProfile` | [parity.md](docs/parity.md) |
+| foundation | `mlaser/geom`, `protocol`, `toolpath`, `i18n` | one geometry library; MCC100 frame codec, ManuItem, enums; MotionItem types; string catalogue | [protocol.md](docs/protocol.md), [ASSETS.md](docs/ASSETS.md) |
+| | `mlaser/model.py` | shared document model (parts, contours of lines/arcs, craft, layers) | |
+
+The bit-exact ports change only with a Wine parity re-run; new algorithms are added as new
+`ParityProfile`s next to the default `"original"` one. Old import paths from before this layout
+(`mlaser.controller.frames`, `mlaser.cam.items`, ...) still work but warn
+(`DeprecationWarning`).
 
 ## Feature status
 

@@ -161,7 +161,7 @@ placement=(20, 0), text_outlines=True)` follows both stages with ezdxf for the p
 - SPLINE weights are read from the raw tags in DxfParse's way (`_acad_weights`).
 - Every contour keeps its glyphs (`model.Glyph`, `Contour.set_source_glyphs`), so
   `formats.chf.save_chf` writes the original's glyph kinds; `Contour.segments` is the flattened
-  geometry: lines, arcs, lwpoly pieces, splines flattened exactly like the original (`io.geom.flatten_bspline`,
+  geometry: lines, arcs, lwpoly pieces, splines flattened exactly like the original (`geom.curves.flatten_bspline`,
   formats.md §2.8).
 - Order: the import sort above, ported statement by statement (`cam.ordering.import_sort` /
   `local_optimal_elems`, `sort_mode=5`; `sort_mode=0` keeps document order with holes first).
@@ -285,7 +285,7 @@ fraction · computed length, so `start_param = d / length` reproduces the origin
 **Rebuild:** `Craft.extra['start_param']` (0..1) forces mode 2. Mode 0 works on the original's
 glyph list (`cam.ordering.contour_glyphs`): a contour's own source glyphs
 (`Contour.source_glyphs()`, set by the rebuild's DXF reader and by `load_chf`) split with
-`io.geom.glyph_segments`, counted like the importer builds the contour (zero-length pieces
+`geom.curves.glyph_segments`, counted like the importer builds the contour (zero-length pieces
 dropped, end-point snapping keeps the count); then a .chf record; else one glyph per segment.
 So a closed LWPOLYLINE imported by the rebuild is one glyph and starts in the middle of its
 longest piece, as in the original (basic_r2000: 0.374474, parity "import_dxf(basic_r2000.dxf) ->
@@ -621,11 +621,11 @@ phase 2: see §11–§15 below and motion.md §9.
 
 The protocol agent owns this layer.
 
-### Rebuild MotionItem stream (`cam.items`, `cam.toolpath.build_toolpath`)
+### Rebuild MotionItem stream (`toolpath.items`, `cam.toolpath.build_toolpath`)
 
 **Exact splines (parity JC-07).** The original keeps spline glyphs as spline primitives (type
 3) into CContoutSmooth. The rebuild's contour segments are the chords of the splineAnalyer
-polyline (`io.geom.flatten_bspline_params` gives their curve parameters); every cut piece that
+polyline (`geom.curves.flatten_bspline_params` gives their curve parameters); every cut piece that
 flattens a spline carries its exact curve: `PreparedContour.curves[i]` /
 `CutLine.curve` = `cam.geometry.CurveRef(curve, u0, u1)` with `SplineCurve` (point, unit tangent,
 curvature on the true B-spline; arc length → parameter as FUN_10093390: linear between the

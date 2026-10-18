@@ -338,7 +338,8 @@ def _strictly_contains(a: tuple, b: tuple) -> bool:
 RING_TOL_FAITHFUL = False   # True: tolerance 0.1*W*H/n exactly as the binary (an area used as a length)
 
 
-@port("0x1003f690", source="CADModule", status="observed")
+@port("0x1003f690", source="CADModule", status="observed",
+      note="spiral as the binary; the tolerance is 0.1*sqrt(W*H/n) unless RING_TOL_FAITHFUL (binary: 0.1*W*H/n)")
 def ring_sort(nodes: list[Node], inside_out: bool = False) -> list[Node]:
     """CRingSort 0x1003f690: gift-wrap spiral over bbox centres, starting just left of the
     group's lower-left corner and walking the hull counter-clockwise, inwards. Mode 7

@@ -25,16 +25,32 @@ Status: ☐ todo · ◐ in progress · ☑ done
 - ☑ licence file (owner's decision: MIT)
 
 ## Wave 1: structure moves (Stage 2a, mechanical, guarded by the goldens)
-- ☐ break the cycles:
-  - `mlaser/protocol/` (frame codec, enums)
-  - `mlaser/geom/` (one flatten/spline/bbox library)
-  - `process.py` → `nc/`
+Layout, rules and checks: [docs/dev/ARCHITECTURE.md](dev/ARCHITECTURE.md).  Every step kept the
+goldens bit-identical, the default and parity suites green, command coverage at 0 / 0 and the Wine
+parity run at 728 match / 17 differ / 0 errors.
+- ☑ break the cycles (both are gone; the only package cycle left is diag ↔ ui through one lazy
+  `diag.batch -> ui.docops` import, an explicit import-linter ignore, see Wave 2 "business logic
+  out of the UI"):
+  - `mlaser/protocol/` (frame codec, ManuItem, enums)
+  - `mlaser/geom/` (one flatten/spline/bbox library: `curves` + `contour`)
+  - `process.py` → `nc/`; the job streamer → `controller/stream.py`
   - item types → `toolpath/`
-  - `ControllerFacade` → `machine/api.py`
-  - re-export shims left at the old paths
-- ☐ `parity_ports/` fence with `@port` markers and `ParityProfile` selection
-- ☐ import-linter contracts in CI
-- ☐ IntEnum/IntFlag for opcodes, kinds and alarm bits; mypy on the core
+  - `ControllerFacade` / `MachineState` → `machine/api.py`
+  - also: `formats.lang` → `i18n.langfile` (formats ↔ i18n cycle), the follower card simulator →
+    `controller.follower_sim`
+  - deprecated aliases left at the old paths (`mlaser/_compat.py`, `tests/test_compat_shims.py`)
+- ☑ `parity_ports/` fence with `@port` markers and `ParityProfile` selection: planner, profiles,
+  segInterp/arcInterp, smoother + curve table + crtmath, exact splines, quantisation /
+  emit_samples, ManuEncoder, import sort / local optimal / ring sort / choose_start, CircleFit,
+  DXF import rules, `.chf` codec; default profile `"original"`, nine slots;
+  `tests/test_parity_ports.py`
+- ☑ import-linter contracts in CI (downward-only layers, Qt-free domain, parity_ports only on
+  geom/protocol/model; ignores listed in docs/dev/ARCHITECTURE.md §1, each with a Wave 2 item)
+- ☑ IntEnum/IntFlag for opcodes, ManuItem classes, glyph kinds and alarm bits
+  (`protocol.enums`, `model.GlyphKind`); mypy on the core (protocol, geom, parity_ports, nc) in CI,
+  with a `# type: ignore` baseline
+- ☑ Python ≥ 3.12 (PySide6 6.12 aborts on 3.11), CI on 3.12 / 3.13; goldens pinned to 3.12's
+  `sum()` (3.13 matched too)
 
 ## Wave 2: in parallel
 ### Safety (Stage 1, highest priority)

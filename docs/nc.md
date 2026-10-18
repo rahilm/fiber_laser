@@ -1,7 +1,7 @@
 # NC compiler and controller integration
 
 Code: `mlaser/nc/` (`machine.py`, `compiler.py`, `stream.py`), `mlaser/controller/ui_adapter.py`,
-`mlaser/controller/process.py`.
+`mlaser/nc/process.py`.
 Tests: `tests/test_nc.py`, `tests/test_integration.py`, `tests/test_process_*.py`.
 Tags: **O** observed (address given in the cited doc), **I** inferred, **U** unknown.
 
@@ -20,9 +20,9 @@ Document --build_toolpath--> MotionItems --plan_path / rapid S-curve--> s(t) eve
 | pulses | MainApp FUN_00462630 → FUN_00473bd0: one ManuItem per sample **including sample 0** (zero delta, beam on); `d = ftol((x·1e4 − x_prev·1e4)·ppu + carry)`, ppu = (WritePulse/SpeedRatio)/1e4 (FUN_00458b60), `carry = v + carry − d` in the globals 0x9f2358[0..1]; no step to the exact end of a cut | `_Emitter.quantise` / `emit_samples` (identical, parity §9.R). See §1.1 |
 | int8 limit | FUN_10043c20 packs dx/dy as bytes | each item is one period, so a larger delta is spread over n periods (the move slows down); counted in `Job.overspeed_periods` |
 | wire item | op 3000 `encode_step` (protocol.md §5) | freq/duty = layer `frequency_hz`/`duty_pct` through the speed curves and slow start/end blocks (O, protocol.md §10.4); micro-joint gaps = samples first(s ≥ start) .. first(s ≥ end) **inclusive** (FUN_00469950, `gap_flags`), duty 0 or `duty·MC.AdvMicLinkPower_Pre/100`; power word (+8) = **0xFFFF** for every sample (0x0046297b, O) |
-| process items | MainApp sequences → ManuItems → NC FUN_10043c20 | `controller.process.ProcessSequencer` → `ManuEncoder` (protocol.md §10) |
+| process items | MainApp sequences → ManuItems → NC FUN_10043c20 | `nc.process.ProcessSequencer` → `ManuEncoder` (protocol.md §10) |
 | frames | FUN_10043c20: size test `0x4af < words·4` once per ManuItem, after its whole expansion (frames up to 1199 bytes + one expansion, 306 words seen) | `Job.frames(first_seq)` = `build_fifo_frames(Job.groups())` (one group per ManuItem expansion) |
-| streaming | fillFifo FUN_10052e90 | `nc.stream.JobStreamer` (subclass of `FifoStreamer`) |
+| streaming | fillFifo FUN_10052e90 | `controller.stream.JobStreamer` (subclass of `FifoStreamer`) |
 
 ## 2. Item mapping
 
@@ -91,13 +91,13 @@ separate process (`ProcessStreamer`) so UI work can't starve it (protocol.md §1
 
 ## 4. Process items and machine parameters
 
-- `Machine.process` (`controller.process.ProcessConfig`) holds the follower, gas, laser-DA and
+- `Machine.process` (`nc.process.ProcessConfig`) holds the follower, gas, laser-DA and
   delay parameters. `Machine()` uses `ProcessConfig.bench()` (I). `Machine.from_dat_dir(dat_dir,
   ini_path=None, jump_add_time=None)` loads HardPara.xml/ManuPara.xml through
   `mlaser.formats.params.MachineParams`. The servo period comes from `AX.InterpolationCycle` (µs, O) and the process
   parameters from `ProcessConfig.from_params`. The ipAdd.ini timeouts are FollowOvertime/SectionDrillOvertime/
   GradualDrillAddOvertime and DAMinVal.
-- Layer process values come from `controller.process.LayerView`. Precedence: model fields (speed, duty, freq, peak, gas,
+- Layer process values come from `nc.process.LayerView`. Precedence: model fields (speed, duty, freq, peak, gas,
   pressure, cut height), then `LayerParams.extra['process']` overrides (GP.* keys), then `extra['values']` (LayerPara.xml),
   then the descriptor defaults.
 - `Job.process_items`, `Job.process_time_s` (estimate, not included in `duration_s`), `Job.total_time_s`,

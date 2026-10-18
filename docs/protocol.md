@@ -6,7 +6,7 @@ MainApp.exe call sites. Function addresses are written `FUN_xxxxxxxx` (NCModule 
 another module is named). **Observed** means read directly from code or data.
 **INFERRED** means deduced from context. **UNKNOWN** means not recovered.
 
-Implementation: `mlaser/controller/frames.py`, `client.py`, `simulator.py`, `devices.py`.
+Implementation: `mlaser/protocol/frames.py`, `client.py`, `simulator.py`, `devices.py`.
 Tests: `tests/test_controller.py`.
 
 ## 0. Architecture in the DLL
@@ -395,7 +395,7 @@ vendor's authentication secret.
 
 Tags: **O** observed (address given), **I** inferred, **U** unknown. NC addresses are NCModule.dll,
 `0x004…`/`0x006…` are MainApp.exe, `0x100f…`/`0x101…` are CADModule.dll.
-Implementation: `mlaser/controller/frames.py` (encoders), `mlaser/controller/process.py`
+Implementation: `mlaser/protocol/frames.py` (encoders), `mlaser/nc/process.py`
 (MainApp sequences + NC encoder), `mlaser/nc/compiler.py` (emission).
 Tests: `tests/test_process_frames.py`, `tests/test_process_sequence.py`, `tests/test_process_compile.py`.
 
@@ -805,7 +805,7 @@ stop with PWM off at LC.PtLaserFreq; idle → `[101]` + `_vm_stop_jog`; paused a
 * Start (mcCoreProcess `FUN_10058030`): one fillFifo (≤ 20 frames ≈ 2000 step items ≈ 2 s at 1 ms)
   then `[9999, 1, mask|0x66800000, 0]` and 103 := 2.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
-* Rebuild `nc/stream.py`: `JobStreamer` prefills until the FIFO is full (or `prefill_ms`), tracks
+* Rebuild `controller/stream.py`: `JobStreamer` prefills until the FIFO is full (or `prefill_ms`), tracks
   buffered motion (`BufferStats.min_buffer_ms`), and a **watchdog** (`watchdog_ms`, 40 ms) stops the
   FIFO and switches the PWM off before the card runs dry, refills and restarts (`auto_resume`).
   `ProcessStreamer` runs it in a spawned process with its own socket (queues for progress and
