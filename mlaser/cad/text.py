@@ -21,11 +21,14 @@ family's bold / italic face when installed, else a synthetic one (outline offset
 from __future__ import annotations
 
 import math
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from mlaser.model import Contour, Line, Point
 
 from . import fonts as _fonts
+
+if TYPE_CHECKING:
+    from .shaping import Metrics
 
 DEFAULT_FONT = "SimSun"      # gp79 宋体
 DEFAULT_HEIGHT = 10.0        # app+0xb490 (int); no registered default, value INFERRED
@@ -36,12 +39,15 @@ SYNTH_BOLD = 1 / 48          # synthetic bold: outline grown by em/48 (FreeType 
 
 def text_outlines(text: str, family: Optional[str] = DEFAULT_FONT, tol_em: float = 0.0002,
                   bold: bool = False, italic: bool = False, font_file: Optional[str] = None,
-                  features: Optional[dict] = None) -> tuple[list[list[Point]], "object"]:
+                  features: Optional[dict] = None,
+                  ref: Optional["_fonts.FontRef"] = None) -> tuple[list[list[Point]], "Metrics"]:
     """Closed polylines of ``text`` in units of the primary font's cell height (1.0 = one cell),
     first baseline at y = 0 (y up), and the :class:`~mlaser.cad.shaping.Metrics` of the primary
-    font.  Lines (``\\n``) step down by the font's line spacing."""
+    font.  Lines (``\\n``) step down by the font's line spacing.  ``ref`` (a
+    :class:`~mlaser.cad.fonts.FontRef`) bypasses the lookup of ``family`` / ``font_file``."""
     from . import shaping
-    ref = _fonts.locate(family, bold, italic, font_file)
+    if ref is None:
+        ref = _fonts.locate(family, bold, italic, font_file)
     synth_i = italic and (ref is None or not _style_has(ref, "italic", "oblique"))
     synth_b = bold and (ref is None or not _style_has(ref, "bold", "black", "heavy"))
     chain = shaping.font_chain(ref)

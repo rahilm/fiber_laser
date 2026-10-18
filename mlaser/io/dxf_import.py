@@ -301,10 +301,26 @@ def _sort_text_contours(cs: list[Contour], sort_mode: int, seed: int) -> list[Co
 
 
 # --------------------------------------------------------------------------- main
+IMPORT_MODES = ("faithful", "modern")
+
+
+def dxf_rules(mode: Optional[str] = None):
+    """The ``dxf`` slot implementation for ``mode`` (see :func:`import_dxf`)."""
+    if mode is None:
+        return active_profile().dxf
+    if mode in ("faithful", "original"):
+        from ..parity_ports import ORIGINAL
+        return ORIGINAL.dxf
+    if mode == "modern":
+        from ..parity_ports.profiles.modern_dxf import MODERN_DXF
+        return MODERN_DXF.dxf
+    raise ValueError(f"unknown DXF import mode {mode!r} (one of {IMPORT_MODES})")
+
+
 def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom.SPLINE_TOL,
                group: str = "contour", placement: Optional[tuple] = PLACEMENT,
                text_outlines: bool = True, sort_mode: int = IMPORT_SORT_MODE,
-               sort_seed: int = 0) -> Document:
+               sort_seed: int = 0, mode: Optional[str] = None) -> Document:
     """Read a DXF file into a Document the way the original's import command does.
 
     ``group='contour'``: one Part per contour (each graph of the original), text lines as one
@@ -315,6 +331,12 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     it 20 mm right of the existing drawing, i.e. at (20, 0) for an empty one); ``None`` keeps the
     DXF coordinates.  ``text_outlines=False`` skips the TEXT/MTEXT outlines (they are always
     listed in ``doc.extra['texts']``).
+
+    ``mode``: ``None`` uses the active ParityProfile's ``dxf`` rules (the default profile
+    ``"original"`` is the DxfParse-faithful import); ``"faithful"`` forces those;
+    ``"modern"`` reads the drawing with ezdxf the way CAD programs draw it (HATCH boundaries,
+    DIMENSION/LEADER geometry, ATTRIB and MINSERT, full INSERT transforms, TEXT/MTEXT via
+    fontTools + uharfbuzz or SHX fonts; :mod:`mlaser.io.dxf_modern`, profile ``"modern-dxf"``).
     """
     try:
         dxf = ezdxf.readfile(path)
@@ -323,9 +345,10 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     except ezdxf.DXFStructureError:
         from ezdxf import recover
         dxf, _ = recover.readfile(path)
-    rules = active_profile().dxf       # DxfParse + CADModule import rules (parity fence)
+    rules = dxf_rules(mode)            # DxfParse + CADModule import rules (parity fence)
     weights_map = _acad_weights(path)
-    stats = {"faces": 0, "regions": 0}
+    stats: dict = {"faces": 0, "regions": 0,
+                   "options": {"flatten_tol": flatten_tol, "text_outlines": text_outlines}}
     items: list[_Item] = []
     rules.collect(dxf.modelspace(), weights_map, [], items, stats)
     try:
@@ -336,6 +359,7 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
         rules.collect(psp, weights_map, [], items, stats)
 
     texts = [it.text for it in items if it.text]
+    ready = [t.pop("contours") if "contours" in t else None for t in texts]   # modern: outlines made
     points = [g.data["p"] for it in items for g in it.glyphs if g.kind == GLYPH_POINT]
     chains = rules.chain_glyphs([it for it in items if it.glyphs], join_tol)
     contours = [(ch.key, rules.contour_of_chain(ch, flatten_tol), ch.kind) for ch in chains]
@@ -370,7 +394,14 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
                 craft.lead_in.at_corner = True
             doc.parts.append(Part(contours=[c], craft=craft, name=f"{key[0]}#{n.key}",
                                   extra={"layer": key[0], "color": key[1], "dxf_type": t}))
-    if text_outlines and texts:
+    if text_outlines and any(r is not None for r in ready):
+        for t, cs in zip(texts, ready):
+            cs = _sort_text_contours(cs or [], sort_mode, sort_seed)
+            if cs:
+                doc.parts.append(Part(contours=cs, craft=Craft(layer=TEXT_LAYER), name="text",
+                                      extra={"layer": t["layer"], "dxf_type": t["type"],
+                                             "text": t["text"]}))
+    elif text_outlines and texts:
         fam = _text_family()
         if fam:
             for t in texts:

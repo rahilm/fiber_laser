@@ -23,7 +23,8 @@ def _port_modules():
     mods = []
     for m in pkgutil.walk_packages(PP.__path__, "mlaser.parity_ports."):
         mod = importlib.import_module(m.name)
-        if m.name not in _INFRA and not m.ispkg:
+        # optional profiles (profiles/) select implementations, they are not ports
+        if m.name not in _INFRA and not m.ispkg and ".profiles." not in m.name:
             mods.append(mod)
     return mods
 
