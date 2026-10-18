@@ -67,7 +67,9 @@ Status: ☐ todo · ◐ in progress · ☑ done
 - ☐ immutable `PlannedJob` compiled in a worker (progress, cancel, cache); the preview renders it
   and Start streams exactly it; the streamer uses `Job.frames()`
 - ☐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
-  the machine profile feeds `Machine`
+  the machine profile feeds `Machine`; it hands the layer defaults to
+  `parity_ports.mainapp.layer` (removes the import-linter ignore
+  `parity_ports.mainapp.layer -> formats.params`)
 - ☐ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
 - ☐ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
 - ☐ business logic out of the UI (docops, ext handlers → services; removes the import-linter

@@ -65,9 +65,8 @@ class Sampler(Protocol):
 
 
 class ProcessEncoder(Protocol):
-    """ManuItem -> FIFO items (NCModule FUN_10043c20) and the layer parameter view it reads."""
+    """ManuItem -> FIFO items (NCModule FUN_10043c20)."""
     ManuEncoder: type
-    LayerView: type
 
 
 class Orderer(Protocol):
@@ -105,6 +104,8 @@ INTERFACES: dict[str, type] = {
     "motion": MotionPlanner,
     "smoother": Smoother,
     "spline": SplineCurves,
+    "sampling": Sampler,
+    "process": ProcessEncoder,
 }
 
 
@@ -166,6 +167,8 @@ class ParityProfile:
     motion: Implementation
     smoother: Implementation
     spline: Implementation
+    sampling: Implementation
+    process: Implementation
 
     def slots(self) -> dict[str, Implementation]:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name in INTERFACES}
@@ -202,6 +205,17 @@ ORIGINAL = ParityProfile(
         "spline",
         SplineCurve=f"{_PP}.cadmodule.spline:SplineCurve",
         CurveRef=f"{_PP}.cadmodule.spline:CurveRef",
+    ),
+    sampling=Implementation(
+        "sampling",
+        Emitter=f"{_PP}.mainapp.sampling:Emitter",
+        emit_samples=f"{_PP}.mainapp.sampling:emit_samples",
+        gap_flags=f"{_PP}.mainapp.sampling:gap_flags",
+        sample_speeds=f"{_PP}.mainapp.sampling:sample_speeds",
+    ),
+    process=Implementation(
+        "process",
+        ManuEncoder=f"{_PP}.ncmodule.manu:ManuEncoder",
     ),
 )
 
