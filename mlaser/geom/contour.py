@@ -30,9 +30,9 @@ def _norm(v):
 def seg_point(s: Segment, u: float) -> Point:
     if isinstance(s, Line):
         if u == 0.0:
-            return tuple(s.start)
+            return tuple(s.start)  # type: ignore[return-value]
         if u == 1.0:
-            return tuple(s.end)
+            return tuple(s.end)  # type: ignore[return-value]
         return (s.start[0] + (s.end[0] - s.start[0]) * u, s.start[1] + (s.end[1] - s.start[1]) * u)
     return s.point_at(u)
 

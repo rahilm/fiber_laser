@@ -174,7 +174,7 @@ class Machine:
                 except (TypeError, ValueError):
                     pass
         args.update(kw)
-        m = cls(**args)
+        m = cls(**args)  # type: ignore[arg-type]
         m.process = ProcessConfig.from_params(mp, ini)
         m.params = vals
         return m

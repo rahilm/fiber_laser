@@ -148,7 +148,7 @@ class ScReader:
         """Text line *without* the space stripping (the original strips; we keep fidelity)."""
         return self.raw().decode(ENCODING, "surrogateescape")
 
-    def skip(self, n: int) -> list[str]:
+    def skip(self, n: int) -> list[str]:  # type: ignore[valid-type]
         return [self.raw().decode(ENCODING, "surrogateescape") for _ in range(n)]
 
     def eof(self) -> None:
@@ -166,7 +166,7 @@ class ScWriter:
     def str(self, s: str) -> None:
         self.parts.append(s + "\r\n")
 
-    def tag_int(self, s: str, n: int) -> None:
+    def tag_int(self, s: str, n: int) -> None:  # type: ignore[valid-type]
         self.parts.append("%s%d\r\n" % (s, n))
 
     def int(self, n: int) -> None:

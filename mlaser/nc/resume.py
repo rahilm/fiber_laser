@@ -198,7 +198,7 @@ def _rapid_to_pulses(cur: tuple[float, float], target: tuple[float, float],
     end = start
     try:
         rj = compile_items([I.Rapid(cur, target)], m, cur, dry_run=True)
-        wire, start, end = [list(w) for w in rj.wire], tuple(rj.start_pulses), tuple(rj.end_pulses)
+        wire, start, end = [list(w) for w in rj.wire], tuple(rj.start_pulses), tuple(rj.end_pulses)  # type: ignore[assignment]
     except ValueError:
         # sub-micron rapids: the S-curve degenerates (NaN samples); the correction steps
         # below cover the whole (few-pulse) distance
@@ -240,7 +240,7 @@ def resume_job(job, index: int, current_mm: Optional[tuple[float, float]] = None
     pos = pulse_positions(job)
     target = position_mm(job, restart, pos)
     cur = current_mm if current_mm is not None else target
-    pre = []
+    pre = []  # type: ignore[var-annotated]
     if math.dist(cur, target) > 1e-6:
         pre, start_pulses = _rapid_to_pulses(cur, target, pos[restart], m)
         start_mm = cur

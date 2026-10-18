@@ -75,6 +75,13 @@ Status: ☐ todo · ◐ in progress · ☑ done
 - ☐ business logic out of the UI (docops, ext handlers → services; removes the import-linter
   ignore `diag.batch -> ui.docops`)
 
+### Code health
+- ☐ mypy on the rest of the package (cam, motion, io, formats, controller, devices, ui ...;
+  architecture.md §3.2) and burn down the `# type: ignore[...]` baseline of the typed core
+  (protocol, geom, parity_ports, nc)
+- ☐ remove the Wave 1 compatibility shims (old import paths, docs/dev/ARCHITECTURE.md) after one
+  release
+
 ### Performance and libraries (Stage 4)
 - ☐ background, debounced toolpath; numpy ordering kernels with the same formulas (goldens)
 - ☐ raster engraving as a first-class object; level-of-detail on the canvas

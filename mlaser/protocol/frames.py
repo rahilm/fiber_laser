@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import struct
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Sequence
+from typing import Iterable, Literal, Optional, Sequence
 
 from .enums import FifoCtrl, Func, MailboxOp, Op, SysCmd, WaitMode, ZfState
 
@@ -127,7 +127,7 @@ class Request:
         return [self.func, self.addr, self.count, *self.values]
 
 
-def encode_request(req: Request, crc_byteorder: str = "big") -> bytes:
+def encode_request(req: Request, crc_byteorder: Literal["big", "little"] = "big") -> bytes:
     """Encode a PC->card request exactly like FUN_10028190."""
     f = req.func
     if f == FUNC_READ:
@@ -211,7 +211,7 @@ class Response:
         if self.data is not None:
             return list(self.data)
         if self.is_exception:
-            return [self.func | EXCEPTION_FLAG, self.exception]
+            return [self.func | EXCEPTION_FLAG, self.exception]  # type: ignore[list-item]
         f = self.func
         if f == FUNC_READ:
             return [f, self.addr, self.count, *self.values]
@@ -222,11 +222,11 @@ class Response:
         return [f, *(self.values[:1] or [0])]
 
 
-def encode_response(resp: Response, crc_byteorder: str = "little") -> bytes:
+def encode_response(resp: Response, crc_byteorder: Literal["big", "little"] = "little") -> bytes:
     """Encode a card->PC reply (simulator).  Little-endian CRC as in the captured reply."""
     f = resp.func
     if resp.is_exception:
-        body = struct.pack("<BBB", 0, f | EXCEPTION_FLAG, resp.exception & 0xFF)
+        body = struct.pack("<BBB", 0, f | EXCEPTION_FLAG, resp.exception & 0xFF)  # type: ignore[operator]
     elif f == FUNC_READ:
         body = struct.pack("<BBIH", 0, f, resp.addr, len(resp.values)) + b"".join(
             struct.pack("<I", v & 0xFFFFFFFF) for v in resp.values)
@@ -283,7 +283,7 @@ def decode_response(frame: bytes, expected_tid: Optional[int] = None) -> Respons
 def check_reply(req: Request, resp: Response) -> int:
     """Result code like FUN_1001d6d0: 1 ok, 500+exc for an exception, 603 mismatch."""
     if resp.is_exception:
-        return ERR_EXCEPTION_BASE + resp.exception if resp.func == req.func else ERR_MISMATCH
+        return ERR_EXCEPTION_BASE + resp.exception if resp.func == req.func else ERR_MISMATCH  # type: ignore[operator]
     if resp.func == req.func and resp.addr == req.addr:
         return ERR_OK
     return ERR_MISMATCH

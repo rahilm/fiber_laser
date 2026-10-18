@@ -98,7 +98,7 @@ class SplineCurve:
         if len(self.knots) == len(self.ctrl) + 4 and len(self.ctrl) >= 4:
             cur = getattr(self, "_on_curve", None)
             if cur is None:
-                cur = self._on_curve = _Nurbs(self.ctrl, self.knots)
+                cur = self._on_curve = _Nurbs(self.ctrl, self.knots)  # type: ignore[arg-type]
             ok, _p, t = _ev_tangent(cur, u)
             if ok:
                 return t

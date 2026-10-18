@@ -384,12 +384,12 @@ def analyser_samples(ctrl, knots, angle_deg: float = 2.0, tol: float = SAMPLE_TO
             us = [kn[i - 1]]
             _sample_span(cur, us, kn[i - 1], kn[i], ang, tol)
             us.append(kn[i])
-            spans.append(us)
+            spans.append(us)  # type: ignore[arg-type]
         else:
             spans.append([])
     recs: list[list[list[float]]] = []
-    for us in spans:
-        lst = []
+    for us in spans:  # type: ignore[assignment]
+        lst = []  # type: ignore[var-annotated]
         for k, u in enumerate(us):
             (px, py), (d1x, d1y), (d2x, d2y) = cur.evaluate(u, 2)
             ln = on_length(d1x, d1y)
@@ -418,10 +418,10 @@ def analyser_samples(ctrl, knots, angle_deg: float = 2.0, tol: float = SAMPLE_TO
             out.append(list(lst[0]))
             break
     for lst in recs:
-        for r in lst[1:]:
+        for r in lst[1:]:  # type: ignore[assignment]
             last = out[-1]
-            if abs(r[1] - last[1]) > 0.001 or abs(r[2] - last[2]) > 0.001:
-                out.append(list(r))
+            if abs(r[1] - last[1]) > 0.001 or abs(r[2] - last[2]) > 0.001:  # type: ignore[index]
+                out.append(list(r))  # type: ignore[call-overload]
         if lst:
             last, e = out[-1], lst[-1]
             if abs(last[1] - e[1]) > 0.001 or abs(last[2] - e[2]) > 0.001:

@@ -119,7 +119,7 @@ class Job:
         for w in self.wire:
             if w and (w[0] & 0xFFFF) == F.OP_STEP:
                 out.append(F.decode_step(w[1:3]))
-        return out
+        return out  # type: ignore[return-value]
 
     def summary(self) -> str:
         e = self.estimate or {}
@@ -145,7 +145,7 @@ def gap_intervals(moves, geom) -> list[tuple[float, float]]:
     """Arc-length intervals ``[a, b]`` of the ``laser=False`` moves (micro-joint gaps) of a run,
     merged when adjacent, in the arc length of ``geom`` (FUN_00462630 param_9; the positions
     are I).  For a smoothed geometry the raw move fractions are scaled to its length."""
-    raw, acc = [], 0.0
+    raw, acc = [], 0.0  # type: ignore[var-annotated]
     for mv in moves:
         L = _move_len(mv)
         if not getattr(mv, "laser", True):
@@ -226,7 +226,7 @@ def _split_move(mv, d: float):
     head, tail = I.CutLine(mv.start, p, mv.feed, mv.layer, mv.laser), I.CutLine(p, mv.end, mv.feed, mv.layer, mv.laser)
     ref = getattr(mv, "curve", None)
     if ref is not None:         # a piece of a spline glyph keeps its exact curve (parity JC-07)
-        head.curve, tail.curve = ref.sub(0.0, u), ref.sub(u, 1.0)
+        head.curve, tail.curve = ref.sub(0.0, u), ref.sub(u, 1.0)  # type: ignore[attr-defined]
     return head, tail
 
 
@@ -340,7 +340,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
             li = lead_in_index(moves)
             lead_len = sum(_move_len(m) for m in moves[:li]) if li else None
             if proc:
-                up, down = P.slow_start_end(lv)
+                up, down = P.slow_start_end(lv)  # type: ignore[arg-type]
                 moves = _slow_moves(moves, up, down)
             if li:
                 li = lead_in_index(moves, 1, lead_len)
@@ -350,7 +350,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
             pts = [geom.at(s)[0] for s in ss]
             gaps = gap_intervals(moves, geom)
             if proc:
-                dcurve, fcurve = P.layer_curves(lv)
+                dcurve, fcurve = P.layer_curves(lv)  # type: ignore[arg-type]
                 micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0
                 emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve,
                              up=up, down=down, micro_pct=micro)
@@ -371,7 +371,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
                 nx = ahead.get(id(it))
                 if nx is not None:
                     manu(seq.pre_jump(nx[0]))
-            rapid_to(tuple(it.end))
+            rapid_to(tuple(it.end))  # type: ignore[arg-type]
         elif isinstance(it, I.LayerChange):
             cur_layer = int(it.layer)
             lp = _layer(doc, it.layer)
@@ -490,8 +490,8 @@ def _xform_doc(doc: Document, fn) -> Document:
                 if isinstance(sg, Arc):
                     new.append(Arc(fn(sg.start), fn(sg.end), fn(sg.center), sg.ccw))
                 else:
-                    new.append(Line(fn(sg.start), fn(sg.end)))
-            c.segments = new
+                    new.append(Line(fn(sg.start), fn(sg.end)))  # type: ignore[arg-type]
+            c.segments = new  # type: ignore[assignment]
         if part.craft.cool_point is not None:
             part.craft.cool_point = fn(part.craft.cool_point)
     return d

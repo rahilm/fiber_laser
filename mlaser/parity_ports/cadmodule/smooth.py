@@ -96,7 +96,7 @@ __port__ = {
 try:  # numpy is available in the venv; only needed by the short-line fit
     import numpy as _np
 except Exception:  # pragma: no cover
-    _np = None
+    _np = None  # type: ignore[assignment]
 
 __all__ = ["SmoothParams", "ContourSmoother", "Node", "smooth_nodes", "smooth_path_points",
            "SmoothedPath", "R_LINE"]
@@ -320,7 +320,7 @@ class _SplineG(_Geom):
         self.knots = list(knots) if knots is not None else _clamped_uniform(len(self.ctrl), self.p)
         self._table = _table or self._build_table()
         full = self._table[1][-1]
-        self.lo, self.hi = window if window else (0.0, full)
+        self.lo, self.hi = window if window else (0.0, full)  # type: ignore[var-annotated]
         self.length = self.hi - self.lo
 
     # -- de Boor ----------------------------------------------------------
@@ -625,18 +625,18 @@ class ContourSmoother:
         prims = [p for p in prims if p.L >= 0.005]
         for p in prims:
             if p.kind == "arc":
-                sw = abs(p.g.sw)
-                if sw < math.radians(30.0) and p.g.r - math.cos(sw * 0.5) * p.g.r < 0.01:
+                sw = abs(p.g.sw)  # type: ignore[attr-defined]
+                if sw < math.radians(30.0) and p.g.r - math.cos(sw * 0.5) * p.g.r < 0.01:  # type: ignore[attr-defined]
                     p.g = _LineG(p.p0(), p.p1())
         i = len(prims) - 2
         while i > 0:
             a, arc, b = prims[i - 1], prims[i], prims[i + 1]
             if arc.kind == "arc" and a.kind == "line" and b.kind == "line":
-                da, db = a.g.dir, b.g.dir
+                da, db = a.g.dir, b.g.dir  # type: ignore[attr-defined]
                 dot = _dot(da, db)
                 if dot >= 0.05:
                     chord = math.dist(a.p1(), b.p0())
-                    sag = arc.g.r - math.cos(abs(arc.g.sw) * 0.5) * arc.g.r
+                    sag = arc.g.r - math.cos(abs(arc.g.sw) * 0.5) * arc.g.r  # type: ignore[attr-defined]
                     if sag <= (math.acos(min(1.0, dot)) * 0.5 / (math.pi / 2) + 0.5) * tol:
                         cr = _cross(da, db)
                         if abs(cr) >= 1e-5:
@@ -663,7 +663,7 @@ class ContourSmoother:
                 if p.kind == "line":
                     q.g = _LineG(q.p0(), p.p1())
                 else:
-                    q.g = _ArcG(q.g.c, q.g.r, q.g.a0, q.g.sw + p.g.sw)
+                    q.g = _ArcG(q.g.c, q.g.r, q.g.a0, q.g.sw + p.g.sw)  # type: ignore[attr-defined]
                 q.laser = q.laser and p.laser
                 if lead_joint is not None and idx < lead_joint:
                     lead_joint -= 1
@@ -686,8 +686,8 @@ class ContourSmoother:
             return _dot(v1, v2) > 0 and c < b.L * 0.001 and c < a.L * 0.001
         if a.kind == "arc":
             # no limit on the merged sweep: a full circle plus its overcut becomes one arc (O)
-            return (abs(a.g.c[0] - b.g.c[0]) <= 0.001 and abs(a.g.c[1] - b.g.c[1]) <= 0.001
-                    and abs(a.g.r - b.g.r) < 0.001 and a.g.sw * b.g.sw > 0)
+            return (abs(a.g.c[0] - b.g.c[0]) <= 0.001 and abs(a.g.c[1] - b.g.c[1]) <= 0.001  # type: ignore[attr-defined]
+                    and abs(a.g.r - b.g.r) < 0.001 and a.g.sw * b.g.sw > 0)  # type: ignore[attr-defined]
         return False
 
     # -- FUN_1000ab70 --------------------------------------------------------
@@ -706,7 +706,7 @@ class ContourSmoother:
                 q = prims[j]
                 if q.kind != "line" or q.L > SHORT_LINE or (q.feed and p.feed and q.feed != p.feed):
                     break
-                d0, d1 = prims[j - 1].g.dir, q.g.dir
+                d0, d1 = prims[j - 1].g.dir, q.g.dir  # type: ignore[attr-defined]
                 if _dot(d0, d1) < 0.0 or abs(_cross(d0, d1)) > sin30:
                     break
                 j += 1
@@ -752,7 +752,7 @@ class ContourSmoother:
                 k = prm.line_ext if prim.kind == "line" else prm.arc_ext
                 lim = prim.L
                 if prim.kind == "arc":
-                    lim = min(lim, prim.g.r * arc_lim)
+                    lim = min(lim, prim.g.r * arc_lim)  # type: ignore[attr-defined]
                 d = min(lim, V)
                 if side == "e":
                     a.d_e, a.kd_e = d, k * d
@@ -809,20 +809,20 @@ class ContourSmoother:
                 t = p.g.tab
                 g = t.windowed(p.kd_s / t.total + t.u0, t.u1 - p.kd_e / t.total)
                 if g.length >= MIN_PIECE_LEN:
-                    pieces.append(_Piece(g, p.kind, (p.src,), (p.laser,), p.feed))
+                    pieces.append(_Piece(g, p.kind, (p.src,), (p.laser,), p.feed))  # type: ignore[arg-type]
             elif p.L - p.kd_e - p.kd_s >= MIN_PIECE_LEN:
-                g = p.g.sub(p.kd_s, p.L - p.kd_e)
-                pieces.append(_Piece(g, p.kind, (p.src,), (p.laser,), p.feed))
+                g = p.g.sub(p.kd_s, p.L - p.kd_e)  # type: ignore[assignment]
+                pieces.append(_Piece(g, p.kind, (p.src,), (p.laser,), p.feed))  # type: ignore[arg-type]
             if i + 1 < n:
                 q = prims[i + 1]
                 if p.d_e >= MIN_BLEND_D or q.d_s >= MIN_BLEND_D:
-                    g = _blend(p, q)
+                    g = _blend(p, q)  # type: ignore[assignment]
                     if g is not None and g.length >= MIN_PIECE_LEN:
                         floor = 0.0
                         if p.kind == "arc" and q.kind == "arc" and _dot(p.t1(), q.t0()) > ARC_ARC_COS:
-                            floor = min(p.g.r, q.g.r)
+                            floor = min(p.g.r, q.g.r)  # type: ignore[attr-defined]
                         feeds = [f for f in (p.feed, q.feed) if f]
-                        pieces.append(_Piece(g, "blend", (p.src, q.src), (p.laser, q.laser),
+                        pieces.append(_Piece(g, "blend", (p.src, q.src), (p.laser, q.laser),  # type: ignore[arg-type]
                                              min(feeds) if feeds else 0.0, p.factor_after, floor))
                 else:
                     pieces.append(_Piece(None, "sentinel", (p.src, q.src), (p.laser, q.laser),
@@ -845,11 +845,11 @@ class ContourSmoother:
                 continue
             for j in range(k + 1, len(per)):
                 if per[j]:
-                    per[j][0].radius = 0.0
+                    per[j][0].radius = 0.0  # type: ignore[index]
                     break
             for j in range(k - 1, -1, -1):
                 if per[j]:
-                    per[j][-1].radius = 0.0
+                    per[j][-1].radius = 0.0  # type: ignore[index]
                     break
         out: list[Node] = []
         first = next((nl for nl in per if nl), None)
@@ -903,8 +903,8 @@ class ContourSmoother:
                     cum.append(cum[-1] + a.length())
                 else:
                     cum.append(cum[-1] + math.dist(sg.start, sg.end))
-            self._in_cum = cum
-        cum = self._in_cum
+            self._in_cum = cum  # type: ignore[assignment]
+        cum = self._in_cum  # type: ignore[assignment]
         L = self._cum[-1]
         x = s * (cum[-1] / L) if L > 0 else 0.0
         i = min(max(bisect.bisect_right(cum, x) - 1, 0), len(segs) - 1)
@@ -954,7 +954,7 @@ def _continues(a: _Prim, b: _Prim) -> bool:
     if a.kind == "line":
         v1, v2 = _sub(a.p1(), a.p0()), _sub(b.p1(), b.p0())
         return _dot(v1, v2) > 0 and abs(_cross(v1, v2)) <= 1e-9 * max(1.0, a.L * b.L)
-    return (math.dist(a.g.c, b.g.c) <= 1e-6 and abs(a.g.r - b.g.r) <= 1e-6 and a.g.sw * b.g.sw > 0)
+    return (math.dist(a.g.c, b.g.c) <= 1e-6 and abs(a.g.r - b.g.r) <= 1e-6 and a.g.sw * b.g.sw > 0)  # type: ignore[attr-defined]
 
 
 def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
@@ -964,7 +964,7 @@ def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
     if tab_a:
         # spline element: +0x140 / +0x150 = FUN_100f5ac0 / FUN_100f5890(piece, 1 - kd_e / L)
         fa = 1.0 - a.kd_e / a.L
-        A: list[Point] = [a.g.point_f(fa)]
+        A: list[Point] = [a.g.point_f(fa)]  # type: ignore[attr-defined]
     else:
         A = [a.g.point(a.L - a.kd_e)]
     if a.kind == "line":
@@ -977,7 +977,7 @@ def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
         m = a.kd_e - a.d_e
         if not m <= a.d_e:
             m = a.d_e
-        T = a.g.tangent_f(fa)
+        T = a.g.tangent_f(fa)  # type: ignore[attr-defined]
         A.append((T[0] * m * c + A[0][0], A[0][1] + T[1] * m * c))
         A.append(a.g.point(a.L - a.d_e))
     else:   # fitted short-line spline
@@ -1021,12 +1021,12 @@ def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
     if max(math.dist(ctrl[0], q) for q in ctrl) < 1e-12:
         return None
     # the blend piece is the analyser's sample table (CADModule FUN_100f83c0, curvetable.py)
-    return CurveTable(ctrl, _clamped_uniform(len(ctrl), 3))
+    return CurveTable(ctrl, _clamped_uniform(len(ctrl), 3))  # type: ignore[return-value]
 
 
 def _arc_handles(p: _Prim, b_side: bool) -> list[Point]:
     """FUN_1000a240: two Bezier-handle control points along the arc."""
-    r = p.g.r
+    r = p.g.r  # type: ignore[attr-defined]
     if b_side:
         delta = (p.kd_s - p.d_s) * ARC_STEP
         sQ = p.kd_s - delta
@@ -1057,7 +1057,7 @@ def _piece_nodes(pc: _Piece) -> list[Node]:
         nl = [Node(r, s_) for r, s_, _f in g.nodes()]
     else:
         if pc.kind in ("line", "arc") or (isinstance(g, _SplineG) and g.is_straight()):
-            R = g.r if pc.kind == "arc" else R_LINE
+            R = g.r if pc.kind == "arc" else R_LINE  # type: ignore[union-attr]
             nl = [Node(R, 0.0), Node(R, L * 0.5), Node(R, L)]
         else:
             nl = _spline_nodes(g, L)
@@ -1212,7 +1212,7 @@ def smooth_path_points(moves, cfg=None, params: Optional[SmoothParams] = None,
         feed = sm.feed_at(min(nd.s, sm.length)) or (moves[0].feed if moves else 1e9)
         pts.append(PathPoint(nd.s, nd.radius, feed, 1e9, nd.factor))
     # planner needs strictly increasing s
-    out = []
+    out = []  # type: ignore[var-annotated]
     for p in pts:
         if out and p.s - out[-1].s <= 1e-9:
             out[-1].radius = min(out[-1].radius, p.radius)

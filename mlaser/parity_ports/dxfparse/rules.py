@@ -319,7 +319,7 @@ def _spline_glyphs(e, weights_map: dict) -> list[Glyph]:
                 beziers = list(bs.bezier_decomposition())
             else:
                 beziers = list(bs.cubic_bezier_approximation(segments=max(4, 4 * n)))
-                beziers = [[_xy(p) for p in (b.control_points)] for b in beziers]
+                beziers = [[_xy(p) for p in (b.control_points)] for b in beziers]  # type: ignore[attr-defined]
         except Exception:   # noqa: BLE001
             return []
         out = []
@@ -442,7 +442,7 @@ def _entity_glyphs(e, weights_map: dict) -> list[Glyph]:
             t1 = t0 + 2 * math.pi
         # kept as the parser entity until the INSERT levels are applied (DxfParse transforms the
         # ELLIPSE itself, FUN_10008e60), then cut into Bezier glyphs (_expand_ellipses)
-        return [Glyph(_ELLIPSE_SRC, {"center": _xy(ct.center), "major": major, "ratio": ratio,
+        return [Glyph(_ELLIPSE_SRC, {"center": _xy(ct.center), "major": major, "ratio": ratio,  # type: ignore[arg-type]
                                      "t0": t0, "t1": t1})]
     if t == "POINT":
         return [Glyph(GLYPH_POINT, {"p": _xy(e.dxf.location)})]

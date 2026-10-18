@@ -237,10 +237,10 @@ def local_optimal_elems(elems: list[SortElem], small_first: bool, fix_first: boo
     old = 0.0
     kmax = -1
     for i in range(n - 1, 0, -1):
-        e = d(route[i - 1], route[i])
-        if longest < e:
-            kmax, longest = i, e
-        total += e
+        e = d(route[i - 1], route[i])  # type: ignore[assignment]
+        if longest < e:  # type: ignore[operator]
+            kmax, longest = i, e  # type: ignore[assignment]
+        total += e  # type: ignore[operator]
         old += d(elems[i - 1], elems[i])
     if kmax >= 0 and not fix_first and not small:
         route = route[kmax:] + route[:kmax]
@@ -496,10 +496,10 @@ def contour_glyphs(c: Contour) -> list[tuple[int, list]]:
         if isinstance(s, Line):
             out.append((_GLY_SEGMENT, [s]))
         elif math.dist(s.start, s.end) < 1e-9:
-            out.append((_GLY_CIRCLE, [s]))
+            out.append((_GLY_CIRCLE, [s]))  # type: ignore[list-item]
         else:
-            out.append((_GLY_ARC, [s]))
-    return out
+            out.append((_GLY_ARC, [s]))  # type: ignore[list-item]
+    return out  # type: ignore[return-value]
 
 
 # Equal lengths for the "first maximum" of FUN_10071f80 (strict '<').  The rebuild's lengths of

@@ -483,7 +483,7 @@ class ProcessSequencer:
     def start_cut(self, layer: int, laser: bool = True) -> list[ManuItem]:
         """FUN_00465460: cut gas, follow item (unless already following), gas delay, laser on with
         GP.CutFreq (+0x80) / GP.CutPower (+0x7c), GP.LaserOnDelay (+0x88)."""
-        lv, c, out = self.view(layer), self.cfg, []
+        lv, c, out = self.view(layer), self.cfg, []  # type: ignore[var-annotated]
         if self.dry and not c.follow_when_dry_run:
             return out                  # MainApp+0x4847 (dry run) && !FC.EnableEmtptMoveFollow
         gas = lv.i("CutGasType")
@@ -520,7 +520,7 @@ class ProcessSequencer:
         out += self.laser_off()
         out += self.delay(lv.i("LaserOffAfterDelay"))
         last = next_layer is None
-        nv = self.view(next_layer) if not last else lv
+        nv = self.view(next_layer) if not last else lv  # type: ignore[arg-type]
         if not self.dry:
             if last or not lv.b("NoCloseGasInManu"):
                 keep = (not last and nv.b("ShortDistGasKeepOn") and hop_mm < c.short_no_up_len)

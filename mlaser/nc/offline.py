@@ -48,7 +48,7 @@ CARD_STOP = 8
 def manu_items(job) -> list[ManuItem]:
     """ManuItems of a compiled job in wire order: the process items the compiler recorded
     (``Job.manu``) and one class-0 sample item per op-3000 step (dx, dy, power, duty, freq)."""
-    by_index = {}
+    by_index = {}  # type: ignore[var-annotated]
     for idx, it in getattr(job, "manu", []) or []:
         by_index.setdefault(idx, []).append(it)
     out: list[ManuItem] = []

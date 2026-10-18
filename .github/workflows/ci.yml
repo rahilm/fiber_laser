@@ -73,7 +73,7 @@ jobs:
         run: uvx ruff@0.17.1 check --output-format=github .
 
   architecture:
-    name: import contracts
+    name: import contracts and types
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -86,3 +86,6 @@ jobs:
       # layering rules of docs/dev/ARCHITECTURE.md ([tool.importlinter] in pyproject.toml)
       - name: import-linter
         run: uv run --locked lint-imports
+      # typed core: protocol, geom, parity_ports, nc ([tool.mypy] in pyproject.toml)
+      - name: mypy
+        run: uv run --locked mypy

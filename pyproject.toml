@@ -66,6 +66,7 @@ dev = [
     "pre-commit>=3.5",
     "ruff>=0.6",
     "import-linter>=2.15",
+    "mypy>=2.4.0",
 ]
 
 [tool.ruff]
@@ -78,6 +79,21 @@ extend-exclude = ["tests/data", "tests/golden/*.json"]
 # line (E702), assigns lambdas (E731) and uses l/I/O names from the original's variable names (E741)
 select = ["E4", "E7", "E9", "F"]
 ignore = ["E702", "E731", "E741"]
+
+# ---------------------------------------------------------------------------- mypy
+# Typed core, checked in CI: `mypy` (files below).  The other packages are not checked yet
+# (follow_imports = "silent": their errors are not reported); add them here as they are cleaned
+# up (ROADMAP Wave 2, "mypy on the rest").  Remaining `# type: ignore[code]` comments in the core
+# are the baseline to burn down: each is an annotation gap, not a runtime change.
+[tool.mypy]
+python_version = "3.12"
+files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/nc"]
+follow_imports = "silent"
+ignore_missing_imports = true
+warn_unused_configs = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+show_error_codes = true
 
 # ---------------------------------------------------------------------------- import-linter
 # Layering rules of docs/dev/ARCHITECTURE.md (architecture.md §6), checked in CI with

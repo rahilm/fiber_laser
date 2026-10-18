@@ -294,7 +294,7 @@ def _mainfit(p: _Pts, first: int, last: int, fp: "FitParams") -> list:
                 pa, pb = (pts.x[a], pts.y[a]), (pts.x[b], pts.y[b])
                 run = [(pts.x[m], pts.y[m]) for m in range(a, b + 1)]
                 rec = ("A", pa, pb, ba, run)
-                res.append(("Ar", rec) if rev else rec)
+                res.append(("Ar", rec) if rev else rec)  # type: ignore[arg-type]
         return res[::-1] if rev else res
 
     while p2 < p3:
@@ -378,7 +378,7 @@ def _oriented_arc(p0: Point, p1: Point, c: Point, run: list[Point]) -> Arc:
         d = min((qx - m[0]) ** 2 + (qy - m[1]) ** 2 for qx, qy in run)
         if best is None or d < best[0]:
             best = (d, a)
-    return best[1]
+    return best[1]  # type: ignore[index]
 
 
 def _records_to_segments(recs: list) -> list[Segment]:
@@ -389,7 +389,7 @@ def _records_to_segments(recs: list) -> list[Segment]:
                 out.append(Line(r[1], r[2]))
         elif r[0] == "I":
             (cx, cy), rad = r[1], r[2]
-            out.append(("I", (cx, cy), rad))      # resolved by the caller
+            out.append(("I", (cx, cy), rad))  # type: ignore[arg-type]  # resolved by the caller
         else:
             rev = r[0] == "Ar"
             _, pa, pb, ba, run = r[1] if rev else r
@@ -420,8 +420,8 @@ def fit_arcs(points: Sequence[Point], fp: Optional[FitParams] = None, closed: bo
         pts.append(pts[0])
     if len(pts) < 2:
         return []
-    p = _Pts([q[0] for q in pts], [q[1] for q in pts])
-    recs = _mainfit(p, 0, len(pts) - 1, fp)
+    p = _Pts([q[0] for q in pts], [q[1] for q in pts])  # type: ignore[assignment]
+    recs = _mainfit(p, 0, len(pts) - 1, fp)  # type: ignore[arg-type]
     if len(recs) == 1 and recs[0][0] == "I":
         (cx, cy), r = recs[0][1], recs[0][2]
         area = sum(pts[k][0] * pts[k + 1][1] - pts[k + 1][0] * pts[k][1] for k in range(len(pts) - 1))

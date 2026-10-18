@@ -324,8 +324,8 @@ def _read_graph(r: ScReader, gtype: int, v: int) -> ChfGraph:
             r.tag()                                        # ####ContourEx link info:i
             lk = {"a": r.int(), "b": r.int(), "d08": r.double(), "d10": r.double(),
                   "d38": r.double(), "d40": r.double()}
-            lk["p18"] = r.point() if lk["a"] == 1 else r.line()
-            lk["p28"] = r.point() if lk["b"] == 1 else r.line()
+            lk["p18"] = r.point() if lk["a"] == 1 else r.line()  # type: ignore[assignment]
+            lk["p28"] = r.point() if lk["b"] == 1 else r.line()  # type: ignore[assignment]
             e.links.append(lk)
         return e
     raise ScFormatError(f"line {r.pos}: unknown graph type {gtype}")
