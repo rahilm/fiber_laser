@@ -414,6 +414,8 @@ def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     prm = _as_params(machine_params)
     from .flycut import scan_motion_items, scan_paths_of_part
     scan_parts = {pi for pi, part in enumerate(doc.parts) if scan_paths_of_part(part)}
+    from .raster_engraving import emit_raster_parts, raster_part_indices
+    scan_parts |= (raster_parts := raster_part_indices(doc))   # raster objects: own items below
     conts, keys = [], []
     for pi, part in enumerate(doc.parts):
         if pi in scan_parts:          # fly-cut parts are cut as their scan paths (cam.md §11)
@@ -498,7 +500,8 @@ def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
                 items.append(Delay(prm.cool_delay_s))   # cooling point: stop, beam off, dwell
             items.append(Follow(False))
         pos = pc.exit
-    for pi in sorted(scan_parts):
+    pos, layer = emit_raster_parts(doc, raster_parts, prm, items, pos, layer)
+    for pi in sorted(scan_parts - raster_parts):
         part = doc.parts[pi]
         lp = doc.layers.get(part.craft.layer, LayerParams(index=part.craft.layer, speed=prm.default_feed))
         for k, path in enumerate(scan_paths_of_part(part)):
