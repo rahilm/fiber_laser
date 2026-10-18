@@ -109,3 +109,13 @@ def test_default_step_scale_is_ppr_over_lead():
     assert m.max_step_speed == pytest.approx(1270.0)
     job = compile_items([I.Rapid((0, 0), (100, 0))], Machine(rapid_vel=1000.0, rapid_acc=20000.0, jump_add_time_ms=0))
     assert job.overspeed_periods == 0 and sum(a[0] for a in job.step_deltas()) == 10_000
+
+
+@pytest.mark.parametrize("gap_mm", [0.0005, 0.0008, 0.0012])
+def test_submicron_reposition_rapid_compiles(gap_mm):
+    """A 0.5-1.3 um reposition gives a degenerate S-curve whose samples were NaN (golden random
+    seed 087 recorded the crash); it now jumps in one step and every wire word is an int."""
+    items = [I.Rapid((0, 0), (10, 0)), I.LayerChange(1), I.LaserOn(1),
+             I.CutLine((10 + gap_mm, 0), (20, 0), feed=100), I.LaserOff()]
+    job = compile_items(items, Machine(), (0, 0))
+    assert job.wire and all(isinstance(v, int) for w in job.wire for v in w)

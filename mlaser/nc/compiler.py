@@ -320,6 +320,12 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
             return
         pr = _rapid_profile(I.Rapid(a, p), cfg)
         us = pr.sample(period) if pr is not None else [1.0]
+        if not all(math.isfinite(u) for u in us):
+            # sub-micrometre rapid (about 0.5-1.3 um): the S-curve is degenerate (a phase of
+            # ~1e-19 s) and the port's normalisation divides by a zero first sample, giving
+            # NaN, which used to abort the compile.  Guard outside the bit-exact port: jump in
+            # one step (the move is below one pulse).  Only jobs that crashed before change.
+            us = [1.0]
         for u in us[1:] if len(us) > 1 else us:
             em.to(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u, False)
         em.pos = (float(p[0]), float(p[1]))
