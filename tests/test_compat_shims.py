@@ -16,10 +16,15 @@ import pytest
 MOVED = {
     "mlaser.controller.frames": "mlaser.protocol.frames",
     "mlaser.io.geom": "mlaser.geom.curves",
+    "mlaser.controller.process": "mlaser.nc.process",
+    "mlaser.nc.stream": "mlaser.controller.stream",
+    "mlaser.formats.lang": "mlaser.i18n.langfile",
 }
-# modules that stayed but lost names: module -> the names that still live there
+# modules that stayed but lost names: module -> the names that moved away
 PARTIAL = {
-    "mlaser.cam.geometry": {"SplineCurve", "CurveRef"},
+    "mlaser.cam.geometry": {n for n in dir(importlib.import_module("mlaser.geom.contour"))
+                            if not n.startswith("__")} - {"SplineCurve", "CurveRef"},
+    "mlaser.devices.follower": {"make_follower_card_simulator"},
 }
 
 
@@ -81,8 +86,18 @@ def test_no_internal_module_uses_an_old_path():
                 names = [base] + [f"{base}.{a.name}" for a in n.names]
                 if base in PARTIAL:
                     bad += [f"{rel}:{n.lineno} {base}.{a.name}" for a in n.names
-                            if a.name not in PARTIAL[base]]
+                            if a.name in PARTIAL[base]]
             elif isinstance(n, ast.Import):
                 names = [a.name for a in n.names]
             bad += [f"{rel}:{n.lineno} {m}" for m in names if m in MOVED]
     assert not bad, bad
+
+
+def test_follower_card_simulator_forwarder():
+    from mlaser.controller.follower_sim import make_follower_card_simulator
+    from mlaser.devices import follower
+
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        assert follower.make_follower_card_simulator is make_follower_card_simulator
+    assert any("mlaser.controller.follower_sim" in str(w.message) for w in seen)

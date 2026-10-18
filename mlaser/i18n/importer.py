@@ -3,7 +3,7 @@
 mlaser does not redistribute the original program's language files. A user who owns an
 installation can point mlaser at it once; this module reads the ``Lang`` folder (``lang.txt``
 holds Simplified Chinese and English, ``French.txt``, ``German.txt``... one language each, all
-``key#text`` lines, see :mod:`mlaser.formats.lang`) and stores the texts in the user's data
+``key#text`` lines, see :mod:`mlaser.i18n.langfile`) and stores the texts in the user's data
 directory, keyed by the original's keys. :class:`mlaser.ui.i18n.Translator` maps our readable ids
 to those keys through the ``legacy`` table of ``en.json``.
 
@@ -29,7 +29,7 @@ import time
 from pathlib import Path
 from typing import Optional, Union
 
-from mlaser.formats.lang import _lines, _read_text
+from mlaser.i18n.langfile import _lines, _read_text
 
 PathLike = Union[str, Path]
 

@@ -40,7 +40,7 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
 
     from ..controller.client import MotionController, TransportConfig
     from ..controller.simulator import CardSimulator
-    from ..nc.stream import JobStreamer
+    from ..controller.stream import JobStreamer
     m = job.machine
     sim = CardSimulator(period_ms=m.period_ms, time_scale=time_scale, ppm=position_ppm,
                         step_ppm=m.pulses_per_mm_x, ppr=m.ppr, **sim_kw)

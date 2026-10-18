@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Callable, Optional, Union
 
 from ..protocol import frames as F
-from ..controller.process import ManuItem
+from .process import ManuItem
 
 PathLike = Union[str, Path]
 

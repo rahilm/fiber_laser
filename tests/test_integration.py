@@ -17,7 +17,7 @@ from mlaser.controller.simulator import CardSimulator  # noqa: E402
 from mlaser.io.dxf_import import import_dxf  # noqa: E402
 from mlaser.model import LayerParams  # noqa: E402
 from mlaser.nc import Machine, compile_job  # noqa: E402
-from mlaser.nc.stream import JobStreamer  # noqa: E402
+from mlaser.controller.stream import JobStreamer  # noqa: E402
 
 PERIMETER = 2 * (100 + 60) + 2 * math.pi * 8 + 2 * math.pi * 15
 

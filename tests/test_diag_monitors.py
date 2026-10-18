@@ -140,7 +140,7 @@ def test_controller_monitor_ui(app, tmp_path, monkeypatch):
 
 def test_follower_monitor_with_card(app, tmp_path, monkeypatch):
     from types import SimpleNamespace
-    from mlaser.devices.follower import make_follower_card_simulator
+    from mlaser.controller.follower_sim import make_follower_card_simulator
     from mlaser.ui import ext_diag as X
     sim = make_follower_card_simulator().start()
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,

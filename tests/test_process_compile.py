@@ -161,7 +161,7 @@ def test_machine_from_dat_dir(tmp_path):
 def test_simulator_consumes_process_items():
     from mlaser.controller.client import MotionController, TransportConfig
     from mlaser.controller.simulator import CardSimulator
-    from mlaser.nc.stream import JobStreamer
+    from mlaser.controller.stream import JobStreamer
     doc = _doc(3)
     doc.parts = doc.parts[1:]
     m = Machine()

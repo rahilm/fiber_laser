@@ -39,7 +39,7 @@ def test_register_and_dialogs(app, tmp_path):
 def test_follower_dialog_with_card(app):
     from types import SimpleNamespace
     from mlaser.controller.client import MotionController, TransportConfig
-    from mlaser.devices.follower import make_follower_card_simulator
+    from mlaser.controller.follower_sim import make_follower_card_simulator
     from mlaser.ui import ext_devices as X
     sim = make_follower_card_simulator().start()
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,

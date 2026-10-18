@@ -25,7 +25,7 @@ Rapids are emitted with the laser off; Delay items become dwell steps with zero 
 current laser state is held).  After each rapid the JumpAddTime settle time is emitted as a
 laser-off dwell.
 
-Process items (``Machine.process``, :mod:`mlaser.controller.process`, docs/protocol.md
+Process items (``Machine.process``, :mod:`mlaser.nc.process`, docs/protocol.md
 "Process items"): LaserOn -> MainApp start-cut sequence (gas select, follower item, gas delay,
 laser PWM, GP.LaserOnDelay); the job loop's laser sync on is pushed into the vector that the
 start cut then clears (0x0045a101 / 0x0045a166 -> 0x0046546a resize(0)), so it never reaches the
@@ -47,7 +47,7 @@ from typing import Iterable, Optional, Sequence
 from ..cam import items as I
 from ..cam.toolpath import CamParams, build_toolpath
 from ..protocol import frames as F
-from ..controller import process as P
+from . import process as P
 from ..model import Document, LayerParams
 from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_time,
                              lead_in_index, plan_path)

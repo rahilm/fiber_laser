@@ -1,7 +1,7 @@
 """Binds the UI's :class:`mlaser.ui.facade.ControllerFacade` to the real card client.
 
 ``UiController`` = :class:`~mlaser.controller.client.MotionController` (protocol, docs/protocol.md)
-+ :func:`mlaser.nc.compile_job` (document -> FIFO job) + :mod:`mlaser.nc.stream` (in a worker
++ :func:`mlaser.nc.compile_job` (document -> FIFO job) + :mod:`mlaser.controller.stream` (in a worker
 thread, or in a separate process for a real card) + :mod:`mlaser.nc.resume` (breakpoints), with a
 status-polling thread that keeps a :class:`MachineState` current (RO block 1000.., axis RO
 block 2000.., FUN_100521b0 / FUN_100523c0) and decodes the alarm words (RO[6]/RO[7],
@@ -933,7 +933,7 @@ class UiController(ControllerFacade):
         self._run_job(job, "frame", f"frame {bb[2] - bb[0]:.1f} x {bb[3] - bb[1]:.1f} mm", track=False)
 
     def _make_streamer(self):
-        from ..nc.stream import JobStreamer, ProcessStreamer
+        from .stream import JobStreamer, ProcessStreamer
         if self._use_process():
             return ProcessStreamer(self.cfg, self.position_ppm)
         return JobStreamer(self.mc)

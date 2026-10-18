@@ -7,7 +7,7 @@ values, so the defaults are a plausible bench setup.  Tags follow the other docs
 * **observed**: ``period_ms`` = 1.0 (CVelocityPlanning p5 default, MotionCtrl 0x1001c288),
   ``jump_add_time_ms`` = 200 (shipped ``JumpAddTime.txt`` ``[Jump] AddTime``), the int8 step
   limit (FUN_10043c20 packs dx/dy as one byte each).
-* **process items**: ``process`` (:class:`mlaser.controller.process.ProcessConfig`) holds the
+* **process items**: ``process`` (:class:`mlaser.nc.process.ProcessConfig`) holds the
   follower, gas, laser-DA and delay parameters; :meth:`Machine.from_dat_dir` loads them from
   HardPara.xml / ManuPara.xml.  ``Machine()`` uses ``ProcessConfig.bench()`` (on-board follower,
   gas valves on outputs 1..3, proportional valve on DA 1; INFERRED bench wiring).
@@ -25,7 +25,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..controller.process import ProcessConfig
+from .process import ProcessConfig
 from ..motion.interp import MotionConfig
 from ..motion.planner import PlannerParams
 

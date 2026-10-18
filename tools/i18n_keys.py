@@ -41,7 +41,7 @@ NOT_KEYS = {"ec3710"}
 
 
 def _vendor_keys(path: str) -> set[str]:
-    from mlaser.formats.lang import Translator
+    from mlaser.i18n.langfile import Translator
     t = Translator()
     t.load(os.path.dirname(path)) if os.path.isdir(os.path.dirname(path)) else None
     return t.keys()

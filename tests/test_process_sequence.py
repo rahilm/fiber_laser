@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mlaser.protocol import frames as F
-from mlaser.controller import process as P
+from mlaser.nc import process as P
 from mlaser.model import LayerParams
 
 

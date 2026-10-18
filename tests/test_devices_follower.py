@@ -5,7 +5,8 @@ import pytest
 
 from mlaser.protocol import frames as F
 from mlaser.controller.client import MotionController, TransportConfig
-from mlaser.devices.follower import CalibrationTable, OnBoardFollower, make_follower_card_simulator
+from mlaser.controller.follower_sim import make_follower_card_simulator
+from mlaser.devices.follower import CalibrationTable, OnBoardFollower
 
 ORIG = "/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1"
 

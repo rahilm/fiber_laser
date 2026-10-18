@@ -2,7 +2,7 @@
 """Streaming headroom benchmark: how close does the card's FIFO come to running dry?
 
 The card simulator runs in its own process (so only the PC side is loaded).  The job is streamed
-either in a thread of this process (``thread``) or by :class:`mlaser.nc.stream.ProcessStreamer`
+either in a thread of this process (``thread``) or by :class:`mlaser.controller.stream.ProcessStreamer`
 in a spawned process (``process``), while ``--load`` CPU-busy Python threads run in this
 process (a busy GUI).  Reported per mode:
 
@@ -69,7 +69,7 @@ def _sim_proc(conn, capacity: int, period_ms: float, scale: float) -> None:
 
 
 def _job(seconds: float, period_ms: float):
-    from mlaser.nc.stream import WireJob
+    from mlaser.controller.stream import WireJob
     n = int(seconds * 1000 / period_ms)
     # a circle-ish pattern: varying small deltas, laser on
     import math
@@ -90,7 +90,7 @@ def _hog(stop: threading.Event) -> None:
 
 def run(mode: str, args, conn) -> dict:
     from mlaser.controller.client import MotionController, TransportConfig
-    from mlaser.nc.stream import JobStreamer, ProcessStreamer
+    from mlaser.controller.stream import JobStreamer, ProcessStreamer
     conn.send("reset")
     conn.recv()
     cfg = TransportConfig(host="127.0.0.1", port=args.port)

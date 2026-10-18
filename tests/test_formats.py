@@ -10,7 +10,7 @@ import pytest
 from mlaser.model import Arc, Contour, Document, Line, Part
 from mlaser.formats import chf, scfile
 from mlaser.formats.chf import dumps_chf, load_chf, loads_chf, save_chf
-from mlaser.formats.lang import Translator
+from mlaser.i18n.langfile import Translator
 from mlaser.formats.params import (MachineParams, ParamStore, layer_category, layer_defs,
                                    load_layer_params, param_defs, save_layer_params)
 from mlaser.formats.scio import fmt_double, split_lines
