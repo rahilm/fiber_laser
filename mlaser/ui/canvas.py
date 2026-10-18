@@ -107,6 +107,27 @@ def _mods(m) -> set:
     return out
 
 
+# Level of detail for large documents (architecture.md §4.2): above LOD_CONTOURS contours the
+# per-contour overlays (start markers, index labels, direction arrows, lead previews, move path,
+# bounding boxes) are not built, and contours are drawn by _LodPathItem, which paints a contour
+# smaller than LOD_TINY_PX screen pixels as a single point.
+LOD_CONTOURS = 3000
+LOD_TINY_PX = 3.0
+
+
+class _LodPathItem(QGraphicsPathItem):
+    """Contour item that degrades to a point when it is tiny at the current zoom."""
+
+    def paint(self, painter, option, widget=None) -> None:
+        br = self.boundingRect()
+        lod = QStyleOptionGraphicsItem.levelOfDetailFromTransform(painter.worldTransform())
+        if max(br.width(), br.height()) * lod < LOD_TINY_PX:
+            painter.setPen(self.pen())
+            painter.drawPoint(br.center())
+            return
+        super().paint(painter, option, widget)
+
+
 class _RasterItem(QGraphicsItem):
     """One item for a raster engraving part (mlaser.cam.raster_engraving): its burn runs as a
     QImage on the pixel grid (pitch 1/rho, rows at the run y), placed with the part's frame
@@ -320,6 +341,8 @@ class CanvasView(QGraphicsView):
         if doc is None:
             return
         self._order = self.contour_order()
+        many = sum(len(p.contours) for p in doc.parts) > LOD_CONTOURS
+        item_cls = _LodPathItem if many else QGraphicsPathItem
         for pi, part in enumerate(doc.parts):
             if isinstance(part.extra, dict) and "raster" in part.extra:
                 rit = _RasterItem(part, layer_color(part.craft.layer))
@@ -328,7 +351,7 @@ class CanvasView(QGraphicsView):
                     self._raster_items.append((pi, rit))
             for ci, c in enumerate(part.contours):
                 path, pts = _contour_path(c)
-                it = QGraphicsPathItem(path)
+                it = item_cls(path)
                 it.setZValue(1)
                 self._scene.addItem(it)
                 self._items.append((pi, ci, it, pts))
@@ -436,6 +459,8 @@ class CanvasView(QGraphicsView):
         prev_end = None
         if self.toolpath:
             self._toolpath_overlay()
+        if len(self._items) > LOD_CONTOURS:
+            return          # level of detail: no per-contour markers / labels / arrows / boxes
         lookup = {(pi, ci): pts for pi, ci, _, pts in self._items}
         for n, (pi, ci) in enumerate(self._order, start=1):
             pts = lookup.get((pi, ci))
