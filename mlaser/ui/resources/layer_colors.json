@@ -1,0 +1,7 @@
+{
+  "_source": "MainApp.exe FUN_004473c0 (decomp/MainApp.c): 11 layer records (stride 0x480) at cfg+0x4ed8 (fiber) and cfg+0x8058 (CO2, identical colours); colour doubles r,g,b read from .rdata 0x833e50/0x834218/0x833f08/0x843690..0x843700. FUN_00449xxx loop (MainApp.c ~133690) copies the 11 records into the CADModule layer vector whose entry colour feeds glColor3d (CADModule.c ~84115). Index = layer index used by Craft.layer. Naming of index 0 (BackLayer vs Layer 1) is inferred, see docs/ui.md.",
+  "colors": [
+    "#00fc00", "#00fcfc", "#fc80fc", "#fcfc00", "#00a0e8", "#6e91be",
+    "#96dce6", "#b47855", "#ed1c24", "#999999", "#e6e6e6"
+  ]
+}

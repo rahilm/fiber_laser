@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlaser"
+version = "0.1.0"
+description = "Cross-platform rebuild of the Gweike Mlaser fiber-laser cutting CAM/CNC software (reverse-engineered, untested on hardware)"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "PySide6>=6.5",
+    "ezdxf>=1.1",
+    "numpy>=1.24",
+    "shapely>=2.0",
+    "segno>=1.6",        # Draw -> QR code
+    "fontTools>=4.40",   # DXF TEXT / Draw text outlines (GGO_BEZIER-style records)
+    "Pillow>=10",        # bitmap engraving (Bitmap.exe port)
+]
+
+[project.optional-dependencies]
+devices = ["hidapi>=0.14", "pyserial>=3.5"]   # XHC pendant (HID), serial follower/laser links
+plots = ["matplotlib>=3.7"]                     # HTML plots in tools/compare_capture.py
+test = ["pytest>=7"]
+all = ["mlaser[devices,plots,test]"]
+
+[project.scripts]
+mlaser = "mlaser.ui.__main__:main"
+mlaser-cardsim = "mlaser.controller.simulator:main"
+
+[tool.setuptools.packages.find]
+include = ["mlaser*"]
+
+[tool.setuptools.package-data]
+"mlaser.ui" = ["resources/*.json", "resources/lang/*", "resources/icons/**/*"]
+"mlaser.formats" = ["data/*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

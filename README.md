@@ -1,0 +1,167 @@
+# mlaser: cross-platform rebuild of Gweike Mlaser
+
+A pure-Python (PySide6) rebuild of **Gweike Mlaser v0.0.1.51_SP1**, the Windows CAM/CNC program
+for fiber-laser sheet cutting with the MCC100 Ethernet motion card. The original's behaviour was
+reverse-engineered from its binaries and shipped files. The rebuild covers file formats, DXF/SVG/
+G-code import, the CAM toolpath (leads, kerf, micro-joints, ordering), the velocity planner, the
+card protocol, an NC compiler that turns a drawing into the card's FIFO step stream, a card
+simulator, and the main window.
+
+> ## ⚠ Safety warning
+> The motion-card protocol is **reverse-engineered and has never been tested on real hardware**.
+> Much is observed in the original code, but a lot is still inferred: the meaning of some status
+> words, the bench output/DA wiring used when no machine parameter files are loaded, follower
+> state meanings, and what the card does on a FIFO underrun (see the unknowns sections of
+> [docs/protocol.md](docs/protocol.md), [docs/nc.md](docs/nc.md) and [docs/devices.md](docs/devices.md)). A wrong guess can move the head at the wrong speed or fire the laser
+> unexpectedly. Before connecting to a machine:
+> 1. Run everything against the simulator first (`mlaser --demo`).
+> 2. On the machine, **physically disable the laser** (interlock or key off) and start with
+>    `mlaser --real --laser-off`. That clears the laser byte of every step. Use **Dry Cut** and
+>    **Frame** with the e-stop in reach.
+> 3. Load your machine's real parameters (`Machine.from_dat_dir(<Mlaser>/dat)`), which set the
+>    step scale (ppr ÷ lead, default 10000 ÷ 100 = 100 pulses/mm) and the gas/follower wiring.
+>    Check the scale and speed with a short jog before running a job.
+>
+> You use this at your own risk. It is not a certified machine controller.
+
+## Install
+
+```bash
+cd rebuild
+uv venv .venv --python 3.12
+uv pip install -p .venv -e .            # PySide6, ezdxf, numpy, shapely
+uv pip install -p .venv pytest          # for the tests
+```
+
+## Run
+
+```bash
+.venv/bin/mlaser --demo                 # sample document + in-process card simulator (UDP on localhost)
+.venv/bin/mlaser part.dxf --sim         # open a file and connect to the simulator
+.venv/bin/mlaser --demo --sim-speed 5   # simulator runs 5x faster than real time
+.venv/bin/mlaser --real --ini ipAdd.ini --laser-off   # real card (UNTESTED), laser disabled
+.venv/bin/mlaser --fake                 # protocol-free demo controller
+.venv/bin/mlaser-cardsim --port 5020    # stand-alone card simulator; then --real --host 127.0.0.1 --port 5020
+python -m mlaser.ui --lang zh           # UI languages from the original lang files
+```
+
+You can also connect from inside the UI: **Advanced → Hardware → Connect to simulator**. Start,
+Pause, Stop, Frame and Dry Cut on the Run Control panel go through the full pipeline (CAM →
+planner → 1 ms samples → pulse steps → FIFO frames → UDP), and the head marker and the red track
+follow the position the simulator reports. **Sim** previews the toolpath with the motion planner
+and writes the time estimate to the log.
+
+Scripting:
+
+```python
+from mlaser.io.dxf_import import import_dxf
+from mlaser.nc import compile_job, Machine
+job = compile_job(import_dxf("part.dxf"), {"sort_mode": 5}, Machine())
+print(job.summary())          # steps, frames, replay time, cut length, pierces
+frames = job.frames(first_seq=1)   # values for write(102, frame)
+```
+
+Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
+
+## Layout
+
+| Package | Content | Doc |
+|---|---|---|
+| `mlaser/model.py` | shared document model (parts, contours of lines/arcs, craft, layers) | |
+| `mlaser/formats` | `.chf` load/save (byte-identical round trip), parameter XML, lang files, ini/aux files | [formats.md](docs/formats.md) |
+| `mlaser/io` | DXF (ezdxf), SVG, G-code import/export | [cam.md](docs/cam.md) §1 |
+| `mlaser/cam` | toolpath: start point, kerf, leads, overcut/gap, micro-joints, cool points, ordering | [cam.md](docs/cam.md) |
+| `mlaser/motion` | S-curve profiles, look-ahead velocity planner, interpolators, simulation, time estimate | [motion.md](docs/motion.md) |
+| `mlaser/nc` | job compiler (sampling, pulse quantisation, step items, frames) and job streamer | [nc.md](docs/nc.md) |
+| `mlaser/controller` | MCC100 frame codec, process items, UDP/TCP client, alarms, FIFO streaming (thread or separate process), card simulator, UI adapter | [protocol.md](docs/protocol.md) |
+| `mlaser/devices` | height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC wireless pendant | [devices.md](docs/devices.md) |
+| `mlaser/nest` | true-shape nester, `.nestproj` project files | [nest.md](docs/nest.md) |
+| `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, i18n | [ui.md](docs/ui.md) |
+
+## Feature status
+
+✅ implemented and tested · 🟡 partial or inferred · ❌ unknown or not implemented
+
+| Area | Feature | Status | Notes / doc |
+|---|---|---|---|
+| Files | `.chf` open/save | ✅ | byte-identical round trip ([formats.md](docs/formats.md)) |
+| | Machine/layer parameter XML | ✅ | `formats.params.MachineParams`, `Machine.from_dat_dir` |
+| | DXF / SVG / G-code import, G-code export | ✅ | [cam.md](docs/cam.md) §1 |
+| | Nest project (`.nestproj`) | ✅ | byte-identical round trip ([nest.md](docs/nest.md)) |
+| CAM | Leads, start point, overcut/gap, micro-joints, cool points | ✅ | cam.md §2–7 |
+| | Kerf compensation incl. Bézier corner join | ✅ | cam.md §5, §13 |
+| | Fly cut (circle/line scan paths) | ✅/🟡 | types 3/5 U (cam.md §11) |
+| | Common edge, array (rect; circular/fill as extensions), fill circle | ✅/🟡 | cam.md §12, §14 |
+| | Corner fillet, relief loop, α corner, auto cool points | ✅/🟡 | arc/arc fillets not ported (cam.md §13) |
+| | Import cleanup (dedupe, join, small objects, arc fitting) | ✅ | cam.md §15 |
+| | Ordering modes 1–7 (bands, local optimal, ring), layer priority, manual order | ✅ | cam.md §8 |
+| | Shortest-path / grid sort, rapid avoidance of cut holes | ✅ | rebuild extensions, not in the original |
+| | Nesting (rotations, mirror, part-in-part, remnants, common line) | ✅ | own algorithm; the original uses a licensed SDK ([nest.md](docs/nest.md)) |
+| Motion | S-curve/trapezoid profiles, look-ahead planner | ✅ | merge/bump passes not ported ([motion.md](docs/motion.md) §4) |
+| | Contour smoothing (CContoutSmooth) | ✅/🟡 | `Machine(smooth=True)`; some end conditions U (motion.md §9) |
+| | Simulation + time estimate | ✅ | rapid parameters INFERRED |
+| NC | 1 ms sampling, pulse carry, step items (freq/duty/power), frames | ✅ | Σdeltas = final position (tested) |
+| | Step scale ppr ÷ lead, speed cap 127 pulses/period (1270 mm/s default) | ✅ | protocol.md §11 |
+| | Pierce stages, gas valves/pressure, follower moves, slow start/end, power curve | ✅/🟡 | op 106/3002 U ([nc.md](docs/nc.md), protocol.md §10) |
+| Card | Frame codec, CRC, retries, HAL filter | ✅ | [protocol.md](docs/protocol.md) §1–2 |
+| | Status, outputs, DA, jog, move, card scaling read-back | ✅ | protocol.md §11 |
+| | Homing (`[2, mask, 0]`), alarms + reset | ✅ | protocol.md §12–13; Edge Seek ❌ |
+| | Pause/stop (program stop + breakpoint), resume, backward/forward | ✅/🟡 | backward/forward wire sequence INFERRED (§14) |
+| | FIFO streaming: prefill, underrun watchdog, separate-process streamer | ✅ | §15, `tools/bench_stream.py` |
+| | Firmware upgrade | ❌ | `.mcf` is encrypted; described only |
+| Devices | On-card height follower, calibration curve | ✅/🟡 | alarm bit layout U ([devices.md](docs/devices.md)) |
+| | Raycus / IPG laser (emission, aiming beam) | ✅ | the original sends no status queries |
+| | Auto-focus, EtherCAT heads | ✅/🟡 | alarm words U |
+| | XHC wireless pendant (HID) | ✅ | needs `hidapi`; keys hold-to-jog |
+| UI | Main window, ribbon, canvas, layers, parts, log, status bar, 11 languages | ✅ | [ui.md](docs/ui.md) |
+| | CAM+, Nest, Devices and card extensions | ✅ | `mlaser/ui/ext_*.py`, loaded by the app |
+| | Drawing/editing tools (14 shapes, text, QR, trim/extend, groups, align, size) | ✅/🟡 | [draw.md](docs/draw.md); ellipse/curve flattened, trim internals inferred |
+| | Manual craft tools, one-click process, bitmap engraving (Bitmap.exe port) | ✅ | [craft.md](docs/craft.md), [engrave.md](docs/engrave.md) |
+| | Edge seek, coordinate systems, firmware upload, parameter backup, task/recovery | ✅/🟡 | protocol.md §16–§21; offline job partial |
+| | Monitors, device/work reports (report.exe port), aux tests, batch, maintenance, help | ✅/🟡 | [diag.md](docs/diag.md) |
+| | Command coverage | ✅ | all 246 ribbon commands bound (`tools/command_coverage.py`) |
+
+## Parity with the original
+
+`/home/dev/scratch/mlaser/parity/` runs the original binaries under 32-bit Wine (loopback-only
+network namespace, unpatched, licence checks untouched) and compares them with the rebuild:
+`./run_parity.sh` for the DLL level, `--app` and `run_app.sh machine` to drive MainApp itself.
+Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/parity.md](docs/parity.md)).
+
+* **Match:**
+  * card frame encoding/decoding and the start-up sequence (byte-identical);
+  * the motion planner and interpolators, against both MotionCtrl.dll and CADModule's copy;
+  * arc fitting;
+  * DXF import → `.chf` (byte-identical on 11 of 12 samples);
+  * `.chf` round trips;
+  * lead defaults and start points;
+  * every manual machine operation: jog, homing, origins, outputs, mark/return, laser type.
+* **Accepted differences (14):**
+  * a trapezoid-profile bug in both original copies that cutting never reaches;
+  * the original's own spline approximation measured against its DXF parser;
+  * hinted font outlines for TEXT.
+* **Not comparable (4):** the original disables Frame, Dry Cut, Start and breakpoint behind its
+  hardware licence check, so the cutting step stream is verified only by the rebuild's own
+  tests, not against the original.
+* **Check it on your own machine:** capture the original's card traffic during a Dry Cut and run
+  `tools/compare_capture.py`; see [Verifying against your machine](docs/parity.md#8-verifying-against-your-machine).
+
+## Timing: why Python is enough
+
+The card replays the FIFO on its own servo clock (1 ms steps), so Python never does hard real-time
+work. It only has to compile the job, which runs about 200× faster than real time and is done
+before the start, and keep the card's FIFO from running dry, which takes about 12 kB/s. Measured
+against the simulator replaying at real speed:
+
+| Setup | Card starved | Lowest buffer |
+|---|---|---|
+| streamer thread, idle UI | 0 s | – |
+| streamer thread, 2 busy Python threads (GIL contention) | 2.4 s over a 47 s job (FIFO ran dry) | – |
+| streamer **process**, same load | ≈0 s | – |
+| `tools/bench_stream.py`, 16 KiB FIFO at 20×, 4 busy threads | thread: 48 underruns | process: 0 underruns, ≥755 ms buffered |
+
+So the UI uses a separate streamer process (`ProcessStreamer`) for a real card. A watchdog stops
+the FIFO and turns the PWM off before it drains.
+
+**Intentionally omitted:** licensing, the dongle/HID checks, activation codes, the laser rental
+lock ("laser unlock"), user locks, vendor passwords and the cloud monitor phone-home.
