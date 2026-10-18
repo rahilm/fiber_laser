@@ -46,7 +46,7 @@ from typing import Iterable, Optional, Sequence
 
 from ..cam import items as I
 from ..cam.toolpath import CamParams, build_toolpath
-from ..controller import frames as F
+from ..protocol import frames as F
 from ..controller import process as P
 from ..model import Document, LayerParams
 from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_time,

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller.client import (AX_W_LEAD, AX_W_PPR, SYS_W_PERIOD_US, SYS_W_PPM, AxisScaling,
                                       CardScaling, MotionController, TransportConfig,
                                       axis_param_addr, sys_param_addr)

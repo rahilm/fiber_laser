@@ -11,7 +11,7 @@ import time
 
 import pytest
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller.coords import MANUAL
 from mlaser.controller.machine_ops import CO2, MachineOps
 from mlaser.controller.simulator import CardSimulator

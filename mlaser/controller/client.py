@@ -24,7 +24,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
-from . import frames as F
+from ..protocol import frames as F
 
 log = logging.getLogger(__name__)
 

@@ -6,7 +6,7 @@ import time
 import pytest
 
 from mlaser.controller import alarms as A
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller.client import (HOME_X, HOME_XY, HOME_XY_W, HOME_XY_ZF, HOME_Y, HOME_ZF,
                                       MotionController, TransportConfig, home_mask)
 from mlaser.controller.simulator import CardSimulator

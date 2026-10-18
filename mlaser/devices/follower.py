@@ -50,7 +50,7 @@ import socket
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 
 from .codecs import FUNC_READ_HOLDING, FUNC_WRITE_MULTI, STD_MODBUS, CodecError
 

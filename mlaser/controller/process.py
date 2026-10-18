@@ -37,7 +37,7 @@ import re
 from dataclasses import dataclass, field, replace
 from typing import Any, Iterable, Optional, Sequence
 
-from . import frames as F
+from ..protocol import frames as F
 
 # --------------------------------------------------------------------------- ManuItem
 # classes (ManuItem +0x16)

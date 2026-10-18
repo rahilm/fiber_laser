@@ -1,6 +1,6 @@
 """Software emulation of the MCC100 motion card for tests and hardware-free GUI use.
 
-It speaks the frame format of :mod:`mlaser.controller.frames` over UDP (default,
+It speaks the frame format of :mod:`mlaser.protocol.frames` over UDP (default,
 like the real card) or TCP, keeps a register image, executes mailbox commands
 (reg 101), FIFO control (reg 103) and FIFO frames (reg 102) over time and reports
 status through the 1000/2000 register blocks.  Behaviour that the reverse
@@ -23,7 +23,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import frames as F
+from ..protocol import frames as F
 from .startup import FAST_LEN_MAX, FAST_MAP, FAST_MAP_REG
 
 log = logging.getLogger(__name__)

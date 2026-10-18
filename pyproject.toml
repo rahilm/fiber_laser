@@ -48,6 +48,9 @@ testpaths = ["tests"]
 # default run: no Wine parity suite (needs the external harness: -m parity) and no golden check
 # (about 40 s: -m golden, or python tools/make_goldens.py --check)
 addopts = "-m 'not parity and not golden'"
+# old import paths left by the Wave 1 moves (mlaser/_compat.py) warn once; tests that still use
+# them, and tests/test_compat_shims.py, must not fail or flood the summary
+filterwarnings = ["ignore:mlaser\\..* moved to mlaser\\..*:DeprecationWarning"]
 markers = [
     "unit: pure tests (no Qt widgets, no sockets); assigned by tests/conftest.py",
     "ui: builds Qt widgets (offscreen)",

@@ -30,7 +30,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
 
-from mlaser.controller import frames as F  # noqa: E402
+from mlaser.protocol import frames as F  # noqa: E402
 
 ITEM_BYTES = 12            # one op-3000 step item on the card (header + 2 params)
 

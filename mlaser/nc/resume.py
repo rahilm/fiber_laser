@@ -28,7 +28,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Sequence
 
-from ..controller import frames as F
+from ..protocol import frames as F
 from ..formats.scfile import AutosaveParam, newest_autosave
 
 

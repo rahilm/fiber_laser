@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller.client import ControllerError, FifoStreamer, MotionController, TransportConfig
 from mlaser.controller.simulator import CardSimulator
 from mlaser.controller.devices import OnBoardFollower, encode_std_modbus

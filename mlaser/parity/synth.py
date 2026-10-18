@@ -94,7 +94,7 @@ def to_messages(records: list[Record], pc=PC_ADDR, card=CARD_ADDR, t0: float = 1
 
 # ----------------------------------------------------------------------------- fault injection
 def _is_fifo_write(m: Message):
-    from ..controller import frames as F
+    from ..protocol import frames as F
     if m.dst[1] != CARD_ADDR[1]:
         return None
     try:
@@ -132,7 +132,7 @@ def edit_wire(messages: list[Message], drop: Optional[int] = None, set_step: Opt
     """
     from dataclasses import replace
 
-    from ..controller import frames as F
+    from ..protocol import frames as F
     flat = wire_items(messages)
     if set_step is not None:
         i, ch = set_step

@@ -35,7 +35,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Optional, Union
 
-from . import frames as F
+from ..protocol import frames as F
 
 MIN_FILE_SIZE = 14             # 0x4c0a3e
 MC_CHUNK = 1400                # 0x578, FUN_10055840

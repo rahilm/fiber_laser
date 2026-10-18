@@ -40,7 +40,7 @@ import struct
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
-from mlaser.controller.frames import crc16_modbus
+from mlaser.protocol.frames import crc16_modbus
 
 FUNC_READ_HOLDING = 0x03
 FUNC_WRITE_MULTI = 0x10

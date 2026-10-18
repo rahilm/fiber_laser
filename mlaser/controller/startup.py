@@ -28,7 +28,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Sequence
 
-from . import frames as F
+from ..protocol import frames as F
 
 # --------------------------------------------------------------------------- fast status
 FAST_MAP_REG = 60000

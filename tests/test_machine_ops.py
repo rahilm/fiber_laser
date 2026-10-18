@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from mlaser.controller import coords as C
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller import upgrade as U
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.machine_ops import CO2, FIBER, MachineOps

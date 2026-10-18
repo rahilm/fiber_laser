@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.model import Contour, Craft, Document, LayerParams, Line, Part
 from mlaser.nc import Machine, compile_job
 

@@ -34,7 +34,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 
 RO_KEYS = [f"RORegName_{i}" for i in range(1, 33)] + ["A241105_0", "A241105_1", "A250516_5", "A250516_6"]
 AXIS_RO_KEYS = ["AxisRORegName_1", "AxisRORegName_2", "AxisRORegName_3", "AxisRORegName_4",

@@ -13,7 +13,7 @@ import threading
 from pathlib import Path
 from typing import Callable, Optional
 
-from . import frames as F
+from ..protocol import frames as F
 from .coords import CoordSystems, MANUAL
 from .edgeseek import EdgeSeekError, EdgeSeekParams, EdgeSeeker, EdgeSeekResult
 

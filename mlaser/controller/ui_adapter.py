@@ -36,7 +36,7 @@ from typing import Callable, Optional
 
 from ..ui.facade import ControllerFacade, MachineState, OUTPUTS
 from . import alarms as A
-from . import frames as F
+from ..protocol import frames as F
 from .client import (HOME_X, HOME_XY, HOME_XY_W, HOME_XY_ZF, HOME_Y, HOME_ZF, CardScaling,
                      ControllerError, MotionController, TransportConfig, stop_decel)
 

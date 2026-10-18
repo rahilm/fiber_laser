@@ -45,7 +45,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Optional, Sequence
 
-from . import frames as F
+from ..protocol import frames as F
 
 Point = tuple[float, float]
 

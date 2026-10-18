@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.simulator import CardSimulator
 from mlaser.controller.startup import (FAST_MAP, AxisDownload, CardParameters, default_fast_map,

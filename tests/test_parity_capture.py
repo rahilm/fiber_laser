@@ -17,7 +17,7 @@ import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 
-from mlaser.controller import frames as F  # noqa: E402
+from mlaser.protocol import frames as F  # noqa: E402
 from mlaser.formats.params import MachineParams  # noqa: E402
 from mlaser.parity import capture as C  # noqa: E402
 from mlaser.parity import pcap as P  # noqa: E402

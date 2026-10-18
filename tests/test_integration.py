@@ -11,7 +11,7 @@ import pytest
 
 ezdxf = pytest.importorskip("ezdxf")
 
-from mlaser.controller import frames as F  # noqa: E402
+from mlaser.protocol import frames as F  # noqa: E402
 from mlaser.controller.client import MotionController, TransportConfig  # noqa: E402
 from mlaser.controller.simulator import CardSimulator  # noqa: E402
 from mlaser.io.dxf_import import import_dxf  # noqa: E402

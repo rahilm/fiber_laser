@@ -1,4 +1,4 @@
-"""NCModule.dll CExtModbus frame codec (FUN_10028190 / FUN_10029a90) vs mlaser.controller.frames."""
+"""NCModule.dll CExtModbus frame codec (FUN_10028190 / FUN_10029a90) vs mlaser.protocol.frames."""
 from parity_helpers import assert_no_new_discrepancies, run_area
 
 

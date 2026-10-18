@@ -5,7 +5,7 @@ from __future__ import annotations
 import pytest
 
 from mlaser.cam import items as I
-from mlaser.controller import frames as F
+from mlaser.protocol import frames as F
 from mlaser.controller import process as P
 from mlaser.model import Document, LayerParams
 from mlaser.nc import Machine, compile_items

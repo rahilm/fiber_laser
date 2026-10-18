@@ -7,7 +7,7 @@ normally; a Wireshark/tcpdump capture of the PC <-> card traffic (``udp port 502
 the complete FIFO stream.  This module:
 
 1. decodes the card traffic (:func:`parse_traffic`): every request and reply with
-   :mod:`mlaser.controller.frames`, paired by transaction id; identical re-sends with the same
+   :mod:`mlaser.protocol.frames`, paired by transaction id; identical re-sends with the same
    transaction id are counted as retransmissions (CMCHalAPI retry loop FUN_1001d6d0, protocol.md
    §1), not as new requests;
 2. follows the card state (:func:`analyse`): RO block reads (1000 x n: RO[15] last FIFO
@@ -39,7 +39,7 @@ from typing import Iterable, Optional, Sequence
 
 import numpy as np
 
-from ..controller import frames as F
+from ..protocol import frames as F
 from . import pcap as P
 
 CARD_HOST = "10.1.1.168"        # File/ipAdd.ini CardIP (protocol.md §1)

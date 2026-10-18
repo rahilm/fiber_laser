@@ -38,7 +38,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Callable, Optional, Sequence
 
-from ..controller import frames as F
+from ..protocol import frames as F
 from ..controller.client import (ControllerError, FifoStreamer, MotionController, StreamStats,
                                  TransportConfig)
 
