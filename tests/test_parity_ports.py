@@ -17,13 +17,15 @@ import mlaser.parity_ports as PP
 from mlaser.parity_ports import ORIGINAL, Implementation, profile as prof
 
 _INFRA = {"mlaser.parity_ports", "mlaser.parity_ports._registry", "mlaser.parity_ports.profile"}
+_OPTIONAL = "mlaser.parity_ports.profiles."
 
 
 def _port_modules():
     mods = []
     for m in pkgutil.walk_packages(PP.__path__, "mlaser.parity_ports."):
         mod = importlib.import_module(m.name)
-        if m.name not in _INFRA and not m.ispkg:
+        # parity_ports.profiles holds optional non-default profiles (new behaviour, not ports)
+        if m.name not in _INFRA and not m.ispkg and not m.name.startswith(_OPTIONAL):
             mods.append(mod)
     return mods
 

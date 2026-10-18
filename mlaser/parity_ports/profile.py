@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import logging
 from dataclasses import dataclass, fields, replace
 from typing import Any, Callable, Iterator, Protocol, Union
 
@@ -177,16 +178,19 @@ class ParityProfile:
     arcfit: Implementation
     dxf: Implementation
     chf: Implementation
+    #: logged as a warning whenever the profile is made active (e.g. "not validated on hardware")
+    warning: str = ""
 
     def slots(self) -> dict[str, Implementation]:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name in INTERFACES}
 
-    def derive(self, name: str, description: str, **slots: Implementation) -> "ParityProfile":
+    def derive(self, name: str, description: str, *, warning: str = "",
+               **slots: Implementation) -> "ParityProfile":
         """A new profile that replaces the given slots and keeps the others."""
         for k, impl in slots.items():
             if k not in INTERFACES or impl.slot != k:
                 raise ValueError(f"slot {k!r} needs an Implementation of that slot")
-        return replace(self, name=name, description=description, **slots)
+        return replace(self, name=name, description=description, warning=warning, **slots)
 
 
 _PP = "mlaser.parity_ports"
@@ -266,9 +270,13 @@ def register_profile(profile: ParityProfile) -> ParityProfile:
 
 
 def get_profile(name: str | None = None) -> ParityProfile:
-    """The registered profile ``name``; without a name, the active one."""
+    """The registered profile ``name``; without a name, the active one.  An unknown name first
+    imports the optional profiles (:mod:`mlaser.parity_ports.profiles`), which register
+    themselves."""
     if name is None:
         return _active
+    if name not in PROFILES:
+        importlib.import_module(f"{_PP}.profiles")
     try:
         return PROFILES[name]
     except KeyError:
@@ -284,6 +292,9 @@ def set_profile(profile: Union[str, ParityProfile]) -> ParityProfile:
     global _active
     prev = _active
     _active = get_profile(profile) if isinstance(profile, str) else profile
+    if _active.warning and _active is not prev:
+        logging.getLogger(__name__).warning("parity profile %r selected: %s", _active.name,
+                                            _active.warning)
     return prev
 
 
