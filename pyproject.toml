@@ -39,3 +39,13 @@ include = ["mlaser*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+# the Wine parity suite needs the external harness and its captures: run it with -m parity
+addopts = "-m 'not parity'"
+markers = [
+    "unit: pure tests (no Qt widgets, no sockets); assigned by tests/conftest.py",
+    "ui: builds Qt widgets (offscreen)",
+    "sim: starts the UDP card simulator or a device simulator",
+    "parity: compares with the original under Wine (tests/parity/, excluded by default)",
+    "golden: frozen artefacts from tools/make_goldens.py (tests/golden/)",
+    "safety: safety-behaviour tests (tests/safety/)",
+]

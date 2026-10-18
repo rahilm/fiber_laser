@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
@@ -14,7 +15,12 @@ from PySide6.QtWidgets import QApplication  # noqa: E402
 from mlaser.ui import docops, i18n  # noqa: E402
 from mlaser.ui.facade import DemoController  # noqa: E402
 
-SHOT = "/home/dev/scratch/mlaser/work/ui/screenshot.png"
+# screenshot of the main window: MLASER_SHOT_DIR, else the dev box's work/ui folder when it
+# exists, else the temp directory (CI)
+_WORK = "/home/dev/scratch/mlaser/work"
+SHOT = os.path.join(os.environ.get("MLASER_SHOT_DIR")
+                    or (os.path.join(_WORK, "ui") if os.path.isdir(_WORK) else tempfile.gettempdir()),
+                    "screenshot.png")
 
 
 @pytest.fixture(scope="module")
