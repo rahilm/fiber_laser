@@ -339,6 +339,8 @@ class MainWindow(QMainWindow):
             a[cmd].setChecked(m == mode)
 
     def set_document(self, doc: Document, path: Optional[str] = None) -> None:
+        if self._job_locked("new document"):      # safety: the document is locked while a job runs
+            return
         for li in sorted({p.craft.layer for p in doc.parts}):
             doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name()))
         self.document = doc
@@ -455,11 +457,22 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ files
     FILTER = "Supported (*.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;DXF (*.dxf);;CHF (*.chf);;All (*)"
 
+    def _job_locked(self, what: str) -> bool:
+        """Safety (docs/SAFETY.md): no file open / new document while a job runs."""
+        if not getattr(self, "safety_ui", None):
+            return False
+        from . import safety_ui
+        return safety_ui.job_locked(self, what)
+
     def file_new(self) -> None:
+        if self._job_locked("File > New"):
+            return
         self._snapshot()
         self.set_document(Document())
 
     def load_path(self, path: str) -> bool:
+        if self._job_locked("open"):
+            return False
         ext = os.path.splitext(path)[1].lower()
         loader = None
         if ext == ".chf":
@@ -484,11 +497,15 @@ class MainWindow(QMainWindow):
         return True
 
     def file_open(self) -> None:
+        if self._job_locked("File > Open"):
+            return
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf150"), "", self.FILTER)
         if path:
             self.load_path(path)
 
     def file_import(self) -> None:
+        if self._job_locked("File > Import"):
+            return
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf13"), "", self.FILTER)
         if not path:
             return
