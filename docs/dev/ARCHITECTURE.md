@@ -72,7 +72,6 @@ a comment and has a ROADMAP item that removes it.
 |---|---|---|
 | `diag.batch -> ui.docops` | batch cutting rotates the document with the UI's docops | Wave 2 "business logic out of the UI" |
 | `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
-| `cad.text -> PySide6`, `io.dxf_import -> PySide6` | TEXT outlines fall back to Qt's font engine | Wave 2 "fontTools + uharfbuzz text" |
 | `controller.ui_adapter -> PySide6` | the UI adapter emits Qt signals to the GUI thread | Wave 2 "typed MachineAPI plus an event bus" |
 
 ## 2. Moved modules and compatibility shims
