@@ -60,6 +60,9 @@ class CamParams:
     default_feed: float = 100.0
     avoid_cut: bool = False            # rebuild extension: route rapids around cut holes
     avoid_clearance: float = 2.0
+    kerf_fallback: Optional[str] = None  # rebuild option, when the analytic kerf offset fails:
+                                       # "shapely" / "clipper" (pyclipper + arc re-fit), None =
+                                       # kerf.DEFAULT_FALLBACK ("shapely"; cam/kerf.py doc)
 
 
 @dataclass
@@ -183,7 +186,7 @@ def prepare_contour(c: Contour, craft: Craft, depth: int, prm: CamParams) -> Opt
     # --- kerf child (on the unrotated contour) --------------------------------
     base, base_len = c, stored_length(c)
     if craft.kerf_comp is not None and craft.kerf_comp >= 0 and craft.kerf_width:
-        k = compensate(c, craft.kerf_comp, craft.kerf_width, depth)
+        k = compensate(c, craft.kerf_comp, craft.kerf_width, depth, fallback=prm.kerf_fallback)
         if k is not None:
             base, base_len = k, k.length()
     walk = t * base_len if base.closed else 0.0
