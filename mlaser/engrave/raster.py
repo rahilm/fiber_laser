@@ -36,7 +36,8 @@ __all__ = [
     "OVERSCAN_MM", "POWER_THRESHOLD", "HEADER", "FOOTER", "GCODE_NAME", "STATUS_NAME", "SVG_NAME",
     "RasterParams", "RasterSegment", "EditSession",
     "aspect_height", "aspect_width", "apply_edits", "process_image", "pixel_power",
-    "raster_segments", "segment_gcode", "gcode_from_bitmap", "generate_gcode", "write_gcode",
+    "raster_segments", "segment_gcode", "gcode_from_bitmap", "raster_from_bitmap", "generate_gcode",
+    "write_gcode",
     "write_status_ini", "read_status_ini", "generate_to_dir", "format_f3",
 ]
 
@@ -338,6 +339,72 @@ def gcode_from_bitmap(bmp: np.ndarray, rho: int, power: int) -> str:
         reverse = not reverse
     out.append(FOOTER)
     return "".join(out)
+
+
+def raster_from_bitmap(bmp: np.ndarray, rho: int, power: int, params: Optional[RasterParams] = None):
+    """The engraving of :func:`gcode_from_bitmap` as one
+    :class:`mlaser.cam.raster_engraving.RasterEngraving` (numpy arrays of the burn runs).
+
+    Same float32 walk as generateGCode0 (rows bottom-up, serpentine, 5 mm overscan, run steps
+    ``(float)(Pixel/(double)rho)``), vectorised per row; the coordinates are the values of the
+    G-code text (``format_f3``), so ``parse_gcode(gcode_from_bitmap(...))`` and this object give
+    the same burn lines bit for bit.  Runs with zero length in the text (``parse_gcode`` drops
+    them) are dropped too.  ``power`` <= 0 gives no burn runs."""
+    from ..cam.raster_engraving import RasterEngraving, f3_values
+    rho = int(rho)
+    pw = int(power)
+    a = np.asarray(bmp)
+    if a.ndim == 3:
+        a = ops.to_gray(a)
+    rows, cols = a.shape
+    on = a <= POWER_THRESHOLD
+    over = _F32(OVERSCAN_MM)
+    dy = 1.0 / float(rho)
+    x = _F32(_F32(0.0) - over)
+    y = _F32(0.0)
+    xs0, xs1, rr, ys, pws = [], [], [], [], []
+    reverse = False
+    nrow = 0
+    for r in range(rows - 1, -1, -1):
+        if pw != 0 and cols:
+            v = on[r]
+            change = np.flatnonzero(v[1:] != v[:-1]) + 1
+            starts = np.concatenate(([0], change))
+            ends = np.concatenate((change, [cols]))
+            burn = v[starts] if pw > 0 else np.zeros(len(starts), bool)
+        else:
+            starts = np.zeros(1 if cols else 0, np.int64)
+            ends = np.full(len(starts), cols, np.int64)
+            burn = np.zeros(len(starts), bool)
+        steps = ((ends - starts) / float(rho)).astype(np.float32)
+        if reverse:
+            x = _F32(x - over)
+            seq = np.concatenate(([x], -steps[::-1])).astype(np.float32)
+            burn = burn[::-1]
+        else:
+            x = _F32(x + over)
+            seq = np.concatenate(([x], steps)).astype(np.float32)
+        walk = np.add.accumulate(seq, dtype=np.float32)
+        if burn.any():
+            k = np.flatnonzero(burn)
+            b0, b1 = f3_values(walk[k]), f3_values(walk[k + 1])
+            keep = b0 != b1
+            if keep.any():
+                xs0.append(b0[keep])
+                xs1.append(b1[keep])
+                rr.append(np.full(int(keep.sum()), nrow, np.int32))
+                ys.append(float(f3_values(y)))
+                nrow += 1
+        x = _F32(walk[-1] - over) if reverse else _F32(walk[-1] + over)
+        y = _F32(float(y) + dy)
+        reverse = not reverse
+    cat = (lambda L, dt: np.concatenate(L) if L else np.zeros(0, dt))
+    x0 = cat(xs0, np.float64)
+    prm = {} if params is None else {k: (list(v) if isinstance(v, tuple) else v)
+                                    for k, v in params.__dict__.items()}
+    return RasterEngraving(x0, cat(xs1, np.float64), cat(rr, np.int32), np.array(ys, np.float64),
+                           np.full(len(x0), pw, np.int32), rho=rho, overscan=float(OVERSCAN_MM),
+                           params=prm)
 
 
 def generate_gcode(img: np.ndarray, params: Optional[RasterParams] = None, *,
