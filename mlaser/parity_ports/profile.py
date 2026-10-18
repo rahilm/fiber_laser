@@ -30,7 +30,7 @@ import contextlib
 import importlib
 import logging
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Iterator, Protocol, Union
+from typing import Any, Callable, Iterator, Optional, Protocol, Union
 
 
 # --------------------------------------------------------------------------- interfaces
@@ -180,17 +180,25 @@ class ParityProfile:
     chf: Implementation
     #: logged as a warning whenever the profile is made active (e.g. "not validated on hardware")
     warning: str = ""
+    #: options of rebuild extensions that are not parity slots (no bit-exact original exists),
+    #: e.g. ``{"shortest_path": "ortools"}`` for sort mode 20 (``mlaser.cam.ordering``)
+    options: tuple = ()
+
+    def option(self, key: str, default: Any = None) -> Any:
+        return dict(self.options).get(key, default)
 
     def slots(self) -> dict[str, Implementation]:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name in INTERFACES}
 
     def derive(self, name: str, description: str, *, warning: str = "",
-               **slots: Implementation) -> "ParityProfile":
-        """A new profile that replaces the given slots and keeps the others."""
+               options: Optional[dict] = None, **slots: Implementation) -> "ParityProfile":
+        """A new profile that replaces the given slots (and extension options) and keeps the
+        others."""
         for k, impl in slots.items():
             if k not in INTERFACES or impl.slot != k:
                 raise ValueError(f"slot {k!r} needs an Implementation of that slot")
-        return replace(self, name=name, description=description, warning=warning, **slots)
+        opts = tuple(sorted({**dict(self.options), **(options or {})}.items()))
+        return replace(self, name=name, description=description, warning=warning, options=opts, **slots)
 
 
 _PP = "mlaser.parity_ports"

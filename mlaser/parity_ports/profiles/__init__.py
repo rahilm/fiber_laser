@@ -11,8 +11,10 @@ a profile module must stay cheap (optional libraries are imported on first use).
                    the kernels ``ORIGINAL`` runs as fast drop-ins (same output, bit for bit)
 ``modern_dxf``     ``"modern-dxf"``: the ``dxf`` slot on ``mlaser.io.dxf_modern`` (ezdxf
                    decompose / path / text; also ``import_dxf(path, mode="modern")``)
+``modern_ortools`` ``"modern-ortools"``: sort mode 20 on OR-Tools routing (extension option,
+                   no slot change; ``mlaser.cam.order_ortools``)
 ``modern_motion``  ``"modern-ruckig"``: own look-ahead + Ruckig Community per segment (motion
                    slot ``plan_velocity``).  NOT validated on hardware.
 =================  ==========================================================================
 """
-from . import modern_dxf, modern_motion, reference  # noqa: F401  (register their profiles)
+from . import modern_dxf, modern_motion, modern_ortools, reference  # noqa: F401  (register their profiles)

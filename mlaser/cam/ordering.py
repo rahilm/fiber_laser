@@ -303,6 +303,9 @@ def order_nodes(nodes: list[Node], mode: int = 5, small_first: bool = False,
     Modes: see the module constants. In mode 5 small-first is handled by the level sort
     as in the original (small items first, the rest inserted behind them)."""
     if mode == MODE_SHORTEST:
+        from .order_ortools import ordering_backend, shortest_path_ortools
+        if ordering_backend() == "ortools":        # profile "modern-ortools" (optional)
+            return shortest_path_ortools(nodes, start, small_first)
         return shortest_path(nodes, start, small_first)
     if mode == MODE_LOCAL:
         # the statement-level port (0x1003d300 etc.), on the nodes' entry / exit points; the
