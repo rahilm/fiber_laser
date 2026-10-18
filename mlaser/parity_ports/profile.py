@@ -227,9 +227,11 @@ ORIGINAL = ParityProfile(
     ),
     ordering=Implementation(
         "ordering",
-        import_sort=f"{_PP}.cadmodule.ordering:import_sort",
-        local_optimal_elems=f"{_PP}.cadmodule.ordering:local_optimal_elems",
-        containers_last_faithful=f"{_PP}.cadmodule.ordering:containers_last_faithful",
+        # numpy / grid drop-ins with the reference's results bit for bit (the statement-level
+        # reference functions in cadmodule.ordering: profile "original-reference")
+        import_sort=f"{_PP}.cadmodule.ordering_fast:import_sort",
+        local_optimal_elems=f"{_PP}.cadmodule.ordering_fast:local_optimal_elems",
+        containers_last_faithful=f"{_PP}.cadmodule.ordering_fast:containers_last_faithful",
         ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
         choose_start=f"{_PP}.cadmodule.ordering:choose_start",
     ),

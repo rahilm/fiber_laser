@@ -40,10 +40,97 @@ def seg_reversed(s: Segment) -> Segment:
     return s.reversed()
 
 
+def _fingerprint(segs) -> Optional[tuple]:
+    """The values that determine a contour's flattening, or None when a segment is not a plain
+    Line / Arc (no caching then)."""
+    fp: list[tuple] = []
+    for s in segs:
+        ts = type(s)
+        if ts is Line:
+            fp.append((s.start, s.end))
+        elif ts is Arc:
+            fp.append((s.start, s.end, s.center, s.ccw))
+        else:
+            return None
+    return tuple(fp)
+
+
+_FLAT_CACHE: dict = {}          # (segment values, tol) -> points
+_FLAT_CACHE_POINTS = [0]
+_FLAT_CACHE_MAX_POINTS = 20_000_000
+
+
+def flatten_cached(c: Contour, tol: float = 0.05) -> list[Point]:
+    """:func:`flatten_points` through a cache keyed on the values of the contour's segments
+    (start / end / centre / direction of every Line and Arc) and ``tol``: equal geometry gives
+    the same points, so a contour rebuilt by the toolpath (a rotated start, a copy) or edited
+    back and forth hits it, and any change of a value misses.  Straight contours are not cached
+    (cheaper to flatten than to look up).  The returned list is shared: do not modify it
+    (:func:`mlaser.geom.contour.polyline` returns a copy)."""
+    segs = c.segments
+    if not segs or all(type(s) is Line for s in segs):
+        return flatten_points(c, tol)
+    fp = _fingerprint(segs)
+    if fp is None:
+        return flatten_points(c, tol)
+    key = (fp, tol)
+    pts = _FLAT_CACHE.get(key)
+    if pts is not None:
+        return pts
+    pts = flatten_points(c, tol)
+    if _FLAT_CACHE_POINTS[0] + len(pts) > _FLAT_CACHE_MAX_POINTS:
+        _FLAT_CACHE.clear()
+        _FLAT_CACHE_POINTS[0] = 0
+    _FLAT_CACHE[key] = pts
+    _FLAT_CACHE_POINTS[0] += len(pts)
+    return pts
+
+
+def flatten_points(c: Contour, tol: float = 0.05) -> list[Point]:
+    """``list(c.points(tol))``, bit for bit, without re-evaluating each arc's start angle,
+    sweep and radius for every point (``Arc.point_at`` recomputes them per call; the values
+    are the same doubles, so the points are identical).  Segments that are not exactly
+    ``Line`` / ``Arc`` go through ``Contour.points``' generic path (``point_at``)."""
+    segs = c.segments
+    if not segs:
+        return []
+    out = [segs[0].start]
+    app = out.append
+    q = max(tol, 1e-6) ** 0.5
+    cos, sin, atan2, ceil = math.cos, math.sin, math.atan2, math.ceil
+    for s in segs:
+        ts = type(s)
+        if ts is Line:
+            app(s.end)
+            continue
+        if ts is Arc:
+            assert isinstance(s, Arc)
+            cx, cy = s.center
+            a0 = atan2(s.start[1] - cy, s.start[0] - cx)
+            sw = s.sweep()
+            r = s.radius
+            n = max(2, int(ceil(abs(sw) * r / q / 2)))
+            n = min(n, 720)
+            for i in range(1, n + 1):
+                a = a0 + sw * (i / n)
+                app((cx + r * cos(a), cy + r * sin(a)))
+            continue
+        if isinstance(s, Line):
+            app(s.end)
+            continue
+        n = max(2, int(ceil(s.length() / q / 2)))
+        n = min(n, 720)
+        for i in range(1, n + 1):
+            app(s.point_at(i / n))
+    return out
+
+
 def signed_area(c: Contour, tol: float = 0.01) -> float:
     """Shoelace area of the flattened contour (+ = CCW)."""
-    pts = list(c.points(tol))
+    pts = flatten_cached(c, tol)
     a = 0.0
+    if not pts:
+        return 0.0
     for (x0, y0), (x1, y1) in zip(pts, pts[1:] + pts[:1]):
         a += x0 * y1 - x1 * y0
     return a / 2.0
