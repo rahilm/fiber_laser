@@ -23,6 +23,10 @@ GRAVITY_RIGHT = "right"
 GRAVITY_TOP = "top"
 GRAVITY_AUTO = "auto"      # AutoNest direction 3 "自动(根据排样效果)": try both, keep the better
 
+# Nesting engine (NestParams.engine). The raster engine is the default and the fallback.
+ENGINE_RASTER = "raster"   # own FFT raster bottom-left fill (engine.Nester), no extra dependency
+ENGINE_SPYRROW = "spyrrow"  # sparrow strip packing via spyrrow (optional extra ``nest``), sparrow_engine
+
 
 @dataclass
 class NestPart:
@@ -77,6 +81,7 @@ class NestParams:
     sort_by: str = "area"                 # placement order inside a priority: area | bbox | length
     compact: bool = True                  # exact slide after raster placement
     fill_sheets: bool = True              # use max_quantity to fill leftover space
+    engine: str = ENGINE_RASTER           # ENGINE_RASTER | ENGINE_SPYRROW (rebuild option)
 
     def angles(self) -> list[float]:
         step = self.rotation_step
@@ -127,6 +132,8 @@ class NestResult:
     elapsed_s: float = 0.0
     resolution: float = 0.0
     gravity: str = ""                                           # direction actually used
+    engine: str = ENGINE_RASTER                                 # engine that produced it
+    notes: list[str] = field(default_factory=list)              # engine warnings (unsupported options)
 
     @property
     def utilisation(self) -> float:

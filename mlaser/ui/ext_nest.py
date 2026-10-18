@@ -22,12 +22,14 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
                                QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
+                               QMessageBox,
                                QProgressDialog, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..model import Document
-from ..nest import (GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, NestJob, NestParams, NestPart, NestSheet,
-                    apply_result, nest, stats)
+from ..nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, NestJob,
+                    NestParams, NestPart, NestSheet, apply_result, nest, stats)
+from ..nest.engine import NestEngineUnavailable, available_engines
 from ..nest.apply import layout_parts
 
 PROJECT_FILTER = "Nest project (*.nestproj);;All (*)"
@@ -63,7 +65,7 @@ class NestParamsDialog(QDialog):
     rotation step ``pd_Nest_PartRotateStepAngle``, direction ``pd_Nest_NestDir`` (L2R/D2U),
     part-in-part ``pd_Nest_NestPartInner``, share edge ``pd_Nest_ShareEdge`` (+ min length),
     accuracy ``pd_Nest_NestAccuracy`` (curve tolerance), plus rebuild-only raster cell,
-    mirror, kerf and time limit."""
+    mirror, kerf, time limit and engine (raster default; sparrow/spyrrow when installed)."""
 
     def __init__(self, window, params: NestParams, parent=None):
         super().__init__(parent)
@@ -92,6 +94,16 @@ class NestParamsDialog(QDialog):
         self.cell = _spin(0, 50, params.resolution or 0.0)
         self.cell.setSpecialValueText("auto")
         self.time_limit = _spin(1, 3600, params.time_limit_s, 0)
+        self.engine = QComboBox()
+        self.engine.addItem("Raster (built-in)", ENGINE_RASTER)
+        self.engine.addItem("Sparrow (spyrrow)", ENGINE_SPYRROW)
+        if ENGINE_SPYRROW not in available_engines():
+            item = self.engine.model().item(1)
+            if item is not None:
+                item.setEnabled(False)
+            self.engine.setItemData(1, "needs the optional package spyrrow: pip install 'mlaser[nest]'",
+                                    Qt.ToolTipRole)
+        self.engine.setCurrentIndex(max(0, self.engine.findData(params.engine)))
         for key, dflt, w in (("pd_Nest_PartSpace", "Part Space", self.spacing),
                              ("pd_Nest_EdgeStock", "Edge stock", self.margin),
                              ("pd_Nest_PartRotateStepAngle", "Part rotate step angle", self.step),
@@ -103,7 +115,8 @@ class NestParamsDialog(QDialog):
                              ("", "Kerf (share edge spacing)", self.kerf),
                              ("pd_Nest_NestAccuracy", "Nest Graph accuracy", self.accuracy),
                              ("", "Raster cell (mm)", self.cell),
-                             ("", "Time limit (s)", self.time_limit)):
+                             ("", "Time limit (s)", self.time_limit),
+                             ("", "Engine", self.engine)):
             f.addRow(_label(window, key, dflt) if key else dflt, w)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self.accept)
@@ -120,6 +133,7 @@ class NestParamsDialog(QDialog):
         p.accuracy = self.accuracy.value()
         p.resolution = self.cell.value() or None
         p.time_limit_s = self.time_limit.value()
+        p.engine = self.engine.currentData() or ENGINE_RASTER
         return p
 
 
@@ -415,9 +429,19 @@ class NestExtension:
             QApplication.processEvents()
             return not dlg.wasCanceled()
 
-        res = nest(self.job, progress)
+        try:
+            res = nest(self.job, progress)
+        except NestEngineUnavailable as e:
+            if dlg is not None:
+                dlg.close()
+            self.log(f"nest: {e}")
+            if interactive:
+                QMessageBox.warning(self.window, _tr(self.window, "mf464", "Advanced Nest"), str(e))
+            return None
         if dlg is not None:
             dlg.setValue(1000)
+        for note in res.notes:
+            self.log(f"nest: {note}")
         st = stats(self.job)
         self.log(f"nest: {sum(res.placed.values())} parts on {len(res.layouts)} sheets, "
                  f"{100 * st['utilisation']:.1f}%, unplaced {sum(res.unplaced.values())}, {res.elapsed_s:.2f}s")

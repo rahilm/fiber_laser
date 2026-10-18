@@ -120,3 +120,24 @@ def test_register_nest_and_sort(app, tmp_path):
     lay = win.document.parts[2].craft.layer
     win.run("sort.layer_first")
     assert win.document.parts[0].craft.layer == lay
+
+
+def test_params_dialog_engine_and_missing_engine(app, monkeypatch):
+    """The engine combo maps to NestParams.engine; a missing optional engine is reported
+    and nothing is run."""
+    import sys
+
+    from mlaser.nest import ENGINE_RASTER, ENGINE_SPYRROW
+    from mlaser.ui.ext_nest import NestParamsDialog, register
+    from mlaser.ui.facade import DemoController
+    from mlaser.ui.mainwindow import MainWindow
+    win = MainWindow(DemoController())
+    nx, _ = register(win)
+    d = NestParamsDialog(win, nx.job.params, win)
+    assert d.engine.currentData() == ENGINE_RASTER
+    d.engine.setCurrentIndex(d.engine.findData(ENGINE_SPYRROW))
+    assert d.apply().engine == ENGINE_SPYRROW
+    monkeypatch.setitem(sys.modules, "spyrrow", None)
+    nx.job.add_part(NestPart([Part([rect(0, 0, 50, 50)])]))
+    nx.job.add_sheet(NestSheet(500, 500))
+    assert nx.run(interactive=False) is None and nx.job.result is None
