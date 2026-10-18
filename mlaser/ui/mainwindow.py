@@ -127,6 +127,11 @@ class MainWindow(QMainWindow):
         self._timer.start(100)
         self.set_document(Document())
         self.extensions = self._load_extensions(extensions)
+        # --- safety UI (ui/safety_ui.py): event dispatcher, state/alarm banners, run bar,
+        # global Hold/Stop keys, pre-flight dialogs (docs/SAFETY.md)
+        from . import safety_ui
+        safety_ui.install(self)
+        # ---
 
     def _load_extensions(self, names) -> dict:
         """Import each feature extension and let it add its actions; a failing one is logged
