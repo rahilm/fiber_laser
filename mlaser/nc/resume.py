@@ -177,6 +177,51 @@ def _preamble(job, start: int, index: int) -> list[list[int]]:
     return out
 
 
+def _rapid_to_pulses(cur: tuple[float, float], target: tuple[float, float],
+                     target_pulses: tuple[int, int], m) -> tuple[list[list[int]], tuple[int, int]]:
+    """Laser-off rapid wire from ``cur`` (mm) that ends exactly on ``target_pulses``.
+
+    The rapid is compiled on its own, with a fresh pulse remainder (``carry = (0, 0)``) and,
+    like every sampled move, no closing step at the exact end (the last sample is the last tick
+    t <= T, docs/nc.md §1.1).  Inside one job the remainder carries that fraction into the next
+    move; here the next move is the rest of the *original* job, whose deltas were quantised
+    with a different remainder history and are replayed as they are.  So the rapid alone can
+    stop one pulse short of (or past) the restart point, and everything after it would be
+    shifted by that pulse.  The residual is therefore closed with a laser-off correction step
+    right after the rapid's last moving step (before its settle dwell).
+    """
+    from ..cam import items as I
+    from .compiler import compile_items
+    ppm = (float(m.pulses_per_mm_x), float(m.pulses_per_mm_y))
+    start = (round(cur[0] * ppm[0]), round(cur[1] * ppm[1]))
+    wire: list[list[int]] = []
+    end = start
+    try:
+        rj = compile_items([I.Rapid(cur, target)], m, cur, dry_run=True)
+        wire, start, end = [list(w) for w in rj.wire], tuple(rj.start_pulses), tuple(rj.end_pulses)
+    except ValueError:
+        # sub-micron rapids: the S-curve degenerates (NaN samples); the correction steps
+        # below cover the whole (few-pulse) distance
+        pass
+    rx, ry = target_pulses[0] - end[0], target_pulses[1] - end[1]
+    if rx or ry:
+        at, freq = len(wire), 0
+        for i in range(len(wire) - 1, -1, -1):
+            if _is_step(wire[i]):
+                dx, dy, f, _d, _p = F.decode_step(wire[i][1:3])
+                if dx or dy:
+                    at, freq = i + 1, f
+                    break
+        n = max(1, math.ceil(max(abs(rx), abs(ry)) / m.max_step))
+        fix, px, py = [], 0, 0
+        for k in range(1, n + 1):
+            ex, ey = round(rx * k / n), round(ry * k / n)
+            fix.append(F.encode_step(ex - px, ey - py, freq, 0, 0))
+            px, py = ex, ey
+        wire[at:at] = fix
+    return wire, start
+
+
 def resume_job(job, index: int, current_mm: Optional[tuple[float, float]] = None,
                mode: str = "exact", machine=None, doc=None):
     """A new Job that continues ``job`` from wire ``index``.
@@ -188,8 +233,6 @@ def resume_job(job, index: int, current_mm: Optional[tuple[float, float]] = None
     from ``current_mm`` (default: the breakpoint) to the restart point and replays the output /
     PWM / DA state that was in effect at that point.
     """
-    from ..cam import items as I
-    from .compiler import compile_items
     m = machine or job.machine
     index = max(0, min(index, len(job.wire)))
     cstart = contour_start(job, index)
@@ -199,9 +242,8 @@ def resume_job(job, index: int, current_mm: Optional[tuple[float, float]] = None
     cur = current_mm if current_mm is not None else target
     pre = []
     if math.dist(cur, target) > 1e-6:
-        rj = compile_items([I.Rapid(cur, target)], m, cur, dry_run=True)
-        pre = [list(w) for w in rj.wire]
-        start_mm, start_pulses = cur, rj.start_pulses
+        pre, start_pulses = _rapid_to_pulses(cur, target, pos[restart], m)
+        start_mm = cur
     else:
         px, py = _ppm(job)
         start_mm, start_pulses = target, pos[restart]

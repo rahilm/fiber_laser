@@ -62,6 +62,27 @@ def test_resume_job_reaches_the_same_end(job, mode):
     assert first_on >= rj.resume_offset + restart - 1 or mode == "exact"
 
 
+def test_resume_rapid_lands_on_the_restart_pulse(job):
+    """The laser-off rapid to the restart point is compiled with a fresh pulse remainder and has
+    no closing step, so on its own it can stop a pulse short; resume_job closes the residual,
+    otherwise the rest of the job is shifted by that pulse (the flaky 1-pulse UI resume)."""
+    pos = R.pulse_positions(job)
+    for k, idx in enumerate(range(50, len(job.wire) - 1, max(1, len(job.wire) // 40))):
+        for cur_p in ((pos[idx][0] + 3 + 7 * k, pos[idx][1]), (pos[idx][0] - 431, pos[idx][1] + 17),
+                      (pos[idx][0] + 1, pos[idx][1])):          # a 1 µm rapid degenerates (NaN)
+            cur = (cur_p[0] / 1000.0, cur_p[1] / 1000.0)
+            rj = R.resume_job(job, idx, current_mm=cur, mode="exact")
+            assert rj.start_pulses == cur_p
+            pre = rj.wire[:rj.resume_offset + idx]
+            x, y = rj.start_pulses
+            for w in pre:
+                if (w[0] & 0xFFFF) == F.OP_STEP:
+                    dx, dy, _f, duty, _p = F.decode_step(w[1:3])
+                    x, y = x + dx, y + dy
+            assert (x, y) == pos[idx]
+            assert _end(rj) == job.end_pulses
+
+
 def test_along_path_backward_forward(job):
     idx = len(job.wire) * 2 // 3
     seg, new = R.along_path(job, idx, -5.0)
