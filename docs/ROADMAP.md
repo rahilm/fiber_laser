@@ -8,19 +8,21 @@ must keep the goldens bit-identical or declare a new `ParityProfile`.
 Status: ☐ todo · ◐ in progress · ☑ done
 
 ## Wave 0: lock in (Stage 0)
-- ☐ git repository, `.gitignore`, first commit of the current tree
-- ☐ CI (GitHub Actions: Linux, Windows, macOS; unit, ui and sim suites), lock file
-- ☐ pytest markers (unit / ui / sim / parity / golden / safety). The default run excludes parity.
-- ☐ golden artefacts:
+- ☑ git repository, `.gitignore`, first commit of the current tree
+- ☑ CI (GitHub Actions: Linux, Windows, macOS; unit, ui and sim suites), lock file
+  (`.github/workflows/ci.yml`, `uv.lock`, `.pre-commit-config.yaml`; first run on GitHub pending)
+- ☑ pytest markers (unit / ui / sim / parity / golden / safety). The default run excludes parity
+  (and golden, which CI runs as its own step).
+- ☑ golden artefacts (`tools/make_goldens.py`, `tests/golden/`):
   - wire streams and `Job.frames()` for the samples, plus seeded random jobs
   - toolpath orders per sort mode
   - `.chf` bytes
   - planner and smoother samples
-- ☐ fix the flaky 1-pulse breakpoint-resume test
+- ☑ fix the flaky 1-pulse breakpoint-resume test (the resume rapid now lands on the restart pulse)
 - ☑ vendor assets out of the package: an open icon set (MIT/Apache), and language files loaded
   from the user's own Mlaser install at runtime instead of being shipped (docs/ASSETS.md; the
   first commit still contains them, so rewrite the history before publishing)
-- ☐ licence file (owner's decision)
+- ☑ licence file (owner's decision: MIT)
 
 ## Wave 1: structure moves (Stage 2a, mechanical, guarded by the goldens)
 - ☐ break the cycles:

@@ -1,0 +1,25 @@
+# pre-commit install   (then runs on every commit; `pre-commit run --all-files` for a full lint)
+# Ruff settings live in pyproject.toml ([tool.ruff]).  `ruff format` runs only on files a commit
+# adds, so the existing code is not mass-reformatted.
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.17.1
+    hooks:
+      - id: ruff-check
+        args: [--fix]
+  - repo: local
+    hooks:
+      - id: ruff-format-new-files
+        name: ruff format (new files only)
+        entry: python tools/ruff_format_new.py
+        language: python
+        additional_dependencies: ["ruff==0.17.1"]
+        types: [python]
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--maxkb=1024]
+      - id: check-merge-conflict
+      - id: check-toml
+      - id: check-yaml

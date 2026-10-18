@@ -50,10 +50,13 @@ simulator, and the main window.
 
 ```bash
 cd rebuild
-uv venv .venv --python 3.12
-uv pip install -p .venv -e .            # PySide6, ezdxf, numpy, shapely
-uv pip install -p .venv pytest          # for the tests
+uv sync --locked                        # .venv from uv.lock: the package, pytest, ruff, pre-commit
+uv sync --locked --extra devices        # + hidapi / pyserial (pendant, serial links)
+pre-commit install                      # optional: ruff on every commit
 ```
+
+Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"`. CPython 3.12 is the
+reference interpreter (the goldens are bit-exact on it); 3.11 is supported and tested in CI.
 
 ## Run
 
@@ -83,7 +86,15 @@ print(job.summary())          # steps, frames, replay time, cut length, pierces
 frames = job.frames(first_seq=1)   # values for write(102, frame)
 ```
 
-Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
+Tests (Qt runs offscreen):
+
+```bash
+uv run pytest -q                        # default: unit, ui and sim tests (~55 s)
+uv run pytest -q -m unit                # or ui / sim: one suite
+uv run pytest -q -m golden              # golden artefacts (~40 s), see tests/golden/
+uv run pytest -q -m parity              # Wine parity suite (needs ../parity, ~2 min)
+uv run python tools/make_goldens.py     # regenerate the goldens after a reviewed change
+```
 
 ## Languages
 

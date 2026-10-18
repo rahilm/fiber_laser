@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python: ["3.11", "3.12"]
+    env:
+      QT_QPA_PLATFORM: offscreen       # headless Qt everywhere
+      MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Qt runtime libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
+            libglib2.0-0 fonts-dejavu-core
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python }}
+          enable-cache: true
+
+      - name: Install (locked)
+        run: uv sync --locked
+
+      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected)"
+        run: uv run --locked pytest -q --durations=15
+
+      # The goldens are bit-exact on CPython 3.12 (tests/golden/test_goldens.py skips on other
+      # minor versions). Windows and macOS libm may differ from Linux in the last bit; until a
+      # first green run proves they don't, a golden difference there is reported, not fatal.
+      - name: Golden check
+        if: matrix.python == '3.12'
+        continue-on-error: ${{ runner.os != 'Linux' }}
+        run: uv run --locked pytest -q -m golden
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # informative until the existing findings are cleaned up (pre-commit lints changed files)
+      - name: ruff
+        continue-on-error: true
+        run: uvx ruff@0.17.1 check --output-format=github .

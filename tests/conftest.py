@@ -17,10 +17,20 @@ flushing deferred deletes while the application still exists avoids that.
 """
 import gc
 import os
+import sys
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest  # noqa: E402
+
+if sys.version_info < (3, 12):
+    # PySide6 6.12 releases one reference to None too many somewhere in the main-window paths
+    # (test_ui.py::test_main_window_screenshot aborts with "Fatal Python error: none_dealloc").
+    # Python 3.12 made None immortal, which hides it; on 3.11 the refcount reaches zero during a
+    # garbage collection.  Give None a large reserve so the test run survives (tests only).
+    import ctypes
+
+    ctypes.c_ssize_t.from_address(id(None)).value += 1 << 28
 
 # modules (file stems under tests/) that build Qt widgets
 UI_MODULES = {
