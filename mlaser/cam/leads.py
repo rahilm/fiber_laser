@@ -32,7 +32,7 @@ import math
 from typing import Optional
 
 from ..model import Arc, Contour, LeadParams, Line, Point, Segment
-from .geometry import rot, seg_tangent
+from ..geom.contour import rot, seg_tangent
 
 MIN_LEN = 0.01
 
@@ -249,7 +249,7 @@ def contour_leads(c: Contour, lin: LeadParams, lout: LeadParams, flag: bool,
         if frac is None:
             P = c.segments[0].start
         else:
-            from .geometry import point_at
+            from ..geom.contour import point_at
             P = point_at(c, f * (c.length() if length is None else length))
     Pend = P if c.closed else c.segments[-1].end
     if not c.closed:

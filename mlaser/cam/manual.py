@@ -24,9 +24,9 @@ import math
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
-from ..io.geom import reverse_contour, signed_area
+from ..geom.curves import reverse_contour, signed_area
 from ..model import Arc, Contour, Craft, Document, LeadParams, Line, Part, Point, Segment
-from .geometry import (contour_bbox, is_ccw, point_at, polyline, rotate_start, seg_point,
+from ..geom.contour import (contour_bbox, is_ccw, point_at, polyline, rotate_start, seg_point,
                        seg_tangent, sub_path, tangent_at)
 from .microjoint import DEFAULT_JOINT_LEN, joint_intervals
 
@@ -565,7 +565,7 @@ def check_leads(doc: Document, invert: bool = False) -> list[tuple[int, int]]:
     1/1.5 when the hit lies on the 0.5 x extension so the clearance is kept) and the error
     mark (+0x1f9, rebuild ``Craft.extra['lead_error']``) is set.  Returns the marked
     (part, contour) keys."""
-    from .geometry import contour_bbox as cbb
+    from ..geom.contour import contour_bbox as cbb
     marked: list[tuple[int, int]] = []
     if len(doc.parts) < 1 or sum(len(p.contours) for p in doc.parts) < 2:
         return marked

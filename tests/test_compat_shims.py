@@ -15,7 +15,27 @@ import pytest
 # old path -> new path (docs/dev/ARCHITECTURE.md, "Moved modules")
 MOVED = {
     "mlaser.controller.frames": "mlaser.protocol.frames",
+    "mlaser.io.geom": "mlaser.geom.curves",
 }
+# modules that stayed but lost names: module -> the names that still live there
+PARTIAL = {
+    "mlaser.cam.geometry": {"SplineCurve", "CurveRef"},
+}
+
+
+def test_cam_geometry_forwards_the_contour_helpers():
+    """cam.geometry keeps SplineCurve/CurveRef; the contour helpers moved to geom.contour and
+    are forwarded with a warning."""
+    from mlaser.cam import geometry
+    from mlaser.geom import contour
+
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        assert geometry.sub_path is contour.sub_path
+        assert geometry.signed_area is contour.signed_area
+    assert any("mlaser.geom.contour.sub_path" in str(w.message) for w in seen)
+    with pytest.raises(AttributeError):
+        geometry.no_such_name  # noqa: B018
 
 
 @pytest.mark.parametrize("old,new", sorted(MOVED.items()))
@@ -59,6 +79,9 @@ def test_no_internal_module_uses_an_old_path():
                     up = pkg[: len(pkg) - (n.level - 1)]
                     base = ".".join(up + ([n.module] if n.module else []))
                 names = [base] + [f"{base}.{a.name}" for a in n.names]
+                if base in PARTIAL:
+                    bad += [f"{rel}:{n.lineno} {base}.{a.name}" for a in n.names
+                            if a.name not in PARTIAL[base]]
             elif isinstance(n, ast.Import):
                 names = [a.name for a in n.names]
             bad += [f"{rel}:{n.lineno} {m}" for m in names if m in MOVED]

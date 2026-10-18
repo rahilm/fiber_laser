@@ -25,7 +25,7 @@ from dataclasses import dataclass, field
 from typing import Optional
 
 from ..model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Line, Point, Segment
-from .geometry import is_ccw, point_at, reverse_contour, rotate_start, stored_length, sub_seg, tangent_at
+from ..geom.contour import is_ccw, point_at, reverse_contour, rotate_start, stored_length, sub_seg, tangent_at
 from .items import (CutArc, CutLine, Delay, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)
 from .kerf import compensate

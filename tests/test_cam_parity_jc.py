@@ -5,7 +5,8 @@ import math
 import pytest
 
 from mlaser.cam import ordering as O
-from mlaser.cam.geometry import CurveRef, SplineCurve, stored_length
+from mlaser.cam.geometry import CurveRef, SplineCurve
+from mlaser.geom.contour import stored_length
 from mlaser.cam.items import CutLine
 from mlaser.cam.leads import start_tangents
 from mlaser.cam.toolpath import CamParams, build_toolpath, prepare_contour
@@ -93,7 +94,7 @@ def _spline_contour():
     k = 0.5522847498
     q = [((25, 0), (25, k * 25), (k * 25, 25), (0, 25)), ((0, 25), (-k * 25, 25), (-25, k * 25), (-25, 0)),
          ((-25, 0), (-25, -k * 25), (-k * 25, -25), (0, -25)), ((0, -25), (k * 25, -25), (25, -k * 25), (25, 0))]
-    from mlaser.io.geom import glyph_segments
+    from mlaser.geom.curves import glyph_segments
     glys = [Glyph(GLYPH_SPLINE, {"ctrl": list(c4), "knots": [0, 0, 0, 0, 1, 1, 1, 1], "u0": 0, "u1": 4}) for c4 in q]
     c = Contour([s for g in glys for s in glyph_segments(g)])
     c.set_source_glyphs(glys)

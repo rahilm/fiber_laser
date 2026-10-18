@@ -5,7 +5,7 @@ import math
 import pytest
 
 from mlaser.cam import corners as K
-from mlaser.cam.geometry import is_ccw, seg_tangent
+from mlaser.geom.contour import is_ccw, seg_tangent
 from mlaser.model import Arc, Contour, Line
 
 

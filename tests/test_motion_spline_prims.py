@@ -13,7 +13,7 @@ from mlaser.cam.items import CutLine
 from mlaser.cam.toolpath import CamParams, prepare_contour
 from mlaser.formats import chf as C
 from mlaser.formats.scio import ScReader, ScWriter
-from mlaser.io.geom import glyph_segments
+from mlaser.geom.curves import glyph_segments
 from mlaser.model import GLYPH_SPLINE, Contour, Craft, Glyph, LeadParams
 from mlaser.motion import curvetable as CT
 from mlaser.motion.interp import lead_in_index
@@ -112,7 +112,7 @@ def test_spline_primitives_give_the_original_nodes():
 def test_sub_path_keeps_segment_ends_exactly():
     # parity JC-13 (polyline start 0.3): the last piece ends at the stored start point itself,
     # not at a + ((acc + sl) - acc)/sl of it
-    from mlaser.cam.geometry import rotate_start, sub_path
+    from mlaser.geom.contour import rotate_start, sub_path
     from mlaser.model import Line
     c = Contour([Line((0.0, 0.0), (40.0, 0.0)), Line((40.0, 0.0), (40.0, 20.0)),
                  Line((40.0, 20.0), (0.0, 20.0)), Line((0.0, 20.0), (0.0, 0.0))], True)

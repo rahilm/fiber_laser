@@ -24,7 +24,7 @@ import math
 from typing import Iterable
 
 from ..model import Contour, Segment
-from .geometry import contour_bbox, sub_path
+from ..geom.contour import contour_bbox, sub_path
 
 DEFAULT_JOINT_LEN = 0.5
 

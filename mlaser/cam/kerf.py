@@ -33,7 +33,7 @@ import math
 from typing import Optional
 
 from ..model import Arc, Contour, Line, Point, Segment
-from .geometry import contour_bbox, is_ccw, seg_tangent, turn
+from ..geom.contour import contour_bbox, is_ccw, seg_tangent, turn
 
 
 def kerf_corner_join(*a):

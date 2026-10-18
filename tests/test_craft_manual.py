@@ -131,7 +131,7 @@ def test_manual_lead_line_from_click():
 
 
 def test_bridge_two_contours_and_same_contour():
-    from mlaser.io.geom import signed_area
+    from mlaser.geom.curves import signed_area
     c = M.bridge_two(rect(0, 0, 10, 10), (10, 5), rect(20, 0, 10, 10), (20, 5), 2)
     assert c.closed and signed_area(c) == pytest.approx(220)
     two = M.bridge_same(rect(0, 0, 30, 10), (10, 0), (10, 10), 2)

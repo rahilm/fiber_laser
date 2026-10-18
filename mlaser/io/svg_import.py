@@ -20,7 +20,7 @@ import re
 import xml.etree.ElementTree as ET
 
 from ..model import Arc, Contour, Document, Line, Part
-from .geom import join_segments
+from ..geom.curves import join_segments
 
 PX_MM = 25.4 / 96.0
 _UNITS = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "pc": 25.4 / 6, "px": PX_MM, "": PX_MM}

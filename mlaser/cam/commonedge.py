@@ -48,7 +48,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
 from ..model import Arc, Contour, Craft, Document, Line, Part, Point, Segment
-from .geometry import contour_bbox, sub_path
+from ..geom.contour import contour_bbox, sub_path
 
 __all__ = ["SharedEdge", "find_shared_edges", "share_edge", "share_edge_document",
            "RectGrid", "detect_rect_grid", "rect_share_edge", "cut_length"]

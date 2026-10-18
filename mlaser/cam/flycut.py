@@ -64,7 +64,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
 from ..model import Arc, Contour, Craft, Document, LayerParams, Line, Part, Point, Segment
-from .geometry import contour_bbox, point_in_contour, sub_seg
+from ..geom.contour import contour_bbox, point_in_contour, sub_seg
 from .items import (CutArc, CutLine, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)
 

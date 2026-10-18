@@ -13,7 +13,7 @@ import pytest
 ezdxf = pytest.importorskip("ezdxf")
 
 from mlaser.formats.chf import dumps_chf, loads_chf  # noqa: E402
-from mlaser.io import geom  # noqa: E402
+from mlaser.geom import curves as geom  # noqa: E402
 from mlaser.io.dxf_import import import_dxf  # noqa: E402
 from mlaser.model import (GLYPH_ARC, GLYPH_CIRCLE, GLYPH_LINE, GLYPH_LWPOLY, GLYPH_POINT,  # noqa: E402
                           GLYPH_SPLINE, Line)

@@ -190,7 +190,7 @@ def test_bridge_tool(win):
     ext.click(10.0, 5.0)
     ext.click(20.0, 5.0)
     assert len(win.document.parts) == 1
-    from mlaser.io.geom import signed_area
+    from mlaser.geom.curves import signed_area
     assert abs(signed_area(win.document.parts[0].contours[0])) == pytest.approx(220)
     win.undo()
     assert len(win.document.parts) == 2

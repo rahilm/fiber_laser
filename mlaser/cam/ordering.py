@@ -55,7 +55,7 @@ from typing import Optional, Sequence
 import numpy as np
 
 from ..model import Arc, Contour, Line, Point
-from .geometry import contour_bbox, point_at, point_in_contour, polyline, seg_tangent
+from ..geom.contour import contour_bbox, point_at, point_in_contour, polyline, seg_tangent
 
 # sort modes (0x1003f010 numbering; 20+ are rebuild extensions)
 MODE_KEEP = 0
@@ -1048,7 +1048,7 @@ def _walk_to_dist(c: Contour, walk: float) -> float:
     """FUN_10071f80 stores walk / +0x48 (the contour's stored length, ``geometry.stored_length``)
     as the start fraction; return that fraction as arc length of ``c`` (fraction * computed
     length), the convention of :func:`choose_start` callers (``start_param = d / length``)."""
-    from .geometry import stored_length
+    from ..geom.contour import stored_length
     Ls = stored_length(c)
     L = c.length()
     return walk / Ls * L if Ls > 0 else walk
@@ -1060,14 +1060,14 @@ _GLY_SEGMENT, _GLY_ARC, _GLY_CIRCLE, _GLY_LWPOLY, _GLY_SPLINE = 2, 3, 4, 6, 7
 
 def _source_glyph_groups(c: Contour, with_dir: bool = False) -> Optional[list[tuple]]:
     """Split ``c.segments`` by the contour's source glyphs (``Contour.source_glyphs()``, set by
-    the DXF import and by ``load_chf``).  Each glyph is expanded with ``io.geom.glyph_segments``
+    the DXF import and by ``load_chf``).  Each glyph is expanded with ``geom.curves.glyph_segments``
     and counted the way the importer builds the contour (``io.dxf_import._contour``): pieces of
     zero length are dropped (arcs and a lone point glyph are kept); the importer's end-point
     snapping moves end points but keeps the count.  None when the counts do not add up."""
     src = c.source_glyphs()
     if not src:
         return None
-    from mlaser.io.geom import glyph_segments
+    from mlaser.geom.curves import glyph_segments
     from mlaser.model import GLYPH_POINT
     lone_point = len(src) == 1 and src[0].kind == GLYPH_POINT
     groups, i = [], 0
@@ -1102,7 +1102,7 @@ def contour_glyphs(c: Contour) -> list[tuple[int, list]]:
     """The contour as the original's glyph list: ``[(kind, segments), ...]`` in traversal
     order.  Preferred source: the contour's own source glyphs (``Contour.source_glyphs()``:
     the rebuild's DXF reader and ``load_chf`` attach them), split with
-    ``io.geom.glyph_segments`` (:func:`_source_glyph_groups`), so an LWPOLYLINE is ONE glyph of
+    ``geom.curves.glyph_segments`` (:func:`_source_glyph_groups`), so an LWPOLYLINE is ONE glyph of
     kind 6 whose pieces are its sub-segments, as in the original.  Then a .chf record
     (``extra['chf'].glys``).  Otherwise every segment is its own glyph: a line (2), an arc (3)
     or, for a closed full-circle arc, a circle (4)."""

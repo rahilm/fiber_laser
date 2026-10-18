@@ -63,7 +63,7 @@ from ezdxf.math import Vec3
 
 from ..model import (GLYPH_ARC, GLYPH_CIRCLE, GLYPH_LINE, GLYPH_LWPOLY, GLYPH_POINT, GLYPH_SPLINE,
                      Arc, Contour, Craft, Document, Glyph, Line, Part, Segment)
-from . import geom
+from ..geom import curves as geom
 
 CHAIN_TOL = 0.1          # CGlyContour closing / chaining tolerance of imported contours (.chf +0xd8 = 0.1)
 PLACEMENT = (20.0, 0.0)  # FUN_100ecef0: new graphs go 20 mm (DAT_1011d848) right of the drawing, bbox

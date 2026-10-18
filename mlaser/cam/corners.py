@@ -48,7 +48,7 @@ from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
 from ..model import Arc, Contour, Line, Point, Segment
-from .geometry import seg_tangent
+from ..geom.contour import seg_tangent
 
 __all__ = ["Corner", "corners", "fillet", "fillet_corner", "unload_loop", "alpha_corners",
            "auto_cool_points", "cubic_bezier_points", "bezier_corner_join", "kerf_corner_join",
@@ -297,7 +297,7 @@ def alpha_corners(c: Contour, max_angle: float = 90.0, min_edge: float = 1.0, le
     contour (computed when None); start_dist: arc length of the start point.
     """
     if ccw is None:
-        from .geometry import is_ccw
+        from ..geom.contour import is_ccw
         ccw = is_ccw(c) if c.closed else True
     s = 1 if ccw else -1
     if mode == 0 and depth % 2 == 0:

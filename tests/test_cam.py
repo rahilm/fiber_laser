@@ -4,7 +4,7 @@ import re
 
 import pytest
 
-from mlaser.cam.geometry import is_ccw, point_in_contour, rotate_start, seg_tangent, signed_area, sub_path
+from mlaser.geom.contour import is_ccw, point_in_contour, rotate_start, seg_tangent, signed_area, sub_path
 from mlaser.cam.items import CutArc, CutLine, LaserOff, LaserOn, Pierce, Rapid
 from mlaser.cam.kerf import compensate, kerf_sign
 from mlaser.cam.leads import contour_leads, lead_in, lead_out, side_flag

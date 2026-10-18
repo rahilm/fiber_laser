@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
-from ..io import geom as _geom
+from ..geom import curves as _geom
 from ..model import Arc, Contour, Craft, Document, Glyph, LeadParams, Line, Part, Segment
 from .scio import ScFormatError, ScReader, ScWriter
 
@@ -479,7 +479,7 @@ def _bspline_points(ctrl: list, knots: list, tol: float = _geom.SPLINE_TOL) -> l
     The original flattens a CEditableSpline with splineAnalyer (CADModule FUN_100953d0 ->
     splineAnalyer vtable+0x2c FUN_100bf350) to chords of at most sqrt(2*R*e) = 0.632 mm turning
     at most acos(1 - e/R) = 18.19 deg (e = 0.1, R = 2); the rebuild uses the same limits and also
-    keeps every chord within ``tol`` of the curve (io.geom.flatten_bspline)."""
+    keeps every chord within ``tol`` of the curve (geom.curves.flatten_bspline)."""
     n = len(ctrl)
     k = len(knots) - n          # order
     if n == 0 or k < 1:
