@@ -45,7 +45,7 @@ def test_follower_dialog_with_card(app):
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,
                                                  fifo_time_ms=600, max_recv=2)).open()
     try:
-        win = SimpleNamespace(ctl=SimpleNamespace(mc=mc), log_panel=None)
+        win = SimpleNamespace(ctl=SimpleNamespace(card=lambda: mc), log_panel=None)
         d = X.FollowerDialog(win, parent=None)
         d.refresh()
         assert "homed=True" in d.status_lbl.text()

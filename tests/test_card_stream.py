@@ -1,4 +1,4 @@
-"""Streaming: prefill, buffer telemetry, watchdog, separate-process streamer."""
+"""Streaming: prefill, buffer cap, telemetry, watchdog fault, separate-process streamer."""
 from __future__ import annotations
 
 import pytest
@@ -6,7 +6,9 @@ import pytest
 from mlaser.protocol import frames as F
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.simulator import CardSimulator
-from mlaser.controller.stream import JobStreamer, ProcessStreamer, WireJob, wire_timing
+from mlaser.controller.stream import JobStreamer, ProcessStreamer, StreamFault, WireJob, wire_timing
+
+ARMED = {"armed": True}        # policy of a laser job started armed (normally from the supervisor)
 
 
 def _job(n=3000, dx=20):
@@ -27,10 +29,11 @@ def test_prefill_and_buffer_stats():
             assert sim.wait_idle(5) and sim.position(0) == 3000 * 20
             b = js.buf
             assert b.capacity == 24_000
-            # prefilled until the FIFO was full: ~ (24000-2000)/12 steps of 1 ms
-            assert b.prefill_ms > 1000
+            # prefilled up to the motion cap (1.2 s by default), never the whole FIFO
+            assert 1000 < b.prefill_ms <= 1200 + 120
+            assert b.peak_buffer_ms <= 1200 + 120
             assert b.min_buffer_ms is not None and b.min_buffer_ms > 0
-            assert b.watchdog_trips == 0
+            assert b.watchdog_trips == 0 and b.restarts == 0
     finally:
         sim.stop()
 
@@ -46,28 +49,61 @@ def test_prefill_target():
         sim.stop()
 
 
-def test_watchdog_holds_laser_off_and_recovers():
+def test_watchdog_trip_is_a_fault_without_restart():
     sim = CardSimulator(fifo_capacity=8_000, time_scale=4.0).start()
     try:
         with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
             events = []
             # an impossible threshold forces a trip as soon as the job runs
-            js = JobStreamer(mc, watchdog_ms=5000, resume_ms=100)
+            js = JobStreamer(mc, watchdog_ms=5000)
             js.on_event = lambda *e: events.append(e[0])
-            js.run_job(_job(2000), timeout_s=60)
-            assert sim.wait_idle(5)
-            assert sim.position(0) == 2000 * 20          # nothing lost
-            assert js.buf.watchdog_trips >= 1 and "underrun" in events and "resumed" in events
+            with pytest.raises(StreamFault) as ei:
+                js.run_job(_job(2000), timeout_s=60)
+            assert ei.value.kind == "underrun" and ei.value.exec_index >= 0
+            assert js.buf.watchdog_trips == 1 and "underrun" in events and js.buf.restarts == 0
             assert [9999, 3, 5000, 0, 0] in sim.state.commands     # PWM off on the trip
+            assert not sim.state.fifo_running                      # stopped, never restarted
     finally:
         sim.stop()
+
+
+def test_unexpected_idle_is_a_fault_not_a_restart():
+    """A FIFO stop the streamer did not issue (another client, the card) used to be overridden
+    by a FIFO start; now the streamer stops with a fault and leaves the card stopped."""
+    import threading
+    import time
+    sim = CardSimulator(fifo_capacity=24_000, time_scale=1.0).start()
+    try:
+        cfg = TransportConfig(host="127.0.0.1", port=sim.port)
+        with MotionController(config=cfg) as mc, MotionController(config=cfg) as other:
+            js = JobStreamer(mc)
+            err = []
+            t = threading.Thread(target=lambda: err.append(_run(js, _job(6000, 10))))
+            t.start()
+            time.sleep(0.8)
+            other.fifo_stop()
+            t.join(10)
+            assert err and isinstance(err[0], StreamFault) and err[0].kind == "unexpected_idle"
+            x = sim.position(0)
+            time.sleep(0.3)
+            assert sim.position(0) == x and not sim.state.fifo_running and js.buf.restarts == 0
+    finally:
+        sim.stop()
+
+
+def _run(js, job):
+    try:
+        js.run_job(job, timeout_s=60)
+    except Exception as e:  # noqa: BLE001
+        return e
+    return None
 
 
 def test_process_streamer_runs_job():
     sim = CardSimulator(time_scale=4.0).start()
     try:
         cfg = TransportConfig(host="127.0.0.1", port=sim.port)
-        ps = ProcessStreamer(cfg, 1000.0)
+        ps = ProcessStreamer(cfg, 1000.0, policy=ARMED)
         seen = []
         stats = ps.run_job(_job(1500), progress=lambda f, i: seen.append(f), timeout_s=60)
         assert stats.items == 1500 and stats.frames > 1
@@ -85,7 +121,7 @@ def test_process_streamer_cancel():
     sim = CardSimulator(time_scale=1.0).start()
     try:
         cfg = TransportConfig(host="127.0.0.1", port=sim.port)
-        ps = ProcessStreamer(cfg, 1000.0)
+        ps = ProcessStreamer(cfg, 1000.0, policy=ARMED)
         cancel = threading.Event()
         threading.Timer(1.5, cancel.set).start()
         t0 = time.monotonic()

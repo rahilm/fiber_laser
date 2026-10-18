@@ -188,14 +188,13 @@ class MachineExtension:
         panel = getattr(self.w, "control", None)
         if panel is not None:
             panel.machine_ops = self.ops
-        hooks = getattr(self.w.ctl, "connect_hooks", None)
-        if isinstance(hooks, list) and self.startup_homing not in hooks:
-            hooks.append(self.startup_homing)
-        if hasattr(self.w.ctl, "coords") and self.ops.coords.kind != C.FLOAT:
-            self.w.ctl.coords = self.ops.coords
-        hooks = getattr(self.w.ctl, "job_start_hooks", None)
-        if isinstance(hooks, list) and self.autosave not in hooks:
-            hooks.append(self.autosave)
+        ctl = self.w.ctl                      # MachineAPI: every controller has these
+        if self.startup_homing not in ctl.connect_hooks:
+            ctl.connect_hooks.append(self.startup_homing)
+        if self.ops.coords.kind != C.FLOAT:
+            ctl.coords = self.ops.coords
+        if self.autosave not in ctl.job_start_hooks:
+            ctl.job_start_hooks.append(self.autosave)
 
     def params(self):
         """MachineParams of the parameter directory (defaults when none exist yet)."""
@@ -289,8 +288,7 @@ class MachineExtension:
 
     def select_coord(self, kind: int) -> None:
         self.ops.select_coord(kind)
-        if hasattr(self.w.ctl, "coords"):
-            self.w.ctl.coords = self.ops.coords
+        self.w.ctl.coords = self.ops.coords
         self.log(f"mf307: {_tr(self.w, C.NAMES[kind], C.NAMES[kind])}")
 
     # ------------------------------------------------------------------ hardware
@@ -368,8 +366,7 @@ class MachineExtension:
                                               f"{ext} (*.{ext})")
         if not path:
             return
-        place = getattr(self.w.ctl, "place", None)
-        d = place(doc) if callable(place) else doc
+        d = self.w.ctl.place(doc)
         job = compile_job(d, getattr(self.w, "cam_params", None), getattr(self.w, "machine", None))
         out = export_offline(path, job, doc, laser_type=self.ops.laser_type)
         self.log(f"A241115_1: offline job written to {out} ({job.steps} steps)")
@@ -441,7 +438,7 @@ class MachineExtension:
             return
         ctl = self.w.ctl
         out = save_task(path, doc, self.params().layer, self.ops.laser_type,
-                        getattr(ctl, "autosave_dir", None), int(getattr(ctl, "breakpoint", None) is not None))
+                        ctl.autosave_dir, int(ctl.breakpoint is not None))
         self.log(f"A250320_2: task saved to {out}")
 
     def task_import(self) -> None:
@@ -456,7 +453,7 @@ class MachineExtension:
             return
         self._set_doc(doc)
         self.log(f"A250320_1: task {Path(path).name} imported ({len(doc.parts)} parts, break {t.is_break})")
-        if t.is_break and hasattr(self.w.ctl, "resume_saved"):
+        if t.is_break:
             self.w.ctl.resume_saved(doc, str(self.ops.temp_dir))
 
     def autosave(self, doc) -> None:
@@ -468,21 +465,20 @@ class MachineExtension:
         except Exception as e:  # noqa: BLE001
             self.log(f"autosave.chf not written: {e}")
 
-    def recovery(self) -> None:
+    def recovery(self, confirm: bool = True) -> None:
         """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.chf and the
         AutosaveParam breakpoint (FUN_00480860), mf169."""
         p = self.ops.file_dir / "autosave.chf"
         if not p.exists():
             self.log(f"mf138: no {p}")
             return
-        if not self._ask(_tr(self.w, "mf138", "System Recovery"), _tr(self.w, "mf167", "Recover the last state?")):
+        if confirm and not self._ask(_tr(self.w, "mf138", "System Recovery"),
+                                     _tr(self.w, "mf167", "Recover the last state?")):
             return
         from mlaser.formats.chf import load_chf
         doc = load_chf(str(p))
         self._set_doc(doc)
-        resumed = False
-        if hasattr(self.w.ctl, "resume_saved"):
-            resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
+        resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
         self.log(f"mf169: system recovered from {p.name}" + (" (resuming breakpoint)" if resumed else ""))
 
     def startup_homing(self, ctl) -> None:
@@ -493,8 +489,7 @@ class MachineExtension:
         normal = self.normal_exit
 
         def run():
-            if hasattr(ctl, "startup_homing"):
-                ctl.startup_homing(confirm=confirm, normal_exit=normal)
+            ctl.startup_homing(confirm=confirm, normal_exit=normal)
         try:
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, run)
@@ -516,7 +511,16 @@ class MachineExtension:
         sec = data.setdefault("SC2000", {})
         self.normal_exit = sec.get("NormalExit", "1") != "0"
         if sec.get("NormalExit", "1") == "0":
-            self.log("mp18: the last run ended abnormally; use mf138 System Recovery to restore it")
+            # a real dialog, not a log line (docs/review/ux.md P0-7)
+            self.log("mp18: the last run ended abnormally")
+            try:
+                from PySide6.QtCore import QTimer
+
+                from .safety_ui import recovery_prompt
+                if not getattr(self.w, "_test_no_dialogs", False):
+                    QTimer.singleShot(0, lambda: recovery_prompt(self.w, lambda: self.recovery(confirm=False)))
+            except Exception:  # noqa: BLE001
+                pass
         sec["NormalExit"] = "0"
         try:
             write_ini(data, ini)

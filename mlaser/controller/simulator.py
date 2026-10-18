@@ -7,15 +7,26 @@ status through the 1000/2000 register blocks.  Behaviour that the reverse
 engineering could not pin down (time unit of step items, what a jog flag means,
 ...) follows the INFERRED choices documented in docs/protocol.md.
 
+Two behaviour modes and a fault-injection API (docs/SAFETY.md §9):
+
+* default ("optimistic"): a FIFO halt or a drained FIFO turns the beam off and stops at once;
+* ``pessimistic=True``: what a real card may do and the safety layer must survive - after a
+  FIFO stop or a decelerated stop the card keeps executing buffered items for ``halt_lag_ms``,
+  the beam stays in its last state until an explicit PWM-off (``[9999, 3|17, f, 0, ...]``) or a
+  duty-0 step, a FIFO start is accepted while an alarm is latched (``accept_start_in_alarm``);
+* :class:`SimFaults` (``sim.faults``, :meth:`CardSimulator.inject`): link down (requests never
+  arrive), request / reply loss (probabilities), reply latency and jitter, duplicated writes.
+
 Run standalone::
 
-    python -m mlaser.controller.simulator --port 5020
+    python -m mlaser.controller.simulator --port 5020 [--pessimistic]
 """
 from __future__ import annotations
 
 import argparse
 import collections
 import logging
+import random
 import select
 import socket
 import threading
@@ -92,6 +103,27 @@ class SimState:
     commands: list = field(default_factory=list)     # mailbox commands received
     fast_map: list = field(default_factory=lambda: list(FAST_MAP))   # 60000 map (FUN_1003ee50)
     fast_map_writes: int = 0
+    lag_left_s: float = 0.0   # pessimistic mode: buffered motion still executed after a halt
+    clear_after_lag: bool = False
+    pwm_off_latched: bool = False   # an explicit PWM off holds the beam off until the next start
+
+
+@dataclass
+class SimFaults:
+    """Injected link faults (all off by default)."""
+    link_down: bool = False          # requests never reach the card (cable pulled, switch dead)
+    request_loss: float = 0.0        # probability a request is lost before the card sees it
+    reply_loss: float = 0.0          # probability the card executes a request but the reply is lost
+    latency_ms: float = 0.0          # reply delay
+    jitter_ms: float = 0.0           # + uniform 0..jitter
+    duplicate_writes: bool = False   # every write is executed twice (a retried send that arrived)
+    seed: int = 1
+    dropped: int = 0                 # counters
+    lost_replies: int = 0
+
+    def active(self) -> bool:
+        return bool(self.link_down or self.request_loss or self.reply_loss or self.latency_ms
+                    or self.jitter_ms or self.duplicate_writes)
 
 
 @dataclass
@@ -141,7 +173,10 @@ class CardSimulator:
                  onboard_zf: bool = False, time_scale: float = 1.0, drop_replies: int = 0,
                  ppm: float = 1000.0, step_ppm: Optional[float] = None, ppr: int = 10000,
                  home_speed: float = 200.0, soft_limits: Optional[dict] = None,
-                 starvation_alarm: bool = False, sheet: Optional[SimSheet] = None):
+                 starvation_alarm: bool = False, sheet: Optional[SimSheet] = None,
+                 pessimistic: bool = False, halt_lag_ms: float = 30.0,
+                 accept_start_in_alarm: Optional[bool] = None, card_soft_limits: Optional[dict] = None,
+                 homed: bool = False):
         self.host, self.port, self.transport = host, port, transport
         self.version = version
         self.period_ms = period_ms
@@ -156,8 +191,20 @@ class CardSimulator:
         self.sheet = sheet                            # edge-seek model (SimSheet), None = no sheet
         if sheet is not None:
             self.onboard_zf = True
+        self.pessimistic = pessimistic
+        self.halt_lag_s = halt_lag_ms / 1000.0 if pessimistic else 0.0
+        # the original simulator accepted a FIFO start while an alarm was latched; keep that
+        self.accept_start_in_alarm = True if accept_start_in_alarm is None else accept_start_in_alarm
+        self.faults = SimFaults()
+        self._rng = random.Random(self.faults.seed)
         self.state = SimState()
+        for ax in self.state.axes:
+            ax.homed = homed
         self._init_params(ppr, home_speed)
+        for a, (lo, hi) in (card_soft_limits or {}).items():   # axis RW words 1/2 (counts)
+            from .client import AX_W_SOFT_A, AX_W_SOFT_B, axis_param_addr
+            self.state.params[axis_param_addr(a, AX_W_SOFT_A)] = int(round(lo * self.ppm)) & 0xFFFFFFFF
+            self.state.params[axis_param_addr(a, AX_W_SOFT_B)] = int(round(hi * self.ppm)) & 0xFFFFFFFF
         self.lock = threading.RLock()
         self._sock: Optional[socket.socket] = None
         self._threads: list[threading.Thread] = []
@@ -282,13 +329,55 @@ class CardSimulator:
                     if out is not None:
                         c.sendall(out)
 
+    # ------------------------------------------------------------------ fault injection
+    def inject(self, **kw) -> SimFaults:
+        """Set :class:`SimFaults` fields, e.g. ``sim.inject(link_down=True)``."""
+        for k, v in kw.items():
+            if not hasattr(self.faults, k):
+                raise AttributeError(k)
+            setattr(self.faults, k, v)
+        if "seed" in kw:
+            self._rng = random.Random(kw["seed"])
+        return self.faults
+
+    def clear_faults(self) -> None:
+        self.faults = SimFaults()
+
+    def link_down(self, on: bool = True) -> None:
+        self.faults.link_down = on
+
+    @property
+    def beam_on(self) -> bool:
+        """The beam could be on: the executing step's duty (or the held one in pessimistic mode)
+        or a PWM enabled by a command with a duty."""
+        st = self.state
+        return bool(st.laser or st.pwm_on)
+
     def handle(self, data: bytes) -> Optional[bytes]:
         """Process one request frame and return the reply bytes (or None to drop)."""
+        fl = self.faults
+        if fl.link_down or (fl.request_loss and self._rng.random() < fl.request_loss):
+            fl.dropped += 1
+            return None
         self.requests += 1
         try:
             req = F.decode_request(data)
         except F.FrameError:
             return None
+        if fl.duplicate_writes and req.func == F.FUNC_WRITE:
+            self._handle(req)
+        resp = self._handle(req)
+        if fl.reply_loss and self._rng.random() < fl.reply_loss:
+            fl.lost_replies += 1
+            return None
+        if fl.latency_ms or fl.jitter_ms:
+            time.sleep((fl.latency_ms + self._rng.random() * fl.jitter_ms) / 1000.0)
+        if self.drop_replies > 0:
+            self.drop_replies -= 1
+            return None
+        return F.encode_response(resp)
+
+    def _handle(self, req) -> "F.Response":
         with self.lock:
             try:
                 if req.func == F.FUNC_READ and F.REG_HWPARAM <= req.addr < F.REG_HWPARAM + 32:
@@ -320,10 +409,7 @@ class CardSimulator:
                 resp = F.Response(req.func, req.tid, exception=EXC_ILLEGAL_ADDRESS)
             except ValueError:
                 resp = F.Response(req.func, req.tid, exception=EXC_ILLEGAL_VALUE)
-        if self.drop_replies > 0:
-            self.drop_replies -= 1
-            return None
-        return F.encode_response(resp)
+        return resp
 
     # ------------------------------------------------------------------ registers
     def _ro(self, i: int) -> int:
@@ -444,18 +530,24 @@ class CardSimulator:
             return
         if addr == F.REG_FIFO_CTRL:
             v = vals[0]
-            if v == F.FIFO_CLEAR:
+            if v == F.FIFO_CLEAR and self.pessimistic and st.fifo_running and st.lag_left_s > 0.0:
+                st.clear_after_lag = True     # the card is still decelerating through its buffer
+            elif v == F.FIFO_CLEAR:
                 st.fifo.clear()
                 st.fifo_bytes = 0
                 st.fifo_running = False
-                st.step_left_s = 0.0
+                self._finish_step()
                 st.marks = st.steps_since_mark = 0
                 st.min_fifo_bytes = None
                 st.hold_left_s, st.wait = 0.0, None
             elif v == F.FIFO_START:
+                if self._motion_blocked() and not self.accept_start_in_alarm:
+                    return                    # an alarm is latched: the start is ignored
                 st.fifo_running = True
+                st.lag_left_s = 0.0
+                st.pwm_off_latched = False
             elif v == F.FIFO_STOP:
-                st.fifo_running = False
+                self._halt_fifo()
             else:
                 raise ValueError(v)
             return
@@ -467,7 +559,7 @@ class CardSimulator:
         raise KeyError(addr)
 
     # ------------------------------------------------------------------ commands
-    def _sys(self, sub: int, p: list[int]) -> None:
+    def _sys(self, sub: int, p: list[int], immediate: bool = False) -> None:
         st = self.state
         p = p + [0] * 4
         if sub == F.SYS_OUTPUTS:
@@ -482,6 +574,11 @@ class CardSimulator:
         elif sub in (F.SYS_PWM, F.SYS_PWM_BUS):
             st.pwm = (p[0], p[1])                    # [3, freq, duty, on]
             st.pwm_on = bool(p[2]) and bool(p[1])
+            if not p[1]:
+                st.laser = False                     # explicit PWM off: the beam goes out
+                st.pwm_off_latched = immediate       # a mailbox PWM off holds until the next start
+            else:
+                st.pwm_off_latched = False
         elif sub == getattr(F, "SYS_LASER_SYNC", 18):
             st.laser_sync = p[0]
         elif sub == F.SYS_ZERO:
@@ -497,7 +594,7 @@ class CardSimulator:
         op, p = w[0], w[1:]
         st = self.state
         if op == F.OP_SYS:
-            self._sys(p[0] if p else 0, p[1:])
+            self._sys(p[0] if p else 0, p[1:], immediate=True)
         elif op == F.OP_JOG and len(p) >= 5:
             if self._motion_blocked():
                 return
@@ -599,10 +696,38 @@ class CardSimulator:
     def _motion_blocked(self) -> bool:
         return self.alarm_word1() != 0
 
-    def _halt_fifo(self) -> None:
+    def _finish_step(self) -> None:
+        """A halt completes the step item being executed (a card never stops between two
+        pulses of one servo period); dropping its remainder left the axes off the pulse grid
+        and made resume tests flaky by one pulse."""
         st = self.state
-        st.fifo_running = False
+        if st.step_left_s > 0:
+            x, y = st.axes[0], st.axes[1]
+            x.pos += st.step_vel[0] * st.step_left_s
+            y.pos += st.step_vel[1] * st.step_left_s
+            if float(self.counts_per_step).is_integer():
+                x.pos, y.pos = round(x.pos), round(y.pos)
         st.step_left_s = 0.0
+
+    def _halt_fifo(self, immediate: bool = False) -> None:
+        st = self.state
+        if self.pessimistic:
+            # a real card decelerates: it keeps executing buffered items for halt_lag_ms and the
+            # beam keeps its state until an explicit PWM off
+            if not immediate and st.fifo_running:
+                if st.lag_left_s > 0.0:
+                    return                    # already decelerating
+                st.lag_left_s = self.halt_lag_s
+                if st.lag_left_s > 0.0:
+                    return
+            st.fifo_running = False
+            st.lag_left_s = 0.0
+            self._finish_step()
+            for ax in st.axes[:2]:
+                ax.vel = 0.0
+            return
+        st.fifo_running = False
+        self._finish_step()
         st.laser = False
         for ax in st.axes[:2]:
             ax.vel = 0.0
@@ -704,7 +829,19 @@ class CardSimulator:
                 ax.pos += s
                 ax.vel = s / dt
         if st.fifo_running:
-            self._run_fifo(dt)
+            if st.lag_left_s > 0.0:
+                use = min(dt, st.lag_left_s)
+                self._run_fifo(use)
+                st.lag_left_s -= use
+                if st.lag_left_s <= 1e-12:
+                    st.lag_left_s = 0.0
+                    self._halt_fifo(immediate=True)
+                    if st.clear_after_lag:
+                        st.clear_after_lag = False
+                        st.fifo.clear()
+                        st.fifo_bytes = 0
+            else:
+                self._run_fifo(dt)
         if st.zf_edge is not None and self.sheet is not None:
             self._edge_model(prev)
         self._check_soft_limits()
@@ -799,7 +936,9 @@ class CardSimulator:
                 continue
             if not st.fifo:
                 st.fifo_running = False      # INFERRED: card reports idle when drained
-                st.laser = False
+                st.lag_left_s = 0.0
+                if not self.pessimistic:
+                    st.laser = False
                 x.vel = y.vel = 0.0
                 st.underruns += 1
                 if self.starvation_alarm:
@@ -815,7 +954,7 @@ class CardSimulator:
                 dx, dy, _freq, duty, power = F.decode_step(params)
                 dur = self.period_ms * 1e-3
                 k = self.counts_per_step
-                st.laser, st.laser_power = duty != 0, power
+                st.laser, st.laser_power = duty != 0 and not (self.pessimistic and st.pwm_off_latched), power
                 st.step_vel = (dx * k / dur, dy * k / dur)
                 st.step_left_s = dur
                 st.steps_since_mark += 1
@@ -892,9 +1031,10 @@ def main(argv=None):
     ap.add_argument("--host", default="127.0.0.1")
     ap.add_argument("--port", type=int, default=5020)
     ap.add_argument("--tcp", action="store_true")
+    ap.add_argument("--pessimistic", action="store_true", help="real-card worst case (docs/SAFETY.md)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
-    sim = CardSimulator(a.host, a.port, "tcp" if a.tcp else "udp").start()
+    sim = CardSimulator(a.host, a.port, "tcp" if a.tcp else "udp", pessimistic=a.pessimistic).start()
     print(f"MCC100 simulator on {a.host}:{sim.port} ({sim.transport}); Ctrl-C to stop")
     try:
         while True:

@@ -45,8 +45,10 @@ def pytest_collection_modifyitems(config, items):
         path = item.path
         parts = path.parts
         marks = set()
+        # directories below tests/ only (a checkout may itself live in a directory named "safety")
+        below = parts[len(parts) - 1 - parts[::-1].index("tests") + 1:-1] if "tests" in parts else ()
         for d, m in _DIR_MARKS.items():
-            if d in parts[:-1] and "tests" in parts:
+            if d in below:
                 marks.add(m)
         if path.stem in UI_MODULES:
             marks.add("ui")

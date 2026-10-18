@@ -125,6 +125,7 @@ def test_ui_pause_resume_from_breakpoint(tmp_path):
     ctl = UiController(poll_s=0.02, autosave_dir=str(tmp_path))
     try:
         assert ctl.connect_simulator(time_scale=2.0)
+        assert ctl.arm()
         doc = _doc()
         ctl.start(doc)
         assert _wait(lambda: ctl.state().progress > 0.3, 20)
@@ -158,6 +159,7 @@ def test_ui_fifo_pause_mode():
     ctl = UiController(poll_s=0.02, pause_mode="fifo")
     try:
         assert ctl.connect_simulator(time_scale=2.0)
+        assert ctl.arm()
         ctl.start(_doc())
         assert _wait(lambda: ctl.state().progress > 0.2, 20)
         ctl.pause()
