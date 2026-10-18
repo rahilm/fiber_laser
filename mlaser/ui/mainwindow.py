@@ -154,10 +154,24 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.canvas.zoom_fit)   # fit once the view has its real size
 
     def closeEvent(self, ev) -> None:
+        # --- safety: leave the machine halted (program stop, PWM 0, outputs off, FIFO
+        # stop/clear) before the connection goes; a failure is logged, never swallowed
+        from . import safety_ui
+        if safety_ui.job_running(self) and not getattr(self, "_test_no_dialogs", False):
+            if QMessageBox.question(self, "Job running", "A job is running. Stop it and quit?",
+                                    QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                ev.ignore()
+                return
+        import logging
+        try:
+            self.ctl.safe_halt("main window closed")
+        except Exception:  # noqa: BLE001
+            logging.getLogger("mlaser.ui").exception("safe_halt on close failed")
         try:
             self.ctl.disconnect()
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger("mlaser.ui").exception("disconnect on close failed")
+        # ---
         super().closeEvent(ev)
 
     # ------------------------------------------------------------------ setup
