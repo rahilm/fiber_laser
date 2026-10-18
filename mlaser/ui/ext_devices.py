@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtCore import QPointF, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
@@ -21,6 +21,8 @@ from mlaser.devices import pendant as P
 from mlaser.devices.follower import STATUS_FIELDS, CalibrationTable, FollowerStatus, OnBoardFollower
 from mlaser.devices.laser import (LASER_IPG_NET, LASER_RAYCUS_NET, IpgLaser, LaserError, RaycusLaser)
 from mlaser.devices.transport import DeviceSettings
+
+from .icons import command_icon
 
 
 def _mc(window):
@@ -413,11 +415,14 @@ def register(window) -> None:
     ):
         act = QAction(text, window)
         act.setObjectName(cmd)
+        act.setIcon(command_icon(cmd))
         act.triggered.connect(fn)
         window.device_actions[cmd] = act
         tb = QToolButton()
         tb.setDefaultAction(act)
         tb.setAutoRaise(True)
+        tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        tb.setIconSize(QSize(32, 32))
         lay.addWidget(tb)
     lay.addStretch(1)
     window.ribbon.addTab(page, "Devices")

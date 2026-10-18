@@ -1,51 +1,19 @@
 """A light-weight ribbon (tabbed toolbar) replacing BCGControlBar's CBCGPRibbonBar.
 
-Built from :mod:`mlaser.ui.ribbon_spec`. Every button triggers a ``QAction`` registered in
-``Ribbon.actions[cmd]`` so the main window can connect handlers by command id.
+Built from :mod:`mlaser.ui.ribbon_spec`, with SVG icons from :mod:`mlaser.ui.icons`. Every
+button triggers a ``QAction`` registered in ``Ribbon.actions[cmd]`` so the main window can
+connect handlers by command id.
 """
 from __future__ import annotations
 
-import os
-from functools import lru_cache
-
 from PySide6.QtCore import QSize, Qt
-from PySide6.QtGui import QAction, QIcon, QPixmap
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QTabWidget, QToolButton,
                                QVBoxLayout, QWidget, QGridLayout)
 
 from . import ribbon_spec as spec
-from .i18n import Translator, RES_DIR
-
-STRIP_DIR = os.path.join(RES_DIR, "icons", "strips")
-BUTTON_DIR = os.path.join(RES_DIR, "icons", "buttons")
-
-
-@lru_cache(maxsize=None)
-def _strip(strip_id: int) -> QPixmap | None:
-    path = os.path.join(STRIP_DIR, f"strip_{strip_id}.png")
-    return QPixmap(path) if os.path.exists(path) else None
-
-
-def strip_icon(strip_id: int, index: int, size: int = 32) -> QIcon:
-    """Slice icon ``index`` (square, height-sized) from a PNG strip resource."""
-    pm = _strip(strip_id)
-    if pm is None or pm.isNull():
-        return QIcon()
-    h = pm.height()
-    if (index + 1) * h > pm.width():
-        return QIcon()
-    icon = QIcon(pm.copy(index * h, 0, h, h))
-    small_id = {348: 350, 351: 352, 353: 354, 355: 356, 441: 442, 451: 452}.get(strip_id)
-    if small_id:
-        sp = _strip(small_id)
-        if sp is not None and not sp.isNull() and (index + 1) * sp.height() <= sp.width():
-            icon.addPixmap(sp.copy(index * sp.height(), 0, sp.height(), sp.height()))
-    return icon
-
-
-def button_icon(bitmap_id: int) -> QIcon:
-    path = os.path.join(BUTTON_DIR, f"btn_{bitmap_id}.png")
-    return QIcon(path) if os.path.exists(path) else QIcon()
+from .i18n import Translator
+from .icons import command_icon
 
 
 class Ribbon(QTabWidget):
@@ -82,8 +50,10 @@ class Ribbon(QTabWidget):
             self.tr_.bind(act, key, act.setText)
             self.tr_.bind(act, key, act.setToolTip)
             self.actions[cmd] = act
-        if icon is not None and act.icon().isNull():
-            act.setIcon(icon)
+        if act.icon().isNull():
+            icon = icon if icon is not None and not icon.isNull() else command_icon(cmd)
+            if not icon.isNull():
+                act.setIcon(icon)
         if checkable:
             act.setCheckable(True)
         return act
@@ -109,8 +79,9 @@ class Ribbon(QTabWidget):
         row.setSpacing(1)
         small: list[QToolButton] = []
         for b in grp.buttons:
-            icon = strip_icon(*b.icon) if b.icon else QIcon()
+            icon = command_icon(b.cmd, b.icon)
             act = self.action(b.cmd, b.key, icon, b.checkable)
+            text_only = act.icon().isNull()
             tb = QToolButton()
             tb.setDefaultAction(act)
             tb.setAutoRaise(True)
@@ -120,14 +91,18 @@ class Ribbon(QTabWidget):
                     m.addAction(self.action(cmd, key))
                 tb.setMenu(m)
                 tb.setPopupMode(QToolButton.MenuButtonPopup)
+            if text_only:
+                tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
             if b.large:
-                tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+                if not text_only:
+                    tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 tb.setIconSize(QSize(32, 32))
                 tb.setMinimumWidth(52)
                 self._flush_small(row, small)
                 row.addWidget(tb)
             else:
-                tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                if not text_only:
+                    tb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
                 tb.setIconSize(QSize(16, 16))
                 small.append(tb)
         self._flush_small(row, small)

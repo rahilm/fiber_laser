@@ -77,7 +77,7 @@ class ParamGridDialog(QDialog):
             tree.setColumnCount(2)
             tree.setHeaderLabels([tr.tr("hp40", "Name"), tr.tr("gv2", "Value")])
             tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-            for group, items in P.grouped(list(reversed(defs)), tr).items():
+            for group, items in P.grouped(defs, tr).items():
                 g = QTreeWidgetItem([group])
                 g.setFirstColumnSpanned(True)
                 tree.addTopLevelItem(g)
@@ -102,9 +102,9 @@ class ParamGridDialog(QDialog):
             w.setChecked(bool(v))
             return w
         w = QLineEdit("" if v is None else str(v))
-        hints = [h for h in d.hint if h and h[0].isdigit()]
-        if v is None and hints:
-            w.setPlaceholderText(hints[-1])
+        default = d.hint[0] if d.hint else ""
+        if v is None and default not in ("", None, 'L""'):
+            w.setPlaceholderText(str(default))
         return w
 
     def _ok(self) -> None:

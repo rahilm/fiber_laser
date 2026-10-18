@@ -8,8 +8,10 @@ Evidence
   global arrays of 0xd0-byte records ``{+0 category, +0x1c key, +0x38 lang key, +0x54 value ptr
   (app+off), +0x58 type, +0x5c default (text), +0x78 unit, +0x98 min, +0xa0 max, +0xa8 option
   list, +0xac option count, +0xb0 condition, +0xcc flag}``.  Table getters ``FUN_006352f0`` ..
-  ``FUN_00635f90``; they were extracted to ``data/mlaser_params.json`` (1129 entries, with the
-  English/Chinese labels from Lang/lang.txt).
+  ``FUN_00635f90``; they were extracted to ``data/mlaser_params.json`` (1129 entries: keys,
+  types, defaults, units, ranges, struct offsets and the label keys). The labels themselves come
+  from mlaser's own catalogue (``mlaser/i18n/en.json``) and, for other languages, from
+  translations the user imported from their own install (docs/ASSETS.md).
 * **Files** (``FUN_004d90e0``): ``<exe>\\dat`` (created with SHCreateDirectoryExW) holds
   ``HardPara.xml`` ("hardware parameter file", ParaModule slot 0), ``ManuPara.xml``
   ("software parameter file", slot 1) and ``LayerPara.xml`` ("layer parameter file", slot 2).
@@ -112,14 +114,35 @@ class ParamDef:
         return self.parse(self.default)
 
 
+def _labels():
+    """Label lookups: English from mlaser's catalogue, Chinese from an imported original install
+    (empty when none was imported). Option values that are not keys (``"1"``, ``"English"``)
+    are returned as they are."""
+    from mlaser.i18n import catalogue
+    from mlaser.i18n.importer import imported
+    cat = catalogue("en")
+    zh_map = imported().get("zh", {}).get("legacy_strings", {})
+
+    def en(key):
+        if not key:
+            return ""
+        t = cat.text(key)
+        return t if t is not None else key
+
+    def zh(key):
+        return zh_map.get(key, "") if key else ""
+    return en, zh
+
+
 @lru_cache(maxsize=1)
 def param_defs() -> tuple[ParamDef, ...]:
     raw = json.loads(DATA_FILE.read_text("utf-8"))
+    en, zh = _labels()
     out = []
     for r in raw:
-        opts = tuple((o.get("lang"), o.get("en"), o.get("zh")) for o in r.get("options", []) or [])
+        opts = tuple((o.get("lang"), en(o.get("lang")), zh(o.get("lang"))) for o in r.get("options", []) or [])
         out.append(ParamDef(r["file"], r["table"], r["index"], r["category"] or "", r["key"] or "",
-                            r["lang"] or "", r["label_en"] or "", r["label_zh"] or "", r["type"] or 0,
+                            r["lang"] or "", en(r["lang"]), zh(r["lang"]), r["type"] or 0,
                             r["type_name"], r["default"] if r["default"] is not None else "",
                             r["unit"] or "", r["min"] or 0.0, r["max"] or 0.0, r["cond"] or "",
                             r["flag"], r["struct_offset"], opts))

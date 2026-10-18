@@ -86,10 +86,9 @@ class MainWindow(QMainWindow):
         self.ribbon = Ribbon(self.tr_, self)
         self.setMenuWidget(self.ribbon)
         self.lang_combo = QComboBox()
-        for li in self.tr_.available():
-            self.lang_combo.addItem(li.name, li.code)
-        self.lang_combo.setCurrentIndex(max(0, self.lang_combo.findData(self.tr_.language)))
-        self.lang_combo.currentIndexChanged.connect(lambda i: self.set_language(self.lang_combo.itemData(i)))
+        self._fill_lang_combo()
+        self.lang_combo.currentIndexChanged.connect(
+            lambda i: self.set_language(self.lang_combo.itemData(i)) if self.lang_combo.itemData(i) else None)
         self.ribbon.setCornerWidget(self.lang_combo, Qt.TopRightCorner)
 
         self.canvas = CanvasView(self)
@@ -180,7 +179,7 @@ class MainWindow(QMainWindow):
         handlers: dict[str, Callable[[], None]] = {
             "file.new": self.file_new, "file.open": self.file_open, "file.import": self.file_import,
             "file.save": self.file_save, "file.save_as": lambda: self.file_save(True),
-            "app.exit": self.close, "app.about": lambda: dialogs.AboutDialog(self.tr_, self).exec(),
+            "app.exit": self.close, "app.import_language": self.import_language, "app.about": lambda: dialogs.AboutDialog(self.tr_, self).exec(),
             "app.options": lambda: self.options_dialog("app.options"),
             "hw.options": lambda: self.options_dialog("hw.options"),
             "hw.set_ip": self.ip_dialog, "hw.reconnect": self.reconnect,
@@ -277,8 +276,38 @@ class MainWindow(QMainWindow):
     def not_implemented(self, cmd: str) -> None:
         self.log_panel.log(f"{cmd}: not implemented in the rebuild yet")
 
+    def _fill_lang_combo(self) -> None:
+        self.lang_combo.blockSignals(True)
+        self.lang_combo.clear()
+        for li in self.tr_.available():
+            self.lang_combo.addItem(li.name, li.code)
+        self.lang_combo.setCurrentIndex(max(0, self.lang_combo.findData(self.tr_.language)))
+        self.lang_combo.blockSignals(False)
+
+    def import_language(self, path: Optional[str] = None) -> list[str]:
+        """File > Import Language Files: load the translations of the user's own Mlaser install
+        (folder or one Lang/*.txt file) for the languages mlaser does not ship."""
+        if path is None:
+            path = QFileDialog.getExistingDirectory(self, self.tr_.tr("main.import_language_title"))
+        if not path:
+            return []
+        try:
+            codes = self.tr_.import_from(path)
+        except (OSError, ValueError) as exc:
+            self.log_panel.log(f"{self.tr_.tr('main.import_language_none')} ({exc})")
+            return []
+        names = ", ".join(self.tr_.info(c).name for c in codes if c in {li.code for li in self.tr_.available()})
+        self.log_panel.log(self.tr_.format("main.import_language_done", languages=names))
+        self._fill_lang_combo()
+        return codes
+
     def set_language(self, code: str) -> None:
         self.tr_.set_language(code)
+        idx = self.lang_combo.findData(code)
+        if idx >= 0 and idx != self.lang_combo.currentIndex():
+            self.lang_combo.blockSignals(True)
+            self.lang_combo.setCurrentIndex(idx)
+            self.lang_combo.blockSignals(False)
         self.layer_panel.refresh()
         self.part_list.refresh()
 
@@ -574,12 +603,7 @@ class MainWindow(QMainWindow):
         pierces = sum(1 for m in self.toolpath if type(m).__name__ == "Pierce")
         total = e["total"]
         args = (int(total // 60), total % 60, e["cut_length"] / 1000.0, e["rapid_length"] / 1000.0, pierces)
-        try:   # the original's own message template (mp83, printf style)
-            text = self.tr_.tr("mp83") % args
-        except (TypeError, ValueError):
-            text = ("Estimate processing time: %dmin %0.1fsec, cut length: %0.2fm, move length: %0.2fm, "
-                    "drill times: %d" % args)
-        self.log_panel.log(text)
+        self.log_panel.log(self.tr_.format("mp83", *args))   # panel.estimate
         samples = sim(self.toolpath, cfg, period_ms=4.0)
         self.canvas.start_simulation(path=[(s.x, s.y, s.laser) for s in samples])
 
@@ -621,7 +645,7 @@ class MainWindow(QMainWindow):
         self.st_zf.setText(t(self._ZF.get(st.ftc, "mp23")))
         self.st_lf.setText(t("mp25" if st.laser == "ready" else "mp24"))
         self.st_xy.setText(f"X: {st.x:.3f}  Y: {st.y:.3f}  Z: {st.z:.3f}")
-        self.st_cv.setText(t("mp80", "Speed%s:  %.1f").replace("%s", "").replace("%.1f", f"{st.speed:.1f}"))
+        self.st_cv.setText(self.tr_.format("mp80", unit="", speed=st.speed))   # status.speed
         if not self.canvas.simulation_running():
             self.canvas.set_head_position(st.x, st.y)
         if st.mode in ("process", "dry_run", "frame"):

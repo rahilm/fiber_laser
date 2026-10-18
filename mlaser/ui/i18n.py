@@ -1,104 +1,90 @@
-"""UI string catalogue backed by the original Mlaser ``Lang/*.txt`` files.
+"""UI string lookup with live language switching.
 
-Evidence
---------
-* ``$ORIG/Lang/lang.txt`` (UTF-16LE with BOM): one entry per line, ``key#中文#English``.
-  Keys are what MainApp.exe passes to its language module (``语言包`` + key literal pairs
-  in MainApp .rdata, e.g. ``mf6`` "Start", ``mf15`` "Go Origin", ``mp54`` "Start").
-* ``$ORIG/Lang/<Language>.txt`` (UTF-16): ``key#text`` (one translation only).
-* ``$ORIG/Lang/lang.ini`` ``[Global] hintStr`` lists the language indices:
-  0 简体中文, 1 English, 2 Russian, 3 German, 4 Spanish, 5 Portuguese, 6 French,
-  7 Italian, 8 Polish, 9 Vietnamese, 10 Turkish (``Lang=`` holds the active index).
+Texts come from:
 
-Values may contain literal ``\\r\\n`` escapes and printf placeholders (``%s``, ``%0.2f``);
-they are returned verbatim apart from turning ``\\r\\n``/``\\n`` into newlines.
-Missing keys fall back to English, then to the key itself.
+1. mlaser's own catalogues, ``mlaser/i18n/<code>.json`` (English ships; see
+   :mod:`mlaser.i18n` for the format: readable ids, named placeholders, and a ``legacy`` map
+   from the original program's opaque keys such as ``mf15``/``pd125`` to those ids);
+2. translations imported from the user's own Mlaser install (:mod:`mlaser.i18n.importer`,
+   stored under ``~/.mlaser/lang``), or read directly from an install folder passed as
+   ``Translator(lang_dir=...)``. Those are keyed by the original's keys.
+
+``tr(key)`` accepts either a readable id (``"cmd.machine.home"``) or an original key
+(``"mf15"``). Lookup order: the current language (our catalogue, then the imported one), then
+English, then ``default``, then the key itself. ``format(key, ...)`` fills placeholders, both our
+named ``{minutes}`` ones and the printf ones of imported texts.
 """
 from __future__ import annotations
 
-import os
 import weakref
 from dataclasses import dataclass
 from typing import Callable, Optional
 
-RES_DIR = os.path.join(os.path.dirname(__file__), "resources")
-LANG_DIR = os.path.join(RES_DIR, "lang")
+from mlaser import i18n as cat
+from mlaser.i18n import importer
 
 
 @dataclass(frozen=True)
 class LanguageInfo:
-    index: int          # value of lang.ini ``Lang=``
+    index: int          # the original's lang.ini ``Lang=`` index
     code: str
     name: str           # native display name
-    file: str           # file inside resources/lang
-    column: int         # column of the text after the key (1 = zh, 2 = en in lang.txt)
 
 
 LANGUAGES: list[LanguageInfo] = [
-    LanguageInfo(0, "zh", "简体中文", "lang.txt", 1),
-    LanguageInfo(1, "en", "English", "lang.txt", 2),
-    LanguageInfo(2, "ru", "Русский", "Russian.txt", 1),
-    LanguageInfo(3, "de", "Deutsch", "German.txt", 1),
-    LanguageInfo(4, "es", "Español", "Spanish.txt", 1),
-    LanguageInfo(5, "pt", "Português", "Portuguese.txt", 1),
-    LanguageInfo(6, "fr", "Français", "French.txt", 1),
-    LanguageInfo(7, "it", "Italiano", "Italian.txt", 1),
-    LanguageInfo(8, "pl", "Polski", "Polish.txt", 1),
-    LanguageInfo(9, "vi", "Tiếng Việt", "Vietnamese.txt", 1),
-    LanguageInfo(10, "tr", "Türkçe", "Turkdili.txt", 1),
+    LanguageInfo(1, "en", "English"),
+    LanguageInfo(0, "zh", "简体中文"),
+    LanguageInfo(2, "ru", "Русский"),
+    LanguageInfo(3, "de", "Deutsch"),
+    LanguageInfo(4, "es", "Español"),
+    LanguageInfo(5, "pt", "Português"),
+    LanguageInfo(6, "fr", "Français"),
+    LanguageInfo(7, "it", "Italiano"),
+    LanguageInfo(8, "pl", "Polski"),
+    LanguageInfo(9, "vi", "Tiếng Việt"),
+    LanguageInfo(10, "tr", "Türkçe"),
 ]
-
-
-def _read_text(path: str) -> str:
-    raw = open(path, "rb").read()
-    if raw[:2] in (b"\xff\xfe", b"\xfe\xff"):
-        return raw.decode("utf-16")
-    for enc in ("utf-8-sig", "gbk"):
-        try:
-            return raw.decode(enc)
-        except UnicodeDecodeError:
-            pass
-    return raw.decode("latin-1")
-
-
-def parse_lang_text(text: str, column: int) -> dict[str, str]:
-    """Parse ``key#col1[#col2]`` lines into ``{key: text}`` taking ``column``."""
-    out: dict[str, str] = {}
-    for line in text.splitlines():
-        if "#" not in line:
-            continue
-        parts = line.split("#")
-        key = parts[0].strip()
-        if not key:
-            continue
-        if column < len(parts):
-            val = "#".join(parts[column:column + 1])
-        else:
-            val = parts[-1]
-        out[key] = val.replace("\\r\\n", "\n").replace("\\n", "\n")
-    return out
 
 
 class Translator:
     """Key -> text lookup with live language switching.
 
     Widgets register with :meth:`bind`; :meth:`set_language` re-applies every binding.
+
+    ``lang_dir``: optional original Mlaser install (or its ``Lang`` folder) to read translations
+    from directly, without importing them. ``import_dir``: where imported translations live
+    (default :func:`mlaser.i18n.importer.lang_store`).
     """
 
-    def __init__(self, lang_dir: str = LANG_DIR, language: str = "en"):
+    def __init__(self, lang_dir: Optional[str] = None, language: str = "en",
+                 import_dir: Optional[str] = None):
         self.lang_dir = lang_dir
-        self._tables: dict[str, dict[str, str]] = {}
+        self.import_dir = import_dir
+        self.en = cat.catalogue("en")
+        self._imported: dict[str, dict[str, str]] = {}
         self._bindings: list[tuple[weakref.ref, str, Callable, tuple]] = []
         self.language = "en"
+        self.reload()
         self.set_language(language)
 
     # -- loading -----------------------------------------------------------
-    def _table(self, code: str) -> dict[str, str]:
-        if code not in self._tables:
-            info = self.info(code)
-            path = os.path.join(self.lang_dir, info.file)
-            self._tables[code] = parse_lang_text(_read_text(path), info.column) if os.path.exists(path) else {}
-        return self._tables[code]
+    def reload(self) -> None:
+        """Re-read imported translations (and the direct ``lang_dir`` if given)."""
+        tables: dict[str, dict[str, str]] = {}
+        for code, data in importer.imported(self.import_dir).items():
+            tables[code] = dict(data.get("legacy_strings", {}))
+        if self.lang_dir:
+            for f in importer.find_lang_files(self.lang_dir):
+                parsed = importer.parse_file(f)
+                if parsed is not None:
+                    tables.setdefault(parsed[0], {}).update(parsed[2])
+        self._imported = tables
+
+    def import_from(self, path: str) -> list[str]:
+        """Import an original install's language files (see :mod:`mlaser.i18n.importer`)."""
+        codes = importer.import_path(path, self.import_dir)
+        self.reload()
+        return codes
 
     @staticmethod
     def info(code: str) -> LanguageInfo:
@@ -108,19 +94,43 @@ class Translator:
         raise KeyError(code)
 
     def available(self) -> list[LanguageInfo]:
-        return [li for li in LANGUAGES if os.path.exists(os.path.join(self.lang_dir, li.file))]
+        """Languages with texts: English, shipped catalogues and imported translations."""
+        have = {"en"} | set(cat.shipped_languages()) | {c for c, t in self._imported.items() if t}
+        return [li for li in LANGUAGES if li.code in have]
 
     # -- lookup ------------------------------------------------------------
+    def _lookup(self, key: str, code: str) -> Optional[str]:
+        sid = self.en.resolve(key)
+        if code != "en":
+            if sid is not None:
+                t = cat.catalogue(code).strings.get(sid)
+                if t and t.strip():
+                    return t
+            table = self._imported.get(code)
+            if table:
+                legacy = cat.legacy_key(key) or key
+                t = table.get(legacy)
+                if t and t.strip():
+                    return t
+        if sid is not None:
+            return self.en.strings.get(sid)
+        return None
+
     def has(self, key: str) -> bool:
-        return key in self._table("en") or key in self._table(self.language)
+        return self.en.resolve(key) is not None or key in self._imported.get(self.language, {})
 
     def tr(self, key: str, default: Optional[str] = None) -> str:
-        t = self._table(self.language).get(key)
-        if t is None or (t.strip() == "" and key in self._table("en")):
-            t = self._table("en").get(key)
+        t = self._lookup(key, self.language)
         if t is None:
             return default if default is not None else key
         return t
+
+    def format(self, key: str, *args, default: Optional[str] = None, **kwargs) -> str:
+        """Translated text with its placeholders filled (positional values follow the catalogue's
+        ``args`` order, keyword values fill named placeholders)."""
+        sid = self.en.resolve(key)
+        names = self.en.args.get(sid, []) if sid else []
+        return cat.format_text(self.tr(key, default), names, args, kwargs)
 
     def tr_param(self, key: str, default: Optional[str] = None) -> tuple[str, str]:
         """Split a parameter label ``Group.Name`` into (group, name)."""
@@ -134,13 +144,7 @@ class Translator:
     def bind(self, obj, key: str, setter: Callable, *fmt_args, default: Optional[str] = None) -> None:
         """Call ``setter(text)`` now and on every language change while ``obj`` lives."""
         def apply():
-            txt = self.tr(key, default)
-            if fmt_args:
-                try:
-                    txt = txt % fmt_args
-                except (TypeError, ValueError):
-                    pass
-            setter(txt)
+            setter(self.format(key, *fmt_args, default=default) if fmt_args else self.tr(key, default))
         apply()
         try:
             ref = weakref.ref(obj)

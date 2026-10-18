@@ -413,8 +413,11 @@ sites (MainApp 0x4d96b8, 0x4d9c4d, 0x4da42b, 0x4dab6e..0x4db24f):
 | 0xaf9770 | 22 | LayerPara.xml: CO2-laser layer parameters |
 | 0xb22e28, 0xb258d0, 0xb26430, 0xb27820, 0xb28860, 0xb2a568 | 40, 14, 15, 20, 10, 5 | not loaded through these slots (ZF/AF/EC/serial/laser-test; keys built at run time, UNKNOWN) |
 
-All 1129 records (key, category, type, default, unit, range, enum options with EN/ZH labels,
-file) are in `mlaser/formats/data/mlaser_params.json`. They are loaded by `param_defs()`.
+All 1129 records (key, category, type, default, unit, range, label key, enum option label keys,
+struct offset, file) are in `mlaser/formats/data/mlaser_params.json`. They are loaded by
+`param_defs()`, which takes the label text from mlaser's catalogue (`mlaser/i18n/en.json`) and,
+for Chinese, from translations imported from the user's install. The data file holds no vendor
+label text (docs/ASSETS.md).
 
 ### 4.4 Layers
 

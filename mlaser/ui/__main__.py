@@ -7,6 +7,8 @@
 * ``--real``: connect to a real card at ``--host/--port`` or the address in ``--ini``.
 * ``--laser-off``: dry-run mode, the laser byte of every step item is cleared.
 * ``--fake``: use the time-integrated DemoController (no protocol at all).
+* ``--import-lang PATH``: import the translations of your own Mlaser install (see
+  :mod:`mlaser.i18n.importer`); ``--lang-dir PATH`` reads them from there without importing.
 """
 from __future__ import annotations
 
@@ -17,7 +19,12 @@ import sys
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(prog="mlaser")
     ap.add_argument("file", nargs="?", help=".chf / .dxf / .svg / .nc to open")
-    ap.add_argument("--lang", default="en", help="language code (zh, en, ru, de, es, pt, fr, it, pl, vi, tr)")
+    ap.add_argument("--lang", default="en", help="language code (en; zh, ru, de, es, pt, fr, it, pl, vi, tr "
+                    "after importing them from an Mlaser install)")
+    ap.add_argument("--import-lang", metavar="PATH",
+                    help="import the translations of your own Mlaser install (folder or Lang/*.txt file)")
+    ap.add_argument("--lang-dir", metavar="PATH",
+                    help="read translations directly from an Mlaser install without importing them")
     ap.add_argument("--demo", action="store_true", help="sample document + in-process card simulator")
     ap.add_argument("--sim", action="store_true", help="connect to the in-process card simulator")
     ap.add_argument("--sim-speed", type=float, default=1.0, help="simulator time scale")
@@ -33,12 +40,24 @@ def main(argv=None) -> int:
 
     from . import docops
     from .facade import DemoController
-    from .i18n import translator
+    from .i18n import Translator
     from .mainwindow import EXTENSIONS, MainWindow
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
-    tr = translator()
-    tr.set_language(args.lang)
+    from . import i18n
+    tr = i18n._default = Translator(lang_dir=args.lang_dir)
+    if args.import_lang:
+        try:
+            print("imported languages:", ", ".join(tr.import_from(args.import_lang)), file=sys.stderr)
+        except FileNotFoundError as exc:
+            print(exc, file=sys.stderr)
+    try:
+        tr.set_language(args.lang)
+    except KeyError:
+        print(f"unknown language {args.lang!r}; using English", file=sys.stderr)
+    if tr.language not in {li.code for li in tr.available()}:
+        print(f"no texts for {args.lang!r}: import them with --import-lang <your Mlaser folder>; "
+              "showing English", file=sys.stderr)
     ctl = None
     if not args.fake:
         try:

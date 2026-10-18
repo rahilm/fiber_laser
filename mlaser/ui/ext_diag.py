@@ -930,9 +930,10 @@ class BurnInDialog(QDialog):
             return
         running = self.test.tick()
         done, total = self.test.progress()
-        fmt = _tr(self.ext.w, "newLang7", "Number of baking tests: %d/%d")
+        tr = getattr(self.ext.w, "tr_", None)
         try:
-            self.count.setText(fmt % (done, total))
+            self.count.setText(tr.format("newLang7", done, total) if tr is not None
+                               else f"Burn-in cycles: {done}/{total}")
         except (TypeError, ValueError):
             self.count.setText(f"{done}/{total}")
         if not running:
@@ -1049,9 +1050,10 @@ class InterferometerPanel(QWidget):
         bl = t.backlash()
         _fill(self.ctable, [(f"{p:.4f}", f"{t.forward[i]:.4f}", f"{t.backward[i]:.4f}", f"{fe[i]:.4f}",
                              f"{be[i]:.4f}", f"{bl[i]:.4f}") for i, p in enumerate(t.positions)])
-        fmt = _tr(self.ext.w, "cp15", "Avg.Backlash (mm): %.4f")
+        tr = getattr(self.ext.w, "tr_", None)
         try:
-            self.backlash.setText(fmt % t.mean_backlash())
+            self.backlash.setText(tr.format("cp15", t.mean_backlash()) if tr is not None
+                                  else f"Average backlash (mm): {t.mean_backlash():.4f}")
         except (TypeError, ValueError):
             self.backlash.setText(f"{t.mean_backlash():.4f}")
 

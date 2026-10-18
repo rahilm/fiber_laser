@@ -34,7 +34,8 @@ mlaser-cardsim = "mlaser.controller.simulator:main"
 include = ["mlaser*"]
 
 [tool.setuptools.package-data]
-"mlaser.ui" = ["resources/*.json", "resources/lang/*", "resources/icons/**/*"]
+"mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*"]
+"mlaser.i18n" = ["*.json"]
 "mlaser.formats" = ["data/*"]
 
 [tool.pytest.ini_options]

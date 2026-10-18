@@ -90,7 +90,10 @@ class Alarm:
         if tr is None:
             return self.text_en
         try:
-            s = tr.tr(self.key)
+            if hasattr(tr, "format"):     # mlaser.ui.i18n.Translator: named {axis} placeholder
+                s = tr.format(self.key, axis=self._axis_name)
+            else:
+                s = tr.tr(self.key)
         except Exception:  # noqa: BLE001
             return self.text_en
         if not s or s == self.key:

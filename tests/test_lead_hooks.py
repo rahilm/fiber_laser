@@ -159,8 +159,8 @@ def test_sim_estimate_message_is_formatted():
         lines = []
         w.log_panel.log = lambda m, *a, **k: lines.append(m)
         w.simulate()
-        est = [l for l in lines if "min" in l and "sec" in l]
-        assert est and "%" not in est[0]
+        est = [l for l in lines if l.startswith("Estimated time:")]
+        assert est and "%" not in est[0] and "{" not in est[0] and " min " in est[0]
     finally:
         w.close()
 

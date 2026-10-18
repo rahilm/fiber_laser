@@ -17,8 +17,9 @@ Status: ☐ todo · ◐ in progress · ☑ done
   - `.chf` bytes
   - planner and smoother samples
 - ☐ fix the flaky 1-pulse breakpoint-resume test
-- ☐ vendor assets out of the package: an open icon set (MIT/Apache), and language files loaded
-  from the user's own Mlaser install at runtime instead of being shipped
+- ☑ vendor assets out of the package: an open icon set (MIT/Apache), and language files loaded
+  from the user's own Mlaser install at runtime instead of being shipped (docs/ASSETS.md; the
+  first commit still contains them, so rewrite the history before publishing)
 - ☐ licence file (owner's decision)
 
 ## Wave 1: structure moves (Stage 2a, mechanical, guarded by the goldens)

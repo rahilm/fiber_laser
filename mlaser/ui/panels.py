@@ -18,7 +18,7 @@ from .canvas import LAYER_COLORS, layer_color
 from .facade import ControllerFacade
 from .i18n import Translator
 from .params import GAS_KEYS
-from .ribbon import button_icon
+from .icons import command_icon
 
 
 def _swatch(color: QColor, size: int = 14) -> QIcon:
@@ -193,9 +193,9 @@ class PartListPanel(QTreeWidget):
 class ControlPanel(QWidget):
     """Machine control (mf141 "Run Control"); see facade.py for the lang keys of each button.
 
-    Jog buttons use the text-free bitmaps 720-726 (▲ ▼ ◀ ▶ ↑ ↓) and process buttons 728-731
-    (start/continue/pause/stop) from MainApp.exe RT_BITMAP; the labelled 57x57 bitmaps
-    (508-543) carry baked-in Chinese text, so other buttons are text buttons here.
+    Jog buttons (X/Y arrows, Z up/down) and the start/pause/stop buttons carry SVG icons
+    (:mod:`mlaser.ui.icons`, ``jog_*`` and ``run.*``); the other buttons are text buttons, as
+    the original's were labelled bitmaps.
     """
     simulateRequested = Signal()
     log = Signal(str)
@@ -216,13 +216,15 @@ class ControlPanel(QWidget):
         jog = QGroupBox()
         tr.bind(jog, "slp17", jog.setTitle)
         g = QGridLayout(jog)
-        for (axis, d, bmp, r, c) in (("Y", 1, 720, 0, 1), ("Y", -1, 721, 2, 1), ("X", -1, 722, 1, 0),
-                                     ("X", 1, 723, 1, 2), ("Z", 1, 725, 0, 3), ("Z", -1, 726, 2, 3)):
+        for (axis, d, r, c) in (("Y", 1, 0, 1), ("Y", -1, 2, 1), ("X", -1, 1, 0),
+                                ("X", 1, 1, 2), ("Z", 1, 0, 3), ("Z", -1, 2, 3)):
             b = QToolButton()
-            b.setIcon(button_icon(bmp))
-            b.setIconSize(QSize(40, 40))
-            b.setAutoRepeat(False)
             b.setObjectName(f"jog_{axis}{'+' if d > 0 else '-'}")
+            b.setIcon(command_icon(b.objectName()))
+            b.setIconSize(QSize(40, 40))
+            b.setAccessibleName(f"Jog {axis}{'+' if d > 0 else '-'}")
+            b.setToolTip(b.accessibleName())
+            b.setAutoRepeat(False)
             b.pressed.connect(lambda a=axis, d=d: self._jog_press(a, d))
             b.released.connect(lambda a=axis: self._jog_release(a))
             g.addWidget(b, r, c)
@@ -292,9 +294,9 @@ class ControlPanel(QWidget):
         proc = QGroupBox()
         tr.bind(proc, "mf141", proc.setTitle)
         gp = QGridLayout(proc)
-        start = self._icon_button("mp54", 728, self._start)
-        pause = self._icon_button("mp55", 730, self._pause)
-        stop = self._icon_button("mp56", 731, self.ctl.stop)
+        start = self._icon_button("mp54", "run.start", self._start)
+        pause = self._icon_button("mp55", "run.pause", self._pause)
+        stop = self._icon_button("mp56", "run.stop", self.ctl.stop)
         gp.addWidget(start, 0, 0)
         gp.addWidget(pause, 0, 1)
         gp.addWidget(stop, 0, 2)
@@ -387,9 +389,9 @@ class ControlPanel(QWidget):
         self.buttons[key] = b
         return b
 
-    def _icon_button(self, key: str, bmp: int, fn: Callable) -> QToolButton:
+    def _icon_button(self, key: str, icon_cmd: str, fn: Callable) -> QToolButton:
         b = QToolButton()
-        b.setIcon(button_icon(bmp))
+        b.setIcon(command_icon(icon_cmd))
         b.setIconSize(QSize(36, 36))
         b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         self.tr_.bind(b, key, b.setText)
@@ -466,9 +468,11 @@ class LogPanel(QTabWidget):
 
     def log(self, msg: str) -> None:
         key = msg.split(":", 1)[0]
-        # "<lang key>: detail" -> "<translation> (detail)"; templates with printf placeholders
-        # are formatted by the caller, never shown raw
-        if self.tr_.has(key) and ":" in msg and "%" not in self.tr_.tr(key):
+        # "<key>" -> translation; "<key>: detail" -> "<translation> (detail)". Templates with
+        # placeholders are formatted by the caller, never shown raw.
+        if " " not in msg and self.tr_.has(msg):
+            msg = self.tr_.tr(msg)
+        elif self.tr_.has(key) and ":" in msg and "%" not in self.tr_.tr(key) and "{" not in self.tr_.tr(key):
             msg = f"{self.tr_.tr(key)} ({msg.split(':', 1)[1].strip()})"
         self.text.appendPlainText(time.strftime("%H:%M:%S  ") + msg)
 

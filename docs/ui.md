@@ -68,9 +68,11 @@ Rebuild: `mlaser/ui/mainwindow.py` (`MainWindow`), `ribbon.py` + `ribbon_spec.py
 
 Order and keys are **observed** (literal order in .rdata 0x45681c..0x459118); group-to-tab split
 is **inferred** except where a decompiled builder exists. Priority: P0 must-have, P1 next,
-P2 later. Button icons: strips 348/350 (Start), 351/352 (CAD tabs), 353/354 (System analysis,
-observed `AddCategory(..,0x161,0x162)` in FUN_004a7d20), 355/356 (Advanced), 441/442, 451/452
-(Nest).
+P2 later. The original's button icons are PNG strips 348/350 (Start), 351/352 (CAD tabs), 353/354
+(System analysis, observed `AddCategory(..,0x161,0x162)` in FUN_004a7d20), 355/356 (Advanced),
+441/442, 451/452 (Nest). The rebuild does not use them: each command maps to a Tabler SVG icon in
+`mlaser/ui/icons.py` (`COMMAND_ICONS`), or is a text-only button (docs/ASSETS.md). Labels below
+are the original's keys; the rebuild's English for them is in `mlaser/i18n/en.json`.
 
 ### 2.1 File (application button, `mf7`)
 | Key | Text | Pri | Rebuild |
@@ -158,7 +160,7 @@ SmartNest.dll/AutoNest.dll (`Nest_*` exports in CADModule). **P2**.
   plus per-layer flags `pd112..124`: Uncut, Short unlift, Unfollow, PreDrill, With film, Keep gas
   on, Direct cut, Section/Gradual/3-stage drill, Fix height, Dynamic power.
 * "Layer parameters" dialog = property grid of ~160 `GP.*` keys (section `LayerParam`, see
-  `resources/params.json`): Cut Basic (speed `pd125`, height `pd129`, focus `pd589`), Cut Laser
+  the descriptor table `mlaser/formats/data/mlaser_params.json`): Cut Basic (speed `pd125`, height `pd129`, focus `pd589`), Cut Laser
   (power `pd127`, freq `pd128`, peak current `pd132`), Cut Gas (type `pd130`, pressure `pd131`),
   Delay (laser on `pd126`, before/after off `pd137/138`), Adv (slow start `pd133..135`, up height
   `pd136`), first..fifth drill stages (height/focus/power/freq/current/gas/time/gradual), smooth
@@ -217,10 +219,12 @@ laser `gp44..58`, auto focus `gp100..115`, extended card `gp200..218`, EtherCAT
 
 Only 7 dialog templates exist and all are empty shells (RT_DIALOG 319, 331, 393, 443, 444, 448, 459,
 "MS Shell Dlg"); controls are created at run time, mostly BCGP property grids whose rows are the
-`pd*` labels (`Group.Name`) and whose storage keys are the `XX.Name` names recovered into
-`resources/params.json` (~860 entries; sections GraphParam 187, ManuParam 178, LayerParam 161,
-SoftParam 71, DIParam 64, DOParam 41, LaserParam, MachineAxisConfig, ImportGraphParam, GasParam,
-ZFParam, AFParam, NestParam, FCParam, AxisParam, HomeParam, DAParam, ...).
+`pd*` labels (`Group.Name`) and whose storage keys are the `XX.Name` names of the descriptor
+table `mlaser/formats/data/mlaser_params.json` (1129 entries; categories GraphParam 190,
+ManuParam 192, LayerParam 164, SoftParam 75, DIParam 64, DOParam 41, LaserParam, MachineAxisConfig,
+ImportGraphParam, GasParam, ZFParam, AFParam, NestParam, FCParam, AxisParam, HomeParam, DAParam,
+...). Earlier builds used a list scraped from string literals (`resources/params.json`, ~860
+entries); it was replaced by the descriptor table.
 
 | Dialog | Keys | Content | Pri | Rebuild |
 |---|---|---|---|---|
@@ -296,23 +300,29 @@ Rebuild: `MainWindow._shortcuts` and `_context_menu`; `F` = zoom fit and Ctrl+I 
 Rebuild: `canvas.CanvasView` (QGraphicsView, Y up, cosmetic pens, `pick()` nearest-segment hit
 test with 5 px tolerance, window/crossing rubber band, overlays, head marker, `start_simulation`).
 
-## 7. Assets extracted (`mlaser/ui/resources/`)
+## 7. Bundled resources (`mlaser/ui/resources/`, `mlaser/i18n/`)
 
-| Path | Source |
+| Path | Content |
 |---|---|
-| `icons/strips/strip_<id>.png` | RT_PNG 346..452: ribbon image strips (32 px: 348, 351, 353, 355, 441, 451; 16 px: 350, 352, 354, 356, 442, 452; 394 misc) |
-| `icons/buttons/btn_<id>.png` | RT_BITMAP 467..1457 57x57/62x57 control-panel buttons (light: normal/hover/pressed/disabled; dark: 661..858) |
-| `icons/misc/` | other PNG/BMP: dashboard tiles 458..506, edge-seek/verticality diagrams 407/445/447/42886/42887, gauges 449/455, small icons |
-| `layer_colors.json` | layer colour table (3.1) |
-| `params.json` | parameter registry (4) |
-| `lang/*.txt` | all 11 language files (UTF-16) |
+| `mlaser/ui/resources/icons/tabler/*.svg` + `LICENSE` | Tabler Icons 3.24.0 (MIT), only the icons the UI uses |
+| `mlaser/ui/resources/layer_colors.json` | layer colour values (3.1; facts needed to show layers as the original does) |
+| `mlaser/i18n/en.json` | mlaser's English catalogue with the map from the original's keys |
+| `mlaser/formats/data/mlaser_params.json` | parameter descriptors (keys, types, defaults, ranges, offsets; no label text) |
 
-Not copied (vendor branding): splash/logo pictures RT_BITMAP 472 and 42885, `res/splash.bmp`,
+Earlier snapshots held 478 icons/bitmaps extracted from MainApp.exe (RT_PNG ribbon strips
+346..452, RT_BITMAP control-panel buttons 467..1457, dashboard tiles and diagrams), the 10
+language files of `$ORIG/Lang`, and `params.json`. They were removed: see docs/ASSETS.md.
+Never copied: splash/logo pictures RT_BITMAP 472 and 42885, `res/splash.bmp`,
 `File/help.bmp`, `File/logo_1.bmp`, app icon.
 
 ## 8. Rebuild skeleton (`python -m mlaser.ui [--demo] [--lang zh] [file]`)
 
-* `i18n.py` Translator (lang.txt + per-language files, live `bind()` re-labelling, English fallback).
+* `i18n.py` Translator: `mlaser/i18n/en.json` (readable ids + a `legacy` map from the original's
+  keys, so `tr("mf15")` and `tr("cmd.machine.home")` both work), translations imported from the
+  user's own install (`mlaser.i18n.importer`), named placeholders (`format()`), live `bind()`
+  re-labelling, English fallback.
+* `icons.py` SVG icon engine (palette-aware, rendered at the device pixel ratio) and the
+  command → Tabler icon table.
 * `ribbon_spec.py` / `ribbon.py` data-driven ribbon; every button is a `QAction` keyed by a
   command id (`file.open`, `machine.home`, `craft.lead`, ...).
 * `canvas.py`, `panels.py`, `dialogs.py`, `params.py`, `docops.py` (simple transforms, align,
@@ -373,10 +383,10 @@ monitor phone-home (`pd518..534`, `pd870..873`, `mf225/226`, `mf242/243`, HTTP
 ## 12. Open unknowns
 
 * Exact tab membership/order of the Start/Common/Process/Draw categories (their builder was not
-  decompiled; current split follows string order + tiles). Icon indices are visual matches.
+  decompiled; current split follows string order + tiles).
 * Whether layer index 0 is the background layer or "Layer 1" (two code paths, FUN_0057dc70).
-* Real default values/ranges of most parameters (`params.json` `hint` is unverified; ranges
-  exist in `pp0/pp1` messages and must come from NCModule/ParaModule code).
+* Defaults/ranges come from the descriptor tables (`mlaser_params.json`); ranges enforced
+  elsewhere in NCModule/ParaModule (`pp0/pp1` messages) are not recovered.
 * Default canvas background and selection style; original rubber-band semantics.
 * Control panel placement (left/right) and which panes are docked by default.
 * Exact enum values for lead type, kerf type, micro-joint type, sort type (shared with

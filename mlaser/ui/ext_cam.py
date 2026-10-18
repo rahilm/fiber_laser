@@ -20,7 +20,7 @@ import copy
 import dataclasses
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QSize, Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFormLayout, QFrame, QHBoxLayout, QLabel, QSpinBox, QTabWidget,
                                QToolButton, QVBoxLayout, QWidget)
@@ -409,7 +409,12 @@ def register(window, exec_dialogs: bool = True) -> CamExtension:
         handlers[cmd] = fn
         tb = QToolButton()
         tb.setDefaultAction(act)
-        tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        tb.setAutoRaise(True)
+        if act.icon().isNull():
+            tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        else:
+            tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+            tb.setIconSize(QSize(32, 32))
         row.addWidget(tb)
     lay.addWidget(box)
     lay.addStretch(1)

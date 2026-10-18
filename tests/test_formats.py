@@ -161,13 +161,16 @@ def test_ini_files(tmp_path):
 
 # ------------------------------------------------------------------ lang
 def test_translator():
+    # tests/data/Lang is a small synthetic fixture in the original's file format (not vendor text)
     t = Translator(DATA / "Lang")
     assert t.languages[:3] == ["简体中文", "English", "French"]
-    assert t.current == 0                       # lang.ini: Lang=简体中文 (GBK)
-    assert t.tr("FileFilter_CraftFile", "English") == "Craft file"
+    assert t.current == 0                       # lang.ini: Lang=简体中文 (GBK in a UTF-8 file)
+    assert t.tr("FileFilter_CraftFile", "English") == "Process file"
     assert t.tr("FileFilter_CraftFile", 0) == "工艺文件"
-    assert t.tr("FileFilter_CraftFile", "French") == "Fichier d'artisanat"
+    assert t.tr("FileFilter_CraftFile", "French") == "Fichier de procédé"
     assert t.tr("0_SongFont", "English") == "Arial"
+    assert t.tr("dup", "English") == "first"    # first occurrence wins
+    assert t.tr("short", 0) == "short"          # lines with < 3 fields are ignored in lang.txt
     # fallback: missing in French -> English -> key
     k = next(k for k in t.maps[1] if k not in t.maps[2])
     assert t.tr(k, "French") == t.maps[1][k]
@@ -189,10 +192,11 @@ def test_param_table():
     by = {(d.table, d.key): d for d in defs}
     cs = by[("layer", "GP.CutSpeed")]
     assert (cs.default, cs.unit, cs.min, cs.max, cs.type_name) == ("100", "mm/s", 0.01, 1200.0, "double")
-    assert cs.label_en == "Cut Basic.Cut Speed"
+    assert cs.label_en == "Cut Basic.Cut Speed"     # from mlaser/i18n/en.json, not the data file
     assert len(layer_defs()) == 164 and len(layer_defs(True)) == 22
     gas = by[("layer", "GP.CutGasType")]
     assert [o[1] for o in gas.options] == ["Air(CO2)", "O2(Fiber)", "N2/Air(Fiber)"]
+    assert all(o[0] for o in gas.options)                          # label keys kept as facts
 
 
 def test_param_store_roundtrip(tmp_path):

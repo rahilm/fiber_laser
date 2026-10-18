@@ -58,10 +58,13 @@ def test_snapshot_reads_card(card):
     assert any(a == "2002" and v == "12345" for a, _n, v in pages["AxisRO"])
 
 
-def test_translated_labels(card):
+def test_translated_labels(card, tmp_path):
+    from pathlib import Path
     from mlaser.ui.i18n import Translator
     _sim, mc = card
-    tr = Translator(language="zh")
+    # Chinese comes from an original install; tests/data/Lang is a synthetic one
+    tr = Translator(lang_dir=str(Path(__file__).parent / "data" / "Lang"), language="zh",
+                    import_dir=str(tmp_path))
     rows = R.table_rows(R.read_snapshot(mc, params=False), tr)["RO"]
     assert rows[4][1] == "输入状态"
 

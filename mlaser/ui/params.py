@@ -1,20 +1,24 @@
-"""Parameter registry recovered from MainApp.exe and helpers to map it onto the model.
+"""Parameter registry for the option dialogs, and helpers to map it onto the model.
 
-``resources/params.json`` lists ``{name, key, section, hint}`` for ~860 settings: ``name`` is
-the ini/xml key used by the original (``GP.CutSpeed``, ``MC.JogFastSpeed``, ``SP.Language``...),
-``key`` the lang.txt label key whose English text is ``Group.Label`` (property-grid
-category + caption, e.g. ``pd125`` "Cut Basic.Cut Speed"), ``section`` the owning parameter
-file/section (``LayerParam``, ``ManuParam``, ``GraphParam``, ``SoftParam``, ``DIParam``...).
-``hint`` holds neighbouring literals (unit / default / max) and is NOT verified.
+The registry is :func:`mlaser.formats.params.param_defs` (1129 descriptors recovered from
+MainApp.exe's parameter tables: XML key, type, default, unit, range, owning category). Each
+:class:`ParamDef` here exposes ``name`` (the ini/xml key, ``GP.CutSpeed``, ``SP.Language``...),
+``key`` (the label key, whose catalogue text is ``Group.Label``, e.g. ``pd125`` "Cut Basic.Cut
+Speed"), ``section`` (the category: ``ManuParam``, ``GraphParam``, ``SoftParam``, ``DIParam``...)
+and ``hint`` (default, unit, min, max).
+
+Earlier builds read a separate list scraped from MainApp.exe string literals
+(``resources/params.json``); it was a less accurate subset of the descriptor tables and was
+removed (docs/ASSETS.md).
 """
 from __future__ import annotations
 
-import json
-import os
 from dataclasses import dataclass
 from functools import lru_cache
 
-from .i18n import RES_DIR, Translator
+from mlaser.formats.params import param_defs
+
+from .i18n import Translator
 
 # Which LayerParams attribute a GP.* layer parameter maps to (model.LayerParams).
 LAYER_FIELD_MAP = {
@@ -42,8 +46,11 @@ class ParamDef:
     key: str
     section: str
     hint: tuple
+    type_name: str = ""
 
     def is_bool(self) -> bool:
+        if self.type_name:
+            return self.type_name == "bool"
         n = self.name.split(".", 1)[-1]
         return n.startswith(("Enable", "Is", "No", "Show")) or n in (
             "WithFilm", "PreDrill", "SlowStart", "NoManu", "NoFollow")
@@ -51,12 +58,13 @@ class ParamDef:
 
 @lru_cache(maxsize=1)
 def registry() -> tuple[ParamDef, ...]:
-    path = os.path.join(RES_DIR, "params.json")
-    try:
-        data = json.load(open(path, encoding="utf-8"))["params"]
-    except Exception:
-        return ()
-    return tuple(ParamDef(p["name"], p["key"], p["section"], tuple(p.get("hint", ()))) for p in data)
+    out = []
+    for d in param_defs():
+        if not d.key or not d.category:
+            continue
+        unit = d.unit if d.unit not in ("", 'L""') else ""
+        out.append(ParamDef(d.key, d.lang, d.category, (d.default, unit, str(d.min), str(d.max)), d.type_name))
+    return tuple(out)
 
 
 def section(name: str) -> list[ParamDef]:

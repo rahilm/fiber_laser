@@ -34,11 +34,12 @@ simulator, and the main window.
 - **No vendor code.** No vendor source code, binaries or DLLs are included in this repository or
   in its packages. The original binaries are used only on the owner's own machine, under Wine,
   as a reference to compare behaviour against (`../parity/`, not part of this project).
-- **Vendor assets are being removed.** Earlier snapshots bundled icons extracted from the
-  original program and its language files (`mlaser/ui/resources/icons`,
-  `mlaser/ui/resources/lang`). These are being replaced by an open icon set, and the language
-  files will be read at runtime from the user's own Mlaser install instead of being shipped.
-  Until that work lands, do not redistribute builds that contain them.
+- **No vendor assets.** Icons are [Tabler Icons](https://tabler.io/icons) (MIT, SVG). The UI
+  text is mlaser's own English catalogue (`mlaser/i18n/en.json`). Other languages are not
+  shipped: you import them from your own Mlaser installation (see [Languages](#languages)).
+  Earlier development snapshots bundled icons and language files taken from the original; they
+  were removed. [docs/ASSETS.md](docs/ASSETS.md) lists the provenance and licence of every
+  bundled resource.
 - **Licence checks are deliberately not implemented.** The original's licensing, dongle/HID
   checks, activation codes, laser rental lock, user locks, vendor passwords and cloud phone-home
   are left out on purpose (see the end of this file). Nothing in this project circumvents or
@@ -63,7 +64,7 @@ uv pip install -p .venv pytest          # for the tests
 .venv/bin/mlaser --real --ini ipAdd.ini --laser-off   # real card (UNTESTED), laser disabled
 .venv/bin/mlaser --fake                 # protocol-free demo controller
 .venv/bin/mlaser-cardsim --port 5020    # stand-alone card simulator; then --real --host 127.0.0.1 --port 5020
-python -m mlaser.ui --lang zh           # UI languages from the original lang files
+.venv/bin/mlaser --import-lang "/path/to/Mlaser" --lang de   # see Languages below
 ```
 
 You can also connect from inside the UI: **Advanced → Hardware → Connect to simulator**. Start,
@@ -84,6 +85,28 @@ frames = job.frames(first_seq=1)   # values for write(102, frame)
 
 Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
 
+## Languages
+
+mlaser ships English only. Its English is its own wording; it fixes the original's
+mistranslations ("Copy to maun", "Roasting machine test", …) and uses named placeholders.
+If you own a copy of the original Mlaser, you can use its translations (Simplified Chinese,
+Russian, German, Spanish, Portuguese, French, Italian, Polish, Vietnamese, Turkish) with
+mlaser. Point mlaser at the install folder, its `Lang` folder or a single `Lang/*.txt` file:
+
+* in the app: **File → Import Language Files…**, then pick the language at the top right;
+* on the command line: `mlaser --import-lang "C:/Program Files/Mlaser" --lang zh`, or
+  `python -m mlaser.i18n import <path>` (`list`, `remove <code>` manage them).
+
+The texts are copied once into your data folder (`~/.mlaser/lang/`, or `$MLASER_DATA_DIR/lang`,
+or `$MLASER_LANG_DIR`). After that the install is no longer needed. To read them in place
+without copying, use `mlaser --lang-dir <path> --lang zh`. Strings mlaser added that the
+original doesn't have stay in English.
+
+Translators: `mlaser/i18n/en.json` maps readable ids (`cmd.machine.home`) to text, and its
+`legacy` table maps the original's keys (`mf15`) to those ids. A new language is a
+`mlaser/i18n/<code>.json` with the same ids. `tools/i18n_keys.py` checks that every key the
+code uses has an English text.
+
 ## Layout
 
 | Package | Content | Doc |
@@ -97,7 +120,8 @@ Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
 | `mlaser/controller` | MCC100 frame codec, process items, UDP/TCP client, alarms, FIFO streaming (thread or separate process), card simulator, UI adapter | [protocol.md](docs/protocol.md) |
 | `mlaser/devices` | height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC wireless pendant | [devices.md](docs/devices.md) |
 | `mlaser/nest` | true-shape nester, `.nestproj` project files | [nest.md](docs/nest.md) |
-| `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, i18n | [ui.md](docs/ui.md) |
+| `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, SVG icons | [ui.md](docs/ui.md) |
+| `mlaser/i18n` | English string catalogue, importer for an original install's translations | [ASSETS.md](docs/ASSETS.md) |
 
 ## Feature status
 
@@ -134,13 +158,14 @@ Tests: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q`
 | | Raycus / IPG laser (emission, aiming beam) | ✅ | the original sends no status queries |
 | | Auto-focus, EtherCAT heads | ✅/🟡 | alarm words U |
 | | XHC wireless pendant (HID) | ✅ | needs `hidapi`; keys hold-to-jog |
-| UI | Main window, ribbon, canvas, layers, parts, log, status bar, 11 languages | ✅ | [ui.md](docs/ui.md) |
+| UI | Main window, ribbon (SVG icons), canvas, layers, parts, log, status bar | ✅ | [ui.md](docs/ui.md) |
+| | English catalogue; 10 more languages imported from your own Mlaser install | ✅ | [Languages](#languages), [ASSETS.md](docs/ASSETS.md) |
 | | CAM+, Nest, Devices and card extensions | ✅ | `mlaser/ui/ext_*.py`, loaded by the app |
 | | Drawing/editing tools (14 shapes, text, QR, trim/extend, groups, align, size) | ✅/🟡 | [draw.md](docs/draw.md); ellipse/curve flattened, trim internals inferred |
 | | Manual craft tools, one-click process, bitmap engraving (Bitmap.exe port) | ✅ | [craft.md](docs/craft.md), [engrave.md](docs/engrave.md) |
 | | Edge seek, coordinate systems, firmware upload, parameter backup, task/recovery | ✅/🟡 | protocol.md §16–§21; offline job partial |
 | | Monitors, device/work reports (report.exe port), aux tests, batch, maintenance, help | ✅/🟡 | [diag.md](docs/diag.md) |
-| | Command coverage | ✅ | all 246 ribbon commands bound (`tools/command_coverage.py`) |
+| | Command coverage | ✅ | all 247 ribbon commands bound (`tools/command_coverage.py`) |
 
 ## Parity with the original
 

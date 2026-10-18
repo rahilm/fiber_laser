@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLin
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsSimpleTextItem, QGraphicsView, QRubberBand)
 
-from .i18n import RES_DIR
+RES_DIR = os.path.join(os.path.dirname(__file__), "resources")
 
 _DEFAULT_COLORS = ["#00fc00", "#00fcfc", "#fc80fc", "#fcfc00", "#00a0e8", "#6e91be",
                    "#96dce6", "#b47855", "#ed1c24", "#999999", "#e6e6e6"]

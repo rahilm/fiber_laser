@@ -555,11 +555,7 @@ class DrawExtension:
                 return
             self.last_measure = t.measurement
             dx, dy, L = t.measurement
-            fmt = self.t("mv17", "Measurement Result  X: %0.3fmm  Y: %0.3fmm  Length: %0.3fmm")
-            try:
-                msg = fmt % (dx, dy, L)
-            except (TypeError, ValueError):
-                msg = f"X: {dx:.3f}mm  Y: {dy:.3f}mm  Length: {L:.3f}mm"
+            msg = self.w.tr_.format("mv17", dx, dy, L)   # view.measure_result
             self.log(msg)
             try:
                 self.w.statusBar().showMessage(msg, 15000)

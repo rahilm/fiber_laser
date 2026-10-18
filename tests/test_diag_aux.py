@@ -19,7 +19,7 @@ def test_paramset_defaults_and_clamp():
     assert p["SP.InterfereIsFirstPtGapAdjust"] is True and p["SP.InterfereGapAdjust"] == 5
     p["SP.InterfereLoopTime"] = 1000                 # max 100 in the descriptor
     assert p["SP.InterfereLoopTime"] == 100
-    assert find_def("ST.Type").options[1][1] == "Z-axis empty travel test"
+    assert find_def("ST.Type").options[1][1] == "Z dry-run travel test"
 
 
 def test_ball_arm_geometry():

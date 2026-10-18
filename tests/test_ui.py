@@ -28,16 +28,81 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
-def test_lang_catalogue():
-    tr = i18n.Translator(language="en")
-    assert tr.tr("mf15") == "Go Origin"
+ORIG_LANG = os.path.join(os.path.dirname(__file__), "data", "Lang")   # synthetic original-format files
+
+
+def test_lang_catalogue(tmp_path):
+    tr = i18n.Translator(language="en", import_dir=str(tmp_path))
+    # original keys and readable ids resolve to the same English text
+    assert tr.tr("mf15") == tr.tr("cmd.machine.home") == "Go Origin"
     assert tr.tr("mp54") == "Start"
     assert tr.tr_param("pd125") == ("Cut Basic", "Cut Speed")
+    assert tr.tr("nset_UI_Result2MainView") == "Copy to Main Drawing"     # ux.md mistranslations fixed
+    assert tr.tr("newLang1") == "Burn-in Test"
+    # named placeholders, positional values in the original's order
+    msg = tr.format("mp83", 1, 2.25, 3.0, 4.0, 5)
+    assert msg.startswith("Estimated time: 1 min 2.2 s") and "pierces: 5" in msg
+    assert tr.format("mv17", dx=1, dy=2, length=3).endswith("length 3.000 mm")
+    assert [li.code for li in tr.available()] == ["en"]     # nothing imported
     tr.set_language("zh")
-    assert tr.tr("mf15") == "回原点"
+    assert tr.tr("mf15") == "Go Origin"                       # no Chinese yet: English
     assert tr.tr("no_such_key", "x") == "x"
-    tr.set_language("de")
-    assert tr.tr("mf15")  # German file present, falls back to English if missing
+    # import from an original install (here: the synthetic Lang folder)
+    assert sorted(tr.import_from(ORIG_LANG)) == ["fr", "zh"]
+    assert {li.code for li in tr.available()} == {"en", "zh", "fr"}
+    assert tr.tr("mf15") == tr.tr("cmd.machine.home") == "回原点"
+    assert tr.tr("mp54") == "开始"
+    assert tr.format("mp83", 1, 2.25, 3.0, 4.0, 5).startswith("预计用时：1分2.2秒")   # printf text
+    tr.set_language("fr")
+    assert tr.tr("mf15") == "Prise d'origine"
+    assert tr.tr("mp54") == "Start"                           # missing in French: English
+    # a fresh translator sees the stored import; the direct (no import) mode reads the folder
+    assert i18n.Translator(language="fr", import_dir=str(tmp_path)).tr("mf15") == "Prise d'origine"
+    direct = i18n.Translator(lang_dir=ORIG_LANG, language="zh", import_dir=str(tmp_path / "none"))
+    assert direct.tr("pd125") == "切割基本.切割速度"
+    with pytest.raises(FileNotFoundError):
+        tr.import_from(str(tmp_path / "missing"))
+
+
+def test_alarm_text_placeholder(tmp_path):
+    from mlaser.controller.alarms import Alarm
+    a = Alarm(8100, "EtherCATAxisErrorInfo_0", "X hard positive limit alarm", axis=0, kind="limit")
+    tr = i18n.Translator(language="en", import_dir=str(tmp_path))
+    assert a.text(tr) == "X hard positive limit alarm"
+    tr = i18n.Translator(lang_dir=ORIG_LANG, language="zh", import_dir=str(tmp_path))
+    assert a.text(tr) == "X 硬正限位报警"
+
+
+def test_en_catalogue_covers_used_keys():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "i18n_keys", os.path.join(os.path.dirname(__file__), "..", "tools", "i18n_keys.py"))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    from mlaser.i18n import catalogue
+    en = catalogue("en")
+    missing = [k for k in mod.used_keys() if en.resolve(k) is None]
+    assert not missing
+    # every placeholder declared in args appears in the text, and no printf placeholders remain
+    from mlaser.i18n import BRACE_RE, PRINTF_RE
+    for sid, text in en.strings.items():
+        assert not PRINTF_RE.search(text), sid
+        assert set(BRACE_RE.findall(text)) == set(en.args.get(sid, [])), sid
+
+
+def test_svg_icons(app):
+    from mlaser.ui import icons, ribbon_spec
+    for name in icons.used_icon_names():
+        assert icons.has_icon(name), name
+    ic = icons.command_icon("file.open")
+    pm = ic.pixmap(64, 64)
+    assert not pm.isNull() and pm.width() == 64
+    assert icons.command_icon("no.such.command").isNull()
+    # every vendored SVG is referenced (only the used ones are shipped)
+    shipped = {f[:-4] for f in os.listdir(icons.ICON_DIR) if f.endswith(".svg")}
+    assert shipped == icons.used_icon_names()
+    assert os.path.exists(os.path.join(icons.ICON_DIR, "LICENSE"))
+    assert ribbon_spec.all_commands()
 
 
 def test_demo_controller_motion():
@@ -79,10 +144,10 @@ def test_docops_roundtrip():
     assert len(doc.parts) == n + 5
 
 
-def test_main_window_screenshot(app):
+def test_main_window_screenshot(app, tmp_path):
     from mlaser.ui.mainwindow import MainWindow
 
-    win = MainWindow(DemoController())
+    win = MainWindow(DemoController(), i18n.Translator(lang_dir=ORIG_LANG, import_dir=str(tmp_path)))
     win.resize(1400, 860)
     doc = docops.demo_document()
     win.set_document(doc)
