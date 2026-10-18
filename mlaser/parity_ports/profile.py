@@ -106,6 +106,8 @@ INTERFACES: dict[str, type] = {
     "spline": SplineCurves,
     "sampling": Sampler,
     "process": ProcessEncoder,
+    "dxf": DxfRules,
+    "chf": ChfCodec,
 }
 
 
@@ -169,6 +171,8 @@ class ParityProfile:
     spline: Implementation
     sampling: Implementation
     process: Implementation
+    dxf: Implementation
+    chf: Implementation
 
     def slots(self) -> dict[str, Implementation]:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name in INTERFACES}
@@ -216,6 +220,20 @@ ORIGINAL = ParityProfile(
     process=Implementation(
         "process",
         ManuEncoder=f"{_PP}.ncmodule.manu:ManuEncoder",
+    ),
+    dxf=Implementation(
+        "dxf",
+        entity_glyphs=f"{_PP}.dxfparse.rules:entity_glyphs",
+        collect=f"{_PP}.dxfparse.rules:collect",
+        chain_glyphs=f"{_PP}.dxfparse.rules:chain_glyphs",
+        contour_of_chain=f"{_PP}.dxfparse.rules:contour_of_chain",
+    ),
+    chf=Implementation(
+        "chf",
+        loads_chf=f"{_PP}.cadmodule.chf:loads_chf",
+        dumps_chf=f"{_PP}.cadmodule.chf:dumps_chf",
+        load_chf=f"{_PP}.cadmodule.chf:load_chf",
+        save_chf=f"{_PP}.cadmodule.chf:save_chf",
     ),
 )
 
