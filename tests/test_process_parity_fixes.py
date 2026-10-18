@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlaser.cam import items as I
+from mlaser.toolpath import items as I
 from mlaser.protocol import frames as F
 from mlaser.nc import process as P
 from mlaser.model import Document, LayerParams

@@ -3,7 +3,7 @@ import math
 
 from mlaser.cam import commonedge as CE
 from mlaser.cam.toolpath import build_toolpath
-from mlaser.cam.items import CutLine
+from mlaser.toolpath.items import CutLine
 from mlaser.model import Contour, Document, Line, Part
 
 

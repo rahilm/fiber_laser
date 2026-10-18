@@ -25,7 +25,7 @@ import math
 import re
 from typing import Iterable
 
-from ..cam.items import CutArc, CutLine, LaserOff, LaserOn, Rapid
+from ..toolpath.items import CutArc, CutLine, LaserOff, LaserOn, Rapid
 from ..model import Arc, Contour, Document, Line, Part
 
 EOL = "\r\n"

@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from mlaser.cam import items as I
+from mlaser.toolpath import items as I
 from mlaser.cam.toolpath import CamParams, build_toolpath
 from mlaser.model import Arc, Contour, Craft, Document, LayerParams, Line, Part
 from mlaser.motion.interp import MotionConfig, estimate_time, plan_path, simulate

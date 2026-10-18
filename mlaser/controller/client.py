@@ -833,7 +833,7 @@ class FifoStreamer:
     RO[16] (free bytes) must be >= frame_bytes + 2000; frame sequence numbers start
     at RO[15] + 1.  At most ``frames_per_fill`` (20) frames per poll.
 
-    Accepted items (duck-typed by class name, see mlaser.cam.items):
+    Accepted items (duck-typed by class name, see mlaser.toolpath.items):
       * ``list[int]`` - an already encoded wire item (header + params)
       * Rapid / CutLine / CutArc - interpolated into op-3000 step items
       * Delay - zero-motion step items (safe encoding; the native delay op is UNKNOWN)

@@ -170,7 +170,7 @@ def job_exemplar(job, n: int = 48) -> dict:
 
 
 def toolpath_order(items) -> list[list[int]]:
-    from mlaser.cam.items import Marker
+    from mlaser.toolpath.items import Marker
 
     out = []
     for it in items:
@@ -468,7 +468,7 @@ def gen_chf(ex: dict) -> dict:
 
 def motion_paths() -> dict[str, list]:
     """Named chains of CutLine/CutArc moves (feed set per config)."""
-    from mlaser.cam.items import CutArc, CutLine
+    from mlaser.toolpath.items import CutArc, CutLine
 
     P: dict[str, list] = {}
 
@@ -517,7 +517,7 @@ def _with_feed(moves, feed):
 
 
 def _segments(moves):
-    from mlaser.cam.items import CutArc
+    from mlaser.toolpath.items import CutArc
     from mlaser.model import Arc, Line
 
     return [

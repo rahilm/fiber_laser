@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from mlaser.cam import items as I
+from mlaser.toolpath import items as I
 from mlaser.cam.toolpath import build_toolpath
 from mlaser.model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Part
 from mlaser.motion import interp

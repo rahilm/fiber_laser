@@ -65,7 +65,7 @@ from typing import Iterable, Optional, Sequence
 
 from ..model import Arc, Contour, Craft, Document, LayerParams, Line, Part, Point, Segment
 from ..geom.contour import contour_bbox, point_in_contour, sub_seg
-from .items import (CutArc, CutLine, Follow, LaserOff, LaserOn, LayerChange, Marker,
+from ..toolpath.items import (CutArc, CutLine, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)
 
 __all__ = ["SCAN_CIRCLE", "SCAN_LINE", "SCAN_ARC", "SCAN_ENGRAVE", "CircleFlyParams",

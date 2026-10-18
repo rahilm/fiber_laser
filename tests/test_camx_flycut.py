@@ -5,7 +5,7 @@ import os
 import pytest
 
 from mlaser.cam import flycut as F
-from mlaser.cam.items import CutArc, CutLine, LaserOff, LaserOn, Pierce, Rapid
+from mlaser.toolpath.items import CutArc, CutLine, LaserOff, LaserOn, Pierce, Rapid
 from mlaser.model import Arc, Contour, Document, Line, Part
 
 SAMPLE = ("/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1/"

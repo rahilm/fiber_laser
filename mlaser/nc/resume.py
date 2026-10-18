@@ -190,7 +190,7 @@ def _rapid_to_pulses(cur: tuple[float, float], target: tuple[float, float],
     shifted by that pulse.  The residual is therefore closed with a laser-off correction step
     right after the rapid's last moving step (before its settle dwell).
     """
-    from ..cam import items as I
+    from ..toolpath import items as I
     from .compiler import compile_items
     ppm = (float(m.pulses_per_mm_x), float(m.pulses_per_mm_y))
     start = (round(cur[0] * ppm[0]), round(cur[1] * ppm[1]))

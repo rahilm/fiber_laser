@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from mlaser.cam.items import CutArc, CutLine
+from mlaser.toolpath.items import CutArc, CutLine
 from mlaser.model import Arc, Line
 from mlaser.motion.planner import PlannerParams, plan_velocity
 from mlaser.motion.smooth import (R_LINE, ContourSmoother, SmoothParams, smooth_nodes,

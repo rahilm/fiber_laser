@@ -838,7 +838,7 @@ class UiController(ControllerFacade):
         if not self.laser_enabled:
             self._log("laser test refused: laser output is disabled (dry-run mode)")
             return
-        from ..cam import items as I
+        from ..toolpath import items as I
         from ..nc import compile_items
         from ..model import Document, LayerParams
         pct = self._s.laser_power_pct if power_pct is None else power_pct

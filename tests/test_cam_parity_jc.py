@@ -7,7 +7,7 @@ import pytest
 from mlaser.cam import ordering as O
 from mlaser.cam.geometry import CurveRef, SplineCurve
 from mlaser.geom.contour import stored_length
-from mlaser.cam.items import CutLine
+from mlaser.toolpath.items import CutLine
 from mlaser.cam.leads import start_tangents
 from mlaser.cam.toolpath import CamParams, build_toolpath, prepare_contour
 from mlaser.model import GLYPH_LWPOLY, GLYPH_SPLINE, Arc, Contour, Craft, Document, Glyph, LeadParams, Line, Part

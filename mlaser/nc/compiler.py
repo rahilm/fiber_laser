@@ -44,7 +44,7 @@ import math
 from dataclasses import dataclass, field, replace
 from typing import Iterable, Optional, Sequence
 
-from ..cam import items as I
+from ..toolpath import items as I
 from ..cam.toolpath import CamParams, build_toolpath
 from ..protocol import frames as F
 from . import process as P

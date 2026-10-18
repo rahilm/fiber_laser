@@ -3,7 +3,7 @@ import math
 import numpy as np
 import pytest
 
-from mlaser.cam.items import CutArc, CutLine, Delay, Rapid
+from mlaser.toolpath.items import CutArc, CutLine, Delay, Rapid
 from mlaser.motion.interp import (MotionConfig, arc_interp, corner_radius, estimate_time,
                                   plan_path, seg_interp, seg_interp_time, simulate)
 from mlaser.motion.planner import PathPoint, PlannerParams, curvature_speed, plan_velocity

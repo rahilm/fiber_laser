@@ -26,7 +26,7 @@ from typing import Optional
 
 from ..model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Line, Point, Segment
 from ..geom.contour import is_ccw, point_at, reverse_contour, rotate_start, stored_length, sub_seg, tangent_at
-from .items import (CutArc, CutLine, Delay, Follow, LaserOff, LaserOn, LayerChange, Marker,
+from ..toolpath.items import (CutArc, CutLine, Delay, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)
 from .kerf import compensate
 from .leads import contour_leads, lead_out, side_flag
@@ -36,7 +36,7 @@ from .ordering import LOCAL_SEED, Node, build_tree, choose_start, order_nodes, t
 __all__ = ["CamParams", "build_toolpath", "prepare_contour", "PreparedContour"] + [
     "Rapid", "CutLine", "CutArc", "LaserOn", "LaserOff", "Pierce", "Delay", "IO", "Follow",
     "LayerChange", "Marker", "MotionItem"]
-from .items import IO  # noqa: E402  (re-export)
+from ..toolpath.items import IO  # noqa: E402  (re-export)
 
 
 @dataclass

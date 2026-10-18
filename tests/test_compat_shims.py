@@ -19,6 +19,7 @@ MOVED = {
     "mlaser.controller.process": "mlaser.nc.process",
     "mlaser.nc.stream": "mlaser.controller.stream",
     "mlaser.formats.lang": "mlaser.i18n.langfile",
+    "mlaser.cam.items": "mlaser.toolpath.items",
 }
 # modules that stayed but lost names: module -> the names that moved away
 PARTIAL = {
@@ -101,3 +102,4 @@ def test_follower_card_simulator_forwarder():
         warnings.simplefilter("always")
         assert follower.make_follower_card_simulator is make_follower_card_simulator
     assert any("mlaser.controller.follower_sim" in str(w.message) for w in seen)
+

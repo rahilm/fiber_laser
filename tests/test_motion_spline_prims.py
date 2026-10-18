@@ -9,7 +9,7 @@ import math
 
 import pytest
 
-from mlaser.cam.items import CutLine
+from mlaser.toolpath.items import CutLine
 from mlaser.cam.toolpath import CamParams, prepare_contour
 from mlaser.formats import chf as C
 from mlaser.formats.scio import ScReader, ScWriter

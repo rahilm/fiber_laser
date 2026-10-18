@@ -118,7 +118,7 @@ def test_slow_start_end_and_speed_curve():
 
 
 def test_adv_micro_joint_power():
-    from mlaser.cam import items as I
+    from mlaser.toolpath import items as I
     from mlaser.nc import compile_items
     m = Machine()
     m.process.adv_micro_link = True

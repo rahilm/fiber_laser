@@ -5,7 +5,7 @@ import math
 
 import pytest
 
-from mlaser.cam import items as I
+from mlaser.toolpath import items as I
 from mlaser.protocol import frames as F
 from mlaser.model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Line, Part
 from mlaser.nc import Machine, compile_items, compile_job, frame_items

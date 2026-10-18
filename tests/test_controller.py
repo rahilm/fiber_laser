@@ -238,7 +238,7 @@ def test_timeout_when_nobody_listens():
 
 
 def test_fifo_stream_square(rig):
-    from mlaser.cam.items import CutLine, IO, LaserOff, LaserOn, Rapid
+    from mlaser.toolpath.items import CutLine, IO, LaserOff, LaserOn, Rapid
     sim, mc = rig
     sq = [(10, 0), (10, 10), (0, 10), (0, 0)]
     items = [Rapid((0, 0), (0, 0)), IO(2, True), LaserOn()]
