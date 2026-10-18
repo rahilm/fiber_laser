@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- Hardened-runtime entitlements for the PyInstaller build (packaging/sign_macos.sh).
+     allow-unsigned-executable-memory: ctypes/libffi callbacks in the Python runtime.
+     No network entitlement is needed outside the App Sandbox (the app is not sandboxed). -->
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+    <true/>
+</dict>
+</plist>
