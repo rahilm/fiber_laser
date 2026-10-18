@@ -1,0 +1,22 @@
+{
+ "format": 1,
+ "generated_with": {
+  "ezdxf": "1.4.5",
+  "numpy": "2.5.4",
+  "platform": "Linux-6.12.105-production+truenas-x86_64-with-glibc2.39",
+  "pyside6": "6.12.0",
+  "python": "3.12.3",
+  "shapely": "2.2.0"
+ },
+ "groups": {
+  "chf": 63,
+  "jobs_random": 300,
+  "jobs_samples": 26,
+  "motion": 189,
+  "orders": 660
+ },
+ "text_font": {
+  "family": "WenQuanYi Micro Hei",
+  "probe": "e710321625c29a9921acdf3195d2b9569d2168869fc99c4663ff10789824887c"
+ }
+}

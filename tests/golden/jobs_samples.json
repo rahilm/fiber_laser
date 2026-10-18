@@ -1,0 +1,812 @@
+{
+ "cases": {
+  "chf/autosave#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 236.60334099137282,
+    "laser_on_length_mm": 2997.1999999983695,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     0.002215925599024615,
+     8.924416761146858e-12
+    ],
+    "rapid_length_mm": 730.2502955485165
+   },
+   "cut_blocks": "4572f43700f1445551828354b10633136bacc4e8c5054c8126e07f048560c6ab",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "24faabc6adca86dd34743863ffdfb59bea8bcdc4959d22e996f4e27dc4bdc9bc",
+   "host_dependent": false,
+   "items": 239516,
+   "markers": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "n_frames": 2420,
+   "overspeed_periods": 2898,
+   "pierces": 0,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 239501,
+   "wire": "7b4dde9aa7200ae795337c5363210b0813211c7e8bb50df20a28639b48ea9ac7"
+  },
+  "chf/autosave#default": {
+   "approx": {
+    "estimate_total_s": 237.16555454288337,
+    "laser_on_length_mm": 2997.999999998369,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     -0.29999822813581783,
+     0.8999999999990818
+    ],
+    "rapid_length_mm": 372.1932488506475
+   },
+   "cut_blocks": "4d1a9cf57a919ebb08cb7125a1325fd1a3aef04f942254ad6a7118fa6b473938",
+   "end_pulses": [
+    -25689,
+    -24943
+   ],
+   "frames": "f1ad761afc9487344c64c2434399a92b047352723d9aa281aff8683ffbe2ab4a",
+   "host_dependent": false,
+   "items": 237181,
+   "markers": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "n_frames": 2396,
+   "overspeed_periods": 0,
+   "pierces": 0,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 237166,
+   "wire": "4470f2806b46148e0b4a54aa5b897997bf34619c8e6c9e03cc461eee2028ddc3"
+  },
+  "chf/tempGraph#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 4.237564744475522,
+    "laser_on_length_mm": 297.9698496215249,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     -0.9999999999996412,
+     -0.00010503515356496962
+    ],
+    "rapid_length_mm": 212.13030021407735
+   },
+   "cut_blocks": "e2ea77a10c2651f8f874100e18554a48533920a22b4c5f6cfc49a5e844d7d36a",
+   "end_pulses": [
+    1,
+    0
+   ],
+   "frames": "830cd68e0e98c3b2ad4c9a22aa9e5dcdd2180b010ecfb98784cda9d65fbdd094",
+   "host_dependent": false,
+   "items": 5439,
+   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
+   "n_frames": 55,
+   "overspeed_periods": 1186,
+   "pierces": 1,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 5424,
+   "wire": "a3dbc06bc52b2777fa7ed96060977bb25572d3b58b057f6f589c70bee673e656"
+  },
+  "chf/tempGraph#default": {
+   "approx": {
+    "estimate_total_s": 3.675434444261445,
+    "laser_on_length_mm": 298.22821106786944,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     0.3954000000004562,
+     0.09768949648430736
+    ],
+    "rapid_length_mm": 106.06515010703868
+   },
+   "cut_blocks": "01b9f71f2a2c47b2c057152596b78c7183ec8458308c08f6affb622d52e95d4f",
+   "end_pulses": [
+    9486,
+    4744
+   ],
+   "frames": "4143ae225976c62e1acf766bb1bb03b12c96ccc5b5ea1c9282a570b9525824df",
+   "host_dependent": false,
+   "items": 3691,
+   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
+   "n_frames": 38,
+   "overspeed_periods": 0,
+   "pierces": 1,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 3676,
+   "wire": "0e7ec4ad566024e732360aec32c8f6385492ddceabb6590f170167f6033ec1ea"
+  },
+  "dxf/basic_r2000#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 11.088304441129639,
+    "laser_on_length_mm": 563.208594566187,
+    "process_time_s": 2.1666666666666665,
+    "pulse_carry": [
+     -0.001823777839781826,
+     -0.001994173064511884
+    ],
+    "rapid_length_mm": 505.464345840296
+   },
+   "cut_blocks": "7bbf701b54be2848516600e084bf3cf77f862e3e82a8f5a46915a71e57cf8747",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "b543ecf8452c303926b231a5efae0b3818d299abc0ec5832a40ebd3b7b80545a",
+   "host_dependent": false,
+   "items": 13950,
+   "markers": "536aa81af19dd68070bc2c2afe2f640e61a110f81c196832ad33c5badcb63eaa",
+   "n_frames": 142,
+   "overspeed_periods": 2773,
+   "pierces": 6,
+   "process_items": 90,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 13860,
+   "wire": "412022a64813e26e9f20fc144cae95469f0e9a1aeb614717980ac664d034b9f7"
+  },
+  "dxf/basic_r2000#default": {
+   "approx": {
+    "estimate_total_s": 10.321005355625354,
+    "laser_on_length_mm": 563.405727642532,
+    "process_time_s": 2.1666666666666665,
+    "pulse_carry": [
+     0.00016913310796828895,
+     0.00025033753057113195
+    ],
+    "rapid_length_mm": 375.06980504962826
+   },
+   "cut_blocks": "37e2f643da520894eb6c18753f9a66b0486dbaab92cf1661e0720ab223deb2c6",
+   "end_pulses": [
+    21000,
+    1000
+   ],
+   "frames": "6bfc9e61fa2e45f872bddc82f09b01186108921f3d37419497c17095ed50cbef",
+   "host_dependent": false,
+   "items": 10409,
+   "markers": "039871704d41bdef65b582982b7757dab86adaf44e0438a2633d22442f129c8d",
+   "n_frames": 106,
+   "overspeed_periods": 0,
+   "pierces": 6,
+   "process_items": 90,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 10319,
+   "wire": "d912263a7f067851f51bbdaba1f56434f5a7941783b29919cc98ff708a6b8491"
+  },
+  "dxf/extrusion#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 3.6889690077133395,
+    "laser_on_length_mm": 74.02368406612932,
+    "process_time_s": 1.4666666666666668,
+    "pulse_carry": [
+     -0.9975578130346996,
+     -0.0015286319338532195
+    ],
+    "rapid_length_mm": 236.45705163679582
+   },
+   "cut_blocks": "8f4832c0108d814801ccea6c18a64cb86274caea055c16d843e8730c1cda9f88",
+   "end_pulses": [
+    1,
+    0
+   ],
+   "frames": "1884ccbc232a7e18d92b437cfb115ec58ac5974baa817ee5bcc9ef8eef741fc3",
+   "host_dependent": false,
+   "items": 4901,
+   "markers": "830b82795887e92890baea883a8a7b63e4fc173784828d87c256328e9709e7bd",
+   "n_frames": 50,
+   "overspeed_periods": 1154,
+   "pierces": 4,
+   "process_items": 60,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 4841,
+   "wire": "86d494c48bb6f3a007e0cf97b2917c942c854686e8d02bbda5cef8b5ec266cfe"
+  },
+  "dxf/extrusion#default": {
+   "approx": {
+    "estimate_total_s": 3.1750124137169498,
+    "laser_on_length_mm": 74.22373764322997,
+    "process_time_s": 1.4666666666666668,
+    "pulse_carry": [
+     -5.306866057708248e-14,
+     0.0005147146889048493
+    ],
+    "rapid_length_mm": 166.51629100328265
+   },
+   "cut_blocks": "cbc5c5a932f81a1fad839a12bb3c629e4e832c09e4feeb2f726dc8f6b232f700",
+   "end_pulses": [
+    2000,
+    1500
+   ],
+   "frames": "142434a54e89156d585fd2d278cb4dbbce204c1fb958b570dbc1c63275f82e77",
+   "host_dependent": false,
+   "items": 3235,
+   "markers": "3aa5701cc5caeb9a3bb69fba0a5016a2931221a15466069669b4f6546b110ff6",
+   "n_frames": 33,
+   "overspeed_periods": 0,
+   "pierces": 4,
+   "process_items": 60,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 3175,
+   "wire": "4072ed3cd2a2702dbec733b39bf0d125a2d6f054c8f02e3ad8b9bdceaf4255c0"
+  },
+  "dxf/gear#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 21.012950557719336,
+    "laser_on_length_mm": 624.6134035913667,
+    "process_time_s": 0.7666666666666666,
+    "pulse_carry": [
+     -0.0030319729359291614,
+     -0.003591465601910926
+    ],
+    "rapid_length_mm": 242.01651775599566
+   },
+   "cut_blocks": "2a128cc589508d12a7036fd912c707bad0e3508bfee56045adba1a3918252afc",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "df3d8351ab37f8a22cc08e82bc3f5a68aaab66cf6c41f0e74e901ef84a0ded2f",
+   "host_dependent": false,
+   "items": 22372,
+   "markers": "4ef477575a3882e104fa0e1862c902a32b70ec72173ff2278d7879c8e865d026",
+   "n_frames": 227,
+   "overspeed_periods": 1330,
+   "pierces": 2,
+   "process_items": 30,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 22342,
+   "wire": "89428b0aa8c2214f0f036ed32ce14a3efd394833cfcf5ccbd8b3b5afd4991bde"
+  },
+  "dxf/gear#default": {
+   "approx": {
+    "estimate_total_s": 20.662148172837462,
+    "laser_on_length_mm": 626.3784219822553,
+    "process_time_s": 0.7666666666666666,
+    "pulse_carry": [
+     -0.9998505752531314,
+     0.9996807700542041
+    ],
+    "rapid_length_mm": 118.83692925805124
+   },
+   "cut_blocks": "d750cc6dc4ad2a4cb638afa3a1864d61ca7b254f13a555bfd7c3644bc70a9c51",
+   "end_pulses": [
+    10601,
+    4599
+   ],
+   "frames": "f7d58da6679c7ab3ad721f4368c601d7b30297c37bb234f504cd58f870d1e66d",
+   "host_dependent": false,
+   "items": 20691,
+   "markers": "f0529729bc379a6787c7f3b0d9f286cfe3ed37e68877d371de29a3a472f20b0f",
+   "n_frames": 210,
+   "overspeed_periods": 0,
+   "pierces": 2,
+   "process_items": 30,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 20661,
+   "wire": "67b6981203a7330a886801f68e9e55e41e9ce1a0fbc39fef99dd47975c6c04fb"
+  },
+  "dxf/inserts#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 7.238331326323085,
+    "laser_on_length_mm": 219.25116585377197,
+    "process_time_s": 1.9666666666666668,
+    "pulse_carry": [
+     -0.9997004774254847,
+     -0.0006340254028831538
+    ],
+    "rapid_length_mm": 269.8366697240299
+   },
+   "cut_blocks": "cdf8fbbbef1e3774d9627fc17257b7009797aeb6e6c0bfb65dfe3eb14c0661df",
+   "end_pulses": [
+    1,
+    0
+   ],
+   "frames": "280f11dfbc6b29832387606e997b23f27f1851cd320bc3cead17d1126ebee3d9",
+   "host_dependent": false,
+   "items": 8652,
+   "markers": "b289fd1e68905dcd2b6f146ebefc346b200d4f25fe47781a1d2eb092b9f3bcad",
+   "n_frames": 88,
+   "overspeed_periods": 1328,
+   "pierces": 6,
+   "process_items": 86,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 8566,
+   "wire": "e83ad497dba7e7af83931ac084b42ae9776a7b1057c30646dca1ce185d78bdf6"
+  },
+  "dxf/inserts#default": {
+   "approx": {
+    "estimate_total_s": 6.367647399118907,
+    "laser_on_length_mm": 219.68243026084957,
+    "process_time_s": 1.9666666666666668,
+    "pulse_carry": [
+     0.4471803778574452,
+     0.45723418698124996
+    ],
+    "rapid_length_mm": 233.30799988937915
+   },
+   "cut_blocks": "da6f71e76818b435b6ab62e24f795df17758434adf8a96cd04471c00a7b62638",
+   "end_pulses": [
+    5117,
+    4776
+   ],
+   "frames": "9f8910c7741b3827edb719f721a49e2146c2ce399baa937594cc6974410859d1",
+   "host_dependent": false,
+   "items": 6452,
+   "markers": "c7128bd8120432f5a02c6926b7c38880d21da15b801762f3ea32feea50bc71d4",
+   "n_frames": 66,
+   "overspeed_periods": 0,
+   "pierces": 6,
+   "process_items": 86,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 6366,
+   "wire": "0081222e5e2b8f9e61496d00f2ccdf3c4d3bf9ba10ae8406a25aa4be7b1b51eb"
+  },
+  "dxf/inserts2#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 10.400274181496613,
+    "laser_on_length_mm": 362.5764448393766,
+    "process_time_s": 2.8166666666666664,
+    "pulse_carry": [
+     -0.000540557084924842,
+     -0.00203131260398548
+    ],
+    "rapid_length_mm": 392.98831802048625
+   },
+   "cut_blocks": "87591047dd6ca06e981bee7b1e112fbb4b17e8f359679cc7ef41100ce123e75e",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "beca388cf22ab818c905f670b2639c5a723ac6f6887fe5031e76d6d0144e0390",
+   "host_dependent": false,
+   "items": 12499,
+   "markers": "130b2a3764185e6281c23e2b84acef4ac08bb6719c82ed3c708580a5a16e1a5a",
+   "n_frames": 127,
+   "overspeed_periods": 1973,
+   "pierces": 9,
+   "process_items": 127,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 12372,
+   "wire": "625676afb0071984cf1b420cc4302e204929b461a877b89796995c80198e692c"
+  },
+  "dxf/inserts2#default": {
+   "approx": {
+    "estimate_total_s": 9.460099689850278,
+    "laser_on_length_mm": 363.23408055754277,
+    "process_time_s": 2.8166666666666664,
+    "pulse_carry": [
+     -0.9998198294307988,
+     -0.7868147367204374
+    ],
+    "rapid_length_mm": 250.89519110537876
+   },
+   "cut_blocks": "0a6a8d8eea29b134091be12a51ca8aa7898dc54911e7cc2fdde61cb650dfe161",
+   "end_pulses": [
+    2001,
+    915
+   ],
+   "frames": "376f3bed153bd8c03301a64c9d7bd8a6bfb1813925cc11c9cca05d3a8f517068",
+   "host_dependent": false,
+   "items": 9588,
+   "markers": "4d2115e09641165e57259ceafca8aaaf926f98216a824d414ee1912cc1516c14",
+   "n_frames": 98,
+   "overspeed_periods": 0,
+   "pierces": 9,
+   "process_items": 127,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 9461,
+   "wire": "7a4f6d0563585d55a133aa55c579121686c13ba7b432c980dc55c5528b6db6f6"
+  },
+  "dxf/mix#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 9.133825287959022,
+    "laser_on_length_mm": 366.7985427358241,
+    "process_time_s": 2.8666666666666667,
+    "pulse_carry": [
+     -0.0029078609056938376,
+     -0.0004537070554821998
+    ],
+    "rapid_length_mm": 441.59486338958766
+   },
+   "cut_blocks": "cc1e5efbb87a108d3f6debdba1d2b53db13e38ee2d7758b11ff34e7e36dfdc1b",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "025f4817553a0bc8d25a6afe646854d7685a2770f5c057ebd975d25cab2a5c08",
+   "host_dependent": false,
+   "items": 11657,
+   "markers": "abbd09ea840cb0a125415eff3b8af843299388648840a815c224bf8340737daa",
+   "n_frames": 118,
+   "overspeed_periods": 2402,
+   "pierces": 8,
+   "process_items": 120,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 11537,
+   "wire": "f1202ddb8feec1a95e67b5bcd75d8f4f71dafd120960b3b9c5407c2ccd6dab51"
+  },
+  "dxf/mix#default": {
+   "approx": {
+    "estimate_total_s": 8.965124843059968,
+    "laser_on_length_mm": 367.3572641264033,
+    "process_time_s": 2.8666666666666667,
+    "pulse_carry": [
+     -0.0003227617120620252,
+     -0.00018790568325011137
+    ],
+    "rapid_length_mm": 462.3698306167225
+   },
+   "cut_blocks": "3f29ac9f59145d30fbdacd6e12038970d31685ebf79979b1511c7f0b5c541039",
+   "end_pulses": [
+    20000,
+    0
+   ],
+   "frames": "1b1f27f2bb3f5ad4788836f5b68d7354e47f9640973b0d9b33209195ebe19fee",
+   "host_dependent": false,
+   "items": 9086,
+   "markers": "8bb7e2c06cf8f7233e5e0e0e5272549aa6b82e49e851776642075df1b3209af2",
+   "n_frames": 92,
+   "overspeed_periods": 0,
+   "pierces": 8,
+   "process_items": 120,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 8966,
+   "wire": "22d7e6a0057d0e992bedca5380eae10681a6269c45b409d45afc11e49da58b04"
+  },
+  "dxf/r12_polyline#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 5.332143593376321,
+    "laser_on_length_mm": 247.72612319007524,
+    "process_time_s": 1.1166666666666667,
+    "pulse_carry": [
+     -0.0030151140636895946,
+     -0.004391778730858054
+    ],
+    "rapid_length_mm": 262.35400422974715
+   },
+   "cut_blocks": "b298a5f096f8533597f6a83e5c39d8a4e73fa756c2659f4d5903253d719b5faf",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "9fd7a8a99d42cb62e7a18ea42fd5feba1799f5f7618c427e11a80aced7c03566",
+   "host_dependent": false,
+   "items": 6855,
+   "markers": "e04650c8e27e022d2c454f6d4be1114351f23613b54c9c40c45d7b1241a0a8ec",
+   "n_frames": 70,
+   "overspeed_periods": 1480,
+   "pierces": 3,
+   "process_items": 45,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 6810,
+   "wire": "e7b0f4193c9bdb166963bf515cc240cd8792b28a36f5ef24a7bac758bd9c1701"
+  },
+  "dxf/r12_polyline#default": {
+   "approx": {
+    "estimate_total_s": 4.434824998085854,
+    "laser_on_length_mm": 247.84459055652826,
+    "process_time_s": 1.1166666666666667,
+    "pulse_carry": [
+     -0.9999915530452732,
+     -0.9998650149345236
+    ],
+    "rapid_length_mm": 114.33981132056604
+   },
+   "cut_blocks": "e03448d904740259b40c0fdd38ac94277473ce58d9ee61225b89b76d9217a379",
+   "end_pulses": [
+    7001,
+    1
+   ],
+   "frames": "c1992c1b39b26e3d00063a83eabab35644f0eb948269ada6811a8fac499d8c39",
+   "host_dependent": false,
+   "items": 4479,
+   "markers": "c430dc8fdd65c065f1a120c288f317b200a999e1f570d21b32ab088c7ee06a4e",
+   "n_frames": 46,
+   "overspeed_periods": 0,
+   "pierces": 3,
+   "process_items": 45,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 4434,
+   "wire": "c8831bad0fe62ebb7cc2b64244f427cc74f595442eb378509522a47abad6f436"
+  },
+  "dxf/spline_ellipse#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 4.819703808821381,
+    "laser_on_length_mm": 191.90857323236685,
+    "process_time_s": 1.4666666666666668,
+    "pulse_carry": [
+     -0.0012139017115728734,
+     -0.9996341504620494
+    ],
+    "rapid_length_mm": 307.1653172935705
+   },
+   "cut_blocks": "b08f527242a80df30b0d508ebcae0da6e5121461f0d9ae6ba0e603ac2d01853b",
+   "end_pulses": [
+    0,
+    1
+   ],
+   "frames": "abed5b6cb929e31690c9247f2bc28b85e1ebf3f66352dbed35737a61710099c1",
+   "host_dependent": false,
+   "items": 6580,
+   "markers": "775a579de248597232afa24a0aa1d279a7635649d755c4e17cee098a29be4ed8",
+   "n_frames": 67,
+   "overspeed_periods": 1701,
+   "pierces": 4,
+   "process_items": 60,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 6520,
+   "wire": "13a6e4f2028e017b04b66e6c5c53868b889ddb3cfd715023923e6e2a09580f14"
+  },
+  "dxf/spline_ellipse#default": {
+   "approx": {
+    "estimate_total_s": 4.300502488859546,
+    "laser_on_length_mm": 192.21093275692442,
+    "process_time_s": 1.4666666666666668,
+    "pulse_carry": [
+     -4.066916353040462e-05,
+     -0.9999584907709341
+    ],
+    "rapid_length_mm": 211.87984833936656
+   },
+   "cut_blocks": "065f7a1203e15e7ec476e6493d8763a152be8f4f791a1d5ab03a2fe11ccf5365",
+   "end_pulses": [
+    2000,
+    1
+   ],
+   "frames": "c8ba3dbfc056c360ab2c43d5ee75de28eccbdd096de893d3abbf1fb383ac52af",
+   "host_dependent": false,
+   "items": 4361,
+   "markers": "3879eaa902177c6f243762869174f2996c28902c132e0e84b423645b727bfbae",
+   "n_frames": 45,
+   "overspeed_periods": 0,
+   "pierces": 4,
+   "process_items": 60,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 4301,
+   "wire": "7b1adbb1459a3af7ea138fdd1f612be1c20681975951e63e7a79c5e28e493be5"
+  },
+  "dxf/spline_rational_acad#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 1.279038376376433,
+    "laser_on_length_mm": 31.41018740810736,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     -0.001443355352822806,
+     -1.9562683949203574e-05
+    ],
+    "rapid_length_mm": 64.7213595499958
+   },
+   "cut_blocks": "df9da1e5bf88ba9eec79cc597fe5eff6772ba7fbbc9d92f51bb4f53dbadefc3e",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "7d2bf096e77cdb021bb191911ecd6522af90369fde4688f9c0a3528880bad44e",
+   "host_dependent": false,
+   "items": 1596,
+   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
+   "n_frames": 17,
+   "overspeed_periods": 303,
+   "pierces": 1,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 1581,
+   "wire": "db1d7124e285fcb0de45f1173ec22dedc24ae5f863c9203c7599431b1b5ed1e8"
+  },
+  "dxf/spline_rational_acad#default": {
+   "approx": {
+    "estimate_total_s": 0.8334065228806733,
+    "laser_on_length_mm": 31.457551782082685,
+    "process_time_s": 0.4166666666666667,
+    "pulse_carry": [
+     0.9998475031983585,
+     2.7579100780883728e-09
+    ],
+    "rapid_length_mm": 20.0
+   },
+   "cut_blocks": "4a2fcdea3bb8c06380cd5b1095db0883a58ec3f82f2120ff0ee5087ccb081360",
+   "end_pulses": [
+    3999,
+    2000
+   ],
+   "frames": "10ca605646f611b035cbf72dbe8490642da83085ce35c0c904ed4e5b9f5e9d2b",
+   "host_dependent": false,
+   "items": 848,
+   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
+   "n_frames": 9,
+   "overspeed_periods": 0,
+   "pierces": 1,
+   "process_items": 15,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 833,
+   "wire": "53247aa87358b1d892d4b8f6ff240c599cab38b87d8c03eaed29fae900b2c2a6"
+  },
+  "dxf/text_points#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 8.634476486903669,
+    "laser_on_length_mm": 132.7562209253312,
+    "process_time_s": 1.7166666666666668,
+    "pulse_carry": [
+     -0.0009400377050710063,
+     -0.0008789836950120478
+    ],
+    "rapid_length_mm": 113.86421146034678
+   },
+   "cut_blocks": "8b3ef7fbe07ab64bb0308b5ba19250a64f9ddbde2e1fa6d751279bca72b249d8",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "09403029459c0d98c2ec947579dbc41669074cdc611172649f3128c2b76bde9c",
+   "host_dependent": true,
+   "items": 9163,
+   "markers": "9a164fe08c02af8cf8321c1ce0eab92c3c67520027c41913f92dbc95136ffe7c",
+   "n_frames": 93,
+   "overspeed_periods": 438,
+   "pierces": 7,
+   "process_items": 89,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 9074,
+   "wire": "532557a108922f1988772b52842816b0f0945fad1d45fa0f73875abe7b4f1af0"
+  },
+  "dxf/text_points#default": {
+   "approx": {
+    "estimate_total_s": 8.166668301747515,
+    "laser_on_length_mm": 132.2023807766258,
+    "process_time_s": 1.5166666666666668,
+    "pulse_carry": [
+     3.7206877660178606e-05,
+     0.6451379550501705
+    ],
+    "rapid_length_mm": 76.13861299784148
+   },
+   "cut_blocks": "80b167ea6bd5022ff0d793b090a1eac5e55064472345025cf6dead855a107dfe",
+   "end_pulses": [
+    5000,
+    2006
+   ],
+   "frames": "33ab21d45a2b9305cff2ebafb87c4b94a5581315b7b95fe8119fa0a102b53189",
+   "host_dependent": true,
+   "items": 8251,
+   "markers": "9c882cf5f6f2f95fc924ab2df931396267304ee63e24d13cdfe80510d1edaa5f",
+   "n_frames": 84,
+   "overspeed_periods": 0,
+   "pierces": 7,
+   "process_items": 85,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 8166,
+   "wire": "2baf9bcc372ae3a48e7e6e47239670b8b701f145d706c21a7ca63c3a9b7104d0"
+  },
+  "dxf/visibility#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 1.653080744657875,
+    "laser_on_length_mm": 19.999000000000013,
+    "process_time_s": 0.7666666666666666,
+    "pulse_carry": [
+     -0.001952519340600034,
+     -1.5401013797600172e-12
+    ],
+    "rapid_length_mm": 65.76491222541475
+   },
+   "cut_blocks": "4f42aa138dd27472b2752553925dcb271478b611e89d9adba314f10e321c7905",
+   "end_pulses": [
+    0,
+    0
+   ],
+   "frames": "56971ff6a52c51f49deac6172564fdefeef8a2c526c53b9d95897e88eff63c45",
+   "host_dependent": false,
+   "items": 1922,
+   "markers": "42aa045f1e3c6516279b3e38f4b4bd8963110fc7c75c3e58df77ad0191067fc4",
+   "n_frames": 20,
+   "overspeed_periods": 240,
+   "pierces": 2,
+   "process_items": 30,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 1892,
+   "wire": "44d362c725621e154e06f6045167c55de6e8f06b026a65b13d74cd3b7cf8db53"
+  },
+  "dxf/visibility#default": {
+   "approx": {
+    "estimate_total_s": 1.2363527587606447,
+    "laser_on_length_mm": 19.989999999999988,
+    "process_time_s": 0.7666666666666666,
+    "pulse_carry": [
+     0.9998047480660253,
+     0.999999999999884
+    ],
+    "rapid_length_mm": 34.14213562373095
+   },
+   "cut_blocks": "c1096c23f3175966050a062b7bd892d0f3d457d4f907adc3f87004b236872d17",
+   "end_pulses": [
+    2999,
+    999
+   ],
+   "frames": "1ed9c4312babb30a678a8516dc9628ddc9f9807605e1e6228c7bff34bff0358d",
+   "host_dependent": false,
+   "items": 1266,
+   "markers": "68e4141f671f19e1edc040302515f089e7590c7cd101b132bc5be592406a4dba",
+   "n_frames": 13,
+   "overspeed_periods": 0,
+   "pierces": 2,
+   "process_items": 30,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 1236,
+   "wire": "0974e61a950e7c72f09d5b973fa5ef49eea4af28554ac22f094908a67ed4e16a"
+  }
+ },
+ "format": 1,
+ "group": "jobs_samples"
+}

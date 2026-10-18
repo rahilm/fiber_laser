@@ -1,0 +1,273 @@
+{
+ "cases": {
+  "chf/autosave": {
+   "bytes": "20f28d1beabafbc591a804f8d0be24d51a6cd4a7e7b3206bdbf155494eca80f5",
+   "host_dependent": false,
+   "identical_to_source": true,
+   "size": 658072
+  },
+  "chf/tempGraph": {
+   "bytes": "de341330943f9f637fe6d0aedd5b015ec79bdac298c2172d76b985d04b36cb04",
+   "host_dependent": false,
+   "identical_to_source": true,
+   "size": 500
+  },
+  "dxf/basic_r2000": {
+   "bytes": "1b04f17c6b3b921f6f2b40e97cdbb2b4c62c63d5393dddf788f7c2a69f77827f",
+   "host_dependent": false,
+   "size": 3512
+  },
+  "dxf/extrusion": {
+   "bytes": "6f191c957699d0b69b01c28398318c79f25fb6b9298c2b8770d1793b1271afba",
+   "host_dependent": false,
+   "size": 2188
+  },
+  "dxf/gear": {
+   "bytes": "b6fd06fe563f3bd23cc8d8c92c776c7c9b947c1033b4ebb597210b5785276527",
+   "host_dependent": false,
+   "size": 3712
+  },
+  "dxf/inserts": {
+   "bytes": "5ca50cd3ec3f6db5098ce0b82f8b5b21b4e8f75dd46de1bb588433d3330a333c",
+   "host_dependent": false,
+   "size": 4059
+  },
+  "dxf/inserts2": {
+   "bytes": "f3ef6719e39127478be32c545a48a519cb00491a093d2dc6ed6f51d5e173e0f0",
+   "host_dependent": false,
+   "size": 6655
+  },
+  "dxf/mix": {
+   "bytes": "15078853069f2b183556612896a845a7fed5205cf6ec57a3ed1a68006c77cec7",
+   "host_dependent": false,
+   "size": 6348
+  },
+  "dxf/r12_polyline": {
+   "bytes": "616235531f69b277605bd8ad1a921eb61aae59ae9dec912f73344c40d6cfe67d",
+   "host_dependent": false,
+   "size": 1770
+  },
+  "dxf/spline_ellipse": {
+   "bytes": "580f92c64151daa90e72dbf3c43fbeffff8274d99ff2f027d7387dc649aaec75",
+   "host_dependent": false,
+   "size": 3325
+  },
+  "dxf/spline_rational_acad": {
+   "bytes": "6cad4c1ac04e991b2195c6dda32b3ddeb8932607cf964c3db3fe1dd750a5237e",
+   "host_dependent": false,
+   "size": 743
+  },
+  "dxf/text_points": {
+   "bytes": "41567f129784845172cbb7d55fa9d0692ec0b9e546054567ad11cb92e0b0b0cf",
+   "host_dependent": true,
+   "size": 9624
+  },
+  "dxf/visibility": {
+   "bytes": "26a8f2b8d58217ca97ba27b700f2f0a696a9f7dee7cef8b2cb64a9651a97551b",
+   "host_dependent": false,
+   "size": 1136
+  },
+  "random/seed000": {
+   "bytes": "bfa9309a9c2d36fb05522cf5af0d9811967ecd544de7b062724fe3c471ed190a",
+   "size": 2117
+  },
+  "random/seed006": {
+   "bytes": "cb56c8fc9717e52df45dcfd306c8278bdfbda8e1082629e542212dbbc71b0161",
+   "size": 3039
+  },
+  "random/seed012": {
+   "bytes": "8ab8a972b6691449535b41a6e43699b692699c4b9089d97fbe6e3c1e6c6d5389",
+   "size": 2475
+  },
+  "random/seed018": {
+   "bytes": "c18ef1e79d5c003943ccb02b7676296b54737f7a691c4264732e656be9552ee1",
+   "size": 2757
+  },
+  "random/seed024": {
+   "bytes": "161173461b07496a63f9c0dae1c70ef42cbfa8d209693b39b7998687b85a1b04",
+   "size": 696
+  },
+  "random/seed030": {
+   "bytes": "4ae6158afc66b33c9abb604c8c2229639f4546f9234fa68c38ba23a63fe5a13b",
+   "size": 1842
+  },
+  "random/seed036": {
+   "bytes": "d02da510f8d41c1737767908dba89291bdf5dfefd0eee34f83345431f542cad2",
+   "size": 2547
+  },
+  "random/seed042": {
+   "bytes": "bb76d79f4cfcb23634fa0d6c3384d4b8cd1f3275bc665f7caceeaa2d26462781",
+   "size": 3908
+  },
+  "random/seed048": {
+   "bytes": "5af80134e62d022356feaf53be9c20340605d472598c0e49910861a61709165e",
+   "size": 1452
+  },
+  "random/seed054": {
+   "bytes": "970965986c8dff0b89d2297dd521044c7bdaf2a016454c67e08829ae7af2e148",
+   "size": 4284
+  },
+  "random/seed060": {
+   "bytes": "977b3458909450d74d906e9b6eb5001845dcbd05d8f3bb7eb7b25447cd887346",
+   "size": 626
+  },
+  "random/seed066": {
+   "bytes": "ba794daad591c0405d6745a69beabfa61ed9444d5a6c99b9ce5e43c7318142be",
+   "size": 3857
+  },
+  "random/seed072": {
+   "bytes": "02f4d0eb91dc73e48367acd42856046523f189b320d855ff3b67337df856abd0",
+   "size": 4868
+  },
+  "random/seed078": {
+   "bytes": "ac95fe55ee41e794d9b13220304870f25db05c6dbaa634ebbd168b500295b128",
+   "size": 2609
+  },
+  "random/seed084": {
+   "bytes": "cafb6e6e828b6713ca5a97c66ac2a8c78df2f87be78a909152ce8890ea0f215f",
+   "size": 3346
+  },
+  "random/seed090": {
+   "bytes": "549a6d5e14a08c449c6b7d0b30278366e52b90212b1d4d09d5539510d4c752a2",
+   "size": 2429
+  },
+  "random/seed096": {
+   "bytes": "c0bffcc9d73f38c803e748fb5f8bcedd2ae933c32b9aab10e8790aff63c0fa87",
+   "size": 2327
+  },
+  "random/seed102": {
+   "bytes": "9e215f4ecb85b8812b3eb1475eeea4402ce71f42bf510b1ba0cdbb336e0460ef",
+   "size": 3331
+  },
+  "random/seed108": {
+   "bytes": "15d3ea0508f5c3737660ddbd13294391855667a2af0478b81a9c3ffea4f5cb6e",
+   "size": 2556
+  },
+  "random/seed114": {
+   "bytes": "1e20327af42812eab68ba150bc4383a8e8a2c1181220bd485a34353c663d1538",
+   "size": 631
+  },
+  "random/seed120": {
+   "bytes": "40f6b27c298e30aeb9f8f6f4a45cd3571c91514ebf6b64f7f95f748be73227f2",
+   "size": 1745
+  },
+  "random/seed126": {
+   "bytes": "f85dd66819ae4d5edb443851d48d4dd603254f116de0562cdebddd7954d8b054",
+   "size": 2737
+  },
+  "random/seed132": {
+   "bytes": "5b95ae3ad127f735c668b2b682b5495ee947a15da04e3c887ee8aea3979b5a5d",
+   "size": 2846
+  },
+  "random/seed138": {
+   "bytes": "ef99a93897174d37ca35fc4d52439d12815b4e5fcb1b294cef78adcca8861b74",
+   "size": 2708
+  },
+  "random/seed144": {
+   "bytes": "758ed51d7ed9b456295ccd008c3f6b28a3caacde9395a5995025db0ec86faf51",
+   "size": 3532
+  },
+  "random/seed150": {
+   "bytes": "5dc8b12ccab8b278f80197a8480a1db78db049349f6b213de8ecf64bb1763924",
+   "size": 2347
+  },
+  "random/seed156": {
+   "bytes": "8d744165e3b911b071caeff83ceae42af2adc483a814ba9e1f2e44ca4170392c",
+   "size": 3825
+  },
+  "random/seed162": {
+   "bytes": "262b763727bbddeaccad8c847600320097c11715b05a68f6d8bec8568d240d0d",
+   "size": 2857
+  },
+  "random/seed168": {
+   "bytes": "1cedb3dca53d49227a0349b3af0aca502190d02b99bd1e514a3a87d351c900d4",
+   "size": 887
+  },
+  "random/seed174": {
+   "bytes": "7dd43e9e6e2fc9b5687e180536d834e802cf21018d27bfdc17521d8ea35d8f43",
+   "size": 1829
+  },
+  "random/seed180": {
+   "bytes": "5bcf3b3f5784da14b9a66bf997b9da1a8682eb889267fc4161a11e3c941beb0b",
+   "size": 5422
+  },
+  "random/seed186": {
+   "bytes": "234487ed0c8ada05914a592226687adcc2e97ce850261e750b7389d67241f6c9",
+   "size": 1912
+  },
+  "random/seed192": {
+   "bytes": "a31461c67df60c4fcc4a8f25c6773dfd715c707975dc7fd7e6d0550657b872e8",
+   "size": 1394
+  },
+  "random/seed198": {
+   "bytes": "6095cc55dd90f55b73f28c866d9ee1016b9907f49b065636b154c3e742c462f7",
+   "size": 2738
+  },
+  "random/seed204": {
+   "bytes": "91f09f704155eef30db3c3bdbe998f86e3c62f712e02bb612c51c331e5ba032f",
+   "size": 2691
+  },
+  "random/seed210": {
+   "bytes": "f051f6bb4f3ee3ea6de36ebe787009875e1d7e90fef6e5020e6a540b4508d134",
+   "size": 1336
+  },
+  "random/seed216": {
+   "bytes": "3b5ef91a8133146aaa970bf06ebb153b2fc957d017f65be1889910a6dd554481",
+   "size": 672
+  },
+  "random/seed222": {
+   "bytes": "0f8c056a9c2ef772af1eb4b058d6ac4a77978bf76dcc46cdf86888d95d2839b8",
+   "size": 3201
+  },
+  "random/seed228": {
+   "bytes": "7fb6817f178dcc4572946c6d02e0b994c5e77e1f428353637c9e9ff4f02fe476",
+   "size": 1424
+  },
+  "random/seed234": {
+   "bytes": "00aece7751ed9e5bc8c0c665e64639a01872d4d817086b7aebc06b60c172bcfa",
+   "size": 2981
+  },
+  "random/seed240": {
+   "bytes": "da3aa9c7f58c128cf79d3cb1bfa09090b469e2e42ef35837074979354adc8ca3",
+   "size": 3664
+  },
+  "random/seed246": {
+   "bytes": "0a3e3c12a915f598f1104fb115abfb5297f10d1803400cc63c9c47d1a78c0e78",
+   "size": 1655
+  },
+  "random/seed252": {
+   "bytes": "25099a815d69511e4552711eeeb3ba57bd3f4212be02fe526a85c5db6ae00790",
+   "size": 2767
+  },
+  "random/seed258": {
+   "bytes": "5fbe75ee031410bb4a00a75404cb282c165d5ef133b7e3bbf9e8bd3ea32ccd7f",
+   "size": 5438
+  },
+  "random/seed264": {
+   "bytes": "76db26ea42b2eea3051b3a97f5ce77091298fd003699df42e2a74430c9b9e438",
+   "size": 2094
+  },
+  "random/seed270": {
+   "bytes": "4b639c4f16b6b033831c51a1443332baa747251da8a4bb9d175b142b8dc48355",
+   "size": 672
+  },
+  "random/seed276": {
+   "bytes": "91680b013ee242e630d80d7e19d563b6cd3b4f597d3ce30137070fe1166082ae",
+   "size": 3080
+  },
+  "random/seed282": {
+   "bytes": "fb2429c99d27d0f9bd5ffc48973c0096928dc0dc5967b10b23d1c301b3af763b",
+   "size": 3975
+  },
+  "random/seed288": {
+   "bytes": "5b2254bb08eab782767ca7526205cdab7249f9e02a1dcd1c94c316aa72e259cf",
+   "size": 2939
+  },
+  "random/seed294": {
+   "bytes": "1e3729c9fe2e79d12ac17edc6238eb656441dec9149419f8fa646bcb215f69ac",
+   "size": 4477
+  }
+ },
+ "format": 1,
+ "group": "chf"
+}
