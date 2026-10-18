@@ -61,7 +61,12 @@ markers = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=7", "pre-commit>=3.5", "ruff>=0.6"]
+dev = [
+    "pytest>=7",
+    "pre-commit>=3.5",
+    "ruff>=0.6",
+    "import-linter>=2.15",
+]
 
 [tool.ruff]
 line-length = 110
@@ -73,3 +78,52 @@ extend-exclude = ["tests/data", "tests/golden/*.json"]
 # line (E702), assigns lambdas (E731) and uses l/I/O names from the original's variable names (E741)
 select = ["E4", "E7", "E9", "F"]
 ignore = ["E702", "E731", "E741"]
+
+# ---------------------------------------------------------------------------- import-linter
+# Layering rules of docs/dev/ARCHITECTURE.md (architecture.md §6), checked in CI with
+# `lint-imports`.  Every ignore below is an edge that could not be removed mechanically in Wave 1;
+# each has a docs/ROADMAP.md item.  Lazy (function-level) imports count like top-level ones.
+[tool.importlinter]
+root_packages = ["mlaser"]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Dependencies point downward only"
+type = "layers"
+layers = [
+    "mlaser.ui | mlaser.parity",
+    "mlaser.diag | mlaser.report | mlaser.engrave",
+    "mlaser.controller",
+    "mlaser.devices | mlaser.machine",
+    "mlaser.nc",
+    "mlaser.io | mlaser.nest",
+    "mlaser.cam",
+    "mlaser.motion",
+    "mlaser.formats | mlaser.cad",
+    "mlaser.geom | mlaser.protocol | mlaser.toolpath | mlaser.i18n",
+    "mlaser.model",
+]
+ignore_imports = [
+    # batch cutting rotates the document with the UI's docops (business logic in the UI;
+    # ROADMAP Wave 2 "business logic out of the UI")
+    "mlaser.diag.batch -> mlaser.ui.docops",
+]
+
+[[tool.importlinter.contracts]]
+name = "Domain packages import no Qt"
+type = "forbidden"
+source_modules = [
+    "mlaser.model", "mlaser.geom", "mlaser.protocol", "mlaser.toolpath", "mlaser.i18n",
+    "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
+    "mlaser.nc", "mlaser.machine", "mlaser.devices", "mlaser.controller",
+]
+forbidden_modules = ["PySide6", "shiboken6"]
+ignore_imports = [
+    # TEXT outlines come from Qt's font engine (QPainterPath) when no TrueType file is found;
+    # ROADMAP Wave 2 "fontTools + uharfbuzz text" removes the Qt fallback
+    "mlaser.cad.text -> PySide6",
+    "mlaser.io.dxf_import -> PySide6",
+    # UiController emits Qt signals to the GUI thread (optional, PySide6 may be missing);
+    # ROADMAP Wave 2 "typed MachineAPI plus an event bus" replaces them
+    "mlaser.controller.ui_adapter -> PySide6",
+]

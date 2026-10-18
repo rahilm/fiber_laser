@@ -62,14 +62,16 @@ Status: ☐ todo · ◐ in progress · ☑ done
 
 ### Services (Stage 2b)
 - ☐ typed `MachineAPI` plus an event bus (job, alarm, link events); split UiController; Demo and
-  real controllers implement the full API
+  real controllers implement the full API (removes the import-linter ignore
+  `controller.ui_adapter -> PySide6`: the Qt signal bridge moves to the app)
 - ☐ immutable `PlannedJob` compiled in a worker (progress, cancel, cache); the preview renders it
   and Start streams exactly it; the streamer uses `Job.frames()`
 - ☐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
   the machine profile feeds `Machine`
 - ☐ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
 - ☐ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
-- ☐ business logic out of the UI (docops, ext handlers → services)
+- ☐ business logic out of the UI (docops, ext handlers → services; removes the import-linter
+  ignore `diag.batch -> ui.docops`)
 
 ### Performance and libraries (Stage 4)
 - ☐ background, debounced toolpath; numpy ordering kernels with the same formulas (goldens)
@@ -80,7 +82,8 @@ Status: ☐ todo · ◐ in progress · ☑ done
   - ezdxf "modern import" mode
   - pyclipper kerf fallback
   - OR-Tools ordering option
-  - fontTools + uharfbuzz text
+  - fontTools + uharfbuzz text (removes the import-linter ignores `cad.text -> PySide6` and
+    `io.dxf_import -> PySide6`, the Qt font-engine fallback for TEXT outlines)
   - modern nesting engine (licence permitting)
 - ☐ PyInstaller one-folder builds per OS in CI, signing hooks, first-run network self-test
 - ☐ optional native kernel (Cython/Rust) for sample → quantise → encode, Python kept as reference
