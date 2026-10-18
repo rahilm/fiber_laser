@@ -28,11 +28,12 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF,
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF,
                            QTransform)
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
-                               QGraphicsSimpleTextItem, QGraphicsView, QRubberBand)
+                               QGraphicsSimpleTextItem, QGraphicsView, QRubberBand,
+                               QStyleOptionGraphicsItem)
 
 RES_DIR = os.path.join(os.path.dirname(__file__), "resources")
 
@@ -106,6 +107,98 @@ def _mods(m) -> set:
     return out
 
 
+class _RasterItem(QGraphicsItem):
+    """One item for a raster engraving part (mlaser.cam.raster_engraving): its burn runs as a
+    QImage on the pixel grid (pitch 1/rho, rows at the run y), placed with the part's frame
+    placement; without a known pitch the runs are drawn as one line path."""
+
+    MAX_PIXELS = 16_000_000
+
+    def __init__(self, part, color: QColor):
+        super().__init__()
+        from mlaser.cam import raster_engraving as R
+        self.raster = R.raster_of_part(part)
+        r = self.raster
+        self.setZValue(0.8)
+        self._image: Optional[QImage] = None
+        self._path: Optional[QPainterPath] = None
+        self._rect = QRectF()
+        self._color = QColor(color)
+        self._mask = None
+        try:
+            pl = R.placement(part)
+        except R.RasterFrameError:
+            pl = None
+        if pl is not None:
+            self.setTransform(QTransform(pl.a, pl.c, pl.b, pl.d, pl.tx, pl.ty))
+        if r is None or len(r) == 0:
+            return
+        if r.rho:
+            self._build_mask(r)
+        else:
+            path = QPainterPath()
+            y = r.y
+            for a, b, yy in zip(r.x0.tolist(), r.x1.tolist(), y.tolist()):
+                path.moveTo(a, yy)
+                path.lineTo(b, yy)
+            self._path = path
+            self._rect = path.boundingRect()
+        self.set_color(color)
+
+    def _build_mask(self, r) -> None:
+        import numpy as np
+        xa, ya, xb, yb = r.frame
+        rho = float(r.rho)
+        lo, hi = np.minimum(r.x0, r.x1), np.maximum(r.x0, r.x1)
+        ys = r.y
+        ncol = max(1, int(round((xb - xa) * rho)))
+        nrow = int(round((float(ys.max()) - ya) * rho)) + 1
+        k = 1
+        while (ncol // k + 1) * (nrow // k + 1) > self.MAX_PIXELS:
+            k += 1
+        c0 = np.clip(np.rint((lo - xa) * rho).astype(np.int64) // k, 0, ncol // k)
+        c1 = np.clip(-(-np.rint((hi - xa) * rho).astype(np.int64) // k), 0, ncol // k + 1)
+        c1 = np.maximum(c1, c0 + 1)
+        pr = np.clip(np.rint((ys - ya) * rho).astype(np.int64) // k, 0, (nrow - 1) // k)
+        W, H = ncol // k + 1, (nrow - 1) // k + 1
+        diff = np.zeros((H, W + 1), np.int32)
+        np.add.at(diff, (pr, c0), 1)
+        np.add.at(diff, (pr, c1), -1)
+        self._mask = np.cumsum(diff[:, :W], axis=1) > 0
+        px = k / rho
+        self._rect = QRectF(xa, ya - 0.5 / rho, W * px, H * px)
+
+    def set_color(self, color: QColor) -> None:
+        self._color = QColor(color)
+        if self._mask is not None:
+            import numpy as np
+            argb = np.uint32(self._color.rgba() | 0xFF000000)
+            buf = np.where(self._mask, argb, np.uint32(0)).astype(np.uint32)
+            h, w = buf.shape
+            self._buf = np.ascontiguousarray(buf)
+            self._image = QImage(self._buf.data, w, h, 4 * w, QImage.Format_ARGB32).copy()
+        self.update()
+
+    def boundingRect(self) -> QRectF:
+        return QRectF(self._rect)
+
+    def contains_scene(self, x: float, y: float) -> bool:
+        inv, ok = self.sceneTransform().inverted()
+        return bool(ok) and self._rect.contains(inv.map(QPointF(x, y)))
+
+    def paint(self, painter, option, widget=None) -> None:
+        if self._image is not None:
+            lod = QStyleOptionGraphicsItem.levelOfDetailFromTransform(painter.worldTransform())
+            px = self._rect.width() / max(1, self._image.width())
+            painter.setRenderHint(QPainter.SmoothPixmapTransform, px * lod < 1.0)
+            painter.drawImage(self._rect, self._image)
+        elif self._path is not None:
+            pen = QPen(self._color, 0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawPath(self._path)
+
+
 class _Marker(QGraphicsEllipseItem):
     """Fixed pixel-size dot (ignores view zoom)."""
 
@@ -144,6 +237,7 @@ class CanvasView(QGraphicsView):
         self._scene.setSceneRect(-1e6, -1e6, 2e6, 2e6)
         self._items: list[tuple[int, int, QGraphicsPathItem, list]] = []   # (part, contour, item, pts)
         self._overlay: list[QGraphicsItem] = []
+        self._raster_items: list[tuple[int, _RasterItem]] = []   # (part, item) of raster parts
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
         self._press_pos = None
@@ -217,13 +311,21 @@ class CanvasView(QGraphicsView):
             self._scene.removeItem(it)
         for it in self._overlay:
             self._scene.removeItem(it)
+        for _, rit in self._raster_items:
+            self._scene.removeItem(rit)
         self._items.clear()
         self._overlay.clear()
+        self._raster_items.clear()
         doc = self.document
         if doc is None:
             return
         self._order = self.contour_order()
         for pi, part in enumerate(doc.parts):
+            if isinstance(part.extra, dict) and "raster" in part.extra:
+                rit = _RasterItem(part, layer_color(part.craft.layer))
+                if rit.raster is not None:
+                    self._scene.addItem(rit)
+                    self._raster_items.append((pi, rit))
             for ci, c in enumerate(part.contours):
                 path, pts = _contour_path(c)
                 it = QGraphicsPathItem(path)
@@ -246,8 +348,15 @@ class CanvasView(QGraphicsView):
         from mlaser.model import Arc
         cut, gap, rap = QPainterPath(), QPainterPath(), QPainterPath()
         pos = None
+        rasters = {pi for pi, _ in self._raster_items}
+        skip = False            # inside a raster part's block: its item shows the burn runs
         for m in self.toolpath:
             name = type(m).__name__
+            if name == "Marker":
+                skip = getattr(m, "part", -1) in rasters
+                continue
+            if skip:
+                continue
             if name == "Rapid":
                 rap.moveTo(*m.start)
                 rap.lineTo(*m.end)
@@ -312,6 +421,10 @@ class CanvasView(QGraphicsView):
                 pen = QPen(QColor("#ffffff"), 1.5, Qt.DashLine)
                 pen.setCosmetic(True)
             it.setPen(pen)
+        for pi, rit in self._raster_items:
+            part = doc.parts[pi]
+            color = layer_color(part.craft.layer)
+            rit.set_color(color.lighter(160) if part.selected else color)
 
     def _add_overlay(self, item: QGraphicsItem) -> None:
         self._scene.addItem(item) if item.scene() is None else None
@@ -456,6 +569,10 @@ class CanvasView(QGraphicsView):
                 d = _seg_dist((sx, sy), a, b)
                 if d < best_d:
                     best, best_d = pi, d
+        if best is None:
+            for pi, rit in self._raster_items:
+                if rit.contains_scene(sx, sy):
+                    return pi
         return best
 
     def select_parts(self, indices, add: bool = False) -> None:
