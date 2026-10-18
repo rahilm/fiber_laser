@@ -100,6 +100,7 @@ layers = [
     "mlaser.cam",
     "mlaser.motion",
     "mlaser.formats | mlaser.cad",
+    "mlaser.parity_ports",
     "mlaser.geom | mlaser.protocol | mlaser.toolpath | mlaser.i18n",
     "mlaser.model",
 ]
@@ -114,6 +115,7 @@ name = "Domain packages import no Qt"
 type = "forbidden"
 source_modules = [
     "mlaser.model", "mlaser.geom", "mlaser.protocol", "mlaser.toolpath", "mlaser.i18n",
+    "mlaser.parity_ports",
     "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
     "mlaser.nc", "mlaser.machine", "mlaser.devices", "mlaser.controller",
 ]
@@ -126,4 +128,15 @@ ignore_imports = [
     # UiController emits Qt signals to the GUI thread (optional, PySide6 may be missing);
     # ROADMAP Wave 2 "typed MachineAPI plus an event bus" replaces them
     "mlaser.controller.ui_adapter -> PySide6",
+]
+
+[[tool.importlinter.contracts]]
+name = "parity_ports imports only geom, protocol and model"
+type = "forbidden"
+source_modules = ["mlaser.parity_ports"]
+forbidden_modules = [
+    "mlaser.toolpath", "mlaser.i18n", "mlaser.formats", "mlaser.cad", "mlaser.motion",
+    "mlaser.cam", "mlaser.io", "mlaser.nest", "mlaser.nc", "mlaser.machine", "mlaser.devices",
+    "mlaser.controller", "mlaser.diag", "mlaser.report", "mlaser.engrave", "mlaser.ui",
+    "mlaser.parity", "mlaser._compat",
 ]

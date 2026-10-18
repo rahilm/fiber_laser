@@ -223,7 +223,8 @@ def _spline_curve(g):
         return None
     sc = getattr(g, "_mlaser_curve", None)
     if sc is None:
-        from .geometry import SplineCurve
+        from ..parity_ports import active_profile
+        SplineCurve = active_profile().spline.SplineCurve
         sc = SplineCurve.from_glyph(g)
         try:
             object.__setattr__(g, "_mlaser_curve", sc)

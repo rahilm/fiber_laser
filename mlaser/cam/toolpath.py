@@ -310,7 +310,8 @@ def _curve_refs(smap: list, body_pieces, walk: float, L: float, closed: bool, dm
     (FUN_1006f2d0: glyph fractions from FUN_10063b40): a range that reaches a glyph end is that
     end exactly (fraction 0 or 1), and a piece that ends where the closed path started ends at
     the start walk itself (FUN_1006f2d0 takes the end fraction from t + 1 - 1 = t)."""
-    from .geometry import CurveRef
+    from ..parity_ports import active_profile
+    CurveRef = active_profile().spline.CurveRef
     out = []
     acc = 0.0
     Lb = sum(seg.length() for seg, _on in body_pieces)
