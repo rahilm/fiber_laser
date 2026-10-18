@@ -18,7 +18,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.11", "3.12"]
+        python: ["3.12", "3.13"]
     env:
       QT_QPA_PLATFORM: offscreen       # headless Qt everywhere
       MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
@@ -51,6 +51,15 @@ jobs:
       - name: Golden check
         if: matrix.python == '3.12'
         continue-on-error: ${{ runner.os != 'Linux' }}
+        run: uv run --locked pytest -q -m golden
+
+      # 3.13 keeps 3.12's compensated sum() and matched bit for bit locally (2026-10-18); the
+      # reference stays 3.12, so a difference here is reported, not fatal.
+      - name: Golden check (informative, 3.13)
+        if: matrix.python == '3.13' && runner.os == 'Linux'
+        continue-on-error: true
+        env:
+          MLASER_GOLDEN_ANY_PYTHON: "1"
         run: uv run --locked pytest -q -m golden
 
   lint:

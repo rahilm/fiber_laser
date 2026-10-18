@@ -73,7 +73,7 @@ def literals() -> set[str]:
     os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
     import mlaser
     for mod in pkgutil.walk_packages(mlaser.__path__, "mlaser."):
-        if ".parity" in mod.name or mod.name.endswith("__main__"):
+        if mod.name == "mlaser.parity" or mod.name.startswith("mlaser.parity.") or mod.name.endswith("__main__"):
             continue
         try:
             m = importlib.import_module(mod.name)
@@ -83,7 +83,11 @@ def literals() -> set[str]:
             if isinstance(v, (list, tuple, dict, set, frozenset)):
                 _walk_values(v, out)
             elif isinstance(v, type) and v.__module__ == m.__name__:
-                for cv in vars(v).values():
+                for ck, cv in vars(v).items():
+                    # dunders are not key tables (3.13 adds __static_attributes__, the names of
+                    # the attributes the methods assign: self.da1 is not the catalogue key da1)
+                    if ck.startswith("__"):
+                        continue
                     if isinstance(cv, (list, tuple, dict, set, frozenset)):
                         _walk_values(cv, out)
     for r in json.load(open(os.path.join(ROOT, "mlaser/formats/data/mlaser_params.json"), encoding="utf-8")):

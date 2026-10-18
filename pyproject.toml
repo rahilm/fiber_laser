@@ -9,7 +9,12 @@ description = "Cross-platform rebuild of the Gweike Mlaser fiber-laser cutting C
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
-requires-python = ">=3.11"
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+]
+requires-python = ">=3.12"   # PySide6 6.12 crashes on 3.11 (none_dealloc); goldens pinned to 3.12
 dependencies = [
     "PySide6>=6.5",
     "ezdxf>=1.1",
@@ -57,7 +62,7 @@ dev = ["pytest>=7", "pre-commit>=3.5", "ruff>=0.6"]
 
 [tool.ruff]
 line-length = 110
-target-version = "py311"
+target-version = "py312"
 extend-exclude = ["tests/data", "tests/golden/*.json"]
 
 [tool.ruff.lint]

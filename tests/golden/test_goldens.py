@@ -4,9 +4,9 @@ Each group is recomputed from the current code and compared with tests/golden/<g
 A difference means behaviour changed: either fix the change, or regenerate the goldens with
 ``python tools/make_goldens.py`` and justify the diff in review (docs/ROADMAP.md, the contract).
 
-The goldens are bit-exact on the interpreter they were generated with (manifest.json): Python
-3.11's ``sum()`` adds floats differently from 3.12's compensated ``sum()``, and a few random jobs
-then plan differently.  On another minor version the test is skipped unless
+The goldens are bit-exact on the interpreter they were generated with (manifest.json, CPython
+3.12): they are pinned to 3.12's float ``sum()`` (compensated summation; 3.11's plain ``sum()``
+made a few random jobs plan differently).  On another minor version the test is skipped unless
 ``MLASER_GOLDEN_ANY_PYTHON=1``.
 """
 

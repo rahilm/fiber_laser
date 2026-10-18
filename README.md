@@ -55,8 +55,11 @@ uv sync --locked --extra devices        # + hidapi / pyserial (pendant, serial l
 pre-commit install                      # optional: ruff on every commit
 ```
 
-Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"`. CPython 3.12 is the
-reference interpreter (the goldens are bit-exact on it); 3.11 is supported and tested in CI.
+Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"`. Python 3.12 or 3.13
+(both tested in CI). CPython 3.12 is the reference interpreter: the goldens are pinned to its float
+`sum()` semantics (compensated summation since 3.12) and are checked bit-exactly on it. Python 3.11
+is not supported: PySide6 6.12 aborts on it with "Fatal Python error: none_dealloc" (it drops one
+reference to `None` too many; 3.12 made `None` immortal, which hides the bug).
 
 ## Run
 
