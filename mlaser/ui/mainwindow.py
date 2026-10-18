@@ -15,7 +15,8 @@ from mlaser.model import Document, LayerParams, LeadParams
 
 from . import dialogs, docops
 from .canvas import CanvasView, layer_color
-from .facade import ControllerFacade, DemoController
+from ..machine.api import ControllerFacade
+from .facade import DemoController
 from .i18n import Translator, translator
 from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
 from .params import OPTION_SECTIONS

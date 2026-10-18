@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QC
 from mlaser.model import LayerParams
 
 from .canvas import LAYER_COLORS, layer_color
-from .facade import ControllerFacade
+from ..machine.api import ControllerFacade
 from .i18n import Translator
 from .params import GAS_KEYS
 from .icons import command_icon

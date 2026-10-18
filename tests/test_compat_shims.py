@@ -26,6 +26,7 @@ PARTIAL = {
     "mlaser.cam.geometry": {n for n in dir(importlib.import_module("mlaser.geom.contour"))
                             if not n.startswith("__")} - {"SplineCurve", "CurveRef"},
     "mlaser.devices.follower": {"make_follower_card_simulator"},
+    "mlaser.ui.facade": {"OUTPUTS", "MachineState", "ControllerFacade"},
 }
 
 
@@ -103,3 +104,15 @@ def test_follower_card_simulator_forwarder():
         assert follower.make_follower_card_simulator is make_follower_card_simulator
     assert any("mlaser.controller.follower_sim" in str(w.message) for w in seen)
 
+
+def test_ui_facade_forwards_the_machine_api():
+    from mlaser.machine import api
+    from mlaser.ui import facade
+
+    with warnings.catch_warnings(record=True) as seen:
+        warnings.simplefilter("always")
+        assert facade.ControllerFacade is api.ControllerFacade
+        assert facade.MachineState is api.MachineState
+        assert facade.OUTPUTS is api.OUTPUTS
+    assert sum("mlaser.machine.api" in str(w.message) for w in seen) == 3
+    assert issubclass(facade.DemoController, api.ControllerFacade)

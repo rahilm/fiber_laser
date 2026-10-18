@@ -1,4 +1,4 @@
-"""Binds the UI's :class:`mlaser.ui.facade.ControllerFacade` to the real card client.
+"""Binds the UI's :class:`mlaser.machine.api.ControllerFacade` to the real card client.
 
 ``UiController`` = :class:`~mlaser.controller.client.MotionController` (protocol, docs/protocol.md)
 + :func:`mlaser.nc.compile_job` (document -> FIFO job) + :mod:`mlaser.controller.stream` (in a worker
@@ -34,7 +34,7 @@ import threading
 import time
 from typing import Callable, Optional
 
-from ..ui.facade import ControllerFacade, MachineState, OUTPUTS
+from ..machine.api import OUTPUTS, ControllerFacade, MachineState
 from . import alarms as A
 from ..protocol import frames as F
 from .client import (HOME_X, HOME_XY, HOME_XY_W, HOME_XY_ZF, HOME_Y, HOME_ZF, CardScaling,
