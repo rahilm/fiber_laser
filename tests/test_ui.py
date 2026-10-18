@@ -140,7 +140,9 @@ def test_docops_roundtrip():
     assert doc.bbox() == pytest.approx(b0, abs=1e-6)
     n = len(doc.parts)
     doc.parts[0].selected = True
-    docops.array(doc, 2, 3, 5, 5)
+    from mlaser.cam.array import ArrayParams
+    from mlaser.ops import cam as OC
+    OC.rect_array(doc, ArrayParams(rows=2, cols=3, row_gap=5, col_gap=5))   # the one array path
     assert len(doc.parts) == n + 5
 
 

@@ -12,12 +12,11 @@ pytest.importorskip("PySide6")
 
 def test_ext_card_register_and_alarm_flow():
     from PySide6.QtWidgets import QApplication
-    from mlaser.ui import ext_card
-    from mlaser.ui.mainwindow import MainWindow
+    from wiring import real_window
     app = QApplication.instance() or QApplication([])
-    w = MainWindow()
+    w = real_window()
     try:
-        ext = ext_card.register(w)
+        ext = w.extension("ext_card")
         for cmd in ("card.alarms", "card.clear_alarms", "card.break_resume", "card.params",
                     "card.stream_process", "machine.home"):
             assert cmd in w.ribbon.actions

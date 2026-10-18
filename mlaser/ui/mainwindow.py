@@ -2,18 +2,23 @@
 from __future__ import annotations
 
 import copy
-import importlib
 import os
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QScrollArea, QTabWidget)
+                               QScrollArea, QTabWidget)
 
+from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
+from mlaser.ops.craft import MicroJointParams, default_lead_params  # noqa: F401 - re-exported
+from mlaser.services.commands import CommandRegistry, UnknownCommandError
+from mlaser.services.config import ConfigService
+from mlaser.services.document import DocumentService, clone_parts
+from mlaser.services.plugins import Hooks, discover, register_plugin
 
-from . import dialogs, docops
+from . import dialogs
 from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
@@ -22,65 +27,79 @@ from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
 from .params import OPTION_SECTIONS
 from .ribbon import Ribbon
 
-
-def _new_cam_params():
-    cls = _lazy("mlaser.cam.toolpath", "CamParams")
-    return cls() if cls else None
-
-
-def _new_machine():
-    cls = _lazy("mlaser.nc", "Machine")
-    return cls() if cls else None
-
-
-# ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..5, docs/cam.md §8)
+# ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/cam.md §8;
+# 6/7 CRingSort; 0 keep, 20/21 rebuild additions).  The one path for every ordering mode: the
+# duplicate bbox fallback (docops.sort_parts) and ext_nest's second binding of nearest / in-out /
+# out-in / run are gone.
 SORT_MODES = {"left_right": 1, "right_left": 2, "bottom_top": 3, "top_bottom": 4, "nearest": 5,
-              "in_out": 6, "out_in": 7}      # 6/7: CRingSort (docs/cam.md §8)
-# Feature extensions; each module exposes register(window) (docs/BRIEF.md, phase 2).
+              "run": 5, "in_out": 6, "out_in": 7, "keep": 0, "shortest": 20, "grid": 21}
+SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid": "Grid"}
+# Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
+# plugins come from the "mlaser.plugins" entry-point group.
 EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
               "ext_draw", "ext_craft", "ext_machine", "ext_diag")
 
 
+def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow
+    ops.clear_joints(doc)
+
+
 def _lazy(module: str, attr: str) -> Optional[Callable]:
-    """Import ``module.attr`` if the sibling package exists yet (written by other agents)."""
+    """``module.attr``, or None when it cannot be imported (the failure is logged, not hidden)."""
+    import importlib
+    import logging
     try:
         return getattr(importlib.import_module(module), attr)
-    except Exception:
+    except Exception:  # noqa: BLE001 - logged
+        logging.getLogger("mlaser.ui").exception("cannot load %s.%s", module, attr)
         return None
 
+class _CloseWatch(QObject):
+    """Runs the plugins' ``close`` hooks before the window's closeEvent (an event filter, so the
+    window's own close handling stays untouched)."""
 
-def _clear_joints(doc) -> None:
-    for p in docops._targets(doc):
-        p.craft.micro_joints = []
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._w = window
+        self._done = False
 
+    def eventFilter(self, obj, ev) -> bool:
+        if obj is self._w and ev.type() == QEvent.Close and not self._done:
+            self._done = True
+            self._w.hooks.emit("close")
+            self._w.config.flush()
+        return False
 
-
-def default_lead_params() -> tuple[LeadParams, LeadParams]:
-    """Lead dialog defaults of a fresh install (O, parity harness ``app_lead``: the original's
-    引线 dialog with no settings saved): lead-in **and** lead-out = line, 90°, 3 mm, r 2."""
-    return (LeadParams(kind=1, angle_deg=90.0, length=3.0, radius=2.0),
-            LeadParams(kind=1, angle_deg=90.0, length=3.0, radius=2.0))
 
 class MainWindow(QMainWindow):
     def __init__(self, controller: Optional[ControllerFacade] = None, tr: Optional[Translator] = None,
-                 extensions: tuple = ()):
+                 extensions: tuple = (), config: Optional[ConfigService] = None,
+                 entry_points: bool = False):
         super().__init__()
         self.tr_ = tr or translator()
         self.ctl = controller or DemoController()
-        self.document = Document()
-        self.path: Optional[str] = None
-        self._undo: list[Document] = []
-        self._redo: list[Document] = []
-        self.settings: dict = {}            # SoftParam/GraphParam/... values edited by Options
+        # services (mlaser.services, docs/dev/ARCHITECTURE.md): typed configuration, the document
+        # with its undo history, the command registry and the plugin hooks
+        self.config = config or ConfigService()
+        self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        self.docs = DocumentService()
+        self.commands = CommandRegistry()
+        self.hooks = Hooks()
+        self.jobs = None
+        self.extensions: dict = {}
+        self.plugin_contexts: dict = {}
+        self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
         self.lead_in, self.lead_out = default_lead_params()
         self.lead_closed_only = True     # "只对封闭图形有效" (closed graphs only), on by default
         self.lead_start_mode = 0         # "自动选择起点位置(长边优先)" (auto, long side first)
-        self.cam_params = _new_cam_params()      # mlaser.cam.toolpath.CamParams (sort mode etc.)
-        self.machine = _new_machine()            # mlaser.nc.Machine (simulation dynamics)
+        from mlaser.cam.toolpath import CamParams
+        self.cam_params = CamParams()            # sort mode etc.
+        self.machine = self.config.machine()     # mlaser.nc.Machine from the machine profile
+        self.config.subscribe(self._config_changed)
         self.toolpath: list = []
         self.estimate: dict = {}
-        self.mj_params = {"kind": 0, "count": 4, "distance": 100.0, "length": 0.5, "min_size": 0.0}
+        self.mj_params = MicroJointParams()
         self.resize(1400, 900)
         self.tr_.bind(self, "mf459", lambda t: self.setWindowTitle(f"Mlaser - {t}"))
 
@@ -125,24 +144,66 @@ class MainWindow(QMainWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._timer.start(100)
+        self.docs.subscribe(self._document_changed)
         self.set_document(Document())
-        self.extensions = self._load_extensions(extensions)
+        self._close_watch = _CloseWatch(self)
+        self.installEventFilter(self._close_watch)
+        self._load_extensions(extensions, entry_points)
 
-    def _load_extensions(self, names) -> dict:
-        """Import each feature extension and let it add its actions; a failing one is logged
-        and skipped so the core window still works."""
-        import importlib
-        loaded = {}
-        for name in names:
-            try:
-                mod = importlib.import_module(f"{__package__}.{name}")
-            except ImportError:
-                continue
-            try:
-                loaded[name] = mod.register(self)
-            except Exception as e:  # noqa: BLE001 - an extension must not take the app down
-                self.log_panel.log(f"extension {name} failed: {e}")
-        return loaded
+    # ------------------------------------------------------------------ plugins
+    def _load_extensions(self, names, entry_points: bool = False) -> dict:
+        """Register the built-in plugins ``names`` (modules of this package) and, with
+        ``entry_points``, the ``mlaser.plugins`` entry points (services.plugins).  A failing
+        plugin is logged with its reason and rolled back; the core window still works."""
+        mods = [n if "." in n or ":" in n else f"{__package__}.{n}" for n in names]
+        for info in discover(mods, entry_points=entry_points):
+            ctx, result = register_plugin(self, info)
+            if ctx is not None:
+                self.plugin_contexts[info.name] = ctx
+                self.extensions[info.name] = result
+        return self.extensions
+
+    def extension(self, name: str):
+        """The object a plugin's register() returned (None when it is not loaded)."""
+        return self.extensions.get(name)
+
+    def log(self, msg: str) -> None:
+        self.log_panel.log(msg)
+
+    def host_add_dock(self, widget, title: str, area: str = "right", key: str = "") -> QDockWidget:
+        areas = {"left": Qt.LeftDockWidgetArea, "right": Qt.RightDockWidgetArea,
+                 "bottom": Qt.BottomDockWidgetArea, "top": Qt.TopDockWidgetArea}
+        d = QDockWidget(title, self)
+        d.setObjectName(key or title)
+        d.setWidget(widget)
+        self.addDockWidget(areas.get(area, Qt.RightDockWidgetArea), d)
+        return d
+
+    def host_add_ribbon_tab(self, title: str, commands: list[str]):
+        return self.ribbon.add_command_tab(title, commands)
+
+    def host_add_workspace(self, name: str, widget, title: str):
+        """Wave 3 task workspaces: kept in ``self.workspaces`` (no workspace switcher yet)."""
+        if name in self.workspaces:
+            raise KeyError(f"workspace {name!r} already exists")
+        self.workspaces[name] = (title, widget)
+        return widget
+
+    @property
+    def document(self) -> Document:
+        return self.docs.document
+
+    @document.setter
+    def document(self, doc: Document) -> None:
+        self.docs.adopt(doc, self.docs.path)
+
+    @property
+    def path(self) -> Optional[str]:
+        return self.docs.path
+
+    @path.setter
+    def path(self, value: Optional[str]) -> None:
+        self.docs.path = value
 
     def showEvent(self, ev) -> None:
         super().showEvent(ev)
@@ -196,48 +257,57 @@ class MainWindow(QMainWindow):
             "select.all": lambda: self.canvas.select_parts(range(len(self.document.parts))),
             "select.invert": lambda: self._select(lambda p: not p.selected),
             "select.unclosed": lambda: self._select(lambda p: any(not c.closed for c in p.contours)),
-            "xform.mirror_h": lambda: self._edit(docops.mirror, True),
-            "xform.mirror_v": lambda: self._edit(docops.mirror, False),
-            "xform.rot_cw90": lambda: self._edit(docops.rotate, -90), "xform.rot_ccw90": lambda: self._edit(docops.rotate, 90),
-            "xform.rot_180": lambda: self._edit(docops.rotate, 180), "xform.rotate": lambda: self._edit(docops.rotate, 90),
+            "xform.mirror_h": lambda: self._edit(ops.mirror, True, label="mirror"),
+            "xform.mirror_v": lambda: self._edit(ops.mirror, False, label="mirror"),
+            "xform.rot_cw90": lambda: self._edit(ops.rotate, -90, label="rotate"),
+            "xform.rot_ccw90": lambda: self._edit(ops.rotate, 90, label="rotate"),
+            "xform.rot_180": lambda: self._edit(ops.rotate, 180, label="rotate"),
+            "xform.rotate": lambda: self._edit(ops.rotate, 90, label="rotate"),
             "xform.rot_any": self.rotate_dialog,
-            "xform.scale_10": lambda: self._edit(docops.scale, 0.1), "xform.scale_50": lambda: self._edit(docops.scale, 0.5),
-            "xform.scale_200": lambda: self._edit(docops.scale, 2.0), "xform.scale_dialog": self.scale_dialog,
-            "xform.scale_30": lambda: self._edit(docops.scale, 0.3), "xform.scale_75": lambda: self._edit(docops.scale, 0.75),
-            "xform.scale_500": lambda: self._edit(docops.scale, 5.0),
-            **{f"xform.size_{mm}mm": (lambda mm=mm: self._edit(docops.scale_to, float(mm))) for mm in (10, 50, 100, 200)},
-            "craft.lead": self.lead_dialog, "craft.lead_clear": lambda: self._edit(docops.apply_lead, LeadParams(0), LeadParams(0), False),
+            "xform.scale_10": lambda: self._edit(ops.scale, 0.1, label="scale"),
+            "xform.scale_50": lambda: self._edit(ops.scale, 0.5, label="scale"),
+            "xform.scale_200": lambda: self._edit(ops.scale, 2.0, label="scale"), "xform.scale_dialog": self.scale_dialog,
+            "xform.scale_30": lambda: self._edit(ops.scale, 0.3, label="scale"),
+            "xform.scale_75": lambda: self._edit(ops.scale, 0.75, label="scale"),
+            "xform.scale_500": lambda: self._edit(ops.scale, 5.0, label="scale"),
+            **{f"xform.size_{mm}mm": (lambda mm=mm: self._edit(ops.scale_to, float(mm), label="size")) for mm in (10, 50, 100, 200)},
+            "craft.lead": self.lead_dialog,
+            "craft.lead_clear": lambda: self._edit(ops.apply_lead, LeadParams(0), LeadParams(0), False, label="clear leads"),
             "craft.kerf": self.kerf_dialog, "craft.kerf_set": self.kerf_dialog,
-            "craft.kerf_cancel": lambda: self._edit(docops.apply_kerf, -1, 0.0),
-            "craft.inside": lambda: self._edit(docops.apply_kerf, 0, self._kerf_width()),
-            "craft.outside": lambda: self._edit(docops.apply_kerf, 1, self._kerf_width()),
-            "craft.reverse": lambda: self._edit(docops.reverse),
+            "craft.kerf_cancel": lambda: self._edit(ops.apply_kerf, -1, 0.0, label="kerf"),
+            "craft.inside": lambda: self._edit(ops.apply_kerf, 0, self._kerf_width(), label="kerf"),
+            "craft.outside": lambda: self._edit(ops.apply_kerf, 1, self._kerf_width(), label="kerf"),
+            "craft.reverse": lambda: self._edit(ops.reverse, label="reverse"),
             "craft.microjoint": self.microjoint_dialog, "craft.mj_params": self.microjoint_dialog,
-            "tool.array": self.array_dialog,
             "sim.speed": self.sim_speed_dialog, "sim.stop": lambda: self.canvas.stop_simulation(True),
             "diag.log": lambda: self.log_dock.show(),
             "edit.copy": self.copy_selected, "edit.paste": self.paste,
         }
         for how in ("left", "right", "hcenter", "top", "bottom", "vcenter", "center"):
-            handlers[f"xform.align_{how}"] = lambda _=False, h=how: self._edit(docops.align, h)
-        for how in ("left_right", "right_left", "bottom_top", "top_bottom", "nearest", "small_first", "in_out", "out_in"):
+            handlers[f"xform.align_{how}"] = lambda _=False, h=how: self._edit(ops.align, h, label="align",
+                                                                             scope="selection")
+        for how in SORT_MODES:
             handlers[f"sort.{how}"] = lambda _=False, h=how: self.sort(h)
-        handlers["sort.run"] = lambda: self.sort("nearest")
+        handlers["sort.small_first"] = lambda: self.sort("small_first")
         handlers["craft.mj_auto"] = self.microjoint_auto
-        handlers["craft.mj_clear"] = lambda: self._edit(_clear_joints)
+        handlers["craft.mj_clear"] = lambda: self._edit(ops.clear_joints, label="clear micro-joints")
         handlers["hw.connect_sim"] = self.connect_simulator
         show = {"show.bbox": "show_bbox", "show.unclosed_red": "unclosed_red", "show.index": "show_index",
                 "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path"}
         for cmd, attr in show.items():
-            act = a[cmd]
-            act.setChecked(getattr(self.canvas.options, attr))
-            act.toggled.connect(lambda on, at=attr: (setattr(self.canvas.options, at, on), self.canvas.rebuild()))
-        for cmd, act in a.items():
-            if cmd in show:
-                continue
-            fn = handlers.get(cmd)
-            act.triggered.connect(fn if fn else (lambda _=False, c=cmd: self.not_implemented(c)))
-        self.handlers = handlers
+            a[cmd].setChecked(getattr(self.canvas.options, attr))
+            handlers[cmd] = lambda on, at=attr: (setattr(self.canvas.options, at, bool(on)), self.canvas.rebuild())
+        # every QAction is connected once to the registry; plugins register handlers, not slots
+        self.commands.on_register.append(self._command_registered)
+        self.commands.on_error.append(lambda cmd, exc: self.log_panel.log(f"{cmd}: {type(exc).__name__}: {exc}"))
+        self.ribbon.on_new_action = self._connect_action
+        for act in a.values():
+            self._connect_action(act)
+        for cmd, fn in handlers.items():
+            self.commands.register(cmd, fn, "core", checkable=cmd in show)
+        for how, label in SORT_LABELS.items():
+            self.ribbon.action(f"sort.{how}", label)
+        self.handlers = self.commands.handlers()
 
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._context_menu)
@@ -266,13 +336,43 @@ class MainWindow(QMainWindow):
         for key, (dx, dy) in ((Qt.Key_Left, (-1, 0)), (Qt.Key_Right, (1, 0)), (Qt.Key_Up, (0, 1)), (Qt.Key_Down, (0, -1))):
             QShortcut(QKeySequence(key), self.canvas, activated=lambda dx=dx, dy=dy: self.nudge(dx, dy))
 
+    def _connect_action(self, act) -> None:
+        """Every action is connected once.  A command registered ``checkable`` runs on
+        ``toggled`` with the state (a programmatic setChecked runs it too, as before); any other
+        command runs on ``triggered`` (view.* modes are checkable actions whose handler sets the
+        checked state itself)."""
+        cmd = act.data() or act.objectName()
+        act.triggered.connect(lambda _=False, c=cmd: None if self._toggle_cmd(c) else self._dispatch(c))
+        act.toggled.connect(lambda on, c=cmd: self._dispatch(c, on) if self._toggle_cmd(c) else None)
+
+    def _toggle_cmd(self, cmd: str) -> bool:
+        spec = self.commands.get(cmd)
+        return bool(spec and spec.checkable)
+
+    def _command_registered(self, spec) -> None:
+        """A plugin bound a command that has no ribbon action yet: create one (label = lang key
+        or text); a checkable command gets a checkable action."""
+        if spec.id not in self.ribbon.actions:
+            self.ribbon.action(spec.id, spec.label or spec.id, checkable=spec.checkable)
+        elif spec.checkable:
+            self.ribbon.actions[spec.id].setCheckable(True)
+
+    def _dispatch(self, cmd: str, checked=None) -> None:
+        try:
+            if checked is None:
+                self.commands.run(cmd)
+            else:
+                self.commands.run(cmd, bool(checked))
+        except UnknownCommandError:
+            self.not_implemented(cmd)
+
     # ------------------------------------------------------------------ helpers
     def run(self, cmd: str) -> None:
         act = self.ribbon.actions.get(cmd)
         if act is not None:
             act.trigger()
-        elif cmd in self.handlers:
-            self.handlers[cmd]()
+        else:
+            self._dispatch(cmd)
 
     def not_implemented(self, cmd: str) -> None:
         self.log_panel.log(f"{cmd}: not implemented in the rebuild yet")
@@ -318,16 +418,45 @@ class MainWindow(QMainWindow):
         for cmd, m in (("view.select_mode", CanvasView.MODE_SELECT), ("view.pan_mode", CanvasView.MODE_PAN),
                        ("view.node_edit", CanvasView.MODE_NODE)):
             a[cmd].setChecked(m == mode)
+        self.hooks.emit("mode_changed", mode)
 
     def set_document(self, doc: Document, path: Optional[str] = None) -> None:
+        """Show ``doc`` (open, new, import).  Recorded for undo only after :meth:`_snapshot`."""
+        self._fill_layers(doc)
+        self.docs.adopt(doc, path)
+
+    @staticmethod
+    def _fill_layers(doc: Document) -> None:
         for li in sorted({p.craft.layer for p in doc.parts}):
             doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name()))
-        self.document = doc
-        self.path = path
-        self.canvas.set_document(doc)
+
+    def _document_changed(self, kind: str) -> None:
+        """DocumentService listener: refresh the views after an edit, undo/redo or a new
+        document (a new document is zoomed to fit, an edit keeps the view)."""
+        doc = self.docs.document
+        self._fill_layers(doc)
+        if kind == "replace":
+            self.canvas.set_document(doc)
+        else:
+            self.canvas.document = doc
+            self.canvas.rebuild()
         self._update_toolpath()
         self.layer_panel.set_document(doc)
         self.part_list.set_document(doc)
+        self.hooks.emit("document_changed", kind)
+
+    def refresh_views(self) -> None:
+        """Rebuild the views after a change that is deliberately not an undo step."""
+        self._document_changed("edit")
+
+    def _config_changed(self, key: str) -> None:
+        """ConfigService listener: the machine profile feeds the job compiler and the controller."""
+        self.machine = self.config.machine()
+        if hasattr(self.ctl, "machine"):
+            try:
+                self.ctl.machine = self.machine
+            except AttributeError:
+                pass
 
     def _update_toolpath(self) -> None:
         """Rebuild the CAM toolpath (mlaser.cam.build_toolpath) and show it on the canvas."""
@@ -341,40 +470,43 @@ class MainWindow(QMainWindow):
         self.canvas.set_toolpath(self.toolpath)
 
     def _refresh(self) -> None:
-        self._update_toolpath()
-        self.layer_panel.set_document(self.document)
-        self.part_list.set_document(self.document)
+        """Views after an in-place change; records it when :meth:`_snapshot` was called first."""
+        if self.docs._pending is not None:
+            self.docs.commit()
+            return
+        self._document_changed("edit")
 
     def _snapshot(self) -> None:
-        self._undo.append(copy.deepcopy(self.document))
-        del self._undo[:-50]
-        self._redo.clear()
+        """Core helper for whole-document changes (open / new): the next set_document is undoable.
+        Plugins use ``ctx.edit`` / ``ctx.replace_document`` instead."""
+        self.docs.checkpoint()
 
-    def _edit(self, fn, *args) -> None:
-        self._snapshot()
-        fn(self.document, *args)
-        self._refresh()
+    def _edit(self, fn, *args, label: str = "edit", scope: str = "targets"):
+        """Undoable edit ``fn(document, *args)``; ``scope`` = the parts it changes in place:
+        "targets" (selection, else all), "selection" or "all"."""
+        doc = self.docs.document
+        parts = (ops.targets(doc) if scope == "targets" else
+                 [p for p in doc.parts if p.selected] if scope == "selection" else None)
+        return self.docs.edit(lambda d: fn(d, *args), label, parts=parts)
 
     def _select(self, pred) -> None:
-        docops.select_where(self.document, pred)
+        ops.select_where(self.document, pred)
         self.canvas.refresh_styles()
         self.part_list.sync_selection()
 
     def undo(self) -> None:
-        if self._undo:
-            self._redo.append(self.document)
-            self.document = self._undo.pop()
-            self.set_document(self.document, self.path)
+        label = self.docs.undo()
+        if label:
+            self.statusBar().showMessage(f"undo: {label}", 3000)
 
     def redo(self) -> None:
-        if self._redo:
-            self._undo.append(self.document)
-            self.document = self._redo.pop()
-            self.set_document(self.document, self.path)
+        label = self.docs.redo()
+        if label:
+            self.statusBar().showMessage(f"redo: {label}", 3000)
 
     def delete_selected(self) -> None:
         if any(p.selected for p in self.document.parts):
-            self._edit(docops.delete_selected)
+            self._edit(ops.delete_selected, label="delete", scope="selection")
 
     def _context_menu(self, pos) -> None:
         """Canvas right-click menu (lang keys mv0..mv35 observed: mv1 Reset View, mv7 Copy,
@@ -396,33 +528,32 @@ class MainWindow(QMainWindow):
         m.exec(self.canvas.mapToGlobal(pos))
 
     def copy_selected(self) -> None:
-        self._clipboard = [copy.deepcopy(p) for p in self.document.parts if p.selected]
+        self._clipboard = clone_parts(p for p in self.document.parts if p.selected)
 
     def paste(self) -> None:
         """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
         clip = getattr(self, "_clipboard", None)
         if not clip:
             return
-        def do(d):
-            for p in d.parts:
-                p.selected = False
-            new = [copy.deepcopy(p) for p in clip]
-            docops.translate(d, 10.0, 10.0, new)
-            for p in new:
-                p.selected = True
-            d.parts.extend(new)
-            d.extra.pop("order", None)
-        self._edit(do)
+        # paste deselects every part, so all parts are in the scope (selection flags change)
+        self._edit(ops.paste_parts, clip, 10.0, 10.0, label="paste", scope="all")
 
     def nudge(self, dx: float, dy: float) -> None:
-        """mf445 keyboard fine-tuning: move selection by pd377 step length (default 1 mm)."""
+        """mf445 keyboard fine-tuning (arrow keys): the ``nudge`` provider when a plugin sets one
+        (ext_draw: pd377 step / auto step), else move the selection by SP.KeyboardMoveStep."""
+        provider = self.hooks.provider("nudge")
+        if provider is not None:
+            provider(dx, dy)
+            return
+        if not any(p.selected for p in self.document.parts):
+            return
         step = float(self.settings.get("SP.KeyboardMoveStep", 1.0))
-        if any(p.selected for p in self.document.parts):
-            self._edit(lambda d: docops.translate(d, dx * step, dy * step, [p for p in d.parts if p.selected]))
+        self._edit(lambda d: ops.translate(d, dx * step, dy * step, [p for p in d.parts if p.selected]),
+                   label="nudge", scope="selection")
 
     def assign_layer(self, layer: int) -> None:
         if any(p.selected for p in self.document.parts):
-            self._edit(docops.set_layer, layer)
+            self._edit(ops.set_layer, layer, label="layer", scope="selection")
 
     def edit_layer(self, layer: int) -> None:
         lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name()))
@@ -510,77 +641,60 @@ class MainWindow(QMainWindow):
     def lead_dialog(self) -> None:
         d = dialogs.LeadDialog(self.tr_, self.lead_in, self.lead_out, self)
         if d.exec():
-            self._edit(docops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
-                       self.lead_start_mode)
+            self._edit(ops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
+                       self.lead_start_mode, label="lead")
             self.log_panel.log("mf207")
 
     def kerf_dialog(self) -> None:
         d = dialogs.KerfDialog(self.tr_, 1, self._kerf_width(), self)
         if d.exec():
-            self._edit(docops.apply_kerf, *d.result_values())
+            self._edit(ops.apply_kerf, *d.result_values(), label="kerf")
 
-    def sort(self, how: str) -> None:
-        """Cutting order through mlaser.cam.ordering (CamParams.sort_mode / small_first); modes
-        the CAM module does not provide (out->in, layer first/last) fall back to docops."""
-        if self.cam_params is None:
-            self._edit(docops.sort_parts, how)
-            return
+    def sort(self, how: str, **flags) -> None:
+        """Cutting order: every ordering mode is a ``CamParams.sort_mode`` of
+        :mod:`mlaser.cam.ordering` (``SORT_MODES``); ``small_first`` toggles the flag.  The plan
+        (preview and job) is rebuilt with it."""
         if how == "small_first":
             self.cam_params.small_first = not self.cam_params.small_first
         else:
             self.cam_params.sort_mode = SORT_MODES.get(how, 5)
+        for k, v in flags.items():
+            setattr(self.cam_params, k, v)
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {self.cam_params.sort_mode}, small first {self.cam_params.small_first}")
+
+    def set_sort_mode(self, mode: int, **flags) -> None:
+        """Set ``CamParams.sort_mode`` (and flags such as ``avoid_cut``) directly."""
+        self.cam_params.sort_mode = int(mode)
+        for k, v in flags.items():
+            setattr(self.cam_params, k, v)
+        self._update_toolpath()
+        self.log_panel.log(f"sort: mode {mode}")
 
     def microjoint_dialog(self) -> None:
         d = dialogs.MicroJointDialog(self.tr_, self)
         mp = self.mj_params
-        d.kind.setCurrentIndex(mp["kind"]); d.number.setValue(mp["count"])
-        d.distance.setValue(mp["distance"]); d.length.setValue(mp["length"]); d.min_size.setValue(mp["min_size"])
+        d.kind.setCurrentIndex(mp.kind); d.number.setValue(mp.count)
+        d.distance.setValue(mp.distance); d.length.setValue(mp.length); d.min_size.setValue(mp.min_size)
         if d.exec():
             mp.update(kind=d.kind.currentIndex(), count=d.number.value(), distance=d.distance.value(),
                       length=d.length.value(), min_size=d.min_size.value())
             self.microjoint_auto()
 
     def microjoint_auto(self) -> None:
-        """mf103 auto micro-joints via mlaser.cam.microjoint.auto_joints (0x10071180)."""
-        auto = _lazy("mlaser.cam.microjoint", "auto_joints")
-        if auto is None:
-            self.log_panel.log("craft.mj_auto: mlaser.cam not available")
-            return
-        mp = self.mj_params
-
-        def do(doc):
-            n = 0
-            for p in docops._targets(doc):
-                if not p.contours:
-                    continue
-                c = max(p.contours, key=lambda k: k.length())
-                js = auto(c, count=mp["count"] if mp["kind"] == 0 else 0,
-                          spacing=mp["distance"] if mp["kind"] == 1 else 0.0,
-                          joint_len=mp["length"], min_size=mp["min_size"])
-                p.craft.micro_joints = [list(j) for j in js]
-                p.craft.extra["micro_joint_len"] = mp["length"]
-                n += len(js)
-            self.log_panel.log(f"mf103: {n} micro-joints")
-        self._edit(do)
-
-    def array_dialog(self) -> None:
-        d = dialogs.ArrayDialog(self.tr_, self)
-        if d.exec():
-            sx = -1 if d.col_dir.currentIndex() else 1
-            sy = -1 if d.row_dir.currentIndex() else 1
-            self._edit(docops.array, d.rows.value(), d.cols.value(), sx * d.col_gap.value(), sy * d.row_gap.value())
+        """mf103 auto micro-joints (:func:`mlaser.ops.auto_microjoints`)."""
+        n = self._edit(ops.auto_microjoints, self.mj_params, label="micro-joints")
+        self.log_panel.log(f"mf103: {n} micro-joints")
 
     def rotate_dialog(self) -> None:
         d = dialogs.ValueDialog(self.tr_, "mf185", "pd339", 30.0, -360, 360, self)
         if d.exec():
-            self._edit(docops.rotate, d.value.value())
+            self._edit(ops.rotate, d.value.value(), label="rotate")
 
     def scale_dialog(self) -> None:
         d = dialogs.ValueDialog(self.tr_, "mf60", "pd348", 100.0, 0.1, 10000, self)
         if d.exec():
-            self._edit(docops.scale, d.value.value() / 100.0)
+            self._edit(ops.scale, d.value.value() / 100.0, label="scale")
 
     def sim_speed_dialog(self) -> None:
         d = dialogs.ValueDialog(self.tr_, "mf121", "mf121", self.canvas.sim_speed, 0.1, 100, self)
@@ -617,6 +731,7 @@ class MainWindow(QMainWindow):
         self.ctl = ctl
         self.control.ctl = ctl
         ctl.add_log_listener(self.log_panel.log)
+        self.hooks.emit("controller_changed", ctl)      # plugins re-attach (PluginContext)
 
     def connect_simulator(self, time_scale: float = 1.0) -> bool:
         """Start the in-process MCC100 simulator (mlaser.controller.simulator) on localhost UDP

@@ -23,6 +23,7 @@ class Ribbon(QTabWidget):
         super().__init__(parent)
         self.tr_ = tr
         self.actions: dict[str, QAction] = {}
+        self.on_new_action = None      # MainWindow connects every new action to its registry
         self.setDocumentMode(True)
         self.setObjectName("Ribbon")
         self.setFixedHeight(118)
@@ -50,6 +51,8 @@ class Ribbon(QTabWidget):
             self.tr_.bind(act, key, act.setText)
             self.tr_.bind(act, key, act.setToolTip)
             self.actions[cmd] = act
+            if self.on_new_action is not None:
+                self.on_new_action(act)
         if act.icon().isNull():
             icon = icon if icon is not None and not icon.isNull() else command_icon(cmd)
             if not icon.isNull():
@@ -57,6 +60,32 @@ class Ribbon(QTabWidget):
         if checkable:
             act.setCheckable(True)
         return act
+
+    def add_command_tab(self, title: str, commands: list[str]) -> QWidget:
+        """A plugin tab (``PluginContext.add_ribbon_tab``): one large button per existing action."""
+        page = QWidget()
+        lay = QHBoxLayout(page)
+        lay.setContentsMargins(2, 2, 2, 0)
+        box = QFrame()
+        box.setFrameShape(QFrame.StyledPanel)
+        row = QHBoxLayout(box)
+        for cmd in commands:
+            act = self.actions.get(cmd)
+            if act is None:
+                continue
+            tb = QToolButton()
+            tb.setDefaultAction(act)
+            tb.setAutoRaise(True)
+            if act.icon().isNull():
+                tb.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            else:
+                tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+                tb.setIconSize(QSize(32, 32))
+            row.addWidget(tb)
+        lay.addWidget(box)
+        lay.addStretch(1)
+        self.addTab(page, title)
+        return page
 
     def _add_tab(self, tab: spec.Tab) -> None:
         page = QWidget()

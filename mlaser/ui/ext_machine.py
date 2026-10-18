@@ -2,23 +2,23 @@
 AF home, network test, restart, firmware upgrade, offline job, parameter backup / restore,
 task files and system recovery.
 
-``register(window)`` re-binds the ribbon actions (``window.ribbon.actions[cmd]``: disconnect
-``triggered``, connect the handler, record it in ``window.handlers``) like ext_cam.  The logic
-lives in :mod:`mlaser.controller.machine_ops` and the modules it uses; this file is the Qt part.
+``register(ctx)`` (PluginContext) binds the commands and re-attaches on every controller change
+(``ctx.on_controller_changed``).  The logic lives in :mod:`mlaser.controller.machine_ops` and the
+modules it uses; this file is the Qt part.  MachineOps' values are the ConfigService namespace
+``machine_ops`` (they fall back to the Options the user set, so hardware options reach it).
 Long card operations run in worker threads; results come back through a queued Qt signal.
 Evidence: docs/protocol.md §16-§21.
 """
 from __future__ import annotations
 
 import math
-import os
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Signal
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFileDialog, QFormLayout, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QSpinBox, QVBoxLayout)
+                               QMessageBox, QPushButton, QVBoxLayout)
 
 from mlaser.controller import coords as C
 from mlaser.controller import edgeseek as E
@@ -154,15 +154,10 @@ class UpgradeConfirmDialog(QDialog):
 
 
 class MachineExtension:
-    def __init__(self, window, app_dir: Optional[str] = None):
-        self.w = window
-        settings = getattr(window, "settings", None)
-        if not isinstance(settings, dict):
-            settings = {}
-        self.values = settings.setdefault("machine_ops", {})
-        m = getattr(window, "machine", None)
-        for k, v in (getattr(m, "params", None) or {}).items():
-            self.values.setdefault(k, v)
+    def __init__(self, ctx, app_dir: Optional[str] = None):
+        self.ctx = ctx
+        self.w = window = ctx.window
+        self.values = ctx.config.namespace("machine_ops")
         self.ops = MachineOps(window.ctl, self.values, app_dir, log=self.log)
         self.bridge = _Bridge()
         self.bridge.call.connect(lambda fn: fn())
@@ -209,22 +204,20 @@ class MachineExtension:
     def _ask(self, title: str, text: str) -> bool:
         return QMessageBox.question(self.w, title, text, QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes
 
-    def _set_doc(self, doc) -> None:
-        setd = getattr(self.w, "set_document", None)
-        if callable(setd):
-            setd(doc, getattr(self.w, "path", None))
+    def _set_doc(self, doc, label: str = "machine") -> None:
+        """A new document (task import, recovery): undoable."""
+        self.ctx.replace_document(doc, label)
 
     # ------------------------------------------------------------------ edge seek
     def _apply_edge(self, res: E.EdgeSeekResult, set_origin: bool = False) -> None:
         """FUN_00557d90 / step 0x2a: cfg+0x4c60 := angle, cfg+0x4bc4 := 1, rotate the drawing
         about the anchor (the job origin)."""
-        doc = self.w.document
         centre = res.origin or res.corner or (0.0, 0.0)
-        E.apply_to_document(doc, res.angle, centre)
+        # an undoable edit of the document's rotation state (it used to rotate without undo)
+        self.ctx.edit(lambda d: E.apply_to_document(d, res.angle, centre), "edge seek", parts=())
         self.ops.memorised_angle = res.angle
         if set_origin and self.ops.coords.can_set_or_return:
             self.ops.set_origin()
-        self._set_doc(doc)
         self.log(f"A250211_2: Current memory scouting Angle : {res.angle_deg:.2f}")
 
     def edge_capacitive(self) -> None:
@@ -249,8 +242,7 @@ class MachineExtension:
             self._apply_edge(res)
 
     def edge_clear(self) -> None:
-        E.clear_document(self.w.document)
-        self._set_doc(self.w.document)
+        self.ctx.edit(E.clear_document, "clear edge seek", parts=())
         self.log("A250211_3: edge-seek angle cleared")
 
     # ------------------------------------------------------------------ laser type
@@ -267,15 +259,16 @@ class MachineExtension:
         old = self.ops.laser_type
         if not self.ops.switch_laser_type(new):
             return
-        doc = self.w.document
         # FUN_00458c60: the layer records come from the table of the current laser type
-        self.layer_tables[old] = dict(doc.layers)
-        if new in self.layer_tables:
-            doc.layers = dict(self.layer_tables[new])
-        else:
-            mp = self.params()
-            doc.layers = {i + 1: mp.layer_params(i, co2=(new != FIBER)) for i in range(11)}
-        self._set_doc(doc)
+        self.layer_tables[old] = dict(self.ctx.document.layers)
+
+        def swap_layers(doc):
+            if new in self.layer_tables:
+                doc.layers = dict(self.layer_tables[new])
+            else:
+                mp = self.params()
+                doc.layers = {i + 1: mp.layer_params(i, co2=(new != FIBER)) for i in range(11)}
+        self.ctx.edit(swap_layers, "laser type", parts=())
 
     # ------------------------------------------------------------------ coordinates
     def coord_select(self) -> None:
@@ -454,7 +447,7 @@ class MachineExtension:
         except Exception as e:  # noqa: BLE001
             self.log(str(e))
             return
-        self._set_doc(doc)
+        self._set_doc(doc, "import task")
         self.log(f"A250320_1: task {Path(path).name} imported ({len(doc.parts)} parts, break {t.is_break})")
         if t.is_break and hasattr(self.w.ctl, "resume_saved"):
             self.w.ctl.resume_saved(doc, str(self.ops.temp_dir))
@@ -479,7 +472,7 @@ class MachineExtension:
             return
         from mlaser.formats.chf import load_chf
         doc = load_chf(str(p))
-        self._set_doc(doc)
+        self._set_doc(doc, "system recovery")
         resumed = False
         if hasattr(self.w.ctl, "resume_saved"):
             resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
@@ -536,25 +529,11 @@ class MachineExtension:
             pass
 
 
-def _rebind(window, cmd: str, fn) -> None:
-    acts = getattr(window.ribbon, "actions", {})
-    act = acts.get(cmd)
-    if act is not None:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            try:
-                act.triggered.disconnect()
-            except (RuntimeError, TypeError):
-                pass
-        act.triggered.connect(lambda _=False: fn())
-    if isinstance(getattr(window, "handlers", None), dict):
-        window.handlers[cmd] = fn
-
-
-def register(window, app_dir: Optional[str] = None) -> MachineExtension:
-    ext = MachineExtension(window, app_dir)
-    window.machine_ext = ext
+def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
+    """Bind the machine-operation commands (``ctx``: PluginContext)."""
+    if app_dir is None:
+        app_dir = ctx.config.get("app_dir", None)
+    ext = MachineExtension(ctx, app_dir)
     o = ext.ops
     binds = {
         "machine.edge_seek": ext.edge_capacitive, "machine.edge_capacitive": ext.edge_capacitive,
@@ -576,18 +555,9 @@ def register(window, app_dir: Optional[str] = None) -> MachineExtension:
     }
     for i in range(1, 7):
         binds[f"coord.tool{i}"] = lambda n=i: ext.select_coord(n)
-    for cmd, fn in binds.items():
-        _rebind(window, cmd, fn)
-    orig = getattr(window, "set_controller", None)
-    if callable(orig):
-        def set_controller(ctl, _orig=orig):
-            _orig(ctl)
-            ext.attach()
-        window.set_controller = set_controller
+    ctx.register_commands(binds)
+    ctx.on_controller_changed(lambda _ctl: ext.attach())
     ext.attach()
     ext.startup_check()
-    try:
-        window.destroyed.connect(lambda *_: ext.clean_exit())
-    except Exception:  # noqa: BLE001
-        pass
+    ctx.on_close(ext.clean_exit)
     return ext

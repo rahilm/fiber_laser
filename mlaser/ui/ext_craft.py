@@ -1,6 +1,6 @@
 """Manual craft and engraving commands (agent G, phase 3).
 
-``register(window)`` re-binds these ribbon commands (MainApp handler / command id / CAD view tool
+``register(ctx)`` (PluginContext) binds these ribbon commands (MainApp handler / command id / CAD view tool
 in brackets, evidence in docs/craft.md):
 
 * lead: ``craft.lead_manual`` (FUN_004b5520 0x3459, tool 5), ``craft.lead_check`` (0x345a, CCAD
@@ -19,11 +19,12 @@ in brackets, evidence in docs/craft.md):
 * ``file.bitmap`` (FUN_004b2f90 0x35b6, Bitmap.exe -> ``mlaser.engrave``), ``file.import_scan_gcode``
   (FUN_004b3870 0x35b7)
 
-Edits go through ``window._snapshot()`` (undo) and ``window._refresh()``.
+Edits are undoable ``ctx.edit`` transactions; a view-mode change (Esc, view.*) leaves the active
+click tool (``ctx.on_mode_changed``).  The one-key planning steps are
+:func:`mlaser.ops.craft.one_key`.
 """
 from __future__ import annotations
 
-import copy
 import dataclasses
 import os
 from typing import Any, Callable, Optional
@@ -34,7 +35,7 @@ from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDia
                                QGraphicsEllipseItem, QGraphicsItem, QRadioButton, QVBoxLayout)
 
 from mlaser.cam import manual as M
-from mlaser.model import Craft, Document, LeadParams, Part
+from mlaser.model import Craft, Document, Part
 
 from .ext_cam import FieldDialog
 
@@ -234,8 +235,9 @@ def _targets(doc: Document) -> list[Part]:
 class CraftExtension:
     """State + handlers. ``exec_dialogs=False`` (tests) applies stored parameters directly."""
 
-    def __init__(self, window, exec_dialogs: bool = True):
-        self.w = window
+    def __init__(self, ctx, exec_dialogs: bool = True):
+        self.ctx = ctx
+        self.w = window = ctx.window
         self.exec_dialogs = exec_dialogs
         self.gap_p = GapParams()
         self.mj_p = ManualJointParams()
@@ -260,21 +262,14 @@ class CraftExtension:
     def t(self, key: str, default: Optional[str] = None) -> str:
         return self.w.tr_.tr(key, default)
 
-    def edit(self, fn: Callable[[Document], Any]) -> Any:
-        snap = getattr(self.w, "_snapshot", None)
-        if callable(snap):
-            snap()
-        res = fn(self.w.document)
-        self.refresh()
-        return res
+    def edit(self, fn: Callable[[Document], Any], label: str = "craft") -> Any:
+        """Undoable edit; the views are rebuilt without zoom-fit (keeps the view while a click
+        tool is active)."""
+        return self.ctx.edit(fn, label)
 
     def refresh(self) -> None:
-        cv = self.w.canvas
-        cv.document = self.w.document          # rebuild without zoom-fit (keeps the view while a
-        cv.rebuild()                           # click tool is active)
-        refresh = getattr(self.w, "_refresh", None)
-        if callable(refresh):
-            refresh()
+        """Views after a change that is deliberately not an undo step (mf91 clear marks)."""
+        self.w.refresh_views()
 
     def ask(self, title_key: str, obj, fields) -> bool:
         d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w)
@@ -487,7 +482,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- α corner (circle cut)
     def circle_cut(self) -> None:
-        cam = getattr(self.w, "cam_ext", None)
+        cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
         if cam is not None and hasattr(cam, "alpha"):
             cam.alpha()
         else:
@@ -576,8 +571,7 @@ class CraftExtension:
                 new.append(part)
         if not new:
             return 0
-        self.w._snapshot()
-        self.w.set_document(Document(parts=new))
+        self.ctx.replace_document(Document(parts=new), "import scan G-code")
         self.log(f"A251104_0: {len(new)}")
         return len(new)
 
@@ -636,8 +630,8 @@ class CraftExtension:
             head = (0.0, 0.0)
         d = (x - head[0], y - head[1])
         if abs(d[0]) + abs(d[1]) > 0.01:
-            from . import docops
-            self.edit(lambda dd: docops.translate(dd, -d[0], -d[1], list(dd.parts)))
+            from mlaser import ops
+            self.edit(lambda dd: ops.translate(dd, -d[0], -d[1], list(dd.parts)), "home ref")
         self.set_dock(head)
 
     def set_dock(self, p) -> None:
@@ -654,38 +648,16 @@ class CraftExtension:
         if not self.ask("mf197", self.onekey_p, f):
             return
         q = self.onekey_p
-        from . import docops
-        self.w._snapshot()
-        doc = self.w.document
-        if q.mirror_h:
-            docops.mirror(doc, True)
-        if q.mirror_v:
-            docops.mirror(doc, False)
-        if q.optimize:
-            from mlaser.cam.cleanup import cleanup_document
-            cam = getattr(self.w, "cam_ext", None)
-            cleanup_document(doc, getattr(cam, "cleanup", None), only_selected=any(p.selected for p in doc.parts))
-        if q.lead:
-            docops.apply_lead(doc, self.w.lead_in, self.w.lead_out)
-        if q.micro_joint:
-            self._auto_joints(doc)
-        self.refresh()
+        from mlaser.ops.craft import one_key
+        cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
+        self.edit(lambda doc: one_key(doc, mirror_h=q.mirror_h, mirror_v=q.mirror_v, optimize=q.optimize,
+                                      cleanup_params=getattr(cam, "cleanup", None), lead=q.lead,
+                                      lead_in=self.w.lead_in, lead_out=self.w.lead_out,
+                                      micro_joint=q.micro_joint, mj_params=self.w.mj_params),
+                  "one-key planning")
         if q.sort:
             self.w.sort("nearest")
         self.log(self.t("mf209"))
-
-    def _auto_joints(self, doc) -> None:
-        from mlaser.cam.microjoint import auto_joints
-        mp = self.w.mj_params
-        for p in _targets(doc):
-            if not p.contours:
-                continue
-            c = max(p.contours, key=lambda k: k.length())
-            js = auto_joints(c, count=mp["count"] if mp["kind"] == 0 else 0,
-                             spacing=mp["distance"] if mp["kind"] == 1 else 0.0,
-                             joint_len=mp["length"], min_size=mp["min_size"])
-            p.craft.micro_joints = [list(j) for j in js]
-            p.craft.extra["micro_joint_len"] = mp["length"]
 
 
 class DockDialog(QDialog):
@@ -733,38 +705,11 @@ REWIRE = {
 }
 
 
-def _bind(ext: CraftExtension, name: str) -> Callable[[], None]:
-    def run(_=False):
-        try:
-            getattr(ext, name)()
-        except Exception as exc:  # noqa: BLE001 - a craft failure must not kill the UI
-            ext.log(f"{name}: {exc}")
-    return run
-
-
-def register(window, exec_dialogs: bool = True) -> CraftExtension:
-    """Install the manual craft / engraving commands on ``window`` (a ``MainWindow``)."""
-    ext = CraftExtension(window, exec_dialogs)
-    window.craft_ext = ext
-    rib = window.ribbon
-    handlers = getattr(window, "handlers", {})
+def register(ctx, exec_dialogs: bool = True) -> CraftExtension:
+    """Bind the manual craft / engraving commands (``ctx``: PluginContext)."""
+    ext = CraftExtension(ctx, exec_dialogs)
     for cmd, name in REWIRE.items():
-        if not hasattr(ext, name):
-            continue
-        fn = _bind(ext, name)
-        act = rib.actions.get(cmd)
-        if act is not None:
-            try:
-                act.triggered.disconnect()
-            except (RuntimeError, TypeError):
-                pass
-            act.triggered.connect(fn)
-        handlers[cmd] = fn
-    # Esc (MainWindow shortcut -> set_mode(select)) also leaves the active click tool.
-    orig_set_mode = window.set_mode
-
-    def set_mode(mode, _orig=orig_set_mode):
-        ext.cancel_tool()
-        _orig(mode)
-    window.set_mode = set_mode
+        ctx.register_command(cmd, getattr(ext, name))
+    # Esc (MainWindow shortcut -> set_mode(select)) and view.* also leave the active click tool
+    ctx.on_mode_changed(lambda _mode: ext.cancel_tool())
     return ext

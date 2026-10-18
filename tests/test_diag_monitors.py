@@ -97,9 +97,9 @@ def test_device_report_card_info(card):
 def test_controller_monitor_ui(app, tmp_path, monkeypatch):
     monkeypatch.setenv("MLASER_DATA_DIR", str(tmp_path))
     from mlaser.ui import ext_diag as X
-    from mlaser.ui.mainwindow import MainWindow
-    w = MainWindow()
-    ext = X.register(w)
+    from wiring import real_window
+    w = real_window()
+    ext = w.extension("ext_diag")
     try:
         assert w.connect_simulator(time_scale=1.0)
         sim = w.ctl.sim

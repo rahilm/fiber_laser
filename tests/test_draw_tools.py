@@ -26,13 +26,9 @@ def app():
 
 @pytest.fixture()
 def win(app):
-    from mlaser.ui.ext_draw import register
-    from mlaser.ui.facade import DemoController
-    from mlaser.ui.mainwindow import MainWindow
-    w = MainWindow(DemoController())
+    from wiring import real_window
+    w = real_window()
     w.resize(800, 600)
-    ext = register(w, exec_dialogs=False)
-    assert w.draw_ext is ext
     yield w
     w.close()
 
@@ -173,7 +169,7 @@ def test_canvas_escape_cancels_and_snaps(win):
 
 
 def test_driver_polyline_right_click_finish(win):
-    ext = win.draw_ext
+    ext = win.extension("ext_draw")
     win.set_document(Document())
     win.canvas.setTransform(win.canvas.transform().fromScale(10, -10))   # 0.1 mm per pixel
     ext.draw_tool("draw.pline")
@@ -189,7 +185,7 @@ def test_driver_polyline_right_click_finish(win):
 
 # ------------------------------------------------------------------ commands
 def test_text_and_qr_commands(win):
-    ext = win.draw_ext
+    ext = win.extension("ext_draw")
     win.set_document(Document())
     win.canvas.setTransform(win.canvas.transform().fromScale(10, -10))
     ext.text.text, ext.text.height = "A", 20.0
@@ -211,7 +207,7 @@ def _zoom(win, s=10):
 
 
 def test_trim_extend_split_commands_and_undo(win):
-    ext = win.draw_ext
+    ext = win.extension("ext_draw")
     win.set_document(Document(parts=[Part([Contour([Line((0, 0), (100, 0))], False)], name="h"),
                                      Part([Contour([Line((50, -10), (50, 10))], False)], name="v")]))
     _zoom(win)
@@ -221,9 +217,9 @@ def test_trim_extend_split_commands_and_undo(win):
     hs = [p for p in win.document.parts if p.name.startswith("h")]
     assert len(hs) == 1 and hs[0].bbox()[2] == pytest.approx(50)
     tool.press(500, 500, "left", set())             # miss: no extra undo step
-    n_undo = len(win._undo)
+    n_undo = len(win.docs.stack)
     tool.press(500, 500, "left", set())
-    assert len(win._undo) == n_undo
+    assert len(win.docs.stack) == n_undo
     tool.press(0, 0, "right", set())                 # ends the pick tool
     assert win.canvas.tool is None
     win.undo()
@@ -240,7 +236,7 @@ def test_trim_extend_split_commands_and_undo(win):
 
 
 def test_edit_and_select_commands(win):
-    ext = win.draw_ext
+    ext = win.extension("ext_draw")
     doc = Document(parts=[Part([P.rect((0, 0), (10, 10))], selected=True),
                           Part([P.rect((20, 0), (30, 10))]),
                           Part([P.rect((0, 50), (5, 70))])])
@@ -273,7 +269,7 @@ def test_edit_and_select_commands(win):
 
 
 def test_size_adv_advert_measure_fine_tune(win):
-    ext = win.draw_ext
+    ext = win.extension("ext_draw")
     win.set_document(Document(parts=[Part([P.rect((0, 0), (100, 50))], selected=True)]))
     ext.size_dialog()                               # exec_dialogs=False keeps the current size
     ext.size.width, ext.size.height, ext.size.lock, ext.size.anchor = 200, 50, True, 7

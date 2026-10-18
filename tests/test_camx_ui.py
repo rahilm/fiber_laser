@@ -1,4 +1,5 @@
-"""Offscreen smoke test of mlaser.ui.ext_cam.register (advanced CAM ribbon commands)."""
+"""Offscreen smoke test of the ext_cam plugin (advanced CAM ribbon commands), loaded through the
+application's real wiring (MainWindow + EXTENSIONS)."""
 from __future__ import annotations
 
 import os
@@ -26,12 +27,9 @@ def rect(x, y, w, h):
 
 @pytest.fixture()
 def win(app):
-    from mlaser.ui.ext_cam import register
-    from mlaser.ui.facade import DemoController
-    from mlaser.ui.mainwindow import MainWindow
-    w = MainWindow(DemoController())
-    ext = register(w, exec_dialogs=False)
-    assert w.cam_ext is ext
+    from wiring import real_window
+    w = real_window()
+    assert w.extension("ext_cam").exec_dialogs is False
     return w
 
 
@@ -40,12 +38,12 @@ def test_register_rewires_ribbon(win):
     for cmd in ("tool.array", "opt.dedup", "opt.join", "opt.smooth", "tool.share_edge",
                 "craft.chamfer_auto", "craft.unload", "camx.fill_circle", "camx.alpha"):
         assert cmd in acts and cmd in win.handlers
-    assert win.ribbon.tabText(win.ribbon.count() - 1) == "CAM+"
+    assert "CAM+" in [win.ribbon.tabText(i) for i in range(win.ribbon.count())]
 
 
 def test_array_and_fill_commands(win):
     win.set_document(Document(parts=[Part(contours=[rect(0, 0, 10, 10)])]))
-    ext = win.cam_ext
+    ext = win.extension("ext_cam")
     ext.array.rows, ext.array.cols = 2, 2
     win.run("tool.array")
     assert len(win.document.parts) == 4
@@ -68,7 +66,7 @@ def test_cleanup_and_corners_commands(win):
     win.run("opt.dedup")
     assert sum(len(p.contours) for p in win.document.parts) == 1
     n0 = len(win.document.parts[0].contours[0].segments)
-    win.cam_ext.fillet_p.radius = 1.0
+    win.extension("ext_cam").fillet_p.radius = 1.0
     win.run("craft.chamfer_auto")
     c = win.document.parts[0].contours[0]
     assert len(c.segments) == n0 + 4 and sum(isinstance(s, Arc) for s in c.segments) == 4

@@ -40,6 +40,15 @@ SIM_MODULES = {
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 
 
+@pytest.fixture(autouse=True)
+def _isolated_config(tmp_path_factory, monkeypatch):
+    """Every test gets its own ConfigService directory (mlaser.services.config): values a test
+    sets never leak into the next test's windows."""
+    if "MLASER_CONFIG_DIR" not in os.environ or os.environ.get("_MLASER_CONFIG_AUTO"):
+        monkeypatch.setenv("MLASER_CONFIG_DIR", str(tmp_path_factory.mktemp("config")))
+        monkeypatch.setenv("_MLASER_CONFIG_AUTO", "1")
+
+
 def pytest_collection_modifyitems(config, items):
     for item in items:
         path = item.path

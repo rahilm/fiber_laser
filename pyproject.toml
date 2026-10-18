@@ -87,7 +87,8 @@ ignore = ["E702", "E731", "E741"]
 # are the baseline to burn down: each is an annotation gap, not a runtime change.
 [tool.mypy]
 python_version = "3.12"
-files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/nc"]
+files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/nc", "mlaser/services",
+         "mlaser/ops"]
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -108,9 +109,11 @@ name = "Dependencies point downward only"
 type = "layers"
 layers = [
     "mlaser.ui | mlaser.parity",
+    "mlaser.services",
     "mlaser.diag | mlaser.report | mlaser.engrave",
     "mlaser.controller",
     "mlaser.devices | mlaser.machine",
+    "mlaser.ops",
     "mlaser.nc",
     "mlaser.io | mlaser.nest",
     "mlaser.cam",
@@ -121,9 +124,6 @@ layers = [
     "mlaser.model",
 ]
 ignore_imports = [
-    # batch cutting rotates the document with the UI's docops (business logic in the UI;
-    # ROADMAP Wave 2 "business logic out of the UI")
-    "mlaser.diag.batch -> mlaser.ui.docops",
     # LayerView's lazy registry defaults (see the parity_ports contract below)
     "mlaser.parity_ports.mainapp.layer -> mlaser.formats.params",
 ]
@@ -135,7 +135,8 @@ source_modules = [
     "mlaser.model", "mlaser.geom", "mlaser.protocol", "mlaser.toolpath", "mlaser.i18n",
     "mlaser.parity_ports",
     "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
-    "mlaser.nc", "mlaser.machine", "mlaser.devices", "mlaser.controller",
+    "mlaser.nc", "mlaser.ops", "mlaser.machine", "mlaser.devices", "mlaser.controller",
+    "mlaser.services",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 ignore_imports = [

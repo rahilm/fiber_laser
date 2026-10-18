@@ -1,15 +1,17 @@
 """Card-control UI: alarms, Clear Alarm, breakpoint resume, card parameters, streaming mode.
 
-``register(window)`` adds these commands to the MainWindow (``window.ribbon.action`` +
-``window.handlers``) and connects the controller's signals when it is a
-:class:`mlaser.controller.ui_adapter.UiController`:
+``register(ctx)`` (a :class:`mlaser.services.plugins.PluginContext`) binds these commands and
+re-attaches to the controller's signals on every controller change (``ctx.on_controller_changed``)
+when it is a :class:`mlaser.controller.ui_adapter.UiController`:
 
 * ``card.alarms``      (mf123 "Alarm")          dialog of the active card alarms
 * ``card.clear_alarms`` (gp90 "Clear Alarm")    ``[9999, 5, 0, 0]``
 * ``card.break_resume`` (mp64 "BreakCon")       continue from the newest AutosaveParam record
 * ``card.params``      (gp98 "Settings")        scaling/period read from the card
 * ``card.stream_process`` (checkable)           stream in a separate process (GIL-proof)
-* ``machine.home*``    Go Origin X / Y / XY / XYZ / ZF-then-XY (mf15..mf18, mf222, mf482)
+
+The ``machine.home*`` commands are the main window's (this module used to bind them a second
+time with the same behaviour).
 
 New alarms are appended to the log dock's alarm tab (``LogPanel.add_alarm``).
 """
@@ -32,22 +34,6 @@ def _tr(window, key: str, default: str) -> str:
 
 def _is_card(ctl) -> bool:
     return hasattr(ctl, "active_alarms") and hasattr(ctl, "breakpoint")
-
-
-def _bind(window, cmd: str, key: str, fn, checkable: bool = False):
-    act = window.ribbon.action(cmd, key, checkable=checkable)
-    if not checkable:
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            try:
-                act.triggered.disconnect()
-            except (RuntimeError, TypeError):
-                pass
-        act.triggered.connect(lambda _=False: fn())
-    if isinstance(getattr(window, "handlers", None), dict):
-        window.handlers[cmd] = fn
-    return act
 
 
 class AlarmListDialog(QDialog):
@@ -132,28 +118,15 @@ class CardExtension:
             self.w.log_panel.log(f"streaming in a separate process: {'on' if on else 'off'}")
 
 
-def register(window) -> CardExtension:
-    """Add the card-control commands to ``window`` (MainWindow)."""
-    ext = CardExtension(window)
-    window.card_ext = ext
-    _bind(window, "card.alarms", "mf123", ext.alarms)
-    _bind(window, "card.clear_alarms", "gp90", ext.clear_alarms)
-    _bind(window, "card.break_resume", "mp64", ext.break_resume)
-    _bind(window, "card.params", "gp98", ext.params)
-    act = _bind(window, "card.stream_process", "Stream in separate process", lambda: None, checkable=True)
-    act.toggled.connect(ext.stream_process)
-    homes = {"machine.home": ("mf15", "XY"), "machine.home_x": ("mf16", "X"),
-             "machine.home_y": ("mf17", "Y"), "machine.home_xyz": ("mf222", "XYZ")}
-    for cmd, (key, axes) in homes.items():
-        _bind(window, cmd, key, lambda a=axes: window.ctl.home(a))
-    _bind(window, "machine.home_zf_then_xy", "mf482",
-          lambda: (window.ctl.home("Z"), window.ctl.home("XY")))
-    # follow controller swaps (connect_simulator / set_controller)
-    orig = getattr(window, "set_controller", None)
-    if callable(orig):
-        def set_controller(ctl, _orig=orig):
-            _orig(ctl)
-            ext.attach()
-        window.set_controller = set_controller
+def register(ctx) -> CardExtension:
+    """Bind the card-control commands (``ctx``: PluginContext)."""
+    ext = CardExtension(ctx.window)
+    ctx.register_command("card.alarms", ext.alarms, label="mf123")
+    ctx.register_command("card.clear_alarms", ext.clear_alarms, label="gp90")
+    ctx.register_command("card.break_resume", ext.break_resume, label="mp64")
+    ctx.register_command("card.params", ext.params, label="gp98")
+    ctx.register_command("card.stream_process", ext.stream_process, label="Stream in separate process",
+                         checkable=True)
+    ctx.on_controller_changed(lambda _ctl: ext.attach())
     ext.attach()
     return ext

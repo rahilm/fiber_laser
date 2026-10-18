@@ -177,11 +177,12 @@ class BatchRunner:
         if bool(self.p["GRP.BatchCutRoate"]):
             ang = float(self.p["GRP.BatchCutRoateAngle"])
             if ang:
-                from mlaser.ui import docops
-                if hasattr(self.w, "_edit"):
-                    self.w._edit(docops.rotate, ang)
+                from mlaser import ops
+                docs = getattr(self.w, "docs", None)       # mlaser.services DocumentService
+                if docs is not None:
+                    docs.edit(lambda d: ops.rotate(d, ang), "batch rotate")
                 else:
-                    docops.rotate(self.w.document, ang)
+                    ops.rotate(self.w.document, ang)
 
     def tick(self) -> None:
         """Start the job once the dock move ended (called from the UI timer)."""
@@ -190,7 +191,11 @@ class BatchRunner:
         st = self.w.ctl.state()
         if st.mode in ("ready",) or not st.connected:
             self._pending_start = False
-            self.w.ctl.start(self.w.document)
+            run_job = getattr(self.w, "run_job", None)      # the planned job (JobService)
+            if callable(run_job):
+                run_job("process")
+            else:
+                self.w.ctl.start(self.w.document)
 
     def job_done(self, ok: bool) -> None:
         if not self.active or self.entry is None:

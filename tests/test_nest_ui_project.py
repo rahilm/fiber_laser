@@ -72,13 +72,11 @@ def app():
 
 def test_register_nest_and_sort(app, tmp_path):
     from mlaser.ui import docops
-    from mlaser.ui.ext_nest import register
-    from mlaser.ui.facade import DemoController
-    from mlaser.ui.mainwindow import MainWindow
+    from wiring import real_window
 
     from mlaser.ui.ext_nest import NestParamsDialog, SheetDialog
-    win = MainWindow(DemoController())
-    nx, sx = register(win)
+    win = real_window()
+    nx, sx = win.extension("ext_nest")
     d = NestParamsDialog(win, nx.job.params, win)
     d.spacing.setValue(4.0)
     assert d.apply().spacing == 4.0

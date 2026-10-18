@@ -1,6 +1,6 @@
 """Draw tab and CAD editing commands (phase 3, agent F).
 
-``register(window)`` re-binds these ribbon commands (see docs/draw.md for the evidence):
+``register(ctx)`` (PluginContext) binds these ribbon commands (see docs/draw.md for the evidence):
 
 * drawing tools ``draw.point/line/pline/rect/round_rect/circle/circle3/arc3/scan_arc/
   ellipse/polygon/star/curve`` -> interactive tools from :mod:`mlaser.cad.tools`, driven
@@ -16,17 +16,17 @@
   and 9-point anchor);
 * ``select.similar/inner/outer``; ``tool.group*``; ``tool.measure``.
 
-Every document change goes through the window's undo snapshot (``window._edit``).
+Every document change is an undoable ``ctx.edit`` transaction; the arrow keys use this plugin's
+fine-tune step through the ``nudge`` provider, and a view-mode change ends the active tool
+(``ctx.on_mode_changed``).
 Tests pass ``exec_dialogs=False`` so dialogs apply their stored parameters without opening.
 """
 from __future__ import annotations
 
 import copy
 import dataclasses
-import math
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFontComboBox, QFormLayout, QLineEdit, QPlainTextEdit, QSpinBox,
                                QVBoxLayout)
@@ -202,8 +202,9 @@ def _ispin(lo, hi, v):
 
 # --------------------------------------------------------------------------- extension
 class DrawExtension:
-    def __init__(self, window, exec_dialogs: bool = True):
-        self.w = window
+    def __init__(self, ctx, exec_dialogs: bool = True):
+        self.ctx = ctx
+        self.w = window = ctx.window
         self.exec_dialogs = exec_dialogs
         self.text = TextParams()
         self.qr = QRParams()
@@ -228,13 +229,8 @@ class DrawExtension:
     def t(self, key, default=None):
         return self.w.tr_.tr(key, default)
 
-    def edit(self, fn):
-        out = {}
-
-        def run(doc):
-            out["r"] = fn(doc)
-        self.w._edit(run)
-        return out.get("r")
+    def edit(self, fn, label: str = "draw"):
+        return self.ctx.edit(fn, label)
 
     def _sync_selection(self):
         self.w.canvas.refresh_styles()
@@ -619,35 +615,22 @@ def _commands(ext: DrawExtension) -> dict[str, Callable[[], None]]:
 
 
 def _bind(ext: DrawExtension, cmd: str, fn: Callable[[], None]) -> Callable:
-    def run(_=False):
+    def run():
         try:
             fn()
-        except Exception as exc:  # noqa: BLE001 - a drawing failure must not kill the UI
-            ext.log(f"{cmd}: {exc}")
-            ext.end_tool()
+        except Exception:
+            ext.end_tool()              # a failed tool must not stay active
+            raise
     return run
 
 
-def register(window, exec_dialogs: bool = True) -> DrawExtension:
-    """Install the drawing / CAD-editing commands on ``window`` (a ``MainWindow``)."""
-    ext = DrawExtension(window, exec_dialogs)
-    window.draw_ext = ext
-    handlers = getattr(window, "handlers", {})
+def register(ctx, exec_dialogs: bool = True) -> DrawExtension:
+    """Bind the drawing / CAD-editing commands (``ctx``: PluginContext)."""
+    ext = DrawExtension(ctx, exec_dialogs)
     for cmd, fn in _commands(ext).items():
-        run = _bind(ext, cmd, fn)
-        act = window.ribbon.actions.get(cmd)
-        if act is not None:
-            try:
-                act.triggered.disconnect()
-            except (RuntimeError, TypeError):
-                pass
-            act.triggered.connect(run)
-        handlers[cmd] = run
+        ctx.register_command(cmd, _bind(ext, cmd, fn))
     # choosing a view mode ends the active drawing tool (FUN_004d1780 resets the view mode)
-    for cmd in ("view.select_mode", "view.pan_mode", "view.node_edit"):
-        act = window.ribbon.actions.get(cmd)
-        if act is not None:
-            act.triggered.connect(lambda _=False: ext.end_tool())
-    # arrow keys use the fine-tune step (the window's shortcuts look ``nudge`` up at call time)
-    window.nudge = ext.nudge
+    ctx.on_mode_changed(lambda _mode: ext.end_tool())
+    # arrow keys use the fine-tune step
+    ctx.provide("nudge", ext.nudge)
     return ext

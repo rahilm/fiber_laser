@@ -1,7 +1,6 @@
 """Monitoring, diagnostics, reports and auxiliary functions (phase 3, agent I).
 
-``register(window)`` re-binds these ribbon commands (the ext_cam pattern: disconnect
-``triggered``, connect the handler, record it in ``window.handlers``):
+``register(ctx)`` (PluginContext) binds these ribbon commands:
 
 =====================  ===========  =========================================================
 command                original     rebuild
@@ -26,15 +25,16 @@ aux.maintain           A251113_0    :class:`MaintainDialog` + reminders
 app.help               mf23         :class:`HelpWindow` (docs/ + About)
 =====================  ===========  =========================================================
 
-Job statistics are recorded from :class:`mlaser.diag.jobwatch.JobWatcher` events (controller
-log messages + state polling).  Persistent state (counters, maintenance plan, batch list,
-custom IO, statistics files, logs) lives in the data directory: ``settings["data_dir"]``, the
-``MLASER_DATA_DIR`` environment variable, or ``~/.mlaser``.  Evidence: docs/diag.md.
+Job statistics, device counters, the planned-quantity interlock and the maintenance reminders
+are :class:`mlaser.services.production.ProductionService` (Qt-free); this module shows its
+messages.  Settings (counters, maintenance plan, batch list, custom IO) are ConfigService values;
+files (statistics, logs, reports) live in the data directory: ``settings["data_dir"]``, the
+``MLASER_DATA_DIR`` environment variable, or the platform data directory (platformdirs).
+Evidence: docs/diag.md.
 """
 from __future__ import annotations
 
 import json
-import sys
 import os
 import time
 from typing import Callable, Optional
@@ -51,13 +51,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 from mlaser.diag import ballarm, batch as B, burnin, customio as CIO, devicereport as DR
 from mlaser.diag import helpdocs, interferometer as IF, lighttest, logs as L, maintain as M
 from mlaser.diag import registers as R
-from mlaser.diag.jobwatch import JobWatcher
 from mlaser.diag.measure import DataRecorder
 from mlaser.diag.paramset import ParamSet, find_def
-from mlaser.report.recorder import StatsRecorder
-from mlaser.report.records import ReportStore
-
-STATE_FILE = "diag_state.json"
+from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
 
 
 # =========================================================================== helpers
@@ -1304,37 +1300,33 @@ class HelpWindow(QDialog):
 
 # =========================================================================== extension
 class DiagExtension:
-    def __init__(self, window):
+    def __init__(self, window, ctx=None):
         self.w = window
-        if not isinstance(getattr(window, "settings", None), dict):
-            window.settings = {}
+        self.ctx = ctx
         self.settings = window.settings
         self.data_dir = data_dir(self.settings)
         self.log_dir = os.path.join(self.data_dir, "Log")
         self.device_settings = None
-        self._load_state()
         lang = "zh" if _lang(window) == "zh" else "en"
+        cfg = getattr(window, "config", None)
+        from mlaser.report.recorder import StatsRecorder
+        from mlaser.report.records import ReportStore
         self.store = ReportStore(self.data_dir, lang)
-        self.counters = DR.DeviceCounters.from_settings(self.settings)
-        self.use_timer = DR.UseTimer(self.counters)
-        self.watcher = JobWatcher()
-        self.stats = StatsRecorder(self.store, self._job_snapshot)
-        self.watcher.start_listeners.append(self.stats.on_start)
-        self.watcher.start_listeners.append(self._job_started)
-        self.watcher.finish_listeners.append(self.stats.on_finish)
-        self.watcher.finish_listeners.append(self._job_finished)
+        self.svc = ProductionService(self.settings, self.data_dir, stop=lambda: QTimer.singleShot(0, self.w.ctl.stop),
+                                     notify=self._notify, stats=StatsRecorder(self.store, self._job_snapshot),
+                                     flush=cfg.flush if cfg is not None else (lambda: None))
+        self.counters, self.use_timer = self.svc.counters, self.svc.use_timer
+        self.watcher, self.stats, self.production = self.svc.watcher, self.svc.stats, self.svc.production
+        self.maintain_plan = self.svc.maintain_plan
         self.measure = DataRecorder()
         self.outputs = CIO.OutputDriver(window.ctl, lambda m: _log(window, m))
-        self.production = B.ProductionCounter(self.settings)
         self.batch_list = B.BatchList.from_text(self.settings.get(B.TABLE_KEY, ""))
         self.batch = B.BatchRunner(window, B.params(self.settings), self.batch_list, lambda m: _log(window, m))
-        self.maintain_plan = M.MaintainPlan.from_text(self.settings.get(M.PARAM_KEY))
+        self.svc.job_done_listeners.append(self.batch.job_done)
         self.log_writer = L.LogFileWriter(self.log_dir) if self.settings.get("write_log_files", True) else None
         self.windows: dict[str, QWidget] = {}
         self.interferometer_dock: Optional[QDockWidget] = None
         self._attached = None
-        self._last_maint = 0.0
-        self._announced: set = set()
         self.attach()
         self.timer = QTimer(window if isinstance(window, QWidget) else None)
         self.timer.timeout.connect(self.tick)
@@ -1342,33 +1334,20 @@ class DiagExtension:
         if self.log_writer is not None:
             self.log_writer.session_start()
 
+    def _notify(self, kind: str, text: str) -> None:
+        if kind == "log":
+            _log(self.w, text)
+        elif kind == "plan_reached":
+            QTimer.singleShot(0, lambda: QMessageBox.information(
+                _parent(self.w), _tr(self.w, "mf705", "Batch Cut"), f"{_tr(self.w, 'pd858', 'Plan Count')}: {text}"))
+        elif kind == "popup":
+            QTimer.singleShot(0, lambda m=text: QMessageBox.information(_parent(self.w), "Maintain", m))
+        elif kind == "alarm" and hasattr(getattr(self.w, "log_panel", None), "add_alarm"):
+            self.w.log_panel.add_alarm(text)
+
     # ------------------------------------------------------------------ state
-    def _state_path(self) -> str:
-        return os.path.join(self.data_dir, STATE_FILE)
-
-    def _load_state(self) -> None:
-        try:
-            with open(self._state_path(), encoding="utf-8") as f:
-                data = json.load(f)
-        except (OSError, ValueError):
-            return
-        for k, v in data.items():
-            self.settings.setdefault(k, v)
-
     def save_state(self) -> None:
-        self.counters.to_settings(self.settings)
-        self.settings[M.PARAM_KEY] = self.maintain_plan.to_text()
-        self.settings[B.TABLE_KEY] = self.batch_list.to_text()
-        keep = {k: v for k, v in self.settings.items()
-                if k.startswith(("SOP.", "ST.", "LT.", "SP.Interfere", "GRP.BallArm", "GRP.BatchCut",
-                                 "GRP.EnableBatchCut", "GRP.EnableDIInput", "MC.Maintain", "MC.BatchCut",
-                                 "DO.CustomDOStr", "DO.ClearAsh")) and _jsonable(v)}
-        try:
-            os.makedirs(self.data_dir, exist_ok=True)
-            with open(self._state_path(), "w", encoding="utf-8") as f:
-                json.dump(keep, f, ensure_ascii=False, indent=1)
-        except OSError:
-            pass
+        self.svc.save_state(self.batch_list)
 
     # ------------------------------------------------------------------ controller hooks
     def attach(self) -> None:
@@ -1383,32 +1362,15 @@ class DiagExtension:
         if self.log_writer is not None:
             self.log_writer.write(msg)
         if self.w.ctl is self._attached:
-            self.watcher.feed_log(msg)
+            self.svc.feed_log(msg)
 
     def _job_snapshot(self):
         w = self.w
         return (w.document, getattr(w, "toolpath", None), getattr(w, "estimate", None) or None,
                 getattr(w, "path", None), getattr(w, "machine", None))
 
-    def _job_started(self, mode: str, info: str) -> None:
-        if mode == "process" and not self.production.start_allowed():
-            _log(self.w, "pd859: the planned quantity is reached - processing is prohibited")
-            QTimer.singleShot(0, self.w.ctl.stop)
-
-    def _job_finished(self, ev) -> None:
-        if ev.mode == "process":
-            if ev.ok:
-                self.counters.add_job(ev.duration_s)
-                if self.production.job_done() == "prompt":
-                    _log(self.w, f"pd858: planned quantity {self.production.plan} reached")
-                    QTimer.singleShot(0, lambda: QMessageBox.information(
-                        _parent(self.w), _tr(self.w, "mf705", "Batch Cut"),
-                        f"{_tr(self.w, 'pd858', 'Plan Count')}: {self.production.done}/{self.production.plan}"))
-            self.save_state()
-            self.batch.job_done(ev.ok)
-
     def process_seconds(self) -> float:
-        return self.counters.total_process_h * 3600.0
+        return self.svc.process_seconds()
 
     def marks(self) -> dict:
         m = {}
@@ -1440,31 +1402,13 @@ class DiagExtension:
             st = self.w.ctl.state()
         except Exception:  # noqa: BLE001
             return
-        self.watcher.poll(st)
-        self.use_timer.tick(bool(getattr(st, "connected", False)) and _mc(self.w) is not None)
+        self.svc.poll(st, bool(getattr(st, "connected", False)) and _mc(self.w) is not None)
         if self.measure.enabled:
             self.measure.sample(st)
         self.batch.tick()
-        now = time.time()
-        if now - self._last_maint > 60:
-            self._last_maint = now
-            self.check_maintenance(now)
 
     def check_maintenance(self, now: Optional[float] = None) -> list:
-        due = self.maintain_plan.check(now, self.process_seconds())
-        for it, status in due:
-            tag = (it.key, status)
-            if tag in self._announced:
-                continue
-            self._announced.add(tag)
-            name = it.key if it.custom else _tr(self.w, it.key, it.key)
-            msg = f"{_tr(self.w, 'A251113_0', 'Maintain')}: {name} ({status})"
-            if it.prompt == M.PROMPT_POPUP:
-                QTimer.singleShot(0, lambda m=msg: QMessageBox.information(_parent(self.w), "Maintain", m))
-            elif it.prompt == M.PROMPT_ERRBAR and hasattr(getattr(self.w, "log_panel", None), "add_alarm"):
-                self.w.log_panel.add_alarm(msg)
-            _log(self.w, msg)
-        return due
+        return self.svc.check_maintenance(now, lambda k: _tr(self.w, k, k))
 
     # ------------------------------------------------------------------ commands
     def _show(self, key: str, factory: Callable[[], QWidget]) -> QWidget:
@@ -1590,21 +1534,25 @@ class DiagExtension:
 
     def apply_ball_arm(self, p: ParamSet):
         doc = ballarm.make_document(p, getattr(self.w.document, "layers", None))
-        snap = getattr(self.w, "_snapshot", None)
-        if callable(snap):
-            snap()
-        self.w.set_document(doc)
+        if self.ctx is not None:
+            self.ctx.replace_document(doc, "ball arm")
+        else:
+            self.w.set_document(doc)
         _log(self.w, f"mf702: ball arm pattern R={p['GRP.BallArmCircleRadius']:g} x{p['GRP.BallArmCircleTimes']}")
         return doc
 
     def interferometer(self):
         """FUN_004bbc60: toggle the interferometer panel (cfg+0x40b8)."""
         if self.interferometer_dock is None:
-            dock = QDockWidget(_tr(self.w, "mf180", "Laser Interferometer"), _parent(self.w))
-            dock.setObjectName("diag_interferometer")
-            dock.setWidget(InterferometerPanel(self))
-            if isinstance(self.w, QMainWindow):
-                self.w.addDockWidget(Qt.RightDockWidgetArea, dock)
+            title = _tr(self.w, "mf180", "Laser Interferometer")
+            if self.ctx is not None:
+                dock = self.ctx.add_dock(InterferometerPanel(self), title, "right", "diag_interferometer")
+            else:
+                dock = QDockWidget(title, _parent(self.w))
+                dock.setObjectName("diag_interferometer")
+                dock.setWidget(InterferometerPanel(self))
+                if isinstance(self.w, QMainWindow):
+                    self.w.addDockWidget(Qt.RightDockWidgetArea, dock)
             self.interferometer_dock = dock
             dock.show()
         else:
@@ -1628,16 +1576,14 @@ class DiagExtension:
         return self._show("help", lambda: HelpWindow(self))
 
 
-def data_dir(settings: dict) -> str:
-    """``settings["data_dir"]``, ``$MLASER_DATA_DIR`` or ``~/.mlaser`` (a per-process temporary
-    directory while pytest runs, so test windows never write into the home directory)."""
-    d = settings.get("data_dir") or os.environ.get("MLASER_DATA_DIR")
+def data_dir(settings) -> str:
+    """``settings["data_dir"]``, else :func:`mlaser.services.config.data_dir` (``$MLASER_DATA_DIR``,
+    a per-process temporary directory under pytest, or the platform data directory)."""
+    d = settings.get("data_dir")
     if d:
         return d
-    if os.environ.get("PYTEST_CURRENT_TEST") or "pytest" in sys.modules:
-        import tempfile
-        return os.path.join(tempfile.gettempdir(), f"mlaser-test-{os.getpid()}")
-    return os.path.join(os.path.expanduser("~"), ".mlaser")
+    from mlaser.services.config import data_dir as _dd
+    return str(_dd())
 
 
 def _raise(w) -> None:
@@ -1683,34 +1629,17 @@ def _handler(ext: DiagExtension, spec):
     return lambda _=False: getattr(ext, spec)()
 
 
-def register(window) -> DiagExtension:
-    """Re-bind the monitor / diagnostics / auxiliary commands of ``window`` (MainWindow)."""
-    import warnings
-    ext = DiagExtension(window)
-    window.diag_ext = ext
-    handlers = getattr(window, "handlers", None)
+def register(ctx) -> DiagExtension:
+    """Bind the monitor / diagnostics / auxiliary commands (``ctx``: PluginContext)."""
+    window = ctx.window
+    ext = DiagExtension(window, ctx)
     for cmd, spec in COMMANDS.items():
-        fn = _handler(ext, spec)
-        act = window.ribbon.actions.get(cmd)
-        if act is not None:
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                try:
-                    act.triggered.disconnect()
-                except (RuntimeError, TypeError):
-                    pass
-            act.triggered.connect(fn)
-        if isinstance(handlers, dict):
-            handlers[cmd] = fn
+        ctx.register_command(cmd, _handler(ext, spec))
     act = window.ribbon.actions.get("aux.dedust")
     if act is not None:
         act.setText(_tr(window, "mf171", "Enable Dedust"))
-    orig = getattr(window, "set_controller", None)
-    if callable(orig):
-        def set_controller(ctl, _orig=orig):
-            _orig(ctl)
-            ext.attach()
-        window.set_controller = set_controller
-    if isinstance(window, QWidget):
-        window.destroyed.connect(lambda *_: ext.save_state())
+    ctx.on_controller_changed(lambda _ctl: ext.attach())
+    ctx.on_close(ext.save_state)
+    if ctx.jobs is not None:
+        ctx.jobs.add_start_guard(ext.svc.start_allowed)
     return ext

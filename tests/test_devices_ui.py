@@ -16,12 +16,13 @@ def app():
 
 
 def test_register_and_dialogs(app, tmp_path):
-    from mlaser.ui.mainwindow import MainWindow
     from mlaser.ui import ext_devices as X
-    w = MainWindow()
-    n = w.ribbon.count()
-    X.register(w)
-    assert w.ribbon.count() == n + 1 and "dev.follower" in w.device_actions
+    from mlaser.ui.mainwindow import MainWindow
+    from wiring import real_window
+    n = MainWindow().ribbon.count()
+    w = real_window()
+    assert w.ribbon.tabText(w.ribbon.count() - 1) in ("Devices", "CAM+") and "dev.follower" in w.handlers
+    assert "Devices" in [w.ribbon.tabText(i) for i in range(n, w.ribbon.count())]
     p = tmp_path / "calib.csv"
     CalibrationTable(413023, [(0, 406507), (101, 410429), (201, 410740)]).save(str(p))
     d = X.FollowerDialog(w, str(p))

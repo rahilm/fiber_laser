@@ -25,10 +25,9 @@ def win(app, tmp_path, monkeypatch):
     monkeypatch.setattr(QDialog, "exec", lambda self, *a: 0)
     for n in ("information", "warning", "question"):
         monkeypatch.setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
-    from mlaser.ui import ext_diag as X
-    from mlaser.ui.mainwindow import MainWindow
-    w = MainWindow()
-    ext = X.register(w)
+    from wiring import real_window
+    w = real_window()
+    ext = w.extension("ext_diag")
     yield w, ext
     w.close()
 
@@ -77,10 +76,9 @@ def test_job_statistics_end_to_end(win, tmp_path):
     assert logs and "[Info] -> " in logs[0].read_text("utf-8")
     # persistence: a new window over the same data dir gets the counters back
     ext.save_state()
-    from mlaser.ui import ext_diag as X
-    from mlaser.ui.mainwindow import MainWindow
-    w2 = MainWindow()
-    ext2 = X.register(w2)
+    from wiring import real_window
+    w2 = real_window()
+    ext2 = w2.extension("ext_diag")
     assert ext2.counters.process_count == 1
     w2.close()
 

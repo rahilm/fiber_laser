@@ -1,26 +1,25 @@
 """Nest tab (排样, ``mf460``) and the extra cutting-order commands.
 
-``register(window)`` wires the existing Nest ribbon commands (``nest.*`` in ribbon_spec) and
+``register(ctx)`` (PluginContext) binds the Nest ribbon commands (``nest.*`` in ribbon_spec) and
 adds a docked Nest panel (part list ``np_Part``/``np_PartName``/``np_PartNum``, sheet list
 ``np_Sheet``/``np_SheetName``/``np_SheetNum``, results ``np_Result``), the nest-parameter
 dialog (``mf412``, ``pd_Nest_*``), the sheet dialog (``pd767..769``), a cancellable run with
 progress, "copy result to main view" (``nset_UI_Result2MainView``) and "export to sheets"
-(``mf420``). It also adds the sort modes of :mod:`mlaser.cam.ordering` that the base window
-does not map (``mf202`` in->out, ``mf203`` out->in, ``mf610/611`` layer first/last, ring
-sort, grid, shortest path, rapid avoidance) and the manual-sort tool (``mf111``,
-``mv18``..``mv23``). Only public window attributes are used, plus ``_snapshot``/
-``_update_toolpath`` when present.
+(``mf420``). It also adds the ordering commands that are edits of the part order
+(``mf610/611`` layer first/last, ``mv15/16`` first/last, the manual-sort tool ``mf111`` with
+``mv18``..``mv23``) and the rapid-avoidance toggle; every ordering *mode* (``sort.*`` incl.
+in->out / out->in / ring / grid / shortest path) is the main window's one sort path.  Edits are
+``ctx.edit`` transactions, the nest result replaces the document with ``ctx.replace_document``.
 """
 from __future__ import annotations
 
 import copy
 import os
-import warnings
 from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
-                               QDialogButtonBox, QDockWidget, QDoubleSpinBox, QFileDialog,
+                               QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
                                QProgressDialog, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
@@ -274,17 +273,14 @@ class NestPanel(QWidget):
 
 # ---------------------------------------------------------------------------- extension
 class NestExtension:
-    def __init__(self, window):
-        self.window = window
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.window = window = ctx.window
         self.job = NestJob()
         self.path: Optional[str] = None
         self.dirty = False
         self.panel = NestPanel(self)
-        dock = QDockWidget(window)
-        dock.setObjectName("mf460")
-        dock.setWindowTitle(_tr(window, "mf460", "Nest"))
-        dock.setWidget(self.panel)
-        window.addDockWidget(Qt.LeftDockWidgetArea, dock)
+        dock = ctx.add_dock(self.panel, _tr(window, "mf460", "Nest"), "left", "mf460")
         dock.hide()
         self.dock = dock
 
@@ -437,10 +433,7 @@ class NestExtension:
         base = self.window.document
         doc = self.result_document(idx, include_sheet=False)
         doc.layers = copy.deepcopy(base.layers)
-        snap = getattr(self.window, "_snapshot", None)
-        if snap:
-            snap()
-        self.window.set_document(doc)
+        self.ctx.replace_document(doc, "nest result")
         return True
 
     def export_sheets(self, directory: Optional[str] = None) -> list[str]:
@@ -486,61 +479,36 @@ def _load_doc(path: str) -> Optional[Document]:
 
 # ---------------------------------------------------------------------------- sorting
 class SortExtension:
-    """Sort commands beyond the base window's mapping, and the manual-sort tool.
+    """Ordering edits and the manual-sort tool.
 
-    Ribbon -> sort type as observed in MainApp FUN_004b6190 (docs/cam.md section 8):
-    mf202 in->out = 6, mf203 out->in = 7, mf610/611 selected layer first/last = 10/11
-    (stable partition of the graph list), mf111 manual sort = tool 9. Rebuild additions:
-    shortest path (20), grid (21) and rapid avoidance."""
+    MainApp FUN_004b6190 (docs/cam.md section 8): mf610/611 selected layer first/last = types
+    10/11 (stable partition of the graph list), mf111 manual sort = tool 9; mv15/mv16 move one
+    part last/first.  Each changes the part order and switches to mode 0 (keep)."""
 
-    def __init__(self, window):
-        self.window = window
+    def __init__(self, ctx):
+        self.ctx = ctx
+        self.window = ctx.window
         self.manual_active = False
         self.step = 0
 
     def log(self, msg: str) -> None:
-        lp = getattr(self.window, "log_panel", None)
-        if lp is not None:
-            lp.log(msg)
-
-    def _changed(self) -> None:
-        cv = getattr(self.window, "canvas", None)
-        if cv is not None:
-            cv.rebuild()
-        for name in ("_refresh", "_update_toolpath"):
-            fn = getattr(self.window, name, None)
-            if fn:
-                fn()
-                break
-
-    def _snapshot(self) -> None:
-        snap = getattr(self.window, "_snapshot", None)
-        if snap:
-            snap()
+        self.ctx.log(msg)
 
     def set_mode(self, mode: int, **flags) -> None:
-        cp = getattr(self.window, "cam_params", None)
-        if cp is None:
-            return
-        cp.sort_mode = mode
-        for k, v in flags.items():
-            setattr(cp, k, v)
-        upd = getattr(self.window, "_update_toolpath", None)
-        if upd:
-            upd()
-        self.log(f"sort: mode {mode}")
+        self.window.set_sort_mode(mode, **flags)
+
+    def _order_edit(self, fn, label: str):
+        """An edit that only reorders parts (scope: no part changes in place)."""
+        return self.ctx.edit(fn, label, parts=())
 
     def layer_first(self, last: bool = False) -> bool:
         """Types 10/11: all selected parts must share one layer (as the original checks)."""
         from ..cam import ordering as O
-        doc = self.window.document
-        layers = {p.craft.layer for p in doc.parts if p.selected}
+        layers = {p.craft.layer for p in self.ctx.document.parts if p.selected}
         if len(layers) != 1:
             self.log("mf610: select parts of one layer")
             return False
-        self._snapshot()
-        O.set_layer_priority(doc, layers, last)
-        self._changed()
+        self._order_edit(lambda doc: O.set_layer_priority(doc, layers, last), "layer order")
         self.set_mode(O.MODE_KEEP)
         return True
 
@@ -553,9 +521,8 @@ class SortExtension:
 
     def start_manual(self) -> bool:
         from ..cam import ordering as O
-        if len(self.window.document.parts) < 2:
+        if len(self.ctx.document.parts) < 2:
             return False
-        self._snapshot()
         self.manual_active = True
         self.step = 1
         cv = self.window.canvas
@@ -566,15 +533,16 @@ class SortExtension:
         return True
 
     def pick(self, index: int) -> None:
-        """One click: part ``index`` goes to slot ``step``; ends automatically after the last."""
+        """One click: part ``index`` goes to slot ``step``; ends automatically after the last.
+        Each pick is one undo step."""
         from ..cam import ordering as O
         if not self.manual_active:
             return
-        nxt = O.manual_pick(self.window.document, index, self.step)
+        step = self.step
+        nxt = self._order_edit(lambda doc: O.manual_pick(doc, index, step), "manual sort")
         if nxt != self.step:
             self.log(f"{_tr(self.window, 'mv19', 'Manual Sort: Step')} {self.step}")
             self.step = nxt
-            self._changed()
         if self.step == 0:
             self.finish_manual()
 
@@ -602,26 +570,17 @@ class SortExtension:
     def move_selected(self, last: bool) -> bool:
         """mv16 / mv15: the single selected part becomes first / last."""
         from ..cam import ordering as O
-        sel = [i for i, p in enumerate(self.window.document.parts) if p.selected]
+        sel = [i for i, p in enumerate(self.ctx.document.parts) if p.selected]
         if len(sel) != 1:
             return False
-        self._snapshot()
-        O.move_first_last(self.window.document, sel[0], last)
-        self._changed()
+        self._order_edit(lambda doc: O.move_first_last(doc, sel[0], last), "move first/last")
         self.set_mode(O.MODE_KEEP)
         return True
 
 
-SORT_COMMANDS = [
-    # (command id, lang key or text, mode constant name in cam.ordering)
-    ("sort.in_out", "mf202", "MODE_RING_IN"),
-    ("sort.out_in", "mf203", "MODE_RING_OUT"),
-    ("sort.nearest", "mf110", "MODE_LOCAL"),
-    ("sort.run", "mf105", "MODE_LOCAL"),
-    ("sort.keep", "Keep current order", "MODE_KEEP"),
-    ("sort.shortest", "Shortest path", "MODE_SHORTEST"),
-    ("sort.grid", "Grid", "MODE_GRID"),
-]
+# commands added to the sort.run button menu (the ordering modes' handlers are MainWindow.sort)
+SORT_MENU = ["sort.keep", "sort.shortest", "sort.grid", "sort.avoid", "sort.manual_prev",
+             "sort.manual_end", "sort.first", "sort.last"]
 
 
 def _sort_button_menu(window) -> Optional[QMenu]:
@@ -632,26 +591,13 @@ def _sort_button_menu(window) -> Optional[QMenu]:
     return None
 
 
-def _rebind(window, cmd: str, fn) -> None:
-    act = window.ribbon.actions.get(cmd)
-    if act is not None:
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore", RuntimeWarning)
-            try:
-                act.triggered.disconnect()
-            except (RuntimeError, TypeError):
-                pass
-        act.triggered.connect(lambda _=False: fn())
-    if isinstance(getattr(window, "handlers", None), dict):
-        window.handlers[cmd] = fn
-
-
-def register(window) -> tuple[NestExtension, SortExtension]:
-    """Wire the Nest tab and the extra sort commands into ``window`` (MainWindow)."""
-    from ..cam import ordering as O
-    nx = NestExtension(window)
-    sx = SortExtension(window)
-    window.nest_ext, window.sort_ext = nx, sx
+def register(ctx) -> tuple[NestExtension, SortExtension]:
+    """Bind the Nest commands and the ordering edits (``ctx``: PluginContext)."""
+    window = ctx.window
+    nx = NestExtension(ctx)
+    sx = SortExtension(ctx)
+    keys = {"nest.open": "mf_S_File_OpenProject", "nest.add_sheet": "mf466", "nest.params": "mf412",
+            "nest.simple": "mf463", "nest.export": "mf420", "nest.show": "mf460"}
     for cmd, fn in {"nest.new": nx.new_project, "nest.open": nx.open_project,
                     "nest.save": nx.save_project, "nest.save_as": lambda: nx.save_project(True),
                     "nest.import_part": nx.import_part, "nest.import_sheet": nx.add_std_sheet,
@@ -659,33 +605,22 @@ def register(window) -> tuple[NestExtension, SortExtension]:
                     "nest.params": nx.params_dialog, "nest.run": nx.run, "nest.simple": nx.run,
                     "nest.to_main": nx.to_main, "nest.export": nx.export_sheets,
                     "nest.show": nx.show}.items():
-        if cmd not in window.ribbon.actions:
-            key = {"nest.open": "mf_S_File_OpenProject", "nest.add_sheet": "mf466", "nest.params": "mf412",
-                   "nest.simple": "mf463", "nest.export": "mf420", "nest.show": "mf460"}.get(cmd, cmd)
-            window.ribbon.action(cmd, key)
-        _rebind(window, cmd, fn)
+        ctx.register_command(cmd, fn, label=keys.get(cmd, cmd))
     menu = _sort_button_menu(window)
-    for cmd, key, mode_name in SORT_COMMANDS:
-        mode = getattr(O, mode_name)
-        if cmd not in window.ribbon.actions:
-            act = window.ribbon.action(cmd, key)
-            if menu is not None:
-                menu.addAction(act)
-        _rebind(window, cmd, lambda m=mode: sx.set_mode(m))
-    avoid = window.ribbon.action("sort.avoid", "Avoid cut holes (rapids)", checkable=True)
-    if menu is not None and avoid not in menu.actions():
-        menu.addAction(avoid)
-    avoid.toggled.connect(lambda on: sx.set_mode(getattr(window.cam_params, "sort_mode", 5), avoid_cut=on))
+    ctx.register_command("sort.avoid", lambda on: sx.set_mode(window.cam_params.sort_mode, avoid_cut=bool(on)),
+                         label="Avoid cut holes (rapids)", checkable=True)
     for cmd, key, fn in (("sort.manual_prev", "mv13", sx.previous_step),
                          ("sort.manual_end", "mv23", sx.finish_manual),
                          ("sort.first", "mv16", lambda: sx.move_selected(False)),
                          ("sort.last", "mv15", lambda: sx.move_selected(True))):
-        if cmd not in window.ribbon.actions:
-            act = window.ribbon.action(cmd, key)
-            if menu is not None:
+        ctx.register_command(cmd, fn, label=key)
+    ctx.register_command("sort.layer_first", lambda: sx.layer_first(False))
+    ctx.register_command("sort.layer_last", lambda: sx.layer_first(True))
+    ctx.register_command("sort.manual", sx.toggle_manual)
+    if menu is not None:
+        have = set(menu.actions())
+        for cmd in SORT_MENU:
+            act = window.ribbon.actions.get(cmd)
+            if act is not None and act not in have:
                 menu.addAction(act)
-        _rebind(window, cmd, fn)
-    _rebind(window, "sort.layer_first", lambda: sx.layer_first(False))
-    _rebind(window, "sort.layer_last", lambda: sx.layer_first(True))
-    _rebind(window, "sort.manual", sx.toggle_manual)
     return nx, sx

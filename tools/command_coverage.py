@@ -1,8 +1,11 @@
 """Trigger every ribbon command headlessly and list the ones still unimplemented.
 
-Modal dialogs, message boxes, file pickers and menus are stubbed so nothing blocks.  A command
-counts as unimplemented when it reaches ``MainWindow.not_implemented``; a command that raises
-is listed separately.
+Modal dialogs, message boxes, file pickers and menus are stubbed so nothing blocks.  The window
+is built with the application's real wiring (``MainWindow`` + ``EXTENSIONS`` through the plugin
+API).  A command counts as unimplemented when it reaches ``MainWindow.not_implemented``; a
+command whose handler raises (recorded by the CommandRegistry, which keeps the application
+alive) is listed separately, and so is every duplicate registration (a second plugin binding a
+command id that is already bound).  The contract is 0 / 0 / 0.
 
     QT_QPA_PLATFORM=offscreen .venv/bin/python tools/command_coverage.py [--json]
 """
@@ -49,23 +52,28 @@ def coverage() -> dict:
     app = QApplication.instance() or QApplication([])
     _stub_dialogs()
     _stub_network()
-    from mlaser.ui import docops
+    from mlaser import ops
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import EXTENSIONS, MainWindow
     w = MainWindow(DemoController(), extensions=EXTENSIONS)
-    w.set_document(docops.demo_document())
+    w.set_document(ops.demo_document())
     missing: list[str] = []
     errors: dict[str, str] = {}
     w.not_implemented = lambda c: missing.append(c)
+    w.commands.failures.clear()
     for cmd, act in sorted(w.ribbon.actions.items()):
         try:
             act.trigger()
         except Exception as e:  # noqa: BLE001 - report, keep going
             errors[cmd] = f"{type(e).__name__}: {e}"
         app.processEvents()
+    errors.update({c: e for c, e in w.commands.failures.items() if c not in errors})
     total = len(w.ribbon.actions)
+    duplicates = [f"{c} ({a} / {b})" for c, a, b in w.commands.duplicates]
+    hook_errors = [f"{h} in {o}: {e}" for h, o, e in w.hooks.errors]
     w.close()
     return {"total": total, "unimplemented": sorted(set(missing)), "errors": errors,
+            "duplicates": duplicates, "hook_errors": hook_errors,
             "extensions": sorted(w.extensions)}
 
 
@@ -74,9 +82,16 @@ if __name__ == "__main__":
     if "--json" in sys.argv:
         print(json.dumps(r, indent=1))
     else:
-        print(f"{r['total']} commands, {len(r['unimplemented'])} unimplemented, {len(r['errors'])} raising")
+        print(f"{r['total']} commands, {len(r['unimplemented'])} unimplemented, {len(r['errors'])} raising, "
+              f"{len(r['duplicates'])} duplicate registrations")
         print("extensions loaded:", ", ".join(r["extensions"]))
         for c in r["unimplemented"]:
             print("  NI ", c)
         for c, e in r["errors"].items():
             print("  ERR", c, e)
+        for c in r["duplicates"]:
+            print("  DUP", c)
+        for c in r["hook_errors"]:
+            print("  HOOK", c)
+        if r["unimplemented"] or r["errors"] or r["duplicates"]:
+            sys.exit(1)

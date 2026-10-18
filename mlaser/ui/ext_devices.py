@@ -1,7 +1,9 @@
 """Peripheral device dialogs (follower calibration, laser, AF/EC, pendant).
 
-``register(window)`` adds a "Devices" ribbon tab whose actions open the dialogs below, and wires
-the existing ``hw.remoter_match`` action ("Remoter Match", lang mf135) to the pendant dialog.
+``register(ctx)`` (PluginContext) binds ``dev.follower`` / ``dev.laser`` / ``dev.pendant`` in a
+"Devices" ribbon tab and the existing ``hw.remoter_match`` command ("Remoter Match", lang mf135)
+to the pendant dialog.  The pendant's state lives on the :class:`DevicesExtension`, not on the
+window.
 Everything talks to devices through :mod:`mlaser.devices`; the motion card connection is taken
 from ``window.ctl.mc`` when the UI controller is connected (otherwise the follower dialogs work
 on files only).  Evidence for every command: docs/devices.md.
@@ -10,19 +12,18 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QPointF, QSize, Qt, QTimer
-from PySide6.QtGui import QAction, QPainter, QPen, QPolygonF
+from PySide6.QtCore import QPointF, Qt, QTimer
+from PySide6.QtGui import QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFileDialog, QFormLayout, QFrame, QGroupBox, QHBoxLayout, QLabel,
+                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
                                QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-                               QTableWidgetItem, QToolButton, QVBoxLayout, QWidget, QHeaderView)
+                               QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView)
 
 from mlaser.devices import pendant as P
 from mlaser.devices.follower import STATUS_FIELDS, CalibrationTable, FollowerStatus, OnBoardFollower
 from mlaser.devices.laser import (LASER_IPG_NET, LASER_RAYCUS_NET, IpgLaser, LaserError, RaycusLaser)
 from mlaser.devices.transport import DeviceSettings
 
-from .icons import command_icon
 
 
 def _mc(window):
@@ -311,12 +312,36 @@ class LaserDialog(QDialog):
         super().done(r)
 
 
+class DevicesExtension:
+    """Plugin state: the open pendant, its event pump and the last key events."""
+
+    def __init__(self, window) -> None:
+        self.window = window
+        self.pendant = None
+        self.pendant_timer: Optional[QTimer] = None
+        self.pendant_events: list[str] = []
+
+
+def _ext(window) -> DevicesExtension:
+    ext = window.extension("ext_devices") if hasattr(window, "extension") else None
+    if ext is None:                    # a dialog opened without the plugin (tests, scripts)
+        ext = getattr(window, "_devices_fallback", None)
+        if ext is None:
+            ext = DevicesExtension(window)
+            try:
+                window._devices_fallback = ext
+            except AttributeError:
+                pass
+    return ext
+
+
 class PendantDialog(QDialog):
     """Enable the XHC wireless pendant and show its status/key events."""
 
     def __init__(self, window, parent=None):
         super().__init__(parent if parent is not None else _as_parent(window))
         self.window_ = window
+        self.ext = _ext(window)
         self.setWindowTitle("Wireless pendant")
         lay = QVBoxLayout(self)
         avail = P.hid_available()
@@ -324,7 +349,7 @@ class PendantDialog(QDialog):
         lay.addWidget(self.info)
         self.enable = QCheckBox("Enable pendant")
         self.enable.setEnabled(avail)
-        self.enable.setChecked(getattr(window, "_pendant", None) is not None)
+        self.enable.setChecked(self.ext.pendant is not None)
         self.enable.toggled.connect(self._toggle)
         lay.addWidget(self.enable)
         self.status = QLabel("-")
@@ -349,87 +374,79 @@ class PendantDialog(QDialog):
             stop_pendant(self.window_)
 
     def _show_status(self) -> None:
-        pend = getattr(self.window_, "_pendant", None)
+        pend = self.ext.pendant
         if pend is None:
             return
         s = pend.status
         self.status.setText(f"DevID {s.dev_id:#06x}  channel {s.channel}  RSSI {s.rssi}"
                             + ("  (poor signal)" if s.poor_signal else ""))
-        for ev in getattr(self.window_, "_pendant_events", [])[-20:]:
+        for ev in self.ext.pendant_events[-20:]:
             self.events.appendPlainText(ev)
-        if hasattr(self.window_, "_pendant_events"):
-            self.window_._pendant_events.clear()
+        self.ext.pendant_events.clear()
 
 
 def start_pendant(window) -> bool:
     """Open the pendant and map its keys to jog/actions on ``window.ctl`` (MainApp FUN_005ab2e0).
-    Events arrive on the reader thread and are marshalled to the GUI thread with a timer."""
-    if getattr(window, "_pendant", None) is not None:
+    Events arrive on the reader thread and are marshalled to the GUI thread with a timer.  Start
+    and Frame run the planned job (``window.run_job``) like the run controls."""
+    ext = _ext(window)
+    if ext.pendant is not None:
         return True
     queue: list = []
     pend = P.Pendant(on_event=queue.append)
     if not pend.open():
         return False
     ctl = window.ctl
+
+    def run(mode):
+        fn = getattr(window, "run_job", None)
+        if callable(fn):
+            fn(mode)
+        else:
+            (ctl.start if mode == "process" else ctl.frame)(window.document)
     actions = {
         "home": lambda: ctl.home("XY"), "stop": ctl.stop, "pause_resume": ctl.pause,
-        "start": lambda: ctl.start(window.document), "frame": lambda: ctl.frame(window.document),
+        "start": lambda: run("process"), "frame": lambda: run("frame"),
     }
     mapper = P.PendantJogMapper(ctl, actions, busy=lambda: ctl.state().mode in ("process", "frame", "dry_run"),
                                 leds=pend.set_leds, dev_id=lambda: pend.status.dev_id)
-    window._pendant_events = []
+    ext.pendant_events = []
 
     def pump():
         while queue:
             ev = queue.pop(0)
             act = mapper.handle(ev)
-            window._pendant_events.append(f"keys {ev.key1:#04x} {ev.key2:#04x} -> {act}")
+            ext.pendant_events.append(f"keys {ev.key1:#04x} {ev.key2:#04x} -> {act}")
 
     t = QTimer(window)
     t.timeout.connect(pump)
     t.start(20)
-    window._pendant, window._pendant_timer = pend.start(), t
+    ext.pendant, ext.pendant_timer = pend.start(), t
     _log(window, "pendant opened")
     return True
 
 
 def stop_pendant(window) -> None:
-    pend = getattr(window, "_pendant", None)
+    ext = _ext(window)
+    pend = ext.pendant
     if pend is not None:
         pend.close()
-        window._pendant_timer.stop()
-        window._pendant = None
+        if ext.pendant_timer is not None:
+            ext.pendant_timer.stop()
+        ext.pendant = None
         _log(window, "pendant closed")
 
 
-def register(window) -> None:
-    """Add the "Devices" ribbon tab and connect ``hw.remoter_match``."""
-    page = QWidget()
-    lay = QHBoxLayout(page)
-    lay.setContentsMargins(2, 2, 2, 0)
-    window.device_actions = {}
-    for cmd, text, fn in (
-        ("dev.follower", "Follower", lambda: FollowerDialog(window).exec()),
-        ("dev.laser", "Laser", lambda: LaserDialog(window).exec()),
-        ("dev.pendant", "Pendant", lambda: PendantDialog(window).exec()),
-    ):
-        act = QAction(text, window)
-        act.setObjectName(cmd)
-        act.setIcon(command_icon(cmd))
-        act.triggered.connect(fn)
-        window.device_actions[cmd] = act
-        tb = QToolButton()
-        tb.setDefaultAction(act)
-        tb.setAutoRaise(True)
-        tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        tb.setIconSize(QSize(32, 32))
-        lay.addWidget(tb)
-    lay.addStretch(1)
-    window.ribbon.addTab(page, "Devices")
-    rm = window.ribbon.actions.get("hw.remoter_match")
-    if rm is not None:
-        try:
-            rm.triggered.disconnect()
-        except (RuntimeError, TypeError):
-            pass
-        rm.triggered.connect(lambda _=False: PendantDialog(window).exec())
+def register(ctx) -> DevicesExtension:
+    """The "Devices" tab and ``hw.remoter_match`` (``ctx``: PluginContext)."""
+    window = ctx.window
+    ext = DevicesExtension(window)
+    cmds = {"dev.follower": ("Follower", lambda: FollowerDialog(window).exec()),
+            "dev.laser": ("Laser", lambda: LaserDialog(window).exec()),
+            "dev.pendant": ("Pendant", lambda: PendantDialog(window).exec())}
+    for cmd, (label, fn) in cmds.items():
+        ctx.register_command(cmd, fn, label=label)
+    ctx.add_ribbon_tab("Devices", list(cmds))
+    ctx.register_command("hw.remoter_match", lambda: PendantDialog(window).exec())
+    ctx.on_close(lambda: stop_pendant(window))
+    return ext

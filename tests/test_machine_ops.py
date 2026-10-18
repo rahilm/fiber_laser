@@ -7,7 +7,6 @@ from pathlib import Path
 import pytest
 
 from mlaser.controller import coords as C
-from mlaser.protocol import frames as F
 from mlaser.controller import upgrade as U
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.machine_ops import CO2, FIBER, MachineOps
@@ -282,10 +281,12 @@ def qapp():
 
 
 def test_ext_machine_ui(qapp, tmp_path, monkeypatch):
-    from mlaser.ui import ext_machine
-    from mlaser.ui.mainwindow import MainWindow
-    w = MainWindow()
-    ext = ext_machine.register(w, app_dir=str(tmp_path))
+    from mlaser.services.config import ConfigService
+    from wiring import real_window
+    cfg = ConfigService()
+    cfg.set("app_dir", str(tmp_path))
+    w = real_window(config=cfg)
+    ext = w.extension("ext_machine")
     msgs = []
     w.log_panel.log = msgs.append
     for cmd in ("coord.tool3", "hw.upgrade", "hw.restart", "machine.edge_clear"):

@@ -8,12 +8,25 @@ rename or remove existing fields without updating every user.
 """
 from __future__ import annotations
 
+import itertools
 import math
 from dataclasses import dataclass, field
 from enum import IntEnum
-from typing import Iterator, Optional, Union
+from typing import Iterable, Iterator, Optional, Union
 
 Point = tuple[float, float]
+
+# Stable identities (Wave 2 services, docs/dev/ARCHITECTURE.md "services"): every Part and Contour
+# gets a process-unique ``uid`` when it is created.  ``copy.deepcopy`` keeps it (an undo snapshot
+# is the same object in an earlier state); a copy that becomes a *second* object in a document
+# (paste, array) gets a fresh one from :func:`ensure_unique_ids`.  ``uid`` takes no part in
+# equality or repr, so comparisons and file formats are unchanged.
+_ids = itertools.count(1)
+
+
+def new_id() -> int:
+    """A new process-unique object id (thread safe: ``next`` on a count is atomic)."""
+    return next(_ids)
 
 
 @dataclass
@@ -133,6 +146,7 @@ class Contour:
     segments: list[Segment] = field(default_factory=list)
     closed: bool = True
     extra: dict = field(default_factory=dict)  # format-specific data (e.g. .chf contour record)
+    uid: int = field(default_factory=new_id, compare=False, repr=False)
 
     def points(self, tol: float = 0.05) -> Iterator[Point]:
         """Flatten to a polyline (for display / geometry ops)."""
@@ -177,6 +191,7 @@ class Part:
     name: str = ""
     selected: bool = False
     extra: dict = field(default_factory=dict)
+    uid: int = field(default_factory=new_id, compare=False, repr=False)
 
     def bbox(self) -> tuple[float, float, float, float]:
         xs, ys = [], []
@@ -216,3 +231,27 @@ class Document:
         if not bs:
             return (0, 0, 0, 0)
         return (min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs))
+
+
+def ensure_unique_ids(doc: "Document", keep: Iterable = ()) -> int:
+    """Give every Part and Contour of ``doc`` a uid no other object in it has.
+
+    Objects in ``keep`` (the objects that held their uid before an edit) keep it; any other
+    object whose uid is already taken (a deep copy of a part that is still in the document)
+    gets a new one.  Returns the number of ids reassigned."""
+    kept = {id(o) for o in keep}
+    n = 0
+    for attr in ("parts", "contours"):
+        objs = list(doc.parts) if attr == "parts" else [c for p in doc.parts for c in p.contours]
+        seen: set[int] = set()
+        for o in objs:                       # the kept objects claim their uid first
+            if id(o) in kept:
+                seen.add(o.uid)
+        for o in objs:
+            if id(o) in kept:
+                continue
+            if o.uid in seen:
+                o.uid = new_id()
+                n += 1
+            seen.add(o.uid)
+    return n

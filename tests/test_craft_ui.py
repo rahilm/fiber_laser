@@ -26,16 +26,8 @@ def rect(x, y, w, h):
 
 @pytest.fixture()
 def win(app):
-    from mlaser.ui.ext_cam import register as reg_cam
-    from mlaser.ui.ext_craft import register
-    from mlaser.ui.facade import DemoController
-    from mlaser.ui import canvas
-    from mlaser.ui.mainwindow import MainWindow
-    if not hasattr(canvas.CanvasView, "tool"):            # tolerate a canvas whose event() runs
-        canvas.CanvasView.tool = None                     # before __init__ sets self.tool
-    w = MainWindow(DemoController())
-    reg_cam(w, exec_dialogs=False)
-    register(w, exec_dialogs=False)
+    from wiring import real_window
+    w = real_window()
     w.set_document(Document(parts=[Part([rect(0, 0, 10, 10)]), Part([rect(20, 0, 10, 10)])]))
     return w
 
@@ -50,7 +42,7 @@ def test_commands_bound(win):
 
 
 def test_start_point_tool_and_undo(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     win.run("craft.start_point")
     assert ext.tool_name == "start_point"
     ext.click(10.0, 5.0)
@@ -64,7 +56,7 @@ def test_start_point_tool_and_undo(win):
 
 
 def test_manual_joint_and_explode(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     ext.mj_p.length = 1.0
     win.run("craft.mj_manual")
     ext.click(5.0, 0.0)
@@ -81,7 +73,7 @@ def test_manual_joint_and_explode(win):
 
 
 def test_gap_seal_overcut(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     ext.gap_p.value = 0.7
     win.run("craft.gap")                                  # nothing selected: no change
     assert all("overcut" not in p.craft.extra for p in win.document.parts)
@@ -99,7 +91,7 @@ def test_gap_seal_overcut(win):
 
 
 def test_cool_point_and_segment(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     from PySide6.QtGui import QTransform
     win.canvas.setTransform(QTransform.fromScale(20, -20))      # 8 px = 0.4 mm
     assert ext.host.tolerance() == pytest.approx(0.4)
@@ -116,7 +108,7 @@ def test_cool_point_and_segment(win):
 
 
 def test_home_ref_grid_and_manual(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     ext.dock_p.mode = 9                       # bottom right
     win.run("craft.home_ref")                             # anchor (30, 0) moves under the head (0, 0)
     assert win.settings["SP.DockPoint"] == (0.0, 0.0)
@@ -135,7 +127,7 @@ def test_home_ref_grid_and_manual(win):
 
 
 def test_onekey(win):
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     ext.onekey_p.lead = True
     win.lead_in.kind = 1
     win.run("tool.onekey")
@@ -145,7 +137,7 @@ def test_onekey(win):
 
 def test_circle_cut_runs_alpha(win):
     win.run("craft.circle_cut")
-    assert "mf485" in win.craft_ext.last_message or True
+    assert "mf485" in win.extension("ext_craft").last_message or True
 
 
 def test_lead_check_and_clear_mark(win):
@@ -183,7 +175,7 @@ def test_replace_circle_and_adjust_start(win):
 
 def test_bridge_tool(win):
     from PySide6.QtGui import QTransform
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     win.canvas.setTransform(QTransform.fromScale(20, -20))
     ext.bridge_p.width = 2.0
     win.run("tool.bridge")
@@ -198,7 +190,7 @@ def test_bridge_tool(win):
 
 def test_manual_lead_tool(win):
     from PySide6.QtGui import QTransform
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     win.canvas.setTransform(QTransform.fromScale(20, -20))
     win.run("craft.lead_manual")
     ext.click(5.0, -3.0)
@@ -219,7 +211,7 @@ def test_engrave_and_scan_gcode(win, tmp_path):
     assert [b - a for a, b in path.on_intervals()] == [pytest.approx(10)] * 3
     g = tmp_path / "scan.nc"
     g.write_text("G90\nM4\nG0 X0 Y0 S0\nG1 X4 Y0 S20\nG0 X4 Y0.5 S0\nG1 X0 Y0.5 S20\nG0 X0 Y0 S0\nM5\n")
-    assert win.craft_ext.import_scan_gcode([str(g)]) == 1
+    assert win.extension("ext_craft").import_scan_gcode([str(g)]) == 1
     part = win.document.parts[0]
     assert part.extra["scan_kind"] == 5 and len(part.contours) == 2
     assert part.contours[0].length() == pytest.approx(4 + 2 * 5.0)
@@ -230,7 +222,7 @@ def test_engrave_and_scan_gcode(win, tmp_path):
 def test_bitmap_flow(win, tmp_path):
     import numpy as np
     from mlaser.engrave import RasterParams, generate_to_dir
-    ext = win.craft_ext
+    ext = win.extension("ext_craft")
     ext.bitmap_dir = str(tmp_path)
     win.run("file.bitmap")                                 # dialog not executed: nothing imported
     assert ext.import_bitmap_result() is None              # status.ini = 0 written at start
@@ -257,5 +249,5 @@ def test_real_mouse_click_through_canvas_tool(win, app):
     assert win.document.parts[0].craft.extra["start_param"] == pytest.approx(15 / 40, abs=0.01)
     QTest.keyClick(win.canvas, Qt.Key_Escape)
     app.processEvents()
-    assert win.craft_ext.tool_name is None
+    assert win.extension("ext_craft").tool_name is None
     win.close()
