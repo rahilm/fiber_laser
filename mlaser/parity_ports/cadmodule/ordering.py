@@ -17,7 +17,7 @@ from dataclasses import dataclass
 from typing import Any, Optional
 
 from ...geom.contour import seg_tangent
-from ...model import Arc, Contour, Line, Point
+from ...model import Arc, Contour, GlyphKind, Line, Point
 from .._registry import port
 
 Node = Any      # mlaser.cam.ordering.Node (contour, bbox, children, parent, entry, exit)
@@ -422,7 +422,8 @@ def _walk_to_dist(c: Contour, walk: float) -> float:
 
 
 # glyph kinds as in the .chf / CADModule glyph factory FUN_10062860
-_GLY_SEGMENT, _GLY_ARC, _GLY_CIRCLE, _GLY_LWPOLY, _GLY_SPLINE = 2, 3, 4, 6, 7
+_GLY_SEGMENT, _GLY_ARC, _GLY_CIRCLE, _GLY_LWPOLY, _GLY_SPLINE = (
+    GlyphKind.LINE, GlyphKind.ARC, GlyphKind.CIRCLE, GlyphKind.LWPOLY, GlyphKind.SPLINE)
 
 
 def _source_glyph_groups(c: Contour, with_dir: bool = False) -> Optional[list[tuple]]:

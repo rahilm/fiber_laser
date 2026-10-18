@@ -36,6 +36,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
+from ..protocol.enums import AlarmWord1Bit, AlarmWord2Bit, AxisAlarm, AxisAlarmBit  # noqa: F401
+
 REG_ALARM1 = 1006          # RO[6]
 REG_ALARM2 = 1007          # RO[7]
 RO_ALARM1 = 6
@@ -46,7 +48,7 @@ CODE_AXIS = 8100           # 8100 + 32*axis + kind
 CODE_WORD2 = 9000          # 9000 + bit
 
 # axis status word bits (axis RO k0) raised as per-axis alarms
-AX_HARD_POS, AX_HARD_NEG, AX_SOFT_POS, AX_SOFT_NEG, AX_SERVO, AX_DUAL = range(6)
+AX_HARD_POS, AX_HARD_NEG, AX_SOFT_POS, AX_SOFT_NEG, AX_SERVO, AX_DUAL = AxisAlarmBit
 AXIS_ALARM_MASK = 0x3F
 
 AXIS_KEYS = [f"EtherCATAxisErrorInfo_{k}" for k in range(6)]
@@ -58,7 +60,7 @@ WORD1_KEYS = {25: "EtherCATErrorInfo_1_25", 26: "EtherCATErrorInfo_1_26",
               29: "EtherCATErrorInfo_1_29", 30: "EtherCATErrorInfo_1_30"}
 WORD1_TEXT = {25: "Bus Fault", 26: "Output Fault", 29: "Servo input alarm",
               30: "Emergency stop alarm"}
-W1_BUS_FAULT, W1_OUTPUT_FAULT, W1_SERVO, W1_ESTOP = 25, 26, 29, 30
+W1_BUS_FAULT, W1_OUTPUT_FAULT, W1_SERVO, W1_ESTOP = AlarmWord1Bit
 
 WORD2_KEYS = ["EtherCATErrorInfo_2_00", "EtherCATErrorInfo_2_01", "EtherCATErrorInfo_2_02",
               "EtherCATErrorInfo_2_03", "EtherCATErrorInfo_2_04", "EtherCATErrorInfo_2_05",
@@ -67,8 +69,8 @@ WORD2_TEXT = ["Illegal command", "The interpolation data content length is abnor
               "Axis control command execution exception", "FTC order execution exception",
               "PLC command execution exception", "FIFO starvation",
               "Immediate instruction exception", "Overspeed"]
-W2_FIFO_STARVATION = 5
-W2_OVERSPEED = 7
+W2_FIFO_STARVATION = AlarmWord2Bit.FIFO_STARVATION
+W2_OVERSPEED = AlarmWord2Bit.OVERSPEED
 
 # Older table (gp<n>, n = legacy alarm code); not decoded from a word in this build.
 LEGACY_KEYS = {n: f"gp{n}" for n in range(1, 57)}

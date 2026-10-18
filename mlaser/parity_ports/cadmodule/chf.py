@@ -24,11 +24,12 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, field
+from enum import IntEnum
 from pathlib import Path
 from typing import Any, Optional, Union
 
 from ...geom import curves as _geom
-from ...model import Arc, Contour, Craft, Document, Glyph, LeadParams, Line, Part, Segment
+from ...model import Arc, Contour, Craft, Document, Glyph, GlyphKind, LeadParams, Line, Part, Segment
 from .scio import ScFormatError, ScReader, ScWriter
 from .._registry import port
 
@@ -48,10 +49,19 @@ __port__ = {
 
 CURRENT_VERSION = 9
 
-# graph types (FUN_100ad550)
-G_CONTOUR, G_GROUP, G_TEXT, G_SCAN, G_CONTOUREX = 8, 9, 10, 11, 12
-# glyph types (FUN_10062860)
-GLY_POINT, GLY_SEGMENT, GLY_ARC, GLY_CIRCLE, GLY_ELLIPSE, GLY_LWPOLY, GLY_SPLINE = range(1, 8)
+
+class GraphKind(IntEnum):
+    """Graph record types of the .chf graph list (graph factory FUN_100ad550)."""
+    CONTOUR = 8         # CGlyContour
+    GROUP = 9           # CGlyGroup
+    TEXT = 10           # CGlyText
+    SCAN = 11           # CGlyScan
+    CONTOUREX = 12      # CGlyContourEx
+
+
+G_CONTOUR, G_GROUP, G_TEXT, G_SCAN, G_CONTOUREX = GraphKind
+# glyph types (FUN_10062860): model.GlyphKind
+GLY_POINT, GLY_SEGMENT, GLY_ARC, GLY_CIRCLE, GLY_ELLIPSE, GLY_LWPOLY, GLY_SPLINE = GlyphKind
 
 P = tuple[float, float]
 

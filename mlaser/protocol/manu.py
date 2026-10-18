@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .enums import ManuClass, PierceStage, SysSub
+
 __port__ = {
     "source": "MainApp",
     "functions": {"ManuItem": "28-byte record (FUN_100352b0 _tempManuItem dump)"},
@@ -17,33 +19,32 @@ __port__ = {
 
 # --------------------------------------------------------------------------- ManuItem
 # classes (ManuItem +0x16)
-CLS_MOTION = 0
-CLS_SYS = 1
-CLS_DWELL_3002 = 3
-CLS_PIERCE_START = 4
-CLS_PIERCE_END = 5
-CLS_WAIT_ZF = 6
-CLS_FOLLOW = 7
-CLS_LIFT = 8
-CLS_FINAL_LIFT = 9
-CLS_FIX_HEIGHT = 0xA
-CLS_PEAK = 0xB
-CLS_MARKER = 0xE
-CLS_ADV_FIX_HEIGHT = 0x11
-CLS_PRE_JUMP = 0x12
-CLS_AFTER_GRADUAL = 0x13
+CLS_MOTION = ManuClass.MOTION
+CLS_SYS = ManuClass.SYS
+CLS_DWELL_3002 = ManuClass.DWELL_3002
+CLS_PIERCE_START = ManuClass.PIERCE_START
+CLS_PIERCE_END = ManuClass.PIERCE_END
+CLS_WAIT_ZF = ManuClass.WAIT_ZF
+CLS_FOLLOW = ManuClass.FOLLOW
+CLS_LIFT = ManuClass.LIFT
+CLS_FINAL_LIFT = ManuClass.FINAL_LIFT
+CLS_FIX_HEIGHT = ManuClass.FIX_HEIGHT
+CLS_PEAK = ManuClass.PEAK
+CLS_MARKER = ManuClass.MARKER
+CLS_ADV_FIX_HEIGHT = ManuClass.ADV_FIX_HEIGHT
+CLS_PRE_JUMP = ManuClass.PRE_JUMP
+CLS_AFTER_GRADUAL = ManuClass.AFTER_GRADUAL
 
 # class 1 sub-ops (ManuItem +0)
-SUB_LASER = 1
-SUB_DA = 3
-SUB_DO = 4
-SUB_DELAY = 5
-SUB_CRASH = 6
-SUB_LASER_SYNC = 8
+SUB_LASER = SysSub.LASER
+SUB_DA = SysSub.DA
+SUB_DO = SysSub.DO
+SUB_DELAY = SysSub.DELAY
+SUB_CRASH = SysSub.CRASH
+SUB_LASER_SYNC = SysSub.LASER_SYNC
 
-STAGE_SMOOTH = 0xE        # stage nibble used by the smooth pierce (flags | 0xe0)
-STAGE_CLEAN = 0xF         # clean-residue spiral (flags | 0xf0), not reproduced
-
+STAGE_SMOOTH = PierceStage.SMOOTH  # stage nibble used by the smooth pierce (flags | 0xe0)
+STAGE_CLEAN = PierceStage.CLEAN  # clean-residue spiral (flags | 0xf0), not reproduced
 
 
 @dataclass
@@ -54,7 +55,7 @@ class ManuItem:
     the flags (low nibble layer, bits 4..7 pierce stage, bits 8..11 first-stage flag) or the
     class-1 argument.
     """
-    cls: int
+    cls: int                   # +0x16, a ManuClass value
     a: int = 0                 # +0
     b: int = 0                 # +4
     power: int = 0xFFFF        # +8

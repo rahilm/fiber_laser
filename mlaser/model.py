@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from enum import IntEnum
 from typing import Iterator, Optional, Union
 
 Point = tuple[float, float]
@@ -66,8 +67,21 @@ class Arc:
 
 Segment = Union[Line, Arc]
 
-# Source glyph kinds (IEditableGlyph type +8, CADModule glyph factory FUN_10062860; docs/cam.md §0).
-GLYPH_POINT, GLYPH_LINE, GLYPH_ARC, GLYPH_CIRCLE, GLYPH_ELLIPSE, GLYPH_LWPOLY, GLYPH_SPLINE = range(1, 8)
+
+
+class GlyphKind(IntEnum):
+    """Source glyph kinds (IEditableGlyph type +8, CADModule glyph factory FUN_10062860;
+    docs/cam.md §0).  The values are the .chf ``####Gly`` type numbers."""
+    POINT = 1
+    LINE = 2            # "segment"
+    ARC = 3
+    CIRCLE = 4
+    ELLIPSE = 5         # ellipse arc
+    LWPOLY = 6          # lwpolyline with bulges
+    SPLINE = 7
+
+
+GLYPH_POINT, GLYPH_LINE, GLYPH_ARC, GLYPH_CIRCLE, GLYPH_ELLIPSE, GLYPH_LWPOLY, GLYPH_SPLINE = GlyphKind
 
 
 @dataclass
