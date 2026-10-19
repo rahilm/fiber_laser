@@ -153,7 +153,7 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 - ☐ dark and high-contrast themes, SVG icons, accessibility
 - ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
 - ☐ typed model and versioned native project format; `.chf` kept as interchange (byte-exact)
-- ☐ docs split into user / dev / re; packaged help
+- ☑ docs split into user / dev / re; packaged help (help browser with search, link check in CI)
 
 ## Outside software
 - ☐ a hardware watchdog relay in the laser-enable chain (owner, with the documented wiring)
