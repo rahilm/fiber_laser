@@ -14,8 +14,10 @@ identical ([Testing](TESTING.md)) or declare a new profile. See
 ## Profiles
 
 A `ParityProfile` selects the implementation of each slot. `"original"` (the default) is the
-bit-exact one; `"modern-ortools"`, `"modern-ruckig"`, `"modern-dxf"` and `"native-sampling"`
-swap single slots (`use_profile(name)`).
+bit-exact one (its emitter loop runs on the C kernel when that is built and passes its
+self-check, else on the Python port: bit-identical, [NATIVE_KERNEL.md](NATIVE_KERNEL.md));
+`"original-python"`, `"modern-ortools"`, `"modern-ruckig"`, `"modern-dxf"` and
+`"native-sampling"` swap single slots (`use_profile(name)`).
 
 ## The Wine harness
 

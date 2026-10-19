@@ -132,7 +132,20 @@ def test_launcher_selftest(tmp_path):
                        env=_env(tmp_path), capture_output=True, text=True, timeout=60)
     assert p.returncode == 0, p.stderr
     assert "network self-test" in p.stdout and "PySide6" not in p.stderr
+    assert "Emitter kernel: " in p.stdout                     # C kernel or Python port
     assert (tmp_path / "cfg" / "netcheck.json").is_file()
+
+
+def test_launcher_selftest_kernel_required(tmp_path):
+    """MLASER_NATIVE=1: --selftest fails when the C kernel cannot be used, passes when it can."""
+    from mlaser import _native
+    p = subprocess.run([sys.executable, "-m", "mlaser", "--selftest", "--host", "127.0.0.1"],
+                       env=dict(_env(tmp_path), MLASER_NATIVE="1"), capture_output=True, text=True,
+                       timeout=60)
+    if _native._emitter is not None:
+        assert p.returncode == 0 and "Emitter kernel: native C kernel" in p.stdout, p.stdout
+    else:
+        assert p.returncode == 1 and "UNAVAILABLE" in p.stdout
 
 
 def test_launcher_bundle_check(tmp_path):
@@ -142,6 +155,7 @@ def test_launcher_bundle_check(tmp_path):
     assert p.returncode == 0, p.stdout + p.stderr
     assert "import gear.dxf" in p.stdout and "result: OK" in p.stdout
     assert "[ok     ] help documents" in p.stdout
+    assert "emitter kernel (mlaser._native)" in p.stdout
 
 
 @pytest.mark.ui

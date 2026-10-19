@@ -2,3 +2,7 @@
 graft docs
 prune docs/review
 include tools/help_build.py
+# the optional C extension (setup.py): source in the sdist, never the built module
+include setup.py
+recursive-include mlaser/_native *.c
+global-exclude *.so *.pyd

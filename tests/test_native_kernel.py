@@ -1,6 +1,8 @@
-"""The optional native emitter kernel (mlaser_native, profile ``native-sampling``) against the
-Python port: hypothesis property tests on random sample streams, a sample of golden jobs, the
-build flags (no FMA), and the behaviour without the kernel.  docs/dev/NATIVE_KERNEL.md.
+"""The C emitter kernel (mlaser._native._emitter: the default when built, and the profile
+``native-sampling``) against the Python port: hypothesis property tests on random sample streams,
+a sample of golden jobs, the build flags (no FMA), and the behaviour without the kernel.  The
+default selection (MLASER_NATIVE, self-check, fallback) is tests/test_native_default.py.
+docs/dev/NATIVE_KERNEL.md.
 
 The full comparison over every golden job is ``tools/native_parity.py`` (test below, marker
 ``golden``).
@@ -8,6 +10,7 @@ The full comparison over every golden job is ``tools/native_parity.py`` (test be
 from __future__ import annotations
 
 import math
+import os
 import shutil
 import subprocess
 import sys
@@ -32,17 +35,22 @@ def test_profile_registered_and_clear_error_without_kernel(monkeypatch):
     from mlaser.nc import compile_job
     from mlaser.model import Contour, Document, Line, Part
     doc = Document(parts=[Part([Contour([Line((0, 0), (5, 0)), Line((5, 0), (0, 0))], True)])])
-    with use_profile(N.NAME), pytest.raises(N.NativeKernelMissing, match="tools/build_native.py"):
+    with use_profile(N.NAME), pytest.raises(N.NativeKernelMissing, match="MLASER_NATIVE=0"):
         compile_job(doc)
     assert issubclass(N.NativeKernelMissing, ImportError)
 
 
 # ----------------------------------------------------------------------------- with the kernel
-try:
-    from mlaser_native import _emitter as K
-except ImportError:
-    K = None
-needs_kernel = pytest.mark.skipif(K is None, reason="mlaser_native not built (tools/build_native.py)")
+from mlaser._native import _emitter as K  # noqa: E402  (None when not built)
+
+needs_kernel = pytest.mark.skipif(K is None, reason="mlaser._native not built (no C compiler?)")
+
+
+def test_kernel_built_when_required():
+    """MLASER_NATIVE=1 (CI): the kernel must be there, a missing build is a failure, not a skip."""
+    if os.environ.get(N.ENV, "").strip().lower() in ("1", "on", "true", "yes", "require", "native"):
+        from mlaser import _native
+        assert K is not None, _native.IMPORT_ERROR
 hyp = pytest.importorskip("hypothesis")
 from hypothesis import HealthCheck, given, settings, strategies as st  # noqa: E402
 
@@ -260,3 +268,20 @@ def test_no_fma_in_the_kernel():
     sys.path.insert(0, str(ROOT / "tools"))
     import build_native
     assert not build_native.fma_instructions(asm)
+
+
+def test_fma_scan_reads_every_disassembler_format():
+    sys.path.insert(0, str(ROOT / "tools"))
+    import build_native as B
+    gnu = ("  1a40:\tc4 e2 f1 a9 c2       \tvfmadd213sd %xmm2,%xmm1,%xmm0\n"
+           "  1a45:\tf2 0f 59 c1          \tmulsd  %xmm1,%xmm0\n"
+           "  1a49:\te8 00 00 00 00       \tcall   1a4e <fmadd_helper>")
+    llvm = ("    3f50: 1f 20 03 d5  \tnop\n"
+            "    3f54: 00 08 41 1f  \tfmadd\td0, d0, d1, d2\n"
+            "    3f58: 00 08 61 1e  \tfmul\td0, d0, d1")
+    dumpbin = ("  0000000180001000: C4 E2 F1 A9 C2     vfmadd213sd xmm0,xmm1,xmm2\n"
+               "  0000000180001005: F2 0F 59 C1        mulsd       xmm0,xmm1")
+    assert len(B.fma_instructions(gnu)) == 1 and "vfmadd213sd" in B.fma_instructions(gnu)[0]
+    assert len(B.fma_instructions(llvm)) == 1 and "fmadd" in B.fma_instructions(llvm)[0]
+    assert len(B.fma_instructions(dumpbin)) == 1
+    assert not B.fma_instructions(gnu.splitlines()[1] + "\n" + llvm.splitlines()[2])

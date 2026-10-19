@@ -365,6 +365,16 @@ class AboutDialog(QDialog):
         nl.setWordWrap(True)
         nl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(nl)
+        try:
+            from mlaser.parity_ports import kernel_status
+            kern = kernel_status().text()     # C kernel or Python port (MLASER_NATIVE, self-check)
+        except Exception as e:  # noqa: BLE001 - informative only
+            kern = f"Emitter kernel: status unavailable ({e})"
+        kl = QLabel(kern)
+        kl.setObjectName("about_kernel")
+        kl.setWordWrap(True)
+        kl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(kl)
         bb = QDialogButtonBox(QDialogButtonBox.Ok)
         bb.accepted.connect(self.accept)
         lay.addWidget(bb)

@@ -188,8 +188,14 @@ Optional profiles live in `parity_ports/profiles/` (one module each, registered 
 ordering references the default runs as fast drop-ins), `modern-dxf`, `modern-ruckig`
 (`warning=`: logged when activated, not hardware-validated), `modern-ortools` (an extension
 *option*, `ParityProfile.options` / `option()`, for sort mode 20 which has no original),
-`native-sampling` (the optional C kernel in `native/`). They are not ports, so
-tests/test_parity_ports.py does not ask them for `__port__` records.
+`native-sampling` (always the C kernel `mlaser._native`, no fallback). They are not ports, so
+tests/test_parity_ports.py does not ask them for `__port__` records. `profiles/native.py` also
+holds the default profile's emitter selection: `ORIGINAL.sampling` builds a `DefaultEmitter`,
+which is the C kernel's `NativeEmitter` when the extension is built and passes its self-check
+at first use, else the port's `Emitter` (`MLASER_NATIVE=0/1` forces one; `kernel_status()`
+reports it); `"original-python"` (`ORIGINAL_PYTHON`, in `profile.py`) always runs the port.
+The compiled module `mlaser._native._emitter` imports nothing from mlaser
+([NATIVE_KERNEL.md](NATIVE_KERNEL.md)).
 
 The active profile is a process-wide global (worker threads see it); `use_profile` switches it
 for a block. The goldens and the parity run always use `"original"`.

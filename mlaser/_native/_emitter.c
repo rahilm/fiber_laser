@@ -1,13 +1,16 @@
 /*
- * mlaser_native._emitter: the per-sample emitter loop of
+ * mlaser._native._emitter: the per-sample emitter loop of
  * mlaser.parity_ports.mainapp.sampling (Emitter.to / quantise / _step, emit_samples,
  * frames.encode_step, SpeedCurve.__call__) in C, operation for operation.
  *
  * The Python port is the reference; this file must stay bit-identical to it
  * (docs/dev/NATIVE_KERNEL.md).  Rules:
- *   - build with -O2 -ffp-contract=off -fno-fast-math (no -march=native): every
- *     floating-point expression below is evaluated as the Python port evaluates it, one
- *     IEEE double operation at a time, no fused multiply-add;
+ *   - build with -O2 -ffp-contract=off -fno-fast-math (gcc / clang) or /O2 /fp:precise
+ *     (MSVC), no -march=native (setup.py): every floating-point expression below is
+ *     evaluated as the Python port evaluates it, one IEEE double operation at a time, no
+ *     fused multiply-add; the pragmas and #error checks below repeat that in the source;
+ *   - portable C99 subset that gcc, clang and MSVC (VS 2019+) all compile: long long is 64
+ *     bits everywhere (LP64 and LLP64), no compiler builtins, no VLAs;
  *   - Python's int(float) is a truncation: (long long)t, guarded to |t| < 2^52;
  *   - Python's round(float) -> int is round-half-even: round_half_even() below;
  *   - math.hypot is NOT reproduced: the value comes from a callback into CPython's own
@@ -21,16 +24,30 @@
  */
 #define PY_SSIZE_T_CLEAN
 #include <Python.h>
+#include <float.h>
 #include <math.h>
+#include <stdlib.h>
 #include <string.h>
 
+/* Deterministic IEEE binary64: refuse builds that would change the bits. */
+#if defined(__FAST_MATH__)
+#error "mlaser._native._emitter must not be built with -ffast-math / -Ofast (bit-identity)"
+#endif
+#if defined(FLT_EVAL_METHOD) && FLT_EVAL_METHOD != 0 && FLT_EVAL_METHOD != -1
+/* x87 excess precision (32-bit x86 without SSE2 math): doubles would round differently */
+#error "mlaser._native._emitter needs FLT_EVAL_METHOD == 0 (SSE2 / AArch64 double arithmetic)"
+#endif
 #if defined(__clang__)
 #pragma STDC FP_CONTRACT OFF
 #endif
 #if defined(_MSC_VER)
-#pragma fp_contract(off)
+/* float_control(precise, on) can re-enable contraction on some MSVC versions: fp_contract
+ * off comes after it */
 #pragma float_control(precise, on)
+#pragma fp_contract(off)
 #endif
+/* long long is 64 bits (static assertion that also compiles as MSVC C without /std:c11) */
+typedef char mlaser_long_long_is_64_bits[(sizeof(long long) == 8) ? 1 : -1];
 
 #define LIMIT_T 4503599627370496.0   /* 2^52: |t| below this truncates exactly */
 #define LIMIT_D 2147483647LL          /* |pulse delta| per sample */

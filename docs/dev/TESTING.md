@@ -23,9 +23,18 @@ identical on CPython 3.12 after every change outside a declared new `ParityProfi
 only after a reviewed behaviour change. 3.13 is checked as information
 (`MLASER_GOLDEN_ANY_PYTHON=1`).
 
+The default profile runs the emitter loop on the C kernel when it is built
+([NATIVE_KERNEL.md](NATIVE_KERNEL.md)); the goldens pin both implementations, so CI runs them
+twice, `MLASER_NATIVE=1 pytest -m golden` and `MLASER_NATIVE=0 pytest -m golden`, on Linux,
+Windows and macOS, plus `tools/native_parity.py` (kernel vs Python port on all golden jobs,
+exact). The CI test job sets `MLASER_NATIVE=1`, so a platform where the kernel did not build
+or fails its self-check fails instead of silently testing the Python port.
+
 ## Contract for every commit
 
-* `tools/make_goldens.py --check` bit identical (3.12);
+* `tools/make_goldens.py --check` bit identical (3.12; with the C kernel, and with
+  `MLASER_NATIVE=0` after a change to the emitter loop or the kernel);
+* after a change to the emitter loop or `mlaser/_native`: `tools/native_parity.py` 0 differences;
 * the default suite green;
 * `pytest -m "safety or parity"` green (a timing test may flake on a loaded host: rerun once);
 * `tools/command_coverage.py`: no unimplemented, raising or duplicate command;

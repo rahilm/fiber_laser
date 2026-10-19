@@ -1,10 +1,15 @@
 #!/usr/bin/env python3
-"""Every golden job under the default and the ``native-sampling`` profile, compared bit for bit.
+"""Every golden job with the emitter loop on the Python port and on the C kernel, bit for bit.
 
 Usage::
 
     python tools/native_parity.py                 # jobs_samples + the 300 jobs_random
     python tools/native_parity.py --only jobs_random --seeds 0-49
+
+The reference run uses profile ``original-python`` (the port); the other run uses the DEFAULT
+profile ``original``, which must have selected the C kernel (``MLASER_NATIVE`` unset or ``1``;
+the script refuses to run otherwise), so this checks the default as it is shipped.  With
+``--profile native-sampling`` the second run uses that profile instead.
 
 The jobs are exactly those of ``tools/make_goldens.py`` (``sample_docs`` x ``SAMPLE_CONFIGS``,
 ``random_doc(seed)`` for seed < N_RANDOM).  For each, both compiles must give identical
@@ -26,7 +31,7 @@ sys.path.insert(0, str(ROOT / "tools"))
 
 import make_goldens as G  # noqa: E402
 
-from mlaser.parity_ports import use_profile  # noqa: E402
+from mlaser.parity_ports import ORIGINAL, ORIGINAL_PYTHON, use_profile  # noqa: E402
 import mlaser.parity_ports.profiles.native as N  # noqa: E402
 
 
@@ -76,12 +81,15 @@ def cases(only: set[str], seeds: range):
             yield f"jobs_random/seed{seed:03d}", build
 
 
-def compare(only: set[str], seeds: range, verbose: bool = False) -> tuple[int, int, list[str]]:
+def compare(only: set[str], seeds: range, verbose: bool = False,
+            profile: str = ORIGINAL.name) -> tuple[int, int, list[str]]:
+    """(jobs, steps, differences) of ``original-python`` against ``profile``."""
     n = steps = 0
     bad: list[str] = []
     for key, build in cases(only, seeds):
-        a = run(build)
-        with use_profile(N.NAME):
+        with use_profile(ORIGINAL_PYTHON):
+            a = run(build)
+        with use_profile(profile):
             b = run(build)
         n += 1
         steps += a.get("steps", 0)
@@ -105,10 +113,17 @@ def main(argv=None) -> int:
                     choices=["jobs_samples", "jobs_random"])
     ap.add_argument("--seeds", default=f"0-{G.N_RANDOM - 1}")
     ap.add_argument("-v", "--verbose", action="store_true")
+    ap.add_argument("--profile", default=ORIGINAL.name, choices=[ORIGINAL.name, N.NAME],
+                    help="the profile compared with original-python (default: the default one)")
     a = ap.parse_args(argv)
     N.require()
+    st = N.kernel_status()
+    print(st.text())
+    if a.profile == ORIGINAL.name and not st.native:
+        print("the default profile does not run the C kernel here: nothing to compare")
+        return 2
     t = time.perf_counter()
-    n, steps, bad = compare(set(a.only), _seeds(a.seeds), a.verbose)
+    n, steps, bad = compare(set(a.only), _seeds(a.seeds), a.verbose, a.profile)
     print(f"{n} jobs, {steps} steps: {len(bad)} differ ({time.perf_counter() - t:.0f} s)")
     print("kernel coverage (calls by the kernel / handed to the port):", dict(N.STATS))
     return 1 if bad else 0

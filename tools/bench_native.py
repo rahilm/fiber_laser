@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Emitter loop, Python port vs the native kernel (docs/dev/NATIVE_KERNEL.md).
+"""Emitter loop, Python port vs the C kernel (docs/dev/NATIVE_KERNEL.md, PERFORMANCE.md).
 
 Usage::
 
@@ -8,8 +8,10 @@ Usage::
 For each job (a .chf file and an N-part synthetic job as tools/bench/bench_large_compile.py
 builds it) it prints
 
-* ``compile_items`` wall time and us/step under the default and the ``native-sampling``
-  profile (the whole compiler: planning, sampling, process items, emitter);
+* ``compile_job`` end to end (document -> toolpath -> job, what "compile" in the app costs)
+  and ``compile_items`` wall time and us/step (the compiler: planning, sampling, process
+  items, emitter), with the default profile ``original`` on the C kernel and on the Python
+  port (``original-python``, what ``MLASER_NATIVE=0`` gives);
 * the emitter alone: every ``emit_samples`` call of the job is recorded once, then replayed on
   a fresh emitter with the port and with the kernel (us/step and s per million steps), with a
   check that the replays produce the same wire items.
@@ -25,7 +27,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from mlaser.parity_ports import ORIGINAL, use_profile  # noqa: E402
+from mlaser.parity_ports import ORIGINAL, ORIGINAL_PYTHON, use_profile  # noqa: E402
 from mlaser.parity_ports.mainapp import sampling as S  # noqa: E402
 import mlaser.parity_ports.profiles.native as N  # noqa: E402
 
@@ -67,6 +69,18 @@ def compile_time(d2, prm, items, profile: str, repeat: int):
     return best, job
 
 
+def compile_job_time(doc, profile: str, repeat: int) -> float:
+    from mlaser.nc import compile_job
+    from mlaser.nc.machine import Machine
+    best = math.inf
+    for _ in range(repeat):
+        with use_profile(profile):
+            t = time.perf_counter()
+            compile_job(doc, None, Machine(smooth=False))
+            best = min(best, time.perf_counter() - t)
+    return best
+
+
 def record_calls(d2, prm, items):
     """The emit_samples calls of one compile (default profile)."""
     from mlaser.nc import compiler as C
@@ -103,10 +117,13 @@ def replay(m, calls, native: bool, repeat: int):
 
 def bench(name: str, doc, repeat: int) -> None:
     d2, prm, items = prepare(doc)
-    tp, jp = compile_time(d2, prm, items, "original", repeat)
-    tn, jn = compile_time(d2, prm, items, N.NAME, repeat)
+    tp, jp = compile_time(d2, prm, items, ORIGINAL_PYTHON.name, repeat)
+    tn, jn = compile_time(d2, prm, items, ORIGINAL.name, repeat)
     same = jp.wire == jn.wire and jp.pulse_carry == jn.pulse_carry and jp.laser_on_length_mm == jn.laser_on_length_mm
     print(f"{name}: {jp.steps} steps, {len(jp.wire)} wire items")
+    cp = compile_job_time(doc, ORIGINAL_PYTHON.name, repeat)
+    cn = compile_job_time(doc, ORIGINAL.name, repeat)
+    print(f"  compile_job    python {cp:.3f} s   native {cn:.3f} s   x{cp / cn:.2f}")
     print(f"  compile_items  python {tp:.3f} s ({1e6 * tp / jp.steps:.2f} us/step)   "
           f"native {tn:.3f} s ({1e6 * tn / jn.steps:.2f} us/step)   x{tp / tn:.2f}   identical={same}")
     m, calls = record_calls(d2, prm, items)
@@ -126,6 +143,11 @@ def main(argv=None) -> int:
     ap.add_argument("--repeat", type=int, default=3)
     a = ap.parse_args(argv)
     N.require()
+    st = N.kernel_status()
+    print(st.text())
+    if not st.native:
+        print("the default profile does not run the C kernel: nothing to compare")
+        return 2
     from mlaser.formats.chf import load_chf
     bench(Path(a.chf).name, load_chf(a.chf), a.repeat)
     bench(f"synthetic {a.parts} parts", synthetic(a.parts), a.repeat)

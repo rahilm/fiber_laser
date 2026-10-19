@@ -30,6 +30,13 @@ The MCC100 frame codec (``mlaser.protocol.frames``) and the splineAnalyer sample
 packages, since the ports build on them; they carry ``__port__`` records as well.
 """
 from ._registry import PortRecord, port, registered  # noqa: F401
-from .profile import (DEFAULT, INTERFACES, ORIGINAL, PROFILES, Implementation,  # noqa: F401
+from .profile import (DEFAULT, INTERFACES, ORIGINAL, ORIGINAL_PYTHON, PROFILES, Implementation,  # noqa: F401
                       ParityProfile, active_profile, dispatch, get_profile, register_profile,
                       export_ports, set_profile, use_profile)
+
+
+def kernel_status():  # -> profiles.native.KernelStatus
+    """Which emitter loop the default profile runs: the C kernel (``mlaser._native``) or the
+    Python port, and why (``MLASER_NATIVE``, the self-check); docs/dev/NATIVE_KERNEL.md."""
+    from .profiles.native import kernel_status as _ks
+    return _ks()

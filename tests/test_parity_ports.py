@@ -60,11 +60,12 @@ def test_every_port_symbol_is_reachable_through_the_default_profile():
     assert recs
     missing = [r.name for r in recs if id(_resolve(r)) not in reachable]
     assert not missing, f"@port symbols not reachable through ORIGINAL: {missing}"
-    # the reference profile differs from ORIGINAL only in the kernels that have a drop-in
+    # the reference profile differs from ORIGINAL only in the kernels that have a drop-in (the
+    # ordering drop-ins, the emitter loop that ORIGINAL runs on the C kernel when it is built)
     for slot, impl in REFERENCE.slots().items():
         for name in impl.names():
             if getattr(impl, name) is not getattr(getattr(ORIGINAL, slot), name):
-                assert slot == "ordering", (slot, name)
+                assert slot in ("ordering", "sampling"), (slot, name)
 
 
 def test_every_profile_target_is_a_port():

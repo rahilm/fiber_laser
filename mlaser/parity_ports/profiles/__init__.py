@@ -1,4 +1,4 @@
-"""Optional, non-default parity profiles derived from ``ORIGINAL`` (docs/dev/ARCHITECTURE.md §3,
+"""Optional parity profiles derived from ``ORIGINAL`` (docs/dev/ARCHITECTURE.md §3,
 "Adding a modern algorithm").
 
 Each module here defines and registers one :class:`~mlaser.parity_ports.profile.ParityProfile`;
@@ -7,8 +7,10 @@ name it does not know, so ``use_profile("<name>")`` works without an explicit im
 a profile module must stay cheap (optional libraries are imported on first use).
 
 =================  ==========================================================================
-``native``         ``"native-sampling"``: the sample -> quantise -> encode loop in the optional C
-                   kernel ``mlaser-native`` (native/), bit-identical to the port
+``native``         ``"native-sampling"``: the sample -> quantise -> encode loop always in the C
+                   kernel ``mlaser._native``, bit-identical to the port; also the DEFAULT
+                   profile's emitter selection (kernel after a self-check, else the port;
+                   ``MLASER_NATIVE``, ``kernel_status``)
 ``reference``      ``"original-reference"``: the statement-level reference implementations of
                    the kernels ``ORIGINAL`` runs as fast drop-ins (same output, bit for bit)
 ``modern_dxf``     ``"modern-dxf"``: the ``dxf`` slot on ``mlaser.io.dxf_modern`` (ezdxf

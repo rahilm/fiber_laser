@@ -226,10 +226,13 @@ ORIGINAL = ParityProfile(
         SplineCurve=f"{_PP}.cadmodule.spline:SplineCurve",
         CurveRef=f"{_PP}.cadmodule.spline:CurveRef",
     ),
+    # the emitter loop on the C kernel when it is built and passes its self-check at first use,
+    # else the Python port (MLASER_NATIVE=0/1 forces one; profiles/native.py, NATIVE_KERNEL.md).
+    # Bit-identical either way; "original-python" below always runs the port.
     sampling=Implementation(
         "sampling",
-        Emitter=f"{_PP}.mainapp.sampling:Emitter",
-        emit_samples=f"{_PP}.mainapp.sampling:emit_samples",
+        Emitter=f"{_PP}.profiles.native:DefaultEmitter",
+        emit_samples=f"{_PP}.profiles.native:emit_samples",
         gap_flags=f"{_PP}.mainapp.sampling:gap_flags",
         sample_speeds=f"{_PP}.mainapp.sampling:sample_speeds",
     ),
@@ -267,7 +270,22 @@ ORIGINAL = ParityProfile(
     ),
 )
 
-PROFILES: dict[str, ParityProfile] = {ORIGINAL.name: ORIGINAL}
+#: the Python port of the emitter loop (MainApp FUN_00462630 / FUN_00473bd0): the reference the
+#: C kernel is checked against
+PYTHON_SAMPLING = Implementation(
+    "sampling",
+    Emitter=f"{_PP}.mainapp.sampling:Emitter",
+    emit_samples=f"{_PP}.mainapp.sampling:emit_samples",
+    gap_flags=f"{_PP}.mainapp.sampling:gap_flags",
+    sample_speeds=f"{_PP}.mainapp.sampling:sample_speeds",
+)
+
+#: ORIGINAL with the emitter loop always on the Python port (whatever MLASER_NATIVE says)
+ORIGINAL_PYTHON = ORIGINAL.derive(
+    "original-python", "original, with the emitter loop on the Python port (the reference)",
+    sampling=PYTHON_SAMPLING)
+
+PROFILES: dict[str, ParityProfile] = {ORIGINAL.name: ORIGINAL, ORIGINAL_PYTHON.name: ORIGINAL_PYTHON}
 DEFAULT = ORIGINAL.name
 _active: ParityProfile = ORIGINAL
 

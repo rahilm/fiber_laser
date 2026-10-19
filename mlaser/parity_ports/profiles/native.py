@@ -1,42 +1,49 @@
-"""``native-sampling``: the emitter loop on the optional C kernel ``mlaser_native`` (docs/dev/NATIVE_KERNEL.md).
+"""The emitter loop on the C kernel ``mlaser._native._emitter`` (docs/dev/NATIVE_KERNEL.md).
 
-The profile replaces the ``sampling`` slot only: :class:`NativeEmitter` (a subclass of the
-port's :class:`~mlaser.parity_ports.mainapp.sampling.Emitter`) runs ``to`` and ``dwell`` in C,
-and :func:`emit_samples` runs FUN_00462630's whole sample loop (speeds, SpeedCurve duty and
+Since the C kernel became the default, this module does two things:
+
+* **Default selection.**  The default profile ``"original"`` builds its emitter through
+  :class:`DefaultEmitter` and runs :func:`emit_samples` from here.  At first use
+  :func:`select` decides once per process: the kernel is used when the extension imports AND
+  passes :func:`selfcheck` (a small built-in known-answer vector run through the kernel and
+  through the Python port, compared bit for bit); otherwise the Python port runs, with a logged
+  warning.  ``MLASER_NATIVE`` (or :func:`configure`) overrides it: ``0`` / ``off`` = always the
+  Python port, ``1`` / ``on`` = the kernel is required (compiling a job raises
+  :class:`NativeKernelMissing` / :class:`NativeSelfCheckFailed` if it cannot be used), unset /
+  ``auto`` = as above.  :func:`kernel_status` reports what is active (About dialog,
+  ``mlaser --selftest``, ``--bundle-check``, logs).
+* **Explicit profiles.**  ``"native-sampling"`` always uses the kernel (raises when it is not
+  built, no fallback); ``"original-python"`` (mlaser.parity_ports.profile) always the port.
+
+:class:`NativeEmitter` (a subclass of the port's
+:class:`~mlaser.parity_ports.mainapp.sampling.Emitter`) runs ``to`` and ``dwell`` in C, and
+:func:`emit_samples` runs FUN_00462630's whole sample loop (speeds, SpeedCurve duty and
 frequency, slow start / end, micro-joint gaps, quantisation with the pulse carry, the split of
 large deltas, ``frames.encode_step``) in one call per run.  ``gap_flags`` and
 ``sample_speeds`` stay the port's.  The output is bit-identical to the port: same wire items,
 markers, steps, carry and ``laser_on_length_mm`` (``tools/native_parity.py`` checks every
 golden job, ``tests/test_native_kernel.py`` the kernel on random streams).
 
-Selecting it::
-
-    import mlaser.parity_ports.profiles.native as native
-    native.available()                 # False when mlaser_native is not installed
-    with use_profile("native-sampling"):
-        job = compile_job(doc)
-
-Without ``mlaser_native`` the module still imports (the profile is registered), but building
-a :class:`NativeEmitter`, i.e. compiling a job under this profile, raises
-:class:`NativeKernelMissing` (an ImportError) with the build instructions; there is no silent
-fallback to Python.  Inside the kernel, any input it does not handle exactly (non-float
-coordinates, values beyond 2^52, a step over int8, an exception in a callback) makes the call
-undo its output and the port's Python code run instead, so errors are the port's errors.
+Inside the kernel, any input it does not handle exactly (non-float coordinates, values beyond
+2^52, a step over int8, an exception in a callback) makes the call undo its output and the
+port's Python code run instead, so errors are the port's errors.
 """
 from __future__ import annotations
 
+import logging
 import math
+import os
+import threading
 from array import array
+from dataclasses import asdict, dataclass
 from typing import Any, Optional, Sequence
 
+from ... import _native as _PKG
 from ...protocol import frames as F
 from ..mainapp import sampling as S
 from ..profile import ORIGINAL, Implementation, register_profile
 
-try:  # the optional distribution native/ (mlaser-native)
-    from mlaser_native import _emitter as _K
-except ImportError:  # pragma: no cover - depends on the environment
-    _K = None
+_K = _PKG._emitter   # None when the extension is not built
 
 __port__ = {
     "source": "MainApp",
@@ -49,7 +56,8 @@ __port__ = {
 NAME = "native-sampling"
 _STEP_HEADER = F.item_header(F.OP_STEP, 2)
 _NAN_TABLE = array("d", [math.nan]) * (255 * 255)
-_SPEEDCURVE = ("mlaser.nc.process", "SpeedCurve")
+#: types whose instances the kernel evaluates in C (SpeedCurve, and the self-check's copy of it)
+_SPEEDCURVES = {("mlaser.nc.process", "SpeedCurve"), (__name__, "_KatCurve")}
 
 #: calls handled by the kernel / handed to the port, per entry point ("emit", "to", "dwell"):
 #: what tools/native_parity.py reports as kernel coverage
@@ -58,19 +66,27 @@ STATS: dict[str, int] = {"emit": 0, "emit_port": 0, "emit_curves": 0, "emit_gaps
 
 
 class NativeKernelMissing(ImportError):
-    """The ``native-sampling`` profile was used but ``mlaser_native`` is not importable."""
+    """The kernel was required (profile ``native-sampling``, ``MLASER_NATIVE=1``) but the
+    extension ``mlaser._native._emitter`` is not importable."""
+
+
+class NativeSelfCheckFailed(RuntimeError):
+    """``MLASER_NATIVE=1`` but the kernel's output differs from the Python port's on the
+    built-in self-check vector (a miscompiled or wrongly built extension)."""
 
 
 def available() -> bool:
+    """Is the extension importable?  (Not whether it passed the self-check: :func:`select`.)"""
     return _K is not None
 
 
 def require() -> Any:
     if _K is None:
         raise NativeKernelMissing(
-            f"ParityProfile {NAME!r} needs the optional C kernel 'mlaser_native', which is not "
-            "installed. Build it with `python tools/build_native.py` (needs a C compiler), or "
-            "install the mlaser-native wheel, or use the default profile 'original'.")
+            f"the C emitter kernel 'mlaser._native._emitter' is not built "
+            f"({_PKG.IMPORT_ERROR or 'not importable'}). It is compiled when mlaser is installed "
+            "with a C compiler present (`uv sync`, `pip install .`; rebuild in place with "
+            "`python tools/build_native.py`); or set MLASER_NATIVE=0 to use the Python port.")
     return _K
 
 
@@ -84,7 +100,7 @@ def _small_int(v: Any) -> Optional[int]:
 def _curve_spec(c: Any) -> Any:
     """SpeedCurve -> the kernel's tuple spec; any other callable is called back as is."""
     t = type(c)
-    if (t.__module__, t.__qualname__) == _SPEEDCURVE and "__call__" in t.__dict__:
+    if (t.__module__, t.__qualname__) in _SPEEDCURVES and "__call__" in t.__dict__:
         segs = tuple(tuple(s) for s in c.segs)
         if (type(c.threshold) is float and all(len(s) == 4 and all(type(e) is float for e in s)
                                                 for s in segs)):
@@ -228,6 +244,11 @@ def emit_samples(em: S.Emitter, pts: Sequence[S.Point], ss: Sequence[float], *, 
                    down=down, micro_pct=micro_pct, period_ms=period_ms)
 
 
+# the same original function as the port's emit_samples (the kernel is a port of it in C); a
+# plain attribute, not an @port registration: the registry lists the Python reference
+emit_samples.__port__ = S.emit_samples.__port__  # type: ignore[attr-defined]
+
+
 SAMPLING = Implementation(
     "sampling",
     Emitter=NativeEmitter,
@@ -237,5 +258,261 @@ SAMPLING = Implementation(
 )
 
 NATIVE = register_profile(ORIGINAL.derive(
-    NAME, "original, with the emitter loop on the optional C kernel mlaser_native (bit-identical)",
+    NAME, "original, with the emitter loop always on the C kernel mlaser._native (no fallback)",
     sampling=SAMPLING))
+
+
+# =========================================================================== default selection
+ENV = "MLASER_NATIVE"
+_MODES = {"": "auto", "auto": "auto", "1": "on", "on": "on", "true": "on", "yes": "on",
+          "require": "on", "native": "on", "0": "off", "off": "off", "false": "off", "no": "off",
+          "python": "off"}
+_log = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class KernelStatus:
+    """Which emitter the default profile runs, and why (:func:`kernel_status`)."""
+    active: str              # "native" | "python" | "error" (required but unusable)
+    mode: str                # "auto" | "on" | "off"
+    source: str              # where the mode came from: "default", "MLASER_NATIVE=..", "configure()"
+    reason: str              # one line for people
+    selfcheck: str           # "passed" | "failed: ..." | "not run"
+    module: str = ""         # file of the extension, "" when not importable
+    kernel_version: int = _PKG.KERNEL_VERSION
+
+    @property
+    def native(self) -> bool:
+        return self.active == "native"
+
+    def text(self) -> str:
+        what = {"native": "native C kernel", "python": "Python port",
+                "error": "UNAVAILABLE"}.get(self.active, self.active)
+        return f"Emitter kernel: {what} (mode {self.mode}, {self.source}; {self.reason})"
+
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+_lock = threading.Lock()
+_status: Optional[KernelStatus] = None
+_mode_override: Optional[str] = None
+
+
+def _mode() -> tuple[str, str]:
+    if _mode_override is not None:
+        return _mode_override, "configure()"
+    raw = os.environ.get(ENV)
+    if raw is None:
+        return "auto", "default"
+    mode = _MODES.get(raw.strip().lower())
+    if mode is None:
+        _log.warning("%s=%r is not one of 0/off, 1/on, auto: using auto", ENV, raw)
+        return "auto", f"{ENV}={raw} (invalid)"
+    return mode, f"{ENV}={raw}"
+
+
+def configure(mode: Optional[str] = None) -> KernelStatus:
+    """Choose the default profile's emitter: ``"auto"``, ``"on"`` (required), ``"off"`` (Python
+    port), or None to follow ``MLASER_NATIVE`` again.  Takes effect for the next compile (jobs
+    already running keep their emitter); returns the new status (``on`` with an unusable
+    kernel gives ``active == "error"``; the next compile then raises)."""
+    global _mode_override, _status
+    if mode is not None and mode not in ("auto", "on", "off"):
+        mode = _MODES.get(str(mode).strip().lower())
+        if mode is None:
+            raise ValueError("native mode must be 'auto', 'on' or 'off'")
+    with _lock:
+        _mode_override = mode
+        _status = None
+    return kernel_status()
+
+
+def kernel_status() -> KernelStatus:
+    """The selection (made now if it has not been made yet); never raises."""
+    global _status
+    st = _status
+    if st is not None:
+        return st
+    with _lock:
+        if _status is None:
+            _status = _decide()
+            log = _log.warning if _status.active != "native" and _status.mode != "off" else _log.info
+            log("%s", _status.text())
+        return _status
+
+
+def select() -> KernelStatus:
+    """:func:`kernel_status`, raising when the kernel is required (``on``) but unusable."""
+    st = kernel_status()
+    if st.active == "error":
+        if st.module and st.selfcheck.startswith("failed"):
+            raise NativeSelfCheckFailed(f"{ENV}: {st.reason}")
+        raise NativeKernelMissing(f"{ENV}: {st.reason}")
+    return st
+
+
+def native_selected() -> bool:
+    """Does the default profile run the C kernel?  (Raises like :func:`select`.)"""
+    st = _status
+    if st is None or st.active == "error":
+        st = select()
+    return st.active == "native"
+
+
+def _decide() -> KernelStatus:
+    mode, source = _mode()
+    if mode == "off":
+        return KernelStatus("python", mode, source, "Python port forced", "not run",
+                            getattr(_K, "__file__", "") or "")
+    if _K is None:
+        reason = f"C kernel not built ({_PKG.IMPORT_ERROR or 'not importable'})"
+        return KernelStatus("error" if mode == "on" else "python", mode, source, reason, "not run")
+    path = getattr(_K, "__file__", "") or ""
+    try:
+        err = selfcheck()
+    except Exception as e:  # noqa: BLE001 - any failure means "do not use the kernel"
+        err = f"{type(e).__name__}: {e}"
+    if err:
+        reason = f"C kernel self-check failed, {err}"
+        if mode == "auto":
+            reason += "; falling back to the Python port"
+        return KernelStatus("error" if mode == "on" else "python", mode, source, reason,
+                            f"failed: {err}", path)
+    return KernelStatus("native", mode, source, "self-check passed", "passed", path)
+
+
+class DefaultEmitter(S.Emitter):
+    """The emitter of the default profile: a :class:`NativeEmitter` when :func:`select` chose
+    the kernel, else the port's :class:`~mlaser.parity_ports.mainapp.sampling.Emitter` (the
+    object built is an instance of one of those two, never of this class)."""
+
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
+        klass = NativeEmitter if native_selected() else S.Emitter
+        return klass(*args, **kwargs)
+
+
+# --------------------------------------------------------------------------- self-check
+class _KatMachine:
+    """The machine attributes the emitter reads (mlaser.nc.machine.Machine)."""
+
+    def __init__(self, ppm_x: float, ppm_y: float, max_step: Any, period_ms: float):
+        self.pulses_per_mm_x = ppm_x
+        self.pulses_per_mm_y = ppm_y
+        self.max_step = max_step
+        self.period_ms = period_ms
+
+
+class _KatCurve:
+    """mlaser.nc.process.SpeedCurve.__call__, transcribed (parity_ports cannot import nc):
+    the kernel evaluates it in C (``_SPEEDCURVES``), the port by calling it."""
+
+    def __init__(self, enabled: bool, threshold: float, base: int,
+                 segs: Sequence[tuple[float, float, float, float]]):
+        self.enabled, self.threshold, self.base, self.segs = enabled, threshold, base, list(segs)
+
+    def __call__(self, v: float) -> int:
+        if not self.enabled or v > self.threshold:
+            return self.base
+        seg = self.segs[0]
+        for s in self.segs:
+            if s[0] < v <= s[1]:
+                seg = s
+                break
+        return int((v - seg[0]) * seg[3] + (seg[2] + 0.5))
+
+
+def _lcg(seed: int):
+    """Deterministic floats in [0, 1) from a 48-bit LCG (the same on every platform)."""
+    x = seed
+    while True:
+        x = (x * 0x5DEECE66D + 11) & ((1 << 48) - 1)
+        yield x / float(1 << 48)
+
+
+def _kat_run(em: S.Emitter, emit: Any) -> None:
+    """The self-check vector: every kind of call the compiler makes, with the arithmetic that a
+    wrong build changes (FMA contraction in quantise / the curve, x87 rounding, round half to
+    even in the split, the frequency clamp, floor division of negative duties)."""
+    r = _lcg(0x6D6C61736572)
+    x0, y0 = em.pos
+    em.laser = True
+    em.duty, em.freq = 77, 20000
+    # a cut run: an arc-like path at varying speed, cumulative arc lengths
+    pts, ss, s = [], [], 0.0
+    px, py = x0, y0
+    for i in range(160):
+        a = i * 0.0731
+        nx = x0 + 3.7 * math.cos(a) + 0.013 * next(r)
+        ny = y0 + 2.9 * math.sin(a) - 0.011 * next(r)
+        s += math.hypot(nx - px, ny - py)
+        pts.append((nx, ny))
+        ss.append(s)
+        px, py = nx, ny
+    emit(em, pts, ss)
+    # the same with speed curves, slow start / end, micro-joint gaps at 40 %
+    dc = _KatCurve(True, 1e9, 200, [(0.0, 40.0, 30.0, 1.37), (40.0, 900.0, 85.0, -0.0731),
+                                     (900.0, 1e9, 20.0, 0.0)])
+    fc = _KatCurve(True, 1e9, 9000, [(0.0, 500.0, 1200.0, 13.3), (500.0, 1e9, 70000.0, 1.0)])
+    pts2 = [(x + 0.5, y - 0.25) for x, y in pts]
+    emit(em, pts2, ss, total=s, gaps=[(1.0, 1.4), (s - 0.6, s + 1.0)], dcurve=dc, fcurve=fc,
+         up=(0.7, 0, 55, 3000, True), down=(0.9, 0, -3, 70000, True), micro_pct=40)
+    em.duty = -9                      # negative duty under a micro-joint: Python floor division
+    emit(em, pts[:40], ss[:40], gaps=[(0.0, 0.5)], micro_pct=33)
+    em.duty = 77
+    # rapids: long moves split over several periods (round half to even), explicit clamped
+    # frequency / duty values
+    em.laser = False
+    for i in range(40):
+        em.to(x0 + 9.0 * next(r) - 4.5, y0 + 9.0 * next(r) - 4.5, False)
+    for d, f in ((300, 70000), (-5, -1), (128, 0), (255, 65535)):
+        em.to(em.pos[0] + 0.0371, em.pos[1] - 0.0517, True, duty=d, freq=f)
+    em.dwell(0.0105, True)
+    em.dwell(0.003, False)
+
+
+def _kat_fingerprint(em: S.Emitter) -> tuple:
+    return ([list(w) for w in em.wire], list(em.starts), em.pos[0].hex(), em.pos[1].hex(),
+            float(em.carry[0]).hex(), float(em.carry[1]).hex(), tuple(em.cur), em.steps,
+            em.overspeed, float(em.on_len).hex())
+
+
+#: (ppm x, ppm y, max_step, period_ms, start, carry, dry run)
+_KAT_MACHINES = (
+    (2500.0 / 3.0, 1234.5678, 127, 1.0, (12.3456, -7.89), (0.3, -0.7), False),
+    (1000.0, 1000.0, 40.0, 0.5, (-0.1, 0.2), (-0.4999999999999999, 0.9999999999999999), False),
+    (199.99, 3001.7, 127, 1.0, (0.0, 0.0), (0.0, -0.0), True),
+)
+
+
+def selfcheck() -> str:
+    """Run the known-answer vector through the kernel and through the Python port and compare
+    every output bit for bit; "" when they agree, else what differs.  Also fails when the
+    kernel handed a call of the vector back to the port (it must run all of them itself)."""
+    if _K is None:
+        return "kernel not importable"
+    saved = dict(STATS)
+    try:
+        for ppx, ppy, ms, period, start, carry, dry in _KAT_MACHINES:
+            m = _KatMachine(ppx, ppy, ms, period)
+            ref = S.Emitter(m, start, dry, carry)
+            _kat_run(ref, S.emit_samples)
+            for k in STATS:
+                STATS[k] = 0
+            nat = NativeEmitter(m, start, dry, carry)
+            _kat_run(nat, emit_samples)
+            handed = {k: v for k, v in STATS.items() if k.endswith("_port") and v}
+            if handed:
+                return f"kernel declined calls of the vector {handed}"
+            a, b = _kat_fingerprint(ref), _kat_fingerprint(nat)
+            if a != b:
+                names = ("wire", "starts", "pos x", "pos y", "carry x", "carry y", "cur", "steps",
+                         "overspeed", "laser-on length")
+                diff = [n for n, u, v in zip(names, a, b) if u != v]
+                return f"output differs from the Python port in {', '.join(diff)} (ppm {ppx:g})"
+            if not a[0]:
+                return "the vector produced no steps"
+    finally:
+        STATS.clear()
+        STATS.update(saved)
+    return ""

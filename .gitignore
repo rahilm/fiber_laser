@@ -38,3 +38,7 @@ Thumbs.db
 
 # help documents copied by tools/help_build.py (wheel builds)
 mlaser/help/docs/
+
+# the C extension built in place by an editable install / tools/build_native.py
+mlaser/_native/*.so
+mlaser/_native/*.pyd

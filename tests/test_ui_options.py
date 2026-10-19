@@ -83,6 +83,7 @@ def test_netcheck_dialog_and_about(app, monkeypatch, tmp_path):
 
     texts = " ".join(lbl.text() for lbl in about.findChildren(QLabel))
     assert "LGPL" in texts and "network self-test" in texts
+    assert "Emitter kernel: " in texts                         # C kernel or Python port
 
 
 def _raster_part():

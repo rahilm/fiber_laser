@@ -133,8 +133,10 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 - ◐ PyInstaller one-folder builds per OS in CI, signing hooks, first-run network self-test:
   ☑ `packaging/`, `.github/workflows/package.yml`, `mlaser/netcheck.py`, LGPL notices, Linux
   bundle built and smoke-tested locally; ☐ the workflow's first run on GitHub, installers
-- ☑ optional native kernel (C, `native/`, profile `native-sampling`) for sample → quantise →
-  encode, Python kept as reference; 0 differences on 326 golden jobs; ☐ CI wheels
+- ☑ native kernel (C, `mlaser/_native`) for sample → quantise → encode, the default when built
+  (self-check at first use, Python port as reference and fallback, `MLASER_NATIVE`); 0
+  differences on 326 golden jobs; cibuildwheel wheels and bundles in package.yml, golden check
+  with the kernel on and off on every OS in ci.yml; ☐ the workflows' first run on GitHub
 - ☑ optional modern planner profile (Ruckig, `modern-ruckig`), off by default; ☐ hardware
   validation
 

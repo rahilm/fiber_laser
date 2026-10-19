@@ -50,18 +50,31 @@ simulator, and the main window.
 
 ```bash
 cd rebuild
-uv sync --locked                        # .venv from uv.lock: the package, pytest, ruff, pre-commit
+uv sync --locked                        # .venv from uv.lock: the package (with its C emitter kernel
+                                        #   when a C compiler is present), pytest, ruff, pre-commit
 uv sync --locked --extra devices        # + hidapi / pyserial (pendant, serial links)
 uv sync --locked --extra modern         # + optional modern options: OR-Tools (sort mode 20),
                                         #   spyrrow (nesting), Ruckig (planner, NOT hardware-validated)
 pre-commit install                      # optional: ruff on every commit
-python tools/build_native.py            # optional C emitter kernel (needs a C compiler; rerun after uv sync)
+python -m mlaser._native                # is the C emitter kernel built and in use? (else the Python port runs)
 uv sync --group packaging --all-extras && uv run python packaging/build.py --smoke   # frozen one-folder build
 ```
 
+The emitter loop (sample -> quantise -> encode) runs on a C kernel, `mlaser._native`, compiled
+during the install whenever a C compiler is available (Linux: gcc, `build-essential`; macOS:
+the Xcode command line tools; Windows: Visual Studio Build Tools, "Desktop development with
+C++"). Its output is bit-identical to the Python port, which stays the reference: at first use
+a built-in self-check compares the two, and without a compiler, or if the check fails, the
+Python port runs (about 2x slower to compile a job) with a warning in the log.
+`MLASER_NATIVE=0` forces the Python port, `MLASER_NATIVE=1` requires the kernel (error if it
+cannot be used); the About dialog and `python -m mlaser --selftest` show which one is active.
+The wheels and the one-folder bundles from CI include it. Details:
+[docs/dev/NATIVE_KERNEL.md](docs/dev/NATIVE_KERNEL.md).
+
 Optional behaviour is selected through parity profiles; the default `"original"` is the
 bit-exact one: `use_profile("modern-ortools")`, `"modern-ruckig"`, `"modern-dxf"` (or
-`import_dxf(path, mode="modern")`), `"native-sampling"`; nesting with
+`import_dxf(path, mode="modern")`), `"original-python"` (emitter loop always on the Python
+port); nesting with
 `NestParams.engine="spyrrow"`; kerf fallback with `CamParams.kerf_fallback="clipper"`. Text uses
 the bundled Noto Sans SC subset (OFL) when no installed font matches
 (`python tools/build_bundled_fonts.py --full-cjk` rebuilds it with all CJK ideographs). A first
@@ -69,7 +82,8 @@ start runs a network self-test (`python -m mlaser --selftest [--probe]` runs it 
 `MLASER_NO_FIRSTRUN=1` skips it). Measurements: docs/dev/PERFORMANCE.md; licences:
 docs/ASSETS.md.
 
-Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"`. Python 3.12 or 3.13
+Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"` (also builds the C
+kernel when a compiler is present). Python 3.12 or 3.13
 (both tested in CI). CPython 3.12 is the reference interpreter: the goldens are pinned to its float
 `sum()` semantics (compensated summation since 3.12) and are checked bit-exactly on it. Python 3.11
 is not supported: PySide6 6.12 aborts on it with "Fatal Python error: none_dealloc" (it drops one

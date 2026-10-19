@@ -1,43 +1,73 @@
-# Native emitter kernel (optional)
+# Native emitter kernel (default)
 
 The per-sample emitter loop (sample -> quantise -> encode, MainApp FUN_00462630 /
 FUN_00473bd0, ported in `mlaser/parity_ports/mainapp/sampling.py`) is the hottest part of
-`compile_items` that is not geometry: about 2.5-3.4 us per step in Python.  `mlaser-native` is
-an optional C kernel of that loop that produces **bit-identical** output.  The Python port stays
-the reference and the default; the kernel is selected through the `native-sampling`
-ParityProfile.  (docs/review/architecture.md §4.1, §4.3 item 6, P2-2.)
+`compile_items` that is not geometry: about 2.5-3.4 us per step in Python.
+`mlaser._native._emitter` is a C kernel of that loop that produces **bit-identical** output.
+It is compiled with mlaser whenever a C compiler is present and is **used by default**: the
+default ParityProfile `"original"` runs it after a built-in self-check against the Python
+port.  The Python port stays the reference and the automatic fallback.
+(docs/review/architecture.md §4.1, §4.3 item 6, P2-2.)
 
 ## Layout
 
 | path | what |
 |---|---|
-| `native/` | separate distribution `mlaser-native` (setuptools, MIT): `pyproject.toml`, `setup.py` (the compiler flags), `src/mlaser_native/_emitter.c` |
-| `mlaser/parity_ports/profiles/native.py` | profile `native-sampling`: `NativeEmitter`, `emit_samples`, `available()`, `require()`, `STATS` |
-| `tools/build_native.py` | build + install (editable) or `--wheel`; then FMA check (objdump) and a parity smoke test |
-| `tools/native_parity.py` | every golden job under both profiles, compared bit for bit |
-| `tools/bench_native.py` | us/step, Python vs native (compile_items and the emitter alone) |
+| `mlaser/_native/_emitter.c` | the kernel (CPython C API, MIT), an optional extension of the mlaser distribution |
+| `setup.py` | declares the extension and its compiler flags (the rest of the build is pyproject.toml); `MLASER_BUILD_NATIVE` |
+| `mlaser/_native/__init__.py` | imports `_emitter` if it was built (`None` and `IMPORT_ERROR` otherwise); `python -m mlaser._native [--require] [--json]` prints the status |
+| `mlaser/parity_ports/profiles/native.py` | `NativeEmitter`, `emit_samples`, the default selection (`DefaultEmitter`, `select`, `kernel_status`, `configure`, `selfcheck`), profile `native-sampling`, `STATS` |
+| `tools/build_native.py` | rebuild in place (kernel required), `--wheel`, `--check` (FMA disassembly check, self-check, selection, parity smoke run) |
+| `tools/native_parity.py` | every golden job with `original-python` and with the default profile (must be on the kernel), compared bit for bit |
+| `tools/bench_native.py` | compile time and us/step, Python port vs kernel (compile_job, compile_items, the emitter alone) |
 | `tests/test_native_kernel.py` | hypothesis property tests, error paths, sample of golden jobs, FMA check; the full golden comparison is marked `golden` |
+| `tests/test_native_default.py` | default selection: `MLASER_NATIVE` values, `configure`, fallback on a missing kernel / failed self-check (with a warning), the self-check catching a perturbed kernel |
 
-## Selecting it
+## Selection
 
-```python
-import mlaser.parity_ports.profiles.native as native   # registers "native-sampling"
-from mlaser.parity_ports import use_profile
-native.available()                                      # is mlaser_native importable?
-with use_profile("native-sampling"):
-    job = compile_job(doc)
-```
+| profile | emitter loop |
+|---|---|
+| `"original"` (default) | the C kernel if it is built and passes its self-check, else the Python port (`MLASER_NATIVE`) |
+| `"original-python"` | always the Python port (the reference; `mlaser.parity_ports.ORIGINAL_PYTHON`) |
+| `"original-reference"` | always the Python port, plus the statement-level ordering references |
+| `"native-sampling"` | always the C kernel; raises `NativeKernelMissing` when it is not built (no fallback) |
 
-The profile derives from `original` and replaces only the `sampling` slot (`Emitter`,
-`emit_samples`; `gap_flags` and `sample_speeds` stay the port's).  The compiler takes both
-from the active profile (`compile_items`: `prof.sampling.Emitter(...)`, `emit_samples` is a
+`ORIGINAL.sampling` points `Emitter` at `profiles.native.DefaultEmitter` and `emit_samples` at
+the kernel's `emit_samples` (which hands a plain port `Emitter` straight to the port's
+`emit_samples`); `gap_flags` and `sample_speeds` are the port's.  The compiler takes both from
+the active profile (`compile_items`: `prof.sampling.Emitter(...)`, `emit_samples` is a
 `dispatch`), so nothing else changes.
 
-**Without the kernel**: `mlaser` installs and runs without a compiler; the profile module still
-imports and registers, and `native.available()` is False.  Compiling under the profile raises
-`NativeKernelMissing` (an `ImportError`) from `NativeEmitter.__init__`, with the build
-instructions.  There is **no silent fallback** to Python at profile level (a user who selects
-the native profile and gets the slow path would not notice otherwise).
+**At first use** (the first `DefaultEmitter(...)`, i.e. the first compile, or the first
+`kernel_status()`), once per process and under a lock, `select()` decides:
+
+1. `MLASER_NATIVE` (or `configure(mode)`, which overrides it until `configure(None)`):
+   `0` / `off` / `false` / `python` = Python port; `1` / `on` / `true` / `require` = the kernel is
+   required; unset / empty / `auto` = automatic.  Any other value: a warning and `auto`.
+2. `off`: the Python port.  Otherwise, if `mlaser._native._emitter` is not importable: `auto`
+   uses the Python port with a logged **warning**; `on` makes every compile raise
+   `NativeKernelMissing` (an `ImportError`).
+3. `selfcheck()`: a built-in known-answer vector (about 2 100 steps per machine, three machines:
+   ppm 2500/3 and 1234.5678, 1000 with `max_step` 40.0 and carries 1 ulp from +-0.5 / 1, a dry
+   run with ppm 199.99 / 3001.7) is run through `NativeEmitter` + the kernel's `emit_samples`
+   and through the port's `Emitter` + `emit_samples`; wire items, starts, position, carry,
+   pulse position, steps, overspeed and the laser-on length must be identical (`float.hex`),
+   and the kernel must have run every call itself (no hand-back to the port).  The vector
+   covers a cut run at varying speed, SpeedCurve duty / frequency evaluated in C, slow start /
+   end, micro-joint gaps with a negative duty (floor division), 40 long rapids split over many
+   periods (round half to even), out-of-range explicit duty / frequency values (clamps), and
+   dwells.  About 25 ms.  A failure (or an exception): `auto` falls back to the Python port
+   with a **warning** naming the difference; `on` raises `NativeSelfCheckFailed`.
+   Checked by hand: the kernel compiled with `-ffp-contract=fast -mfma` (5 FMA instructions)
+   fails it ("output differs from the Python port in carry x, carry y").
+
+`kernel_status()` (also `mlaser.parity_ports.kernel_status()`) returns a `KernelStatus`:
+`active` (`native` / `python` / `error`), `mode`, `source` (`default`, `MLASER_NATIVE=..`,
+`configure()`), `reason`, `selfcheck`, `module` (the extension's file), `kernel_version`;
+`.text()` is the one-line form.  It is shown in the About dialog, printed by
+`mlaser --selftest` (exit 1 when `MLASER_NATIVE=1` and the kernel cannot be used) and
+`--bundle-check` (a required item under `MLASER_NATIVE=1`), and logged at selection (INFO when
+the kernel runs, WARNING on a fallback).
 
 **Inside the kernel** there is a per-call fallback, which is part of the bit-identity proof:
 whenever an input is outside the domain the C code reproduces exactly, the call undoes what it
@@ -48,8 +78,9 @@ runs the same call.  Conditions: a coordinate that is not a float (or an int bel
 positive finite number, a duty / frequency that is not an int below 2^62, a `power` override,
 an exception in a callback, a non-list `wire`.  So NaN / inf coordinates, oversize steps and
 odd types raise exactly the port's exception.  `STATS` counts kernel and port calls; over the
-326 golden jobs: 1141 of 1141 `emit_samples` runs, 447339 of 447340 `to` calls (the one is a
-NaN rapid that raises the port's ValueError) and every non-empty `dwell` ran in C.
+326 golden jobs (2026-10-19): 1144 of 1144 `emit_samples` runs, 447930 of 447930 `to` calls
+and all 1258 non-empty `dwell` calls ran in C (an earlier data set had one NaN rapid, which
+the kernel handed to the port and which raised the port's ValueError).
 
 ## What the kernel computes, operation by operation
 
@@ -134,7 +165,8 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
   profiles; compares `Job.wire`, `Job.frames()`, the group starts, markers, cut blocks,
   ManuItem indexes, steps, overspeed, start / end pulses, end position, and **exactly**
   (`float.hex`) `pulse_carry` and `laser_on_length_mm`, or the same exception.  Result:
-  326 jobs, 3 205 860 steps, 0 differences (about 50 s).  Also a `golden`-marked test.
+  326 jobs, 3 213 541 steps, 0 differences (about 45 s; 2026-10-19, with the default profile
+on the kernel against `original-python`).  Also a `golden`-marked test.
 * `tests/test_native_kernel.py`: hypothesis streams of `emit_samples` / `to` / `dwell` /
   repositioning calls on random machines (ppm 0.5 .. 2e5, also 1000 int, 2500/3), carries at
   0, -0, +-0.5 +-1 ulp, 0.999.., +-(1 - 2^-53), random; deltas from 1e-6 to 60 mm (splits
@@ -153,13 +185,14 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
 
 ## Measurements
 
-x86-64 (container, gcc 13.3, CPython 3.13), best of 3, `smooth=False`
-(`python tools/bench_native.py`):
+x86-64 (container, gcc 13.3, CPython 3.13), best of 5, `smooth=False`
+(`python tools/bench_native.py --repeat 5`, 2026-10-19, on a shared host: load average about
+240 on 64 cores; PERFORMANCE.md §5 has the end-to-end compile times):
 
 | job | steps | compile_items Python | compile_items native | emitter alone Python | emitter alone native |
 |---|---|---|---|---|---|
-| tests/data/autosave.chf | 235 537 | 0.96 s (4.06 us/step) | 0.43 s (1.81 us/step) | 2.51 us/step | 0.17 us/step |
-| synthetic 300 parts (2 contours each) | 904 525 | 3.12 s (3.45 us/step) | 1.19 s (1.31 us/step) | 3.40 us/step | 0.15 us/step |
+| tests/data/autosave.chf | 235 537 | 0.95 s (4.02 us/step) | 0.47 s (1.98 us/step) | 2.38 us/step | 0.17 us/step |
+| synthetic 300 parts (2 contours each) | 904 525 | 3.25 s (3.59 us/step) | 1.66 s (1.83 us/step) | 2.72 us/step | 0.17 us/step |
 
 "Emitter alone" replays the job's recorded `emit_samples` calls on a fresh emitter (the
 target was about 0.1 s per million steps; the kernel is at 0.15-0.17 s/M, about 15-22x the
@@ -169,25 +202,60 @@ about 0.6 us each).
 
 ## Building and packaging
 
-Development: `python tools/build_native.py` (editable install into the running interpreter
-with its own setuptools, no network; then the FMA check and a smoke parity run).  `uv sync`
-removes it again because `mlaser-native` is not a dependency of `mlaser`; rebuild after a sync.
+The extension is part of the mlaser distribution (root `setup.py`, `optional=True`):
 
-Wheels (plan, not set up in CI yet): `native/` is a plain setuptools C extension with no
-dependency, so `cibuildwheel` builds it unchanged:
+* **Development:** `uv sync` builds the editable install with setuptools and compiles the
+  extension in place (`mlaser/_native/_emitter.cpython-3XX-*.so`, git-ignored).
+  `[tool.uv] cache-keys` lists `setup.py` and `mlaser/_native/*.c`, so a change to the C source
+  makes the next `uv sync` / `uv run` rebuild it.  `python tools/build_native.py` rebuilds in
+  place on demand (kernel required) and runs `--check`.
+* **No compiler:** the build prints setuptools' "building optional extension failed" warning and
+  installs mlaser without the module; the default profile then runs the Python port (warning at
+  first use).  CI checks this path (job `sdist` of package.yml: the sdist installed with
+  `CC=/bin/false`).
+* **`MLASER_BUILD_NATIVE`**: `1` makes a compile error fatal (CI, cibuildwheel, bundles), `0`
+  skips the extension, unset / `auto` = optional.
+* **Wheels:** cibuildwheel (`[tool.cibuildwheel]` in pyproject.toml, job `wheels` of
+  package.yml): CPython 3.12 and 3.13 for manylinux x86_64 and aarch64, Windows AMD64, macOS
+  arm64 and x86_64, one native runner per architecture.  Each wheel is installed in a clean
+  environment and `python -m mlaser._native --require` must report the kernel active after its
+  self-check.  No 32-bit builds (x87, below), no musllinux (no PySide6 wheels).
+* **sdist:** carries `setup.py` and `_emitter.c` (MANIFEST.in), never a built module; the wheel
+  carries the module, not the C source.
+* **PyInstaller:** `collect_submodules("mlaser")` picks up `mlaser._native._emitter` like any
+  other module; `packaging/build.py --smoke` runs the frozen program with `MLASER_NATIVE=1`,
+  so a bundle without a working kernel fails its bundle check.
 
-* Linux: manylinux2014 / musllinux x86_64 and aarch64 (gcc; the flags come from setup.py);
-* macOS: x86_64 and arm64 (clang; `-ffp-contract=off` is essential on arm64);
-* Windows: AMD64 (MSVC `/O2 /fp:precise`; MSVC does not contract without `/fp:contract`).
-* CPython 3.12 and 3.13 (the C API used is the stable subset of 3.12+; not the limited API).
-* A CI job per platform should run `tools/build_native.py --check` (objdump/llvm-objdump; on
-  Windows `dumpbin /disasm` and grep for `vfmadd`) and `tools/native_parity.py`; the wheel is
-  shipped only if both pass.  The PyInstaller bundle may include the module; the profile
-  stays opt-in.
+### Compiler flags and portability
+
+Bit-identical output depends on evaluating every expression of `_emitter.c` exactly as the
+port does, one IEEE binary64 operation at a time:
+
+| compiler | flags (setup.py) | why |
+|---|---|---|
+| gcc (Linux, manylinux) | `-O2 -ffp-contract=off -fno-fast-math` | GCC contracts `a*b + c` into an FMA by default in GNU C mode (`-ffp-contract=fast`) on any target that has one (aarch64, x86 with `-mfma`) |
+| clang (macOS, Apple silicon) | same | clang's default `-ffp-contract=on` contracts within an expression, and arm64 always has FMA; also `#pragma STDC FP_CONTRACT OFF` in the source |
+| MSVC (Windows) | `/O2 /fp:precise` | `/fp:precise` does not contract unless `/fp:contract` is given (VS 2022); the source adds `#pragma float_control(precise, on)` then `#pragma fp_contract(off)` |
+
+Never `-ffast-math`, `-Ofast`, `-ffp-contract=fast`, `-march=native`, `/fp:fast` or
+`/fp:contract`.  The source refuses some of it at compile time: `#error` when `__FAST_MATH__` is
+defined or `FLT_EVAL_METHOD` is neither 0 nor -1 (x87 excess precision on 32-bit x86), and a
+static check that `long long` is 64 bits (LP64 and LLP64).  The C is the portable subset that
+gcc, clang and MSVC (VS 2019+) compile alike: `long long` for every integer, `<math.h>`
+`floor` / `ceil` / `fmod` / `fabs` / `isnan` / `isfinite` (exact functions in every libm, no
+rounding), no compiler builtins, no VLAs, no `_Static_assert` (MSVC C needs `/std:c11` for it).
+`math.hypot` is not computed in C at all (CPython's own, called back).
+
+Checks of the built module, per platform: `tools/build_native.py --check` disassembles it
+(objdump / llvm-objdump; dumpbin on Windows when it is on PATH, otherwise skipped) and refuses
+any FMA mnemonic, then runs the self-check; at run time the self-check guards every process
+anyway; CI runs `tools/native_parity.py` (all 326 golden jobs, kernel vs port) and the goldens
+with `MLASER_NATIVE=1` and `=0` on Linux, Windows and macOS (ci.yml).
 
 ## Rules
 
 * The Python port is the reference.  A change to `sampling.py`, `frames.encode_step` or
   `SpeedCurve` needs the matching change in `_emitter.c` (same operation order) and a
-  `tools/native_parity.py` run; until then `native-sampling` must not be used.
+  `tools/native_parity.py` run in the same commit (the kernel is the default: a mismatch would
+  ship).  The self-check catches only what its vector exercises.
 * No `-march=native`, `-ffast-math`, `-Ofast`, `-ffp-contract=fast`.

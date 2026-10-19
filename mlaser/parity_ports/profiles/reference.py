@@ -1,5 +1,6 @@
 """``"original-reference"``: ORIGINAL with the statement-level reference of every kernel that
-the default profile runs as a fast drop-in.
+the default profile runs as a fast drop-in (the ordering drop-ins, and the C emitter kernel:
+here the emitter loop is always the Python port).
 
 The drop-ins (``cadmodule.ordering_fast``) give the reference's output bit for bit; this profile
 keeps the slow, literal ports reachable so tests can compare them (tests/test_ordering_fast.py)
@@ -7,7 +8,7 @@ and a doubtful result can be re-run on the code that was checked against the ori
 """
 from __future__ import annotations
 
-from ..profile import ORIGINAL, PROFILES, register_profile
+from ..profile import ORIGINAL, PROFILES, PYTHON_SAMPLING, register_profile
 
 __port__ = {
     "source": "CADModule",
@@ -29,6 +30,7 @@ REFERENCE = ORIGINAL.derive(
         local_optimal_elems=f"{_PP}.cadmodule.ordering:local_optimal_elems",
         containers_last_faithful=f"{_PP}.cadmodule.ordering:containers_last_faithful",
     ),
+    sampling=PYTHON_SAMPLING,
 )
 if REFERENCE.name not in PROFILES:
     register_profile(REFERENCE)

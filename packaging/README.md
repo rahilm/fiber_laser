@@ -47,6 +47,11 @@ exit codes are not visible there.
 
 * All `mlaser` modules except the parity capture/compare tooling (`mlaser.parity`, which needs
   matplotlib and Wine captures). `mlaser.parity_ports` stays because the app uses it.
+* The C emitter kernel `mlaser._native._emitter` (built by `uv sync` when a compiler is present;
+  CI sets `MLASER_BUILD_NATIVE=1` so a compile error fails the build). `--smoke` runs the
+  frozen program with `MLASER_NATIVE=1`: the bundle check fails when the kernel is missing or
+  fails its self-check ([NATIVE_KERNEL.md](../docs/dev/NATIVE_KERNEL.md)). Set
+  `MLASER_NATIVE=auto` to accept a bundle without it (the Python port then runs).
 * Package data: `mlaser/ui/resources` (the `layer_colors.json` file and the Tabler icons with
   their licence), `mlaser/i18n/*.json`, `mlaser/formats/data/*`, any fonts under `mlaser/cad`.
   The help documents (`docs/user`, `docs/dev`, `docs/re` and the top-level `SAFETY.md`,

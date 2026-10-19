@@ -3,8 +3,10 @@
 Options handled here, before the GUI starts; everything else goes to
 :func:`mlaser.ui.__main__.main` unchanged:
 
-* ``--selftest [--probe] [--json]``: run the network self-test (:mod:`mlaser.netcheck`), print
-  it and exit (0 = no check failed).  ``--host/--port/--ini`` select the card as for the GUI.
+* ``--selftest [--probe] [--json]``: report the emitter kernel (C or Python, its self-check:
+  :func:`mlaser.parity_ports.kernel_status`), run the network self-test (:mod:`mlaser.netcheck`),
+  print it and exit (0 = no check failed; 1 also when ``MLASER_NATIVE=1`` and the C kernel
+  cannot be used).  ``--host/--port/--ini`` select the card as for the GUI.
   Without ``--probe`` nothing is sent to the card.
 * ``--smoke-test SECONDS``: start the app normally (e.g. with ``--demo``) and quit cleanly after
   SECONDS with exit code 0 (CI smoke test of the frozen bundle, ``QT_QPA_PLATFORM=offscreen``).
@@ -49,7 +51,9 @@ def main(argv: list[str] | None = None) -> int:
 
     if own.selftest:
         from mlaser import netcheck
-        return netcheck.main(rest)
+        kernel_ok = _kernel_line("--json" in rest)
+        rc = netcheck.main(rest)
+        return rc or (0 if kernel_ok else 1)
 
     if "-h" in rest or "--help" in rest:
         print("mlaser launcher options: --selftest [--probe] [--json], --smoke-test SECONDS, "
@@ -146,6 +150,13 @@ def bundle_check(files: list[str]) -> int:
              f"child exit code {proc.exitcode}, {(_time.perf_counter() - t0) * 1000:.0f} ms")
     except Exception as e:
         line(False, "multiprocessing spawn", f"{type(e).__name__}: {e}")
+    try:
+        # the C emitter kernel: optional (the Python port runs without it) unless MLASER_NATIVE=1
+        from mlaser.parity_ports import kernel_status
+        st = kernel_status()
+        line(st.native, "emitter kernel (mlaser._native)", st.text(), required=st.mode == "on")
+    except Exception as e:
+        line(False, "emitter kernel (mlaser._native)", f"{type(e).__name__}: {e}", required=False)
     for path in files:
         try:
             if path.lower().endswith(".svg"):
@@ -159,6 +170,19 @@ def bundle_check(files: list[str]) -> int:
             line(False, f"import {os.path.basename(path)}", f"{type(e).__name__}: {e}")
     print(f"  result: {'OK' if not failed else f'{failed} required item(s) failed'}")
     return 1 if failed else 0
+
+
+def _kernel_line(to_stderr: bool = False) -> bool:
+    """Print which emitter kernel runs (C / Python, self-check); False when it was required
+    (``MLASER_NATIVE=1``) but cannot be used."""
+    try:
+        from mlaser.parity_ports import kernel_status
+        st = kernel_status()
+        text, ok = st.text(), st.active != "error"
+    except Exception as e:  # noqa: BLE001 - reported, never fatal on its own
+        text, ok = f"Emitter kernel: status unavailable ({type(e).__name__}: {e})", False
+    print(text, file=sys.stderr if to_stderr else sys.stdout)
+    return ok
 
 
 def _card_args(rest: list[str]) -> dict:
