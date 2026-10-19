@@ -80,7 +80,7 @@ class WizardDialog(QDialog):
         self.dry.toggled.connect(self._dry_toggled)
         right.addWidget(self.dry)
         bl = QHBoxLayout()
-        self.b_abort = self._button("wizard.abort", self.abort, "player-stop", icons.RED)
+        self.b_abort = self._button("wizard.abort", self.abort, "player-stop", "#ffffff")
         self.b_abort.setStyleSheet("QPushButton { color: white; background: #c92a2a; border: 1px solid #8a1c1c; "
                                    "border-radius: 4px; padding: 6px 14px; font-weight: bold; }"
                                    "QPushButton:pressed { background: #a51111; }")

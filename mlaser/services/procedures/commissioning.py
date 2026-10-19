@@ -251,7 +251,7 @@ def _soft_limits(p: CommissioningProcedure) -> dict:
         want = _expected_limits(p)
     except Exception:  # noqa: BLE001 - parameters incomplete
         want = None
-    vals = {"card": {str(k): v for k, v in card.items()},
+    vals: dict[str, Any] = {"card": {str(k): v for k, v in card.items()},
             "expected": {str(k): v for k, v in (want or {}).items()}}
     if not card:
         p.set_item("soft_limits", WARN, "wizard.comm.limits_none",
@@ -312,15 +312,17 @@ def _jog(p: CommissioningProcedure, axis: str) -> dict:
     a0 = st0.x if axis == "X" else st0.y
     p.machine.jog_step(axis, +1, JOG_STEP_MM)
     p.sleep(0.15)
-    last = [None, time.monotonic()]
+    last_v: list[Optional[float]] = [None]
+    last_t = [time.monotonic()]
 
     def settled() -> bool:
         st = p.machine.state()
         v = st.x if axis == "X" else st.y
-        if last[0] is None or abs(v - last[0]) > 1e-3:
-            last[0], last[1] = v, time.monotonic()
+        prev = last_v[0]
+        if prev is None or abs(v - prev) > 1e-3:
+            last_v[0], last_t[0] = v, time.monotonic()
             return False
-        return time.monotonic() - last[1] > 0.3 and st.mode != "jog"
+        return time.monotonic() - last_t[0] > 0.3 and st.mode != "jog"
     p.wait(settled, 30.0, f"jog {axis}", poll_s=0.05)
     st1 = p.machine.state()
     d = (st1.x if axis == "X" else st1.y) - a0

@@ -79,10 +79,10 @@ class Step:
     text: str = ""                               # catalogue id of the instructions
     kind: str = "info"                           # info | input | action | confirm | question
     safety: tuple = ()                           # catalogue ids of the safety notes
-    run: Optional[Callable[["Procedure"], Any]] = None
+    run: Optional[Callable[[Any], Any]] = None   # fn(procedure) -> result (worker thread)
     auto: bool = False                           # action: start when the step is entered
     motion: bool = False                         # the step moves the axes or fires
-    skip: Optional[Callable[["Procedure"], bool]] = None
+    skip: Optional[Callable[[Any], bool]] = None
     action_label: str = ""                       # catalogue id of the Run button
     jog: bool = False                            # the UI offers hold-to-jog on this step
 

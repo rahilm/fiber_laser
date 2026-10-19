@@ -2085,7 +2085,7 @@
   "wizard.laser.error.no_levels": "Enter at least one duty level.",
   "wizard.laser.error.not_armed": "The machine is no longer armed.",
   "wizard.laser.error.preflight": "Pre-flight: {detail}",
-  "wizard.laser.error.pulse": "The pulse at {duty} % did not run.",
+  "wizard.laser.error.pulse": "The test pulse ({duty} percent duty) did not run.",
   "wizard.laser.f_duration": "Pulse length",
   "wizard.laser.f_levels": "Duty levels (%, comma separated)",
   "wizard.laser.f_pause": "Pause between pulses",
@@ -2272,6 +2272,190 @@
    "dx",
    "dy",
    "length"
+  ],
+  "wizard.comm.fix_reverse_axis": [
+   "axis"
+  ],
+  "wizard.comm.hb_ok": [
+   "output",
+   "toggles_per_s",
+   "expected"
+  ],
+  "wizard.comm.hb_relay_ok": [
+   "output"
+  ],
+  "wizard.comm.hb_slow": [
+   "output",
+   "toggles_per_s",
+   "expected"
+  ],
+  "wizard.comm.home_ok": [
+   "seconds",
+   "x",
+   "y"
+  ],
+  "wizard.comm.jog_moved": [
+   "axis",
+   "moved",
+   "step"
+  ],
+  "wizard.comm.jog_ok": [
+   "axis"
+  ],
+  "wizard.comm.jog_position": [
+   "axis",
+   "moved",
+   "step"
+  ],
+  "wizard.comm.jog_wrong": [
+   "axis"
+  ],
+  "wizard.comm.limits_mismatch": [
+   "axes"
+  ],
+  "wizard.comm.net_failed": [
+   "failed"
+  ],
+  "wizard.comm.net_not_connected": [
+   "host",
+   "port"
+  ],
+  "wizard.comm.net_ok": [
+   "host",
+   "port",
+   "local_ip"
+  ],
+  "wizard.comm.net_warn": [
+   "warnings"
+  ],
+  "wizard.comm.report": [
+   "path",
+   "passed",
+   "warned",
+   "failed"
+  ],
+  "wizard.comm.reverse_set": [
+   "key",
+   "value"
+  ],
+  "wizard.comm.scale_mismatch": [
+   "which",
+   "card_x",
+   "card_y",
+   "card_period_ms",
+   "par_x",
+   "par_y",
+   "par_period_ms"
+  ],
+  "wizard.comm.scale_ok": [
+   "card_x",
+   "card_y",
+   "card_period_ms"
+  ],
+  "wizard.edge.angle_value": [
+   "angle"
+  ],
+  "wizard.edge.applied": [
+   "angle"
+  ],
+  "wizard.edge.corner_value": [
+   "x",
+   "y"
+  ],
+  "wizard.edge.error.dock": [
+   "dock"
+  ],
+  "wizard.edge.error.seek": [
+   "detail"
+  ],
+  "wizard.edge.point_value": [
+   "n",
+   "x",
+   "y"
+  ],
+  "wizard.edge.radius_value": [
+   "r"
+  ],
+  "wizard.edge.result": [
+   "angle"
+  ],
+  "wizard.error.alarms": [
+   "count"
+  ],
+  "wizard.error.fault": [
+   "fault"
+  ],
+  "wizard.error.step": [
+   "detail"
+  ],
+  "wizard.error.timeout": [
+   "what",
+   "seconds"
+  ],
+  "wizard.focus.error.unsupported": [
+   "type"
+  ],
+  "wizard.focus.type_is": [
+   "type"
+  ],
+  "wizard.follower.error.absent": [
+   "detail"
+  ],
+  "wizard.follower.quality": [
+   "grade",
+   "points",
+   "span",
+   "mono"
+  ],
+  "wizard.follower.saved": [
+   "path"
+  ],
+  "wizard.import.backup": [
+   "path"
+  ],
+  "wizard.import.count": [
+   "n"
+  ],
+  "wizard.import.done": [
+   "areas"
+  ],
+  "wizard.import.found": [
+   "n"
+  ],
+  "wizard.import.texts": [
+   "n"
+  ],
+  "wizard.import.use_localappdata": [
+   "path"
+  ],
+  "wizard.laser.error.duration": [
+   "max_ms"
+  ],
+  "wizard.laser.error.level": [
+   "value"
+  ],
+  "wizard.laser.error.preflight": [
+   "detail"
+  ],
+  "wizard.laser.error.pulse": [
+   "duty"
+  ],
+  "wizard.step_n": [
+   "n",
+   "total",
+   "title"
+  ],
+  "ws.machine.alarms_active": [
+   "n"
+  ],
+  "ws.machine.hw_applied": [
+   "n"
+  ],
+  "ws.machine.min_mode": [
+   "mode"
+  ],
+  "ws.machine.origins": [
+   "tools"
   ]
  },
  "legacy": {
