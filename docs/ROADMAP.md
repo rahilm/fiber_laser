@@ -100,20 +100,38 @@ Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of th
   release
 
 ### Performance and libraries (Stage 4)
-- ☐ background, debounced toolpath; numpy ordering kernels with the same formulas (goldens)
-- ☐ raster engraving as a first-class object; level-of-detail on the canvas
-- ☐ packed numpy step arrays plus shared memory to the streamer
-- ☐ library swaps and options:
-  - svgelements for SVG
-  - ezdxf "modern import" mode
-  - pyclipper kerf fallback
-  - OR-Tools ordering option
-  - fontTools + uharfbuzz text (removes the import-linter ignores `cad.text -> PySide6` and
-    `io.dxf_import -> PySide6`, the Qt font-engine fallback for TEXT outlines)
-  - modern nesting engine (licence permitting)
-- ☐ PyInstaller one-folder builds per OS in CI, signing hooks, first-run network self-test
-- ☐ optional native kernel (Cython/Rust) for sample → quantise → encode, Python kept as reference
-- ☐ optional modern planner profile (Ruckig), off by default, hardware validation required
+Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); licences:
+[docs/ASSETS.md](ASSETS.md) §7.  Every step kept the goldens bit-identical (default profile).
+- ◐ background, debounced toolpath; numpy ordering kernels with the same formulas (goldens)
+  - ☑ bit-identical drop-ins for the mode-5 kernels (`parity_ports/cadmodule/ordering_fast.py`,
+    reference profile `original-reference`), STRtree `build_tree`, flatten and prepare caches:
+    toolpath at 2,000 parts 2.2 s → 0.27 s, per-edit refresh 3.6 s → 0.65 s, opening the
+    30,000-part scan 351 s → 5.4 s
+  - ☐ background / debounced worker: belongs with the Services `PlannedJob` worker
+  - ☐ ring sort (modes 6/7) and band sort still O(n²) / unvectorised
+- ☑ raster engraving as a first-class object (`cam/raster_engraving.py`, one Part, its own
+  toolpath and canvas item, wire identical); level-of-detail on the canvas.  JumpAddTime settle
+  stays 200 steps on the wire (a single dwell item changes the wire), stored as one run in the
+  packed wire
+- ◐ packed numpy step arrays plus shared memory to the streamer: ☑ `nc/packed.py`
+  (69 MB instead of ~0.8–1 GB per hour of job, frames identical), `Job.to_shared()` /
+  `from_shared()`; ☐ the streamer integration (Safety's supervised streamer, merge note)
+- ☑ library swaps and options:
+  - ☑ svgelements for SVG
+  - ☑ ezdxf "modern import" mode (`import_dxf(mode="modern")`, profile `modern-dxf`)
+  - ☑ pyclipper kerf fallback (opt-in `CamParams.kerf_fallback="clipper"`: the goldens use the
+    shapely fallback, so it cannot be the default)
+  - ☑ OR-Tools ordering option (profile `modern-ortools`)
+  - ☑ fontTools + uharfbuzz text, bundled Noto Sans SC / Arabic subsets (the import-linter
+    ignores `cad.text -> PySide6` and `io.dxf_import -> PySide6` are removed)
+  - ☑ modern nesting engine: spyrrow (MIT, licence verified), `NestParams.engine="spyrrow"`
+- ◐ PyInstaller one-folder builds per OS in CI, signing hooks, first-run network self-test:
+  ☑ `packaging/`, `.github/workflows/package.yml`, `mlaser/netcheck.py`, LGPL notices, Linux
+  bundle built and smoke-tested locally; ☐ the workflow's first run on GitHub, installers
+- ☑ optional native kernel (C, `native/`, profile `native-sampling`) for sample → quantise →
+  encode, Python kept as reference; 0 differences on 326 golden jobs; ☐ CI wheels
+- ☑ optional modern planner profile (Ruckig, `modern-ruckig`), off by default; ☐ hardware
+  validation
 
 ## Wave 3: modern workflow (Stage 3, built on the services)
 - ☐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
