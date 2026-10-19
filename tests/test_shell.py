@@ -153,6 +153,23 @@ def test_palette_finds_runs_and_remembers(win, app):
     pal.close_palette()
 
 
+def test_palette_says_when_nothing_matches(win, app):
+    """Review 2 (features.md §13): "quote" or "label" used to give an empty list and no word."""
+    sh = win.shell
+    sh.open_palette()
+    pal = sh.palette
+    for q in ("quote", "label", "zzqxj"):
+        pal.edit.setText(q)
+        assert pal.matches() == [] and pal.list.count() == 0
+        assert pal.empty.isVisibleTo(pal) and not pal.list.isVisibleTo(pal)
+        assert "No command matches" in pal.empty.text() and q in pal.empty.text()
+        pal.run_current()                       # Enter on no result: nothing runs, no error
+        assert pal.isVisible()
+    pal.edit.setText("zoom fit")                # a match brings the list back
+    assert pal.list.isVisibleTo(pal) and not pal.empty.isVisibleTo(pal) and pal.list.count() > 0
+    pal.close_palette()
+
+
 # --------------------------------------------------------------------------- user modes
 def test_user_modes_gate_commands_rail_and_editing(win, app, monkeypatch):
     sh = win.shell

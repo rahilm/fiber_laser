@@ -4,7 +4,8 @@ Each row shows the translated label, the command's workspace and its shortcut; E
 click) runs it through the main window (``window.run``, so the user mode, the safety checks and
 the job lock apply exactly as for a toolbar button).  Recently used commands come first.
 Commands the user mode does not allow are not listed; disabled ones are listed greyed (Enter
-explains why instead of running them).  The search itself is Qt-free
+explains why instead of running them).  A search without a result shows "No command matches"
+instead of an empty list.  The search itself is Qt-free
 (:mod:`mlaser.services.command_search`).
 """
 from __future__ import annotations
@@ -77,6 +78,14 @@ class CommandPalette(QFrame):
         self.list.itemClicked.connect(self._activate_item)
         tr.bind(self.list, "shell.palette.title", self.list.setAccessibleName)
         v.addWidget(self.list, 1)
+        # a search without a result says so instead of showing an empty list
+        self.empty = QLabel()
+        self.empty.setObjectName("shell_palette_empty")
+        self.empty.setWordWrap(True)
+        self.empty.setAlignment(Qt.AlignCenter)
+        self.empty.setAccessibleName("No command matches")
+        self.empty.hide()
+        v.addWidget(self.empty, 1)
         self.hint = QLabel()
         self.hint.setObjectName("shell_empty_text")
         tr.bind(self.hint, "shell.palette.hint", self.hint.setText)
@@ -135,6 +144,11 @@ class CommandPalette(QFrame):
             self.list.addItem(it)
         if self.list.count():
             self.list.setCurrentRow(0)
+        none = not self._matches
+        if none:
+            self.empty.setText(self.tr.format("shell.palette.no_matches", query=q.strip()))
+        self.empty.setVisible(none)
+        self.list.setVisible(not none)
 
     def matches(self) -> list:
         return list(self._matches)
