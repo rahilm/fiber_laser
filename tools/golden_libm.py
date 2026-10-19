@@ -53,26 +53,41 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 _EXC = {"ValueError": ValueError, "OverflowError": OverflowError,
         "ZeroDivisionError": ZeroDivisionError}
 MATH_FUNCS = ("sin", "cos", "tan", "asin", "acos", "atan", "atan2", "exp", "log", "log10",
-              "log2", "pow", "fmod")
+              "log2", "pow", "fmod",
+              # CPython's own (not libm), wrapped to show that they do NOT differ:
+              "hypot", "dist", "sqrt", "fsum")
 
 
 def _key(args) -> str:
-    """Exact text of the arguments: ``float.hex`` for floats, ``i<n>`` for ints; any other type
-    (numpy scalars, ...) raises TypeError and the call is not wrapped."""
+    """Exact text of the arguments: ``float.hex`` for floats (numpy float64 too: the math
+    functions convert to a C double anyway), ``#<n>`` for ints, ``(...)`` for a tuple / list of
+    them (math.dist); any other type raises TypeError and the call is not wrapped."""
     out = []
     for a in args:
         t = type(a)
         if t is float:
             out.append(a.hex())
         elif t is int:
-            out.append(f"i{a}")
+            out.append(f"#{a}")
+        elif t is tuple or t is list:
+            out.append("(" + _key(a).replace(",", ";") + ")")
+        elif t.__name__ == "float64":
+            out.append(float(a).hex())
         else:
             raise TypeError(t)
     return ",".join(out)
 
 
 def _args(k: str) -> list:
-    return [int(a[1:]) if a.startswith("i") else float.fromhex(a) for a in k.split(",")]
+    out: list = []
+    for a in k.split(","):
+        if a.startswith("("):
+            out.append(tuple(_args(a[1:-1].replace(";", ","))) if len(a) > 2 else ())
+        elif a.startswith("#"):
+            out.append(int(a[1:]))
+        else:
+            out.append(float.fromhex(a))
+    return out
 
 
 def _arr_key(*arrays) -> str:
