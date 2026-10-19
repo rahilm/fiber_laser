@@ -3,7 +3,11 @@
 
 Usage::
 
-    python tools/bench_native.py [tests/data/chf/sample_v9.chf] [--parts 300] [--repeat 3]
+    python tools/bench_native.py [tests/data/chf/sample_v9.chf] [--parts 300] [--repeat 3] [--smooth]
+
+Without ``--smooth`` the machine is ``Machine(smooth=False)`` (the emitter in isolation, the
+figures of NATIVE_KERNEL.md); ``--smooth`` uses the default machine (smoothing on), which is
+what the application compiles.
 
 For each job (a .chf file and an N-part synthetic job as tools/bench/bench_large_compile.py
 builds it) it prints
@@ -30,6 +34,8 @@ sys.path.insert(0, str(ROOT))
 from mlaser.parity_ports import ORIGINAL, ORIGINAL_PYTHON, use_profile  # noqa: E402
 from mlaser.parity_ports.mainapp import sampling as S  # noqa: E402
 import mlaser.parity_ports.profiles.native as N  # noqa: E402
+
+SMOOTH = False      # --smooth: the default machine (CContoutSmooth corner blending on)
 
 
 def synthetic(n: int):
@@ -64,7 +70,7 @@ def compile_time(d2, prm, items, profile: str, repeat: int):
     for _ in range(repeat):
         with use_profile(profile):
             t = time.perf_counter()
-            job = C.compile_items(items, Machine(smooth=False), prm.origin, d2, False)
+            job = C.compile_items(items, Machine(smooth=SMOOTH), prm.origin, d2, False)
             best = min(best, time.perf_counter() - t)
     return best, job
 
@@ -76,7 +82,7 @@ def compile_job_time(doc, profile: str, repeat: int) -> float:
     for _ in range(repeat):
         with use_profile(profile):
             t = time.perf_counter()
-            compile_job(doc, None, Machine(smooth=False))
+            compile_job(doc, None, Machine(smooth=SMOOTH))
             best = min(best, time.perf_counter() - t)
     return best
 
@@ -95,7 +101,7 @@ def record_calls(d2, prm, items):
 
     impl._cache["emit_samples"] = spy
     try:
-        m = Machine(smooth=False)
+        m = Machine(smooth=SMOOTH)
         C.compile_items(items, m, prm.origin, d2, False)
     finally:
         impl._cache["emit_samples"] = real
@@ -141,7 +147,12 @@ def main(argv=None) -> int:
     ap.add_argument("chf", nargs="?", default=str(ROOT / "tests" / "data" / "chf" / "sample_v9.chf"))
     ap.add_argument("--parts", type=int, default=300)
     ap.add_argument("--repeat", type=int, default=3)
+    ap.add_argument("--smooth", action="store_true",
+                    help="the default machine (smoothing on, what the app compiles); default: smooth=False")
     a = ap.parse_args(argv)
+    global SMOOTH
+    SMOOTH = a.smooth
+    print(f"Machine(smooth={SMOOTH})")
     N.require()
     st = N.kernel_status()
     print(st.text())

@@ -11,6 +11,11 @@ need no edits; a test may carry several (e.g. ``ui`` and ``sim``):
 * ``sim``     modules that start the UDP card simulator or a device simulator;
 * ``unit``    everything else (pure, no Qt widgets, no sockets).
 
+Under pytest-xdist (CI: ``-n auto --dist loadgroup``) every ``safety`` and ``sim`` test is put
+in one xdist group, ``timing``: they run one after another on a single worker, in the same
+process, as in a serial run, so their real-time bounds keep their meaning (docs/dev/TESTING.md,
+"Parallel runs").  Without xdist nothing changes.
+
 PySide6 can segfault at interpreter exit when Python-owned widgets outlive the QApplication
 (seen intermittently in tests that open dialogs).  Deleting every top-level widget and
 flushing deferred deletes while the application still exists avoids that.
@@ -22,7 +27,9 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
     import faulthandler
-    _FAULT_LOG = open(os.environ["MLASER_FAULT_LOG"], "w")  # noqa: SIM115 - open for the session
+    # one file per xdist worker (fault.log.gw0, ...): the workers would overwrite each other
+    _wid = os.environ.get("PYTEST_XDIST_WORKER")
+    _FAULT_LOG = open(os.environ["MLASER_FAULT_LOG"] + (f".{_wid}" if _wid else ""), "w")  # noqa: SIM115 - open for the session
     faulthandler.enable(file=_FAULT_LOG, all_threads=True)
 
 import pytest  # noqa: E402
@@ -46,6 +53,9 @@ SIM_MODULES = {
     "test_machine_workspace", "test_ws_run",
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
+#: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)
+TIMING_MARKS = ("safety", "sim")
+TIMING_GROUP = "timing"
 
 
 @pytest.fixture(autouse=True)
@@ -62,7 +72,13 @@ def _isolated_config(tmp_path_factory, monkeypatch):
         monkeypatch.setenv("_MLASER_APP_AUTO", "1")
 
 
+@pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
+    # tryfirst: the markers must be on the items before ``-m`` deselects (the mark plugin) and
+    # before xdist's worker turns ``xdist_group`` into the "@timing" node id suffix that
+    # --dist loadgroup schedules by (its hook is registered after this conftest, so it would
+    # otherwise run first and see no group)
+    group = config.pluginmanager.hasplugin("xdist")
     for item in items:
         path = item.path
         parts = path.parts
@@ -80,6 +96,8 @@ def pytest_collection_modifyitems(config, items):
             marks.add("unit")
         for m in sorted(marks):
             item.add_marker(getattr(pytest.mark, m))
+        if group and any(item.get_closest_marker(m) for m in TIMING_MARKS):
+            item.add_marker(pytest.mark.xdist_group(TIMING_GROUP))
 
 
 def pytest_sessionfinish(session, exitstatus):

@@ -197,9 +197,12 @@ on the kernel against `original-python`).  Also a `golden`-marked test.
 
 ## Measurements
 
-x86-64 (container, gcc 13.3, CPython 3.13), best of 5, `smooth=False`
-(`python tools/bench_native.py --repeat 5`, 2026-10-19, on a shared host: load average about
-233 on 64 cores; PERFORMANCE.md §5 has the end-to-end compile times):
+x86-64 (container, gcc 13.3, CPython 3.13), best of 5, **smoothing off** (`smooth=False`, the
+emitter in isolation; `python tools/bench_native.py --repeat 5`, 2026-10-19, on a shared host:
+load average about 233 on 64 cores). The application compiles with the **default profile**
+(smoothing on), where the smoother dominates and the kernel gains 1.2-1.4x on a whole compile
+instead of about 2x: `tools/bench_native.py --smooth`, figures for both in
+[PERFORMANCE.md §5](PERFORMANCE.md#5-native-kernel-p2-2-the-default):
 
 | job | steps | compile_items Python | compile_items native | emitter alone Python | emitter alone native |
 |---|---|---|---|---|---|

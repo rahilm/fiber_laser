@@ -20,6 +20,7 @@ bit-identical on the default profile.
 | Open an 800×600 dither engraving (184,627 burn runs) | > 454 s (canvas 6.9 s + sort-0 toolpath 447 s) | **1.18 s** as one raster object | `tools/bench/bench_raster.py` |
 | Wire memory per hour of job | ~1 GB (792 MB measured) | **69 MB** | `tools/bench/bench_wire_memory.py 300` |
 | Emitter (sample → quantise → encode) | 2.5–3.4 µs/step | 0.15–0.17 µs/step with the optional C kernel | `tools/bench_native.py` |
+| Whole compile, **default profile** (smoothing on), 300 parts | | 7.4 µs/step on the Python port, 5.3 µs/step with the kernel (smoothing off: 4.3 / 2.0) | `tools/bench_native.py --smooth`, §5 |
 
 ## 2. Ordering kernels (P1-4, architecture.md §4.3 item 3)
 
@@ -125,17 +126,40 @@ check fails, the Python port runs with a logged warning. `MLASER_NATIVE=0` force
 golden jobs (26 samples + 300 random), 3,045,237 steps, 0 differences. Details in
 [NATIVE_KERNEL.md](NATIVE_KERNEL.md).
 
-Compile time of `tests/data/chf/sample_v9.chf` (142,155 steps), x86-64 container, gcc 13.3, CPython
-3.13, `smooth=False`, 2026-10-19 (`python tools/bench_native.py --repeat 5`, best of 5; the host
-was shared, load average about 233 on 64 cores, so absolute times are pessimistic, the ratios
-held over repeated runs):
+**Smoothing off vs the default profile.** The default machine smooths corners before planning
+(`Machine(smooth=True)`, CContoutSmooth), and that is what the application compiles. The first
+figures of this section were measured with `smooth=False`, which isolates the emitter but
+understates a real compile about 3x (Review 2, performance §2.1: about 70 % of a default
+compile is the smoother). Both are given below; `tools/bench_native.py` measures the first,
+`tools/bench_native.py --smooth` the second.
 
-| Default emitter | `compile_job` (document -> job) | first compile in a fresh process (incl. selection + self-check) |
+Re-measured 2026-10-19 on this branch: CPython 3.12.14, gcc 13.3, x86-64 container on a
+shared 64-core host with a load average of about 250 (so absolute times are pessimistic; the
+ratios held over repeated runs), `python tools/bench_native.py [--smooth] --repeat 3`, best of
+3, `MLASER_NATIVE=1`; `identical=True` for every pair (Python port and kernel give the same
+wire):
+
+| Job | machine | `compile_job`, Python port (`MLASER_NATIVE=0`) | C kernel (default) | `compile_items` per step, Python / kernel |
+|---|---|---|---|---|
+| sample_v9.chf (142,155 steps) | **smoothing off** (`smooth=False`) | 0.76 s | 0.40 s (1.9x) | 5.19 / 2.71 µs/step |
+| sample_v9.chf (148,619 steps) | **default profile** (smoothing on) | 1.99 s | 1.64 s (1.2x) | 13.08 / 10.74 µs/step |
+| 300 parts (904,525 steps) | **smoothing off** | 3.86 s | 1.96 s (2.0x) | 4.25 / 2.01 µs/step |
+| 300 parts (918,325 steps) | **default profile** | 6.92 s | 5.06 s (1.4x) | 7.44 / 5.31 µs/step |
+
+The emitter alone (every `emit_samples` call of the job recorded and replayed): 3.0-3.9 µs/step
+on the Python port, 0.16-0.20 µs/step on the kernel (16-19x), with either machine. So the
+kernel's gain on a default compile is smaller (1.2-1.4x instead of about 2x): the smoother
+(curve table, `crtmath`, `smooth.py`) and the duplicate planning of `estimate_time` dominate
+it, not the emitter (ROADMAP Review 2, Wave B: native smoother and curve tables).
+
+The earlier figures (2026-10-19, CPython 3.13, `smooth=False`, best of 5, load about 233) were:
+
+| Default emitter, **smoothing off** | `compile_job` (document -> job) | first compile in a fresh process (incl. selection + self-check) |
 |---|---|---|
 | Python port (`MLASER_NATIVE=0`) | 0.64 s | 0.79 s |
 | C kernel (default) | 0.35 s (1.8x faster) | 0.55 s |
 
-| Job | compile_items, Python | native | emitter alone, Python | native |
+| Job, **smoothing off** | compile_items, Python | native | emitter alone, Python | native |
 |---|---|---|---|---|
 | sample_v9.chf (142,155 steps) | 0.62 s (4.34 µs/step) | 0.33 s (2.28 µs/step) | 2.37 µs/step | 0.15 µs/step |
 | 300 parts (904,525 steps) | 3.26 s (3.60 µs/step) | 1.65 s (1.82 µs/step) | 2.71 µs/step | 0.18 µs/step |

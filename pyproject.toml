@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mlaser"
-version = "0.1.0"
+version = "0.1.0rc1"
 description = "Cross-platform rebuild of the Gweike Mlaser fiber-laser cutting CAM/CNC software (reverse-engineered, untested on hardware)"
 readme = "README.md"
 license = "MIT"
@@ -117,6 +117,7 @@ dev = [
     "mypy>=2.4.0",
     "hypothesis>=6.100",
     "pytest-rerunfailures>=16.7",
+    "pytest-xdist>=3.8",      # CI: -n auto --dist loadgroup (docs/dev/TESTING.md)
 ]
 # PyInstaller one-folder builds (packaging/, CI job "package"); GPL with the bootloader exception,
 # a build tool only, never shipped as a library
