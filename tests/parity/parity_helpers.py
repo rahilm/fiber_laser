@@ -22,6 +22,9 @@ from pathlib import Path
 import pytest
 
 PARITY_DIR = Path(os.environ.get("MLASER_PARITY_DIR", "/home/dev/scratch/mlaser/parity"))
+# The harness imports the rebuild from MLASER_REBUILD; point it at THIS checkout so worktrees and CI
+# never silently compare another copy of the code.
+os.environ.setdefault("MLASER_REBUILD", str(Path(__file__).resolve().parents[2]))
 COMPARE = PARITY_DIR / "compare"
 
 
