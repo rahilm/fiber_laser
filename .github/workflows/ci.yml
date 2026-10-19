@@ -65,16 +65,27 @@ jobs:
         if: failure() && runner.os == 'macOS'
         run: |
           set -x
-          cc --version; which -a cc clang; xcrun --find clang || true
-          env | grep -iE 'flags|arch|cc=|sdk|deployment' || true
-          uv run --locked python -c "import sysconfig as s; [print(k, '=', s.get_config_var(k)) for k in ('CC','CFLAGS','LDSHARED','LDFLAGS','ARCHFLAGS')]"
-          uv run --locked python -c "import setuptools; print(setuptools.__version__)"
-          ls -la mlaser/_native/ build 2>/dev/null || true
-          objdump -d --no-show-raw-insn mlaser/_native/_emitter.cpython-*-darwin.so | grep -B30 fmadd | head -150
-          MLASER_BUILD_NATIVE=1 uv run --locked python setup.py build_ext -v --force --build-temp /tmp/bt --build-lib /tmp/bl 2>&1 | tail -20
-          objdump -d /tmp/bl/mlaser/_native/*.so | grep -c fmadd || true
-          uv pip install -v --no-deps --reinstall-package mlaser -e . 2>&1 | grep -iE 'clang|cc |ffp' | head || true
-          objdump -d mlaser/_native/_emitter.cpython-*-darwin.so | grep -c fmadd || true
+          uv run --locked python -c "import sys; print(sys.executable, sys.version)"
+          PYINC=$(uv run --locked python -c "import sysconfig;print(sysconfig.get_paths()['include'])")
+          SRC=mlaser/_native/_emitter.c
+          BASE="-fno-strict-overflow -Wsign-compare -Wunreachable-code -fno-common -dynamic -DNDEBUG -g -O3 -Wall"
+          clang -### $BASE -arch arm64 -I"$PYINC" -c $SRC -o /tmp/x.o -O2 -ffp-contract=off -fno-fast-math 2>&1 | tr ' ' '\n' | grep -iE 'contract|fast|math|fp-|^"-O' || true
+          try() { clang $BASE -I"$PYINC" -c $SRC -o /tmp/x.o "$@" 2>/dev/null && echo "fmadd=$(objdump -d /tmp/x.o | grep -c fmadd) :: $*"; }
+          try -arch arm64 -arch x86_64 -O2 -ffp-contract=off -fno-fast-math
+          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math
+          try -arch arm64 -O2 -fno-fast-math -ffp-contract=off
+          try -arch arm64 -O2 -ffp-contract=off
+          try -arch arm64 -O2
+          try -arch arm64 -O0
+          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -ffp-model=strict
+          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -Xclang -ffp-contract=off
+          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -fno-slp-vectorize -fno-vectorize
+          clang $BASE -arch arm64 -I"$PYINC" -S $SRC -o /tmp/x.s -O2 -ffp-contract=off -fno-fast-math
+          grep -nE 'fmadd|\.loc[[:space:]]+[0-9]+[[:space:]]+[0-9]+' /tmp/x.s | grep -B3 fmadd | head -40
+          clang $BASE -arch arm64 -I"$PYINC" -S -emit-llvm $SRC -o /tmp/x.ll -O2 -ffp-contract=off -fno-fast-math
+          grep -nE 'fmuladd|llvm.fma|contract' /tmp/x.ll | head -20
+          clang $BASE -arch arm64 -I"$PYINC" -S -emit-llvm $SRC -o /tmp/x0.ll -O0 -Xclang -disable-O0-optnone -ffp-contract=off -fno-fast-math
+          grep -nE 'fmuladd|llvm.fma|contract' /tmp/x0.ll | head -20
 
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         run: uv run --locked pytest -q --durations=15
