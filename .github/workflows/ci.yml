@@ -61,6 +61,21 @@ jobs:
       - name: C kernel check
         run: uv run --locked python tools/build_native.py --check
 
+      - name: "DEBUG (temporary): macOS kernel build command and FMA sites"
+        if: failure() && runner.os == 'macOS'
+        run: |
+          set -x
+          cc --version; which -a cc clang; xcrun --find clang || true
+          env | grep -iE 'flags|arch|cc=|sdk|deployment' || true
+          uv run --locked python -c "import sysconfig as s; [print(k, '=', s.get_config_var(k)) for k in ('CC','CFLAGS','LDSHARED','LDFLAGS','ARCHFLAGS')]"
+          uv run --locked python -c "import setuptools; print(setuptools.__version__)"
+          ls -la mlaser/_native/ build 2>/dev/null || true
+          objdump -d --no-show-raw-insn mlaser/_native/_emitter.cpython-*-darwin.so | grep -B30 fmadd | head -150
+          MLASER_BUILD_NATIVE=1 uv run --locked python setup.py build_ext -v --force --build-temp /tmp/bt --build-lib /tmp/bl 2>&1 | tail -20
+          objdump -d /tmp/bl/mlaser/_native/*.so | grep -c fmadd || true
+          uv pip install -v --no-deps --reinstall-package mlaser -e . 2>&1 | grep -iE 'clang|cc |ffp' | head || true
+          objdump -d mlaser/_native/_emitter.cpython-*-darwin.so | grep -c fmadd || true
+
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         run: uv run --locked pytest -q --durations=15
 
