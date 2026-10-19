@@ -30,8 +30,8 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMenu, QMessageBox, QVBoxLayout,
-                               QWidget)
+from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMenu, QMessageBox, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
 from mlaser.services.command_search import Entry, RecentCommands
@@ -154,6 +154,7 @@ class Shell:
         self._apply_mode(self.modes.mode)
         self.set_classic(bool(self.config.get("shell.classic_ribbon", False)), persist=False)
         self._update_title()
+        self.apply_focus_order()
         self._poll()
 
     # ------------------------------------------------------------------ commands
@@ -321,7 +322,40 @@ class Shell:
             self.w.statusBar().showMessage(self.tr.format("shell.ws.hidden", workspace=self.ws_title(ws_id)), 4000)
         return ok
 
+    def focus_chain(self) -> list[QWidget]:
+        """The keyboard focus order: top bar (menu, search, user mode, language), the rail, the
+        workspace toolbar, the canvas (or the workspace page), then the run bar."""
+        w = self.w
+        tb = self.topbar
+        chain: list[QWidget] = [tb.menu_btn, tb.search, tb.mode_combo, w.lang_combo]
+        rail = self.host.rail
+        for ws in self.host.visible_ids():
+            b = rail.widgetForAction(self.host.rail_actions[ws])
+            if b is not None:
+                chain.append(b)
+        page = self.host.pages.get(self.host.current)
+        if page is not None:
+            for act in page.toolbar.actions():
+                b = page.toolbar.widgetForAction(act)
+                if b is not None and isinstance(b, QToolButton):
+                    chain.append(b)
+            if page.spec.canvas:
+                chain.append(w.canvas)
+            elif page.placeholder is not None:
+                chain.extend(page.placeholder.buttons.values())
+        su = getattr(w, "safety_ui", None)
+        if su is not None:
+            chain.extend(su.run_bar.buttons.values())
+        return chain
+
+    def apply_focus_order(self) -> None:
+        chain = [c for c in self.focus_chain() if c is not None]
+        for a, b in zip(chain, chain[1:]):
+            QWidget.setTabOrder(a, b)
+
     def _workspace_changed(self, ws_id: str) -> None:
+        if self.topbar is not None and getattr(self, "_keys_applied", False):
+            self.apply_focus_order()
         self.config.set("shell.workspace", ws_id)
         try:
             self.w.hooks.emit("workspace_changed", ws_id)
@@ -392,6 +426,8 @@ class Shell:
         lp = getattr(w, "layer_panel", None)
         if lp is not None:
             lp.setEnabled(mode != um.OPERATOR)               # Operator: no parameter editing
+        if getattr(self, "_keys_applied", False):
+            self.apply_focus_order()
         try:
             w.hooks.emit("user_mode_changed", mode)
         except KeyError:
@@ -423,8 +459,9 @@ class Shell:
             w.ribbon.setCornerWidget(combo, Qt.TopRightCorner)
             combo.show()
         else:
+            if w.ribbon.cornerWidget(Qt.TopRightCorner) is combo:
+                w.ribbon.setCornerWidget(None, Qt.TopRightCorner)   # (hides the old corner)
             self.topbar.take_language_combo(combo)
-            w.ribbon.setCornerWidget(None, Qt.TopRightCorner)
         act = self.action("shell.classic_ribbon")
         if act is not None and act.isChecked() != on:
             act.blockSignals(True)

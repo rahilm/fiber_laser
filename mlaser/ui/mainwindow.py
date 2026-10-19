@@ -452,7 +452,10 @@ class MainWindow(QMainWindow):
         """A plugin bound a command that has no ribbon action yet: create one (label = lang key
         or text); a checkable command gets a checkable action."""
         if spec.id not in self.ribbon.actions:
-            self.ribbon.action(spec.id, spec.label or spec.id, checkable=spec.checkable)
+            label = spec.label if spec.label and spec.label != spec.id else spec.id
+            if label == spec.id and self.tr_.has(f"cmd.{spec.id}"):
+                label = f"cmd.{spec.id}"            # the catalogue's readable id
+            self.ribbon.action(spec.id, label, checkable=spec.checkable)
         elif spec.checkable:
             self.ribbon.actions[spec.id].setCheckable(True)
 

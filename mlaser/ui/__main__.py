@@ -121,6 +121,7 @@ def main(argv=None) -> int:
     if logdir is not None:
         win.log_panel.log(f"log files: {logdir}")
     win.show()
+    win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
     return app.exec()
 
 

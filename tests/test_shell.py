@@ -11,6 +11,7 @@ import pytest
 pytest.importorskip("PySide6")
 pytestmark = pytest.mark.ui
 
+from PySide6.QtCore import Qt  # noqa: E402
 from PySide6.QtGui import QKeySequence, QPalette  # noqa: E402
 from PySide6.QtWidgets import (QApplication, QDialog, QLabel, QMessageBox,  # noqa: E402
                                QToolButton, QWidget)
@@ -356,3 +357,16 @@ def test_import_params(win, app, tmp_path):
     src.export_dat(tmp_path / "dat")
     n = win.shell.import_params(str(tmp_path / "dat"))
     assert n >= 1 and win.config.get(key) == pytest.approx(val, rel=1e-3)
+
+
+def test_focus_order(win, app):
+    sh = win.shell
+    chain = sh.focus_chain()
+    tb = sh.topbar
+    assert chain[:4] == [tb.menu_btn, tb.search, tb.mode_combo, win.lang_combo]
+    assert win.canvas in chain and chain.index(win.canvas) < chain.index(win.safety_ui.run_bar.buttons["start"])
+    # Qt's own chain follows it: from the search box, Tab reaches the user-mode box next
+    nxt = tb.search.nextInFocusChain()
+    while nxt is not None and not (nxt.focusPolicy() & Qt.TabFocus and nxt.isVisible()):
+        nxt = nxt.nextInFocusChain()
+    assert nxt is tb.mode_combo

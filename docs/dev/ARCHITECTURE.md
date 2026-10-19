@@ -237,6 +237,13 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
 | `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+| `UserModeService` (`usermodes.py`, Wave 3) | Operator / Engineer / Service, the command min-mode policy, PBKDF2 PINs | – (the original's two vendor password levels) |
+| workspaces (`workspaces.py`, Wave 3) | the six workspace slots, `WorkspaceSpec`, the slot rule, command -> workspace | – |
+| command search (`command_search.py`, Wave 3) | fuzzy ranking and recent commands of the Ctrl+K palette | – |
+
+The Qt side of the Wave 3 shell is `mlaser/ui/shell/` (workspace host and rail, top bar,
+palette, themes with contrast-checked canvas colours, key tables, dialogs); docs/user/shell.md,
+docs/dev/PLUGINS.md §5.
 
 ### Undo
 

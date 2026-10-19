@@ -90,14 +90,17 @@ class Ribbon(QTabWidget):
             self._file_menu.addAction(self.action(cmd, key))
         for tab in spec.TABS:
             self._add_tab(tab)
+        self._fit_height()
 
     # ------------------------------------------------------------------
     def _fit_height(self) -> None:
         """Height from the font (two label lines + icon + caption + a scroll bar), so a larger
         font or 150 % scaling never clips the labels (the original's fixed 118 px did)."""
+        from PySide6.QtWidgets import QStyle
         fm = self.fontMetrics()
         line = fm.height()
-        self.setFixedHeight(32 + 3 * line + 2 * 6 + self.tabBar().sizeHint().height() + 12)
+        bar = self.style().pixelMetric(QStyle.PM_ScrollBarExtent)   # a tab wider than the window
+        self.setFixedHeight(32 + 3 * line + 2 * 8 + self.tabBar().sizeHint().height() + bar + 4)
 
     def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().changeEvent(ev)

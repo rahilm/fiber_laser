@@ -139,18 +139,30 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   validation
 
 ## Wave 3: modern workflow (Stage 3, built on the services)
-- ☐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
-  a Ctrl+K command palette, and an optional classic ribbon
+- ◐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
+  a Ctrl+K command palette, and an optional classic ribbon: ☑ the shell (`mlaser/ui/shell/`,
+  docs/user/shell.md): rail with the six workspaces (Ctrl+1..6), top bar (file + unsaved
+  marker, command search, safety chips, user mode, language), Safety's run bar in every
+  workspace, `ctx.add_workspace` with slots/options (docs/dev/PLUGINS.md §5), Ctrl+K palette
+  over all commands (recents first), classic ribbon view without elided labels, reset layout,
+  1280×800 and 150 % layouts, first-run welcome sheet; ☐ the Process / Nest / Run / Report /
+  Machine workspaces themselves (other Wave 3 tracks fill the slots)
 - ☐ material/technology database: material × thickness × gas × nozzle; versioned; diff against
   factory values
 - ☐ properties panel instead of modal dialogs; units; live previews
 - ☐ preview with a scrubber, plus a time and cost card
-- ☐ touch-first Run screen; Operator, Engineer and Service modes
+- ◐ touch-first Run screen; Operator, Engineer and Service modes: ☑ the modes
+  (`services/usermodes.py`: command `min_mode`, rail and palette filtered, no parameter editing
+  and 48 px targets for Operator, optional PBKDF2 PINs set in Service mode); ☐ the Run screen
 - ☐ graphical nest workspace; job queue; production reports; remnant stock
 - ☐ guided edge-seek and calibration procedures
 - ☐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
   files
-- ☐ dark and high-contrast themes, SVG icons, accessibility
+- ☑ dark and high-contrast themes, SVG icons, accessibility (light / dark / high contrast with
+  palette + QSS, persisted; canvas colours follow the theme with layer colours ≥ 3:1 and
+  distinguishable; accessible names on rail/toolbar/top-bar controls, a fixed focus order,
+  keys documented from the registry in docs/user/keyboard.md, banners and chips never colour
+  alone)
 - ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
 - ☐ typed model and versioned native project format; `.chf` kept as interchange (byte-exact)
 - ☐ docs split into user / dev / re; packaged help

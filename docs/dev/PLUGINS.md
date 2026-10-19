@@ -42,7 +42,7 @@ ignored with a log line.
 
 | Call | What it does |
 |---|---|
-| `ctx.register_command(id, handler, label="", checkable=False)` | binds a command id.  A ribbon command keeps its button; a new id gets an action labelled `label` (a lang key or text).  A checkable command's handler receives the checked state.  **A second registration of an id raises `DuplicateCommandError`**; there is no override.  A handler that raises is logged and recorded (`tools/command_coverage.py` reports it); the app keeps running |
+| `ctx.register_command(id, handler, label="", checkable=False, min_mode="", workspace="")` | binds a command id.  `min_mode` (`"operator"` / `"engineer"` / `"service"`) is the lowest user mode that may run it (default: the policy table of `mlaser.services.usermodes.default_min_mode`); `workspace` the workspace it belongs to in the palette and the shortcut sheet.  A ribbon command keeps its button; a new id gets an action labelled `label` (a lang key or text).  A checkable command's handler receives the checked state.  **A second registration of an id raises `DuplicateCommandError`**; there is no override.  A handler that raises is logged and recorded (`tools/command_coverage.py` reports it); the app keeps running |
 | `ctx.edit(fn, label, parts=None)` | runs `fn(document)` as one undoable transaction and refreshes the views.  `parts` is the scope: the parts `fn` changes in place (default all; `()` when `fn` only adds, removes or reorders parts or changes `layers` / `extra`).  The smaller the scope, the cheaper the undo step.  If `fn` raises, the scope is restored and nothing is recorded |
 | `ctx.replace_document(doc, label)` | makes `doc` the open document (undoable) |
 | `ctx.on_controller_changed(fn)` | `fn(controller)` after the machine controller was replaced (re-attach signals, hooks) |
@@ -53,7 +53,9 @@ ignored with a log line.
 | `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises |
 | `ctx.add_dock(widget, title, area="right")` | a dock widget (`left` / `right` / `bottom` / `top`) |
 | `ctx.add_ribbon_tab(title, command_ids)` | a ribbon tab with one button per command |
-| `ctx.add_workspace(name, widget, title)` | registers a task workspace (Wave 3 workspaces; kept in `window.workspaces`) |
+| `ctx.add_workspace(name, widget, title, **options)` | a task workspace in the shell's rail, or the content of a built-in slot (§5); kept in `window.workspaces` too |
+| `ctx.show_workspace(id)`, `ctx.user_mode` | switch workspace (`"run"`, `"<plugin>.<name>"`); the current user mode |
+| `ctx.on_workspace_changed(fn)`, `ctx.on_user_mode_changed(fn)` | `fn(workspace_id)` / `fn(mode)` after the shell switched |
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
 | `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs |
 
@@ -81,3 +83,62 @@ def test_hello(fake_host):          # see tests/test_services_plugins.py: FakeHo
 For the real application wiring, `tests/wiring.py:real_window()` builds the main window with
 every built-in plugin, as the application does.  `python tools/command_coverage.py` triggers
 every command headlessly and must report 0 unimplemented / 0 raising / 0 duplicates.
+
+## 5. Workspaces (Wave 3 shell)
+
+The shell (`mlaser/ui/shell/`, user docs: [docs/user/shell.md](../user/shell.md)) has a rail
+with six built-in **slots**: `design` (Ctrl+1, the canvas, default), `process` (Ctrl+2),
+`nest` (Ctrl+3), `run` (Ctrl+4), `report` (Ctrl+5) and `machine` (Ctrl+6).  Until a plugin fills
+a slot it shows a placeholder with the task's classic commands.
+
+```python
+def register(ctx):
+    panel = ProcessPanel(ctx)                      # any QWidget
+    ctx.add_workspace("process", panel, "Process", # fills the Process slot (slot rule below)
+                      canvas=True,                 # show the shared canvas, panel to its right
+                      toolbar=["craft.lead", "craft.kerf", "-", "sort.run"],
+                      docks=["lp0", "mf124"])      # docks shown while it is active
+    ctx.add_workspace("techdb", TechDb(ctx), "Technology", icon="database-import",
+                      order=25, min_mode="engineer", description="Material x thickness x gas")
+```
+
+Options (all optional; `mlaser.services.workspaces.WorkspaceSpec`):
+
+| option | meaning |
+|---|---|
+| `icon` | Tabler icon name (`mlaser/ui/resources/icons/tabler/*.svg`) |
+| `order` | rail position (slots 10..60; default 100) |
+| `shortcut` | key sequence; plugins get the first free of Ctrl+7..9 |
+| `min_mode` | lowest user mode that sees it (`operator`, `engineer` (default), `service`) |
+| `canvas` | `True`: the page shows the shared canvas; `widget` goes into a side panel |
+| `toolbar` | command ids of the slim workspace toolbar (`"-"` = separator), at most ~15 |
+| `docks` | dock object names shown while active (`lp0` layers/parts, `mf141` run control, `mf124` log, `mf460` nest; your own `ctx.add_dock(..., key=...)`); docks of the previous workspace that are not listed are hidden, others are left alone |
+| `description` | one line for the rail tooltip and the placeholder |
+| `slot` | the slot to fill, when `name`/`title` do not say it |
+
+**Slot rule.**  A workspace whose `slot`, `name` or `title` equals a slot id (case-insensitive:
+`"process"`, `"Run"`) fills that slot: the placeholder goes, the rail keeps one button.  The
+first contribution decides the page (canvas or not, toolbar, docks; options it leaves out keep
+the slot's); a second contribution to the same slot becomes a tab of the page.  Every other
+workspace gets a rail button of its own.  The id is always `"<plugin>.<name>"`, and the
+three-argument call of Wave 2 (`ctx.add_workspace(name, widget, title)`) keeps working: a host
+without the shell (the Qt-free `FakeHost` of the tests) receives `host_add_workspace(id, widget,
+title)` and the options are dropped.
+
+**User modes.**  `ctx.user_mode` is `operator`, `engineer` or `service`.  Commands are disabled
+(and hidden from the palette) below their `min_mode`; workspaces are hidden from the rail.  A run
+UI for operators should use only commands whose minimum mode is `operator` (`run.*`,
+`machine.home*`, `file.open`, `card.*` alarms/resume ...) or declare its own commands with
+`min_mode="operator"`.  Never use the user mode as a safety interlock: arming, pre-flight and
+the supervisor are independent of it (docs/SAFETY.md).
+
+**Run controls.**  The shell registers `run.start` (F5), `run.frame` (F6), `run.dry_run`
+(Shift+F6), `run.hold`, `run.stop` (F12), `run.arm`, `run.simulate`; they call the safety UI
+(`window.safety_ui.start()` ...), so a Run workspace can put them on its own buttons with
+`QToolButton.setDefaultAction(window.ribbon.actions["run.start"])` and get the pre-flight check,
+the arming dialog and the keys for free.  The persistent run bar stays at the bottom of every
+workspace; do not build a second one.
+
+**Testing.**  `tests/wiring.py:real_window(user_mode="service")` (the default) enables every
+command; pass `user_mode="operator"` to test an operator screen.  `window.show_workspace(id)`
+switches; `window.shell.host.pages[id]` is the page.
