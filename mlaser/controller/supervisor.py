@@ -198,6 +198,7 @@ class SafetySupervisor:
         self._hb_state = False
         self._hb_next = 0.0
         self.heartbeat_toggles = 0
+        self._link_epoch = 0.0                # end of the last host stall (idle link age)
         self.heartbeat_errors = 0             # heartbeat writes that failed (no reply in time)
         self.heartbeat_held = False           # commissioning test: output off, no toggling
         self.fifo_frames = 0
@@ -363,19 +364,23 @@ class SafetySupervisor:
         if self.heartbeat_output and self._hb_state:
             self._heartbeat_write(False)
 
-    def link_age_s(self) -> float:
-        now = time.monotonic()
+    def link_age_s(self, now: Optional[float] = None) -> float:
+        """Seconds without a reply (see deadline_s); ``now`` is the monitor's wake-up time, so
+        that a host stall during the tick itself is judged on the next tick."""
+        now = time.monotonic() if now is None else now
         if self.streaming == "process":
             return now - self.child_seen if self.child_seen else 0.0
         mc = self._mc
         if mc is None or not mc.last_ok:
             return 0.0
-        if not self.streaming and getattr(mc, "last_sent", 0.0) <= mc.last_ok:
-            # idle, and every request sent so far was answered: silence since the last reply is
-            # this host not asking (a GUI thread holding the GIL for seconds, e.g. while a large
-            # window is built), not the card or the link failing to answer.  A dead link shows
-            # as requests sent after the last reply (the poller keeps asking).
-            return 0.0
+        if not self.streaming:
+            if getattr(mc, "last_sent", 0.0) <= mc.last_ok:
+                # idle, and every request sent so far was answered: silence since the last reply
+                # is this host not asking (a GUI thread holding the GIL for seconds, e.g. while
+                # a large window is built), not the card or the link failing to answer.  A dead
+                # link shows as requests sent after the last reply (the poller keeps asking).
+                return 0.0
+            return now - max(mc.last_ok, self._link_epoch)   # (the end of a host stall, _monitor)
         return now - mc.last_ok
 
     def deadline_s(self) -> float:
@@ -412,13 +417,14 @@ class SafetySupervisor:
                         time.sleep(min(0.002, self._hb_next - now))
                         now = time.monotonic()
                 # this thread itself woke far too late: the whole host stalled (another thread
-                # held the interpreter), and the poller may not have read a reply that came
-                # meanwhile; while idle the link is judged one tick later, not on this one
-                stalled = now - t0 - req > HOST_STALL_S
+                # held the interpreter), the poller's requests timed out on the wall clock
+                # without the card being at fault; while idle the card gets a full deadline
+                # again from the end of the stall
+                if now - t0 - req > HOST_STALL_S and not self.streaming:
+                    self._link_epoch = now
                 if now >= next_tick:
                     next_tick = now + self.monitor_s
-                    if not (stalled and not self.streaming):
-                        self._tick_link()
+                    self._tick_link(now)
                     now = time.monotonic()
                     if self._retry is not None and now >= next_retry:
                         next_retry = now + self.halt_retry_s
@@ -428,11 +434,11 @@ class SafetySupervisor:
             except Exception:  # noqa: BLE001 - the monitor must keep running
                 log.exception("safety monitor")
 
-    def _tick_link(self) -> None:
+    def _tick_link(self, now: Optional[float] = None) -> None:
         mc = self._mc
         if mc is None or not mc.last_ok:
             return
-        age = self.link_age_s()
+        age = self.link_age_s(now)
         if age > self.deadline_s():
             if not self._lost:
                 self._lost = True
