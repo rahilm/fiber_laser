@@ -131,3 +131,36 @@ def print_to(printer, records: list[JobRecord], image_dir: Optional[str], lang: 
 def QPrinter_unit():
     from PySide6.QtPrintSupport import QPrinter
     return QPrinter.DevicePixel
+
+
+# ============================================================================== production report
+def production_html(title: str, subtitle: str, sections: list[tuple[str, list[str], list[list]]]) -> str:
+    """Simple paginating HTML for the production report: a title and one table per section
+    ``(heading, columns, rows)``."""
+    import html as _h
+    out = [f"<h2>{_h.escape(title)}</h2><p>{_h.escape(subtitle)}</p>"]
+    for heading, cols, rows in sections:
+        out.append(f"<h3>{_h.escape(heading)}</h3>")
+        out.append('<table border="1" cellspacing="0" cellpadding="3" width="100%">')
+        out.append("<tr>" + "".join(f"<th align='left'>{_h.escape(str(c))}</th>" for c in cols) + "</tr>")
+        for r in rows:
+            out.append("<tr>" + "".join(f"<td>{_h.escape(str(v))}</td>" for v in r) + "</tr>")
+        out.append("</table>")
+    return "".join(out)
+
+
+def export_production_pdf(path: str, title: str, subtitle: str,
+                          sections: list[tuple[str, list[str], list[list]]]) -> str:
+    """The production report (Report workspace) as an A4 PDF."""
+    from PySide6.QtGui import QTextDocument
+    wr = QPdfWriter(path)
+    wr.setPageSize(QPageSize(QPageSize.A4))
+    wr.setPageMargins(QMarginsF(12, 12, 12, 12), QPageLayout.Millimeter)
+    wr.setResolution(150)
+    doc = QTextDocument()
+    f = QFont()
+    f.setPointSizeF(8)
+    doc.setDefaultFont(f)
+    doc.setHtml(production_html(title, subtitle, sections))
+    doc.print_(wr)
+    return path
