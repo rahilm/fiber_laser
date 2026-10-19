@@ -161,10 +161,18 @@ class ParamGridDialog(QDialog):
 
 
 class LayerParamDialog(ParamGridDialog):
-    """lp0 "Layer Parameters": every GP.* field of one layer. Core fields go to LayerParams."""
+    """lp0 "Layer Parameters": every GP.* field of one layer. Core fields go to LayerParams.
+
+    The other values go to ``extra['process']``, the GP.* overrides the job compiler reads
+    (``parity_ports.mainapp.layer.LayerView``).  They used to go to ``extra['gp']``, which
+    nothing read, so a pierce stage or focus typed here never reached the job (Wave 3 Process
+    track; ``mlaser.services.technology`` applies a technology the same way)."""
 
     def __init__(self, tr: Translator, layer, parent=None):
-        vals = dict(layer.extra.get("gp", {}))
+        ex = layer.extra or {}
+        vals = dict(ex.get("values", {}) or {})
+        vals.update(ex.get("gp", {}) or {})
+        vals.update(ex.get("process", {}) or {})
         for gp, attr in P.LAYER_FIELD_MAP.items():
             vals[gp] = getattr(layer, attr)
         super().__init__(tr, "lp0", ["LayerParam"], vals, parent)
@@ -179,7 +187,10 @@ class LayerParamDialog(ParamGridDialog):
                     setattr(self.layer, attr, type(getattr(self.layer, attr))(self.values[gp]))
                 except (TypeError, ValueError):
                     pass
-        self.layer.extra["gp"] = {k: v for k, v in self.values.items() if k not in P.LAYER_FIELD_MAP}
+        self.layer.extra.pop("gp", None)
+        proc = dict(self.layer.extra.get("process", {}) or {})
+        proc.update({k: v for k, v in self.values.items() if k not in P.LAYER_FIELD_MAP})
+        self.layer.extra["process"] = proc
 
 
 class LeadDialog(_Base):
