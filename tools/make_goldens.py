@@ -9,8 +9,8 @@ or declare (and review) a new behaviour.  They are captured from the current cod
 file               content
 =================  =====================================================================
 jobs_samples.json  ``compile_job`` wire stream and ``Job.frames()`` of the sample .chf
-                   files (tests/data) and the parity sample DXFs (tests/data/dxf), two
-                   configurations each
+                   files (tests/data/chf, made by tools/make_test_chf.py) and the parity
+                   sample DXFs (tests/data/dxf), two configurations each
 jobs_random.json   the same for 300 seeded random jobs (rectangles, circles, polylines
                    with arcs, holes, leads, kerf, micro-joints, overcut/gap)
 orders.json        toolpath order (part, contour) for every sort mode x small-first
@@ -49,6 +49,11 @@ Noto Sans SC subset (mlaser.cad.fonts), so the fingerprint, and these cases, are
 every host; the 23 TEXT cases were regenerated once for that change (before: WenQuanYi Micro
 Hei, the original's 宋体 as the Wine harness maps it; ``MLASER_TEXT_FONT=system`` still gives
 that probe, 10e96370...).
+
+The ``.chf`` sample cases (``chf/sample_v9``, ``chf/sample_v5`` in jobs_samples, orders and chf)
+were regenerated once when the original's autosave drawings (``chf/autosave``,
+``chf/tempGraph``) were replaced by drawings written by mlaser itself (docs/ASSETS.md); every
+other case stayed bit identical.
 """
 
 from __future__ import annotations
@@ -237,7 +242,7 @@ def sample_docs() -> list[tuple[str, object, bool]]:
     from mlaser.io.dxf_import import import_dxf
 
     out = []
-    for p in sorted(DATA.glob("*.chf")):
+    for p in sorted((DATA / "chf").glob("*.chf")):
         out.append((f"chf/{p.stem}", load_chf(p), False))
     for p in sorted((DATA / "dxf").glob("*.dxf")):
         doc = import_dxf(str(p))
@@ -385,7 +390,7 @@ def gen_jobs_samples(ex: dict) -> dict:
             try:
                 job = compile_job(doc, dict(cam), Machine(**mach))
                 rec = job_record(job)
-                if name in ("chf/tempGraph", "dxf/basic_r2000") and cname == "default":
+                if name in ("chf/sample_v5", "dxf/basic_r2000") and cname == "default":
                     ex[f"jobs_samples/{key}"] = job_exemplar(job)
             except Exception as e:  # noqa: BLE001 - the failure is the behaviour
                 rec = _error(e)
@@ -454,7 +459,7 @@ def gen_chf(ex: dict) -> dict:
         try:
             if name.startswith("chf/"):
                 b = dumps_chf(doc, version=doc.version)
-                src = (DATA / (name[4:] + ".chf")).read_bytes()
+                src = (DATA / "chf" / (name[4:] + ".chf")).read_bytes()
                 rec = {"bytes": h_bytes(b), "size": len(b), "identical_to_source": b == src}
             else:
                 b = dumps_chf(doc)

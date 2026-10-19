@@ -1,0 +1,6 @@
+[SC]
+Var1=A250421_0
+Var2=mf15
+Var3=pd125
+Var4=pd125
+Var5=mp29

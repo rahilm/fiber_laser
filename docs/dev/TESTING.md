@@ -30,6 +30,22 @@ Windows and macOS, plus `tools/native_parity.py` (kernel vs Python port on all g
 exact). The CI test job sets `MLASER_NATIVE=1`, so a platform where the kernel did not build
 or fails its self-check fails instead of silently testing the Python port.
 
+## Test data and the original's files
+
+The repository contains no file from the original's install (docs/ASSETS.md). The test data is
+our own: `tests/data/chf/*.chf` are written by `tools/make_test_chf.py` from mlaser's model (a v9
+drawing with a scan graph, groups, crafts, splines, arcs and text, and a v5 drawing; `--check`
+verifies they are current), `tests/data/appdir/` holds hand-written state files in the
+original's formats (same layout as the install folder), `tests/data/lang_fixture/` a synthetic
+language folder.
+
+Tests that check the ORIGINAL program's own files byte for byte (its autosave drawings, state
+files, calibration table, firmware, G-code sample) read them from a local copy of the install:
+`MLASER_VENDOR_SAMPLES=<install folder>` (default: the extracted download used for the
+reconstruction, if it exists; empty disables them). Without it they skip, like the parity
+tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")`,
+`vendor_file(rel)`).
+
 ## Contract for every commit
 
 * `tools/make_goldens.py --check` bit identical (3.12; with the C kernel, and with

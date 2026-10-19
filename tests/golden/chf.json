@@ -1,16 +1,16 @@
 {
  "cases": {
-  "chf/autosave": {
-   "bytes": "20f28d1beabafbc591a804f8d0be24d51a6cd4a7e7b3206bdbf155494eca80f5",
+  "chf/sample_v5": {
+   "bytes": "071fdb2ff376bfb034362b556029b9ff7d5007a84c09af24dda69d99ff580201",
    "host_dependent": false,
    "identical_to_source": true,
-   "size": 658072
+   "size": 2182
   },
-  "chf/tempGraph": {
-   "bytes": "de341330943f9f637fe6d0aedd5b015ec79bdac298c2172d76b985d04b36cb04",
+  "chf/sample_v9": {
+   "bytes": "f28d5409a68ef9510ac286112321968c8206925ca118e7853f95904e372cd176",
    "host_dependent": false,
    "identical_to_source": true,
-   "size": 500
+   "size": 262036
   },
   "dxf/basic_r2000": {
    "bytes": "1b04f17c6b3b921f6f2b40e97cdbb2b4c62c63d5393dddf788f7c2a69f77827f",

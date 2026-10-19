@@ -1,14 +1,11 @@
 """On-board follower through the motion card, calibration table, network follower codec."""
-import os
-
 import pytest
+from vendor_samples import requires, vendor_file
 
 from mlaser.protocol import frames as F
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.follower_sim import make_follower_card_simulator
 from mlaser.devices.follower import CalibrationTable, OnBoardFollower
-
-ORIG = "/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1"
 
 
 @pytest.fixture
@@ -54,9 +51,18 @@ def test_calibration_table_roundtrip(tmp_path):
     assert t.height_for(410585) == pytest.approx(151, abs=1)
 
 
-@pytest.mark.skipif(not os.path.exists(ORIG + "/Help/calib.csv"), reason="original install missing")
+def test_calib_csv_fixture():
+    from pathlib import Path
+    p = Path(__file__).parent / "data" / "appdir" / "Help" / "calib.csv"
+    t = CalibrationTable.load(str(p))
+    assert t.reference == 405120 and len(t.points) == 30 and t.points[-1] == (4000, 404635)
+    assert t.dumps().encode() == p.read_bytes()
+    assert t.height_for(402000) == pytest.approx(215, abs=10)
+
+
+@requires("Help/calib.csv")
 def test_shipped_calib_csv():
-    t = CalibrationTable.load(ORIG + "/Help/calib.csv")
+    t = CalibrationTable.load(str(vendor_file("Help/calib.csv")))
     assert t.reference == 413023 and len(t.points) == 63 and t.points[-1] == (4201, 412318)
 
 

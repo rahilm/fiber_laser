@@ -2,7 +2,6 @@
 offline files, network test, laser type (agent H, phase 3) -- against the simulator only."""
 import os
 import time
-from pathlib import Path
 
 import pytest
 
@@ -16,8 +15,9 @@ from mlaser.controller.ui_adapter import UiController
 from mlaser.formats import backup as B
 from mlaser.formats.params import MachineParams
 from mlaser.model import Contour, Document, Line, Part
+from vendor_samples import vendor_path
 
-ORIG_MCF = Path("/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1/Update/MCC100_V201.77.mcf")
+ORIG_MCF = vendor_path("Update/MCC100_V201.77.mcf")      # the original's firmware, local copy only
 
 
 @pytest.fixture
@@ -119,7 +119,7 @@ def test_check_file(tmp_path):
         U.check_file(short, "mc")
     with pytest.raises(U.UpgradeError, match="expected"):
         U.check_file(_fw(tmp_path, ext=".afb"), "mc")
-    if ORIG_MCF.exists():
+    if ORIG_MCF is not None:
         assert len(U.check_file(ORIG_MCF, "mc").data) == 102912
     assert U.bundled_firmware_name(20177) == "MCC100_V201.77.mcf"
     assert U.needs_upgrade(20100) and not U.needs_upgrade(20177) and not U.needs_upgrade(0)

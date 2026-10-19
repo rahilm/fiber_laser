@@ -1,0 +1,10 @@
+[Jump]
+AddTime=150
+[Axis4Freq]
+Is4Freq=1
+[LimitSamllCircleVel]
+IsLimit=1
+SlowRatio=2
+[Arc2SegVelK]
+K_X=90
+K_Y=110

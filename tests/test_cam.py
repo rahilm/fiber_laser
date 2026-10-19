@@ -1,5 +1,4 @@
 import math
-import os
 import re
 
 import pytest
@@ -14,7 +13,7 @@ from mlaser.cam.toolpath import CamParams, build_toolpath
 from mlaser.io.gcode import contours_to_gcode, parse_gcode, toolpath_to_gcode
 from mlaser.model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Line, Part
 
-ORIG = "/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1"
+from vendor_samples import requires, vendor_file
 
 
 def rect(x0, y0, x1, y1, ccw=True):
@@ -220,9 +219,9 @@ def test_gcode_export_roundtrip():
     assert doc.parts[1].contours[0].length() == pytest.approx(2 * math.pi * 2, rel=1e-6)
 
 
-@pytest.mark.skipif(not os.path.exists(f"{ORIG}/SVG/Output.nc"), reason="original not available")
+@requires("SVG/Output.nc")
 def test_parse_original_output_nc():
-    with open(f"{ORIG}/SVG/Output.nc") as f:
+    with open(vendor_file("SVG/Output.nc")) as f:
         doc = parse_gcode(f.read())
     assert len(doc.parts) == 7
     assert all(p.contours[0].closed for p in doc.parts)

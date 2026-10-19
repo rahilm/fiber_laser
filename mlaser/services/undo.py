@@ -1,8 +1,8 @@
 """Command-based undo (QUndoStack style) with stable ids and a side table for round-trip blobs.
 
 Before Wave 2 every edit deep-copied the whole document and kept 50 copies (89.7 ms per edit on
-``tests/data/autosave.chf``, about 90 % of it the ``.chf`` round-trip records; architecture.md
-§1.6, P1-7).  Here:
+the original's 839-element ``autosave.chf`` sample, about 90 % of it the ``.chf`` round-trip
+records; architecture.md §1.6, P1-7).  Here:
 
 * **Commands.**  An edit is a :class:`PartsEdit` command that holds only what it needs to swap
   back: copies of the parts in its *scope* (the selection for most ribbon commands), the uids of

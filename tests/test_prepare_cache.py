@@ -53,7 +53,7 @@ def test_cached_builds_equal_uncached(mode):
 
 def test_cached_samples_equal_uncached():
     from mlaser.formats.chf import load_chf
-    files = sorted(DATA.glob("*.chf"))[:4]
+    files = sorted((DATA / "chf").glob("*.chf"))[:4]
     if not files:
         pytest.skip("no sample .chf")
     for f in files:

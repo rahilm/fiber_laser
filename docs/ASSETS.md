@@ -42,13 +42,72 @@ only when no translator is passed, and the catalogue supplies the UI's text.
 | The original's language files `lang.txt` (zh + en) and `Russian/German/Spanish/Portuguese/French/Italian/Polish/Vietnamese/Turkdili.txt` | `mlaser/ui/resources/lang` | 10 files | vendor-authored text and translations | our own English catalogue + the runtime importer (§3) |
 | `params.json`: parameter registry scraped from MainApp.exe string literals (name, label key, guessed section, neighbouring literals as "hints") | `mlaser/ui/resources/params.json` | 1 file, 862 entries | inaccurate (sections such as `%.3f`, hints such as `语言包`), a subset of the descriptor tables | `mlaser.ui.params.registry()` now derives from `mlaser_params.json` |
 | Vendor label text in the descriptor file: `label_en`, `label_zh` per descriptor and `en`/`zh` per enum option | `mlaser/formats/data/mlaser_params.json` | 1,129 × 2 labels + option labels | vendor-authored wording | labels resolved at run time from `en.json` (English) and imported translations (Chinese); `ParamDef.label_en`/`label_zh` keep working |
-| Copies of the original's `lang.txt`, `French.txt`, `lang.ini` used as test data | `tests/data/Lang` | 3 files | as above | a small synthetic fixture in the same file format, written for the tests |
+| Copies of the original's `lang.txt`, `French.txt`, `lang.ini` used as test data (the synthetic replacement first lived at the same path) | `tests/data/Lang` | 3 files | as above | a small synthetic fixture in the same file format, written for the tests, now in `tests/data/lang_fixture` |
+| The original's autosave drawings `File/autosave.chf` (v9, one 839-element scan graph) and `File/Temp/tempGraph.chf` (v5, one circle) | `tests/data/autosave.chf`, `tests/data/tempGraph.chf` | 2 files, 658 KB | came with the vendor's archive | `tests/data/chf/sample_v9.chf`, `sample_v5.chf`, written by `tools/make_test_chf.py` from mlaser's model |
+| Byte-identical copies of the original's state files: `File/AutosaveParam1/2.ini`, `File/ManuContour.dat`, `File/PithCompensate.pcf`, `File/softPara.ini`, `File/Temp/{AutosaveParam1,AutosaveParam2,ManuContour,tempIsBreak}.*`, `JumpAddTime.txt`, `LanFormatEStr.txt`, `Help/calib.csv` | `tests/data/` (root, `Temp/`, `Help/`) | 13 files | came with the vendor's archive (small numeric state, but copies all the same) | hand-written files in the same formats in `tests/data/appdir/` (install-folder layout) |
+
+The tests that check the original's own files byte for byte still exist; they read them from a
+local copy of the install (`MLASER_VENDOR_SAMPLES`, docs/dev/TESTING.md) and skip without it.
 
 **Git history.** These files were part of the first commit (`87a0fad Baseline: import the
-current rebuild tree`). Removing them from the working tree does not remove them from history.
-Before the repository is published, rewrite the history (e.g. `git filter-repo --path
-mlaser/ui/resources/icons --path mlaser/ui/resources/lang --path mlaser/ui/resources/params.json
---path tests/data/Lang --invert-paths`) or publish from a fresh, squashed root commit.
+current rebuild tree`); the test-data copies stayed until they were replaced. Removing them from
+the working tree does not remove them from history. Before the repository is published, rewrite
+the history, or publish from a fresh, squashed root commit. The complete path list (no path in it
+exists in the current tree, so the rewrite removes nothing that is still used):
+
+```
+git filter-repo --invert-paths \
+  --path mlaser/ui/resources/icons/buttons \
+  --path mlaser/ui/resources/icons/strips \
+  --path mlaser/ui/resources/icons/misc \
+  --path mlaser/ui/resources/lang \
+  --path mlaser/ui/resources/params.json \
+  --path tests/data/Lang \
+  --path tests/data/autosave.chf \
+  --path tests/data/tempGraph.chf \
+  --path tests/data/AutosaveParam1.ini \
+  --path tests/data/AutosaveParam2.ini \
+  --path tests/data/ManuContour.dat \
+  --path tests/data/PithCompensate.pcf \
+  --path tests/data/softPara.ini \
+  --path tests/data/JumpAddTime.txt \
+  --path tests/data/LanFormatEStr.txt \
+  --path tests/data/Help \
+  --path tests/data/Temp
+```
+
+(`mlaser/ui/resources/icons/tabler` and `tests/data/lang_fixture` must stay: do not pass the
+parent `icons` directory.)
+
+**Label text in earlier versions of `mlaser/formats/data/mlaser_params.json`.** The baseline
+version of that file (blob `c6d04277`, commit `87a0fad`) still contains the vendor's label
+wording; since `62e608f` it is stripped (blob `6504c66c`, the current one). It cannot be removed
+with a path filter, because the file itself must stay; strip it with a blob callback instead.
+Structure: the file is one JSON array of 1,129 descriptor objects. In the old version every
+descriptor has two string fields `"label_en"` and `"label_zh"` (between `"lang"` and `"type"`),
+and the 153 descriptors with an `"options"` array have, in each of its 451 option objects, two
+string fields `"en"` and `"zh"` next to `"lang"`. No other field carries vendor text (`"lang"`
+keys, `"unit"`, `"cond"` and the numbers are facts and stay). Deleting those four keys and
+re-serialising with `json.dumps(data, indent=1, ensure_ascii=False) + "\n"` (UTF-8) reproduces
+the current blob byte for byte, so after the rewrite the file is identical in every commit:
+
+```python
+# git filter-repo --blob-callback (run together with the --path list above, or separately)
+import json
+try:
+    d = json.loads(blob.data)
+except ValueError:
+    d = None
+if isinstance(d, list) and d and isinstance(d[0], dict) and "label_en" in d[0] and "struct_offset" in d[0]:
+    for e in d:
+        e.pop("label_en", None); e.pop("label_zh", None)
+        for o in e.get("options") or []:
+            o.pop("en", None); o.pop("zh", None)
+    blob.data = (json.dumps(d, indent=1, ensure_ascii=False) + "\n").encode("utf-8")
+```
+
+No other JSON file in the history has these fields (the old `mlaser/ui/resources/params.json`,
+with its vendor string "hints", goes with the path list).
 
 ## 3. UI text (i18n)
 
@@ -99,10 +158,18 @@ expression.
 
 | Files | Provenance | Note |
 |---|---|---|
-| `Lang/lang.txt`, `Lang/French.txt`, `Lang/lang.ini` | written for mlaser's tests in the original's format | synthetic |
-| `dxf/*.dxf` | DXF samples used by the import tests | not from the Mlaser download (no byte match); provenance not recorded here. Check before publishing |
-| `softPara.ini`, `AutosaveParam*.ini`, `ManuContour.dat`, `JumpAddTime.txt`, `LanFormatEStr.txt`, `PithCompensate.pcf`, `Help/calib.csv`, `Temp/*` | byte-identical copies of working/state files from the original's install folder (`File/`, `Help/`, root) | small numeric state and key lists, used to test the readers byte-exactly; facts |
-| `autosave.chf`, `tempGraph.chf` | the original's autosave drawings from the download's `File/` folder | test inputs for the `.chf` reader. They are drawings, not text or art, but they came with the vendor's archive. Before a public release, consider replacing them with drawings saved by the user's own machine |
+| `chf/sample_v9.chf`, `chf/sample_v5.chf` | written by `tools/make_test_chf.py` (deterministic, from mlaser's model through `save_chf`; the text graph uses the bundled Noto font) | replace the original's autosave drawings; `--check` verifies them, and the golden `.chf` sample cases are built on them |
+| `appdir/` (`File/*.ini`, `File/ManuContour.dat`, `File/PithCompensate.pcf`, `File/softPara.ini`, `File/Temp/*`, `JumpAddTime.txt`, `LanFormatEStr.txt`, `Help/calib.csv`) | written by hand for mlaser's tests in the original's formats (docs/re/formats.md), with our own values; same layout as the install folder | replace the copies of the original's state files |
+| `lang_fixture/lang.txt`, `French.txt`, `lang.ini` | written for mlaser's tests in the original's format | synthetic (two short technical entries, `mf6` Start and `ROREgName_5` Input Status, read like the original's) |
+| `project/v0_sample.mlz` | an mlaser project written by mlaser (format 0) | own |
+| `dxf/*.dxf` | generated with ezdxf by the parity harness's `compare/make_samples.py` (outside this repository); differ from a fresh run only in timestamps and GUIDs | own; not from the Mlaser download (no byte match with its `dxfTemplate.dxf`) |
+
+The original's own files are read only from a local copy of the install
+(`MLASER_VENDOR_SAMPLES`, `tests/vendor_samples.py`). A few tests quote single short lines of the
+original's logs and reports as inline strings (`tests/test_controller.py` frame bytes,
+`tests/test_report_records.py` one record per report format, calibration numbers in
+`tests/test_devices_follower.py` / `test_settings_import.py`): facts needed to parse those
+formats, a line each.
 
 ## 6. Not bundled, never copied
 
