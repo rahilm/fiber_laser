@@ -14,7 +14,8 @@ from mlaser.web.page import LABEL_IDS, render_page
 
 @pytest.fixture
 def server():
-    s = MonitorServer("127.0.0.1", 0, new_token()).start()
+    # the rate limit is tested in test_web_hardening.py; these tests send bursts of requests
+    s = MonitorServer("127.0.0.1", 0, new_token(), rate_burst=1000).start()
     s.publish({"state": "RUNNING", "kind": "running", "progress": 0.5, "job": "flange.chf",
                "alarms": [{"text": "X servo", "remedy": "check the drive"}], "queue": ["a 1/2"]},
               "<svg xmlns='http://www.w3.org/2000/svg'/>")

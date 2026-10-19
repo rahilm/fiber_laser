@@ -27,3 +27,21 @@ Settings (`plugin.run.*`):
 Requests without the token get *403*. Share the link only with people who may see production
 data, and keep the monitor off on untrusted or guest networks. The page is plain HTTP (no TLS):
 use it on the shop network only.
+
+## Limits
+
+The monitor runs inside the program that controls the machine, so it protects that program from
+busy or misbehaving clients on the network:
+
+| Limit | Value | What happens |
+|---|---|---|
+| idle connection | 10 s | a connection that sends nothing (or an unfinished request) is closed |
+| connection lifetime | 30 s | a connection is closed after 30 s, however slowly the client sends; a browser simply reconnects |
+| connections at once | 16, at most 4 per client address | more connections are answered *503* and closed at once |
+| requests per client address | 5 per second (bursts of 20) | more requests are answered *429* (*Retry-After: 1*) |
+
+One phone or tablet with the page open uses well under these limits (one status request every
+2 seconds, the sheet picture only when it changes). The program never prepares a page for a
+request: it publishes the status twice a second, and the sheet picture is redrawn only when the
+document, the cut parts or the current part change. The log records the requested path only,
+never the access token.

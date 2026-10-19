@@ -16,12 +16,28 @@ publishes (:meth:`MonitorServer.publish`).  Responses carry ``Cache-Control: no-
 
 The server binds to the configured interface address only (``127.0.0.1`` by default; set the
 machine PC's LAN address to reach it from a phone).  It is off unless the operator enables it.
+
+It runs in the safety process (the one that reopens the halt channel and writes the audit log),
+so a LAN peer must not be able to exhaust its threads or file descriptors (code review P1-4):
+
+* every connection has a socket **timeout** (``timeout_s``, 10 s: an idle or half-open request
+  is closed) and a **lifetime** (``max_connection_s``, 30 s, enforced by the serving thread even
+  for a client that trickles one byte at a time);
+* at most ``max_connections`` (16) connections are served at once, at most
+  ``max_per_client`` (4) from one address; a connection over a cap is answered ``503`` and
+  closed at once (no thread);
+* a **rate limit** per client address (token bucket, ``rate_per_s`` 5 requests/s, burst 20);
+  over it, ``429`` with ``Retry-After``;
+* a request does no work on the GUI thread: it serves the bytes the application published
+  last (:meth:`MonitorServer.publish`), the page is rendered from that copy;
+* the access log carries the path only (never the token in the query).
 """
 from __future__ import annotations
 
 import hmac
 import json
 import logging
+import re
 import secrets
 import socket
 import threading
@@ -36,6 +52,14 @@ log = logging.getLogger("mlaser.web")
 
 READ_METHODS = ("GET", "HEAD")
 DEFAULT_PORT = 8765
+TIMEOUT_S = 10.0                 # socket timeout of a connection (idle / half-open requests)
+MAX_CONNECTION_S = 30.0          # lifetime of one connection (slow clients)
+MAX_CONNECTIONS = 16             # connections served at once
+MAX_PER_CLIENT = 4               # ... from one client address
+RATE_PER_S = 5.0                 # requests per second and client address (token bucket)
+RATE_BURST = 20.0
+_MAX_CLIENTS_TRACKED = 1024      # rate-limit buckets kept (oldest dropped)
+_TOKEN_RE = re.compile(r"([?&]t=)[^&\s\"']*")
 
 
 def new_token() -> str:
@@ -75,8 +99,23 @@ class _Handler(BaseHTTPRequestHandler):
     # the owning MonitorServer (set on the class created per server)
     monitor: "MonitorServer"
 
+    def log_request(self, code: Any = "-", size: Any = "-") -> None:  # noqa: D401 - http.server API
+        # the path only: the request line carries the access token in the query
+        path = urlsplit(getattr(self, "path", "") or "").path
+        log.debug("%s %s %s %s", self.address_string(), getattr(self, "command", "-"), path, code)
+
     def log_message(self, fmt: str, *args: Any) -> None:  # noqa: D401 - http.server API
-        log.debug("%s %s", self.address_string(), fmt % args)
+        log.debug("%s %s", self.address_string(), _TOKEN_RE.sub(r"\1<token>", fmt % args))
+
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        if not self.monitor._allow(self.client_address[0]):
+            self.monitor.limited += 1
+            self.close_connection = True
+            self._send(429, b"too many requests\n", extra={"Retry-After": "1", "Connection": "close"})
+            return False
+        return True
 
     # ------------------------------------------------------------------ helpers
     def _send(self, code: int, body: bytes, ctype: str = "text/plain; charset=utf-8",
@@ -142,18 +181,76 @@ class _Handler(BaseHTTPRequestHandler):
                        {"Content-Security-Policy": csp})
 
 
+class _Server(ThreadingHTTPServer):
+    """ThreadingHTTPServer with the connection caps and lifetimes of the module doc."""
+
+    daemon_threads = True
+    block_on_close = False
+    request_queue_size = 32
+
+    monitor: "MonitorServer"
+
+    def process_request(self, request: Any, client_address: Any) -> None:
+        m = self.monitor
+        ip = str(client_address[0])
+        if not m._enter(ip, request):
+            m.rejected += 1
+            try:
+                request.settimeout(0.5)
+                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                                b"Connection: close\r\nRetry-After: 2\r\n\r\n")
+            except OSError:
+                pass
+            self.shutdown_request(request)
+            return
+        try:
+            super().process_request(request, client_address)
+        except Exception:
+            m._leave(ip, request)
+            raise
+
+    def process_request_thread(self, request: Any, client_address: Any) -> None:
+        try:
+            super().process_request_thread(request, client_address)
+        finally:
+            self.monitor._leave(str(client_address[0]), request)
+
+    def service_actions(self) -> None:
+        self.monitor._reap()
+
+    def handle_error(self, request: Any, client_address: Any) -> None:
+        # a client that went away (reset, reaped) is not an application error: no stderr dump
+        log.debug("LAN monitor: connection from %s ended with an error", client_address[0], exc_info=True)
+
+
 class MonitorServer:
     """``start()`` serves on ``host:port`` in a daemon thread; ``publish(snapshot, svg)`` replaces
-    what it shows; ``stop()`` closes the socket."""
+    what it shows; ``stop()`` closes the socket.  ``port=0`` binds a free port (``address``)."""
 
     def __init__(self, host: str = "127.0.0.1", port: int = DEFAULT_PORT, token: str = "",
-                 refresh_s: float = 2.0) -> None:
+                 refresh_s: float = 2.0, *, timeout_s: float = TIMEOUT_S,
+                 max_connection_s: float = MAX_CONNECTION_S, max_connections: int = MAX_CONNECTIONS,
+                 max_per_client: int = MAX_PER_CLIENT, rate_per_s: float = RATE_PER_S,
+                 rate_burst: float = RATE_BURST) -> None:
         if not token or len(token) < 12:
             raise ValueError("the LAN monitor needs an access token of at least 12 characters")
         self.host, self.port, self.token = host, int(port), token
         self.refresh_s = refresh_s
+        self.timeout_s = float(timeout_s)
+        self.max_connection_s = float(max_connection_s)
+        self.max_connections = max(1, int(max_connections))
+        self.max_per_client = max(1, int(max_per_client))
+        self.rate_per_s = float(rate_per_s)
+        self.rate_burst = max(1.0, float(rate_burst))
         self.requests = 0
         self.refused = 0
+        self.rejected = 0            # connections over a cap (503)
+        self.limited = 0             # requests over the rate limit (429)
+        self.reaped = 0              # connections closed at the end of their lifetime
+        self._conn_lock = threading.Lock()
+        self._conns: dict[int, tuple[Any, str, float]] = {}    # id(sock) -> (sock, ip, start)
+        self._per_ip: dict[str, int] = {}
+        self._buckets: dict[str, list[float]] = {}             # ip -> [tokens, last time]
         self._lock = threading.Lock()
         self._snapshot: dict = {"state": "OFFLINE", "published": 0.0}
         self._svg = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"/>'
@@ -172,6 +269,63 @@ class MonitorServer:
     def current(self) -> tuple[dict, str]:
         with self._lock:
             return self._snapshot, self._svg
+
+    # ------------------------------------------------------------------ limits
+    @property
+    def connections(self) -> int:
+        """Connections being served now."""
+        with self._conn_lock:
+            return len(self._conns)
+
+    def _enter(self, ip: str, sock: Any) -> bool:
+        with self._conn_lock:
+            if len(self._conns) >= self.max_connections or self._per_ip.get(ip, 0) >= self.max_per_client:
+                return False
+            self._conns[id(sock)] = (sock, ip, time.monotonic())
+            self._per_ip[ip] = self._per_ip.get(ip, 0) + 1
+            return True
+
+    def _leave(self, ip: str, sock: Any) -> None:
+        with self._conn_lock:
+            if self._conns.pop(id(sock), None) is None:
+                return
+            n = self._per_ip.get(ip, 0) - 1
+            if n > 0:
+                self._per_ip[ip] = n
+            else:
+                self._per_ip.pop(ip, None)
+
+    def _reap(self) -> None:
+        """Close connections older than ``max_connection_s`` (a slow client that keeps sending a
+        byte now and then never hits the socket timeout)."""
+        now = time.monotonic()
+        with self._conn_lock:
+            old = [sock for sock, _ip, t0 in self._conns.values() if now - t0 > self.max_connection_s]
+        for sock in old:
+            self.reaped += 1
+            try:
+                sock.shutdown(socket.SHUT_RDWR)   # the handler thread's read returns, it exits
+            except OSError:
+                pass
+
+    def _allow(self, ip: str) -> bool:
+        """Token bucket per client address."""
+        if self.rate_per_s <= 0:
+            return True
+        now = time.monotonic()
+        with self._conn_lock:
+            b = self._buckets.get(ip)
+            if b is None:
+                if len(self._buckets) >= _MAX_CLIENTS_TRACKED:
+                    oldest = min(self._buckets, key=lambda k: self._buckets[k][1])
+                    del self._buckets[oldest]
+                b = self._buckets[ip] = [self.rate_burst, now]
+            b[0] = min(self.rate_burst, b[0] + (now - b[1]) * self.rate_per_s)
+            b[1] = now
+            if b[0] < 1.0:
+                return False
+            b[0] -= 1.0
+            return True
 
     # ------------------------------------------------------------------ lifecycle
     @property
@@ -195,9 +349,10 @@ class MonitorServer:
     def start(self) -> "MonitorServer":
         if self._httpd is not None:
             return self
-        handler = type("MonitorHandler", (_Handler,), {"monitor": self})
-        httpd = ThreadingHTTPServer((self.host, self.port), handler)
-        httpd.daemon_threads = True
+        # ``timeout``: StreamRequestHandler.setup puts it on every connection's socket
+        handler = type("MonitorHandler", (_Handler,), {"monitor": self, "timeout": self.timeout_s})
+        server_cls = type("MonitorHTTPServer", (_Server,), {"monitor": self})
+        httpd = server_cls((self.host, self.port), handler)
         self._httpd = httpd
         self._thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.25},
                                         name="mlaser-lan-monitor", daemon=True)
@@ -215,7 +370,15 @@ class MonitorServer:
             httpd.server_close()
         if self._thread is not None:
             self._thread.join(timeout=2.0)
+        with self._conn_lock:
+            socks = [c[0] for c in self._conns.values()]
+        for sock in socks:                    # open keep-alive connections end with the server
+            try:
+                sock.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
         log.info("LAN monitor stopped")
 
 
-__all__ = ["MonitorServer", "new_token", "local_addresses", "READ_METHODS", "DEFAULT_PORT"]
+__all__ = ["MonitorServer", "new_token", "local_addresses", "READ_METHODS", "DEFAULT_PORT",
+           "TIMEOUT_S", "MAX_CONNECTION_S", "MAX_CONNECTIONS", "MAX_PER_CLIENT", "RATE_PER_S", "RATE_BURST"]

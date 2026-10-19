@@ -784,6 +784,8 @@ class RunWorkspace:
                                   start_allowed=self._start_allowed)
         self.runner.sheet_listeners.append(self._sheet_done)
         self.monitor: Any = None
+        self._svg_cache: Any = None          # mlaser.web.snapshot.SheetSvgCache (monitor on)
+        self._svg_published: Any = None
         self._job_t0 = 0.0
         self._run_plan: Any = None
         self._sheet_doc: Any = None
@@ -989,14 +991,16 @@ class RunWorkspace:
             self.publish_monitor()
 
     # ------------------------------------------------------------------ LAN monitor
-    def set_monitor(self, on: bool, confirm: bool = True) -> bool:
-        """Enable / disable the read-only LAN monitor.  Enabling shows a warning first."""
+    def set_monitor(self, on: bool, confirm: bool = True, port: Optional[int] = None) -> bool:
+        """Enable / disable the read-only LAN monitor.  Enabling shows a warning first.  ``port``
+        overrides the setting for this start (0: any free port, read back from ``monitor.address``)."""
         from mlaser.web import MonitorServer, new_token
         w = self.window
         if not on:
             if self.monitor is not None:
                 self.monitor.stop()
                 self.monitor = None
+                self._svg_cache = self._svg_published = None
                 self.log(tr(w, "web.log.stopped", "LAN monitor stopped"))
             self.settings["monitor_enabled"] = False
             return False
@@ -1007,7 +1011,7 @@ class RunWorkspace:
             token = new_token()
             self.settings["monitor_token"] = token
         host = str(self.settings["monitor_host"] or "127.0.0.1")
-        port = int(self.settings["monitor_port"])
+        port = int(self.settings["monitor_port"]) if port is None else int(port)
         if confirm and not getattr(w, "_test_no_dialogs", False):
             text = tr(w, "web.warn.text",
                       "The LAN monitor serves a read-only status page (state, progress, alarms, the "
@@ -1031,7 +1035,6 @@ class RunWorkspace:
         return True
 
     def monitor_snapshot(self) -> tuple[dict, str]:
-        from mlaser.web import sheet_svg
         from mlaser.web.page import LABEL_IDS
         w = self.window
         s = self.status()
@@ -1053,7 +1056,14 @@ class RunWorkspace:
         ent = self.runner.current if self.runner.state != "idle" else None
         doc, sheet = self.view_document()
         running = s.kind in ("running", "hold")
-        rev = f"{id(doc)}:{len(s.done_parts)}:{s.part_index}"
+        # the sheet SVG is cached per part and rebuilt only when the document, the cut parts or
+        # the current part change (performance review P1-7); the revision tells the page
+        if self._svg_cache is None:
+            from mlaser.web.snapshot import SheetSvgCache
+            self._svg_cache = SheetSvgCache()
+        svg = self._svg_cache.render(doc, s.done_parts if running else (), s.part_index if running else None,
+                                     (s.x, s.y), sheet=sheet)
+        rev = f"{id(doc)}:{len(s.done_parts)}:{s.part_index}:{self._svg_cache.builds}"
         snap = {
             "state": tr(w, key, default), "kind": s.kind, "icon": s.icon, "reason": self.reason_text(s),
             "progress": s.progress if running else 0.0, "elapsed_s": s.elapsed_s if running else None,
@@ -1064,8 +1074,6 @@ class RunWorkspace:
             "sheet_rev": rev, "lang": getattr(trn, "language", "en"),
             "labels": {k: tr(w, k, "") for k in LABEL_IDS},
         }
-        svg = sheet_svg(doc, s.done_parts if running else (), s.part_index if running else None,
-                        (s.x, s.y), sheet=sheet)
         return snap, svg
 
     def publish_monitor(self) -> None:
@@ -1076,7 +1084,9 @@ class RunWorkspace:
         except Exception as exc:  # noqa: BLE001 - the monitor must never disturb the UI
             log.debug("monitor snapshot failed: %s", exc)
             return
-        self.monitor.publish(snap, svg)
+        # the server keeps the last SVG: hand it over only when it is a new one
+        self.monitor.publish(snap, None if svg is self._svg_published else svg)
+        self._svg_published = svg
 
     def close(self) -> None:
         if self.monitor is not None:

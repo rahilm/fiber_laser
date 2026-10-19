@@ -76,9 +76,16 @@ tick();
 """
 
 
+def _script_json(value) -> str:
+    """JSON for an inline ``<script>``: ``<`` escaped, so a text holding ``</script>`` or
+    ``<!--`` cannot end or change the element (code review P2-4)."""
+    return (json.dumps(value, ensure_ascii=False).replace("<", "\\u003c")
+            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
+
+
 def render_page(snapshot: dict, token: str, nonce: str, refresh_s: float = 2.0) -> str:
     L = labels(snapshot.get("labels"))
-    js = JS % {"token": json.dumps(token), "labels": json.dumps(L, ensure_ascii=False),
+    js = JS % {"token": _script_json(token), "labels": _script_json(L),
                "refresh": max(1, int(round(refresh_s)))}
     e = {k: esc(v) for k, v in L.items()}
     return f"""<!doctype html>
