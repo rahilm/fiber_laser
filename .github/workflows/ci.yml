@@ -27,6 +27,7 @@ jobs:
       MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
       MLASER_NO_FIRSTRUN: "1"
       PYTHONUTF8: "1"
+      PYTHONFAULTHANDLER: "1"
       # the C emitter kernel (setup.py): a compile error fails the install instead of silently
       # leaving the Python port; and the default profile must select it (docs/dev/NATIVE_KERNEL.md)
       MLASER_BUILD_NATIVE: "1"
@@ -65,23 +66,29 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           cat > "$RUNNER_TEMP/lat.py" <<'PY'
-          import threading, time, statistics as S
-          e = threading.Event()
-          for name, fn, want in (("sleep 2ms", lambda: time.sleep(0.002), 0.002),
-                                 ("sleep 10ms", lambda: time.sleep(0.01), 0.01),
-                                 ("Event.wait 50ms", lambda: e.wait(0.05), 0.05)):
-              d = []
-              for _ in range(40):
-                  t = time.perf_counter(); fn(); d.append(time.perf_counter() - t - want)
-              print(f"{name}: late by median {S.median(d)*1e3:.2f} ms, max {max(d)*1e3:.2f} ms")
+          import ctypes, sys, threading, time, statistics as S
+          def probe(tag):
+              e = threading.Event()
+              for name, fn, want in (("sleep 2ms", lambda: time.sleep(0.002), 0.002),
+                                     ("sleep 10ms", lambda: time.sleep(0.01), 0.01),
+                                     ("Event.wait 50ms", lambda: e.wait(0.05), 0.05)):
+                  d = []
+                  for _ in range(30):
+                      t = time.perf_counter(); fn(); d.append(time.perf_counter() - t - want)
+                  print(f"{tag} {name}: late by median {S.median(d)*1e3:.2f} ms, max {max(d)*1e3:.2f} ms")
+          probe("default")
+          libc = ctypes.CDLL(None)
+          for qos, nm in ((0x21, "USER_INTERACTIVE"), (0x19, "USER_INITIATED")):
+              def run(q=qos, n=nm):
+                  r = libc.pthread_set_qos_class_self_np(q, 0)
+                  probe(f"thread qos {n} (rc {r})")
+              t = threading.Thread(target=run); t.start(); t.join()
           PY
           uv run --locked python "$RUNNER_TEMP/lat.py"
-          echo "--- taskpolicy -l 0 -t 0"; taskpolicy -l 0 -t 0 uv run --locked python "$RUNNER_TEMP/lat.py" || true
-          uv run --locked python -c "import os; print('nice', os.nice(0))"
           sysctl -n hw.ncpu machdep.cpu.brand_string || true
 
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
-        run: uv run --locked pytest -q --durations=15
+        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
       # C kernel vs Python port on THIS platform, every golden job + the 300 random jobs, bit for
       # bit (float.hex for the carry and the cut length): catches a platform-specific C build
@@ -113,7 +120,9 @@ jobs:
       - name: Golden libm recording (Windows, macOS)
         if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true
-        run: uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
+        run: >-
+          uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
+          --trace jobs_random/seed019 jobs_random/seed105 jobs_random/seed113 jobs_random/seed256
       - uses: actions/upload-artifact@v4
         if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true

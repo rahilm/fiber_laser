@@ -114,6 +114,9 @@ class Hooks:
         self.geoms: dict[str, dict[str, str]] = {"shapely.buffer": {}}
         self.hits = self.misses = 0
         self.missed: list[str] = []
+        self.trace_cases: set[str] = set()       # cases whose ordered call sequence is kept
+        self.seq_case: str | None = None
+        self.seqs: dict[str, list[str]] = {}
         self._saved: list = []
 
     def install(self) -> None:
@@ -143,6 +146,8 @@ class Hooks:
                 k = _key(args)
             except (TypeError, ValueError, OverflowError):
                 return fn(*args)
+            if self.seq_case is not None:
+                self.seqs[self.seq_case].append(f"math.{name}({k}) @ {_where()}")
             if table is not None:
                 hx = table.get(k)
                 if hx is not None:
@@ -170,6 +175,8 @@ class Hooks:
             if kw or len(args) != 2:
                 return fn(*args, **kw)
             k = _arr_key(*args)
+            if self.seq_case is not None:
+                self.seqs[self.seq_case].append(f"{name}({k[:16]}) @ {_where()}")
             if table is not None:
                 hx = table.get(k)
                 if hx is not None:
@@ -202,6 +209,8 @@ class Hooks:
             h = hashlib.sha256(shapely.to_wkb(geom, hex=False, include_srid=False))
             h.update(repr((args, sorted(kw.items()))).encode())
             k = h.hexdigest()
+            if self.seq_case is not None:
+                self.seqs[self.seq_case].append(f"{name}({k[:16]}) @ {_where()}")
             if table is not None:
                 hx = table.get(k)
                 if hx is not None:
@@ -216,9 +225,25 @@ class Hooks:
         return wrapped
 
 
-def _run_groups(groups):
+def _run_groups(groups, h: "Hooks | None" = None):
     import make_goldens as G
-    return {g: G.GENERATORS[g]({}) for g in groups}
+    orig = G.random_case
+
+    def random_case(seed):                 # keeps the call sequence of the traced cases
+        label = f"jobs_random/seed{seed:03d}"
+        if h is not None and label in h.trace_cases:
+            h.seq_case, h.seqs[label] = label, []
+        try:
+            return orig(seed)
+        finally:
+            if h is not None:
+                h.seq_case = None
+
+    G.random_case = random_case
+    try:
+        return {g: G.GENERATORS[g]({}) for g in groups}
+    finally:
+        G.random_case = orig
 
 
 def _env() -> dict:
@@ -228,15 +253,16 @@ def _env() -> dict:
             "native": os.environ.get("MLASER_NATIVE", "")}
 
 
-def record(out: Path, groups) -> int:
+def record(out: Path, groups, trace=()) -> int:
     h = Hooks()
+    h.trace_cases = set(trace)
     h.install()
     try:
-        cases = _run_groups(groups)
+        cases = _run_groups(groups, h)
     finally:
         h.remove()
     data = {"env": _env(), "groups": list(groups), "calls": h.calls, "arrays": h.arrays,
-            "geoms": h.geoms, "cases": cases}
+            "geoms": h.geoms, "cases": cases, "seqs": h.seqs}
     with gzip.open(out, "wt", encoding="utf-8") as f:
         json.dump(data, f)
     n = sum(len(v) for d in (h.calls, h.arrays, h.geoms) for v in d.values())
@@ -288,9 +314,10 @@ def replay(path: Path, show: int) -> int:
     # 2. replay with the recorded results
     print("\n2. golden records recomputed here with the recorded library results")
     h = Hooks(data)
+    h.trace_cases = set(data.get("seqs", {}))
     h.install()
     try:
-        got = _run_groups(groups)
+        got = _run_groups(groups, h)
     finally:
         h.remove()
     unexplained = []
@@ -306,6 +333,15 @@ def replay(path: Path, show: int) -> int:
     print(f"  records not reproduced: {len(unexplained)}")
     for k in unexplained[:show]:
         print(f"      {k}")
+    for case, theirs in data.get("seqs", {}).items():
+        mine = h.seqs.get(case, [])
+        n = next((i for i, (a, b) in enumerate(zip(theirs, mine)) if a.split(" @ ")[0] != b.split(" @ ")[0]),
+                 min(len(theirs), len(mine)))
+        print(f"  {case}: {len(theirs)} library calls there, {len(mine)} here, first difference at #{n}")
+        for i in range(max(0, n - 3), min(n + 2, max(len(theirs), len(mine)))):
+            a = theirs[i] if i < len(theirs) else "-"
+            b = mine[i] if i < len(mine) else "-"
+            print(f"      #{i} there: {a}\n      #{i} here:  {b}")
 
     # 3. what differs from the committed goldens on the recorded platform
     print("\n3. golden cases that differ on the recorded platform (vs tests/golden)")
@@ -329,13 +365,16 @@ def main(argv=None) -> int:
     r = sub.add_parser("record", help="record the library calls of the golden groups")
     r.add_argument("--out", type=Path, required=True)
     r.add_argument("--only", nargs="+", help="golden groups (default: all)")
+    r.add_argument("--trace", nargs="+", default=[],
+                   help="jobs_random cases (jobs_random/seedNNN) whose ordered call sequence is kept, "
+                        "to locate where a replay diverges")
     p = sub.add_parser("replay", help="replay a recording on the reference platform")
     p.add_argument("trace", type=Path)
     p.add_argument("--show", type=int, default=20, help="examples to print per item")
     a = ap.parse_args(argv)
     if a.cmd == "record":
         import make_goldens as G
-        return record(a.out, a.only or list(G.GROUPS))
+        return record(a.out, a.only or list(G.GROUPS), a.trace)
     return replay(a.trace, a.show)
 
 
