@@ -54,11 +54,15 @@ class Rig:
         time.sleep(0.15)
 
     def run(self, fn):
-        t0 = time.time()
+        # the requests sent from here on, by position in the log: on Windows before Python 3.13
+        # time.time() ticks in ~16 ms steps, so a timestamp filter also caught the request
+        # just before (the shutter output write)
+        with self.lock:
+            n0 = len(self.log)
         fn()
         time.sleep(0.1)
         with self.lock:
-            reqs = [F.decode_request(d) for t, d in self.log if t >= t0]
+            reqs = [F.decode_request(d) for t, d in self.log[n0:]]
         return [(q.addr, [_s32(v) for v in q.values]) for q in reqs
                 if q.func == 0x40 or (q.addr, q.count) not in POLL and q.addr != 59500]
 

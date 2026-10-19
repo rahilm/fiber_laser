@@ -26,7 +26,7 @@ class Record:
     t_rep: float
 
 
-def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: float = 50.0,
+def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: float = 10.0,
                position_ppm: float = 1000.0, stop_after_s: Optional[float] = None,
                **sim_kw) -> list[Record]:
     """Run ``job`` on a fresh simulator and return the recorded exchanges.
@@ -35,6 +35,10 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
     step scale and period are the job machine's.  ``stop_after_s`` cancels the stream after
     that many seconds of wall time and sends the rebuild's job stop (``stop_manu``, 103 := 3,
     103 := 1), to produce a stop sequence.
+
+    ``time_scale`` 10: the streamer keeps at most 1.2 s of card time in the FIFO, 120 ms of real
+    time at 10x; at 50x (24 ms) a scheduling stall on a loaded macOS runner let the simulated
+    card run dry and the stream end in ``unexpected_idle``.
     """
     import threading
 

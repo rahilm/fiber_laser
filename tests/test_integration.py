@@ -49,7 +49,9 @@ def test_dxf_to_simulator(dxf_path):
     job = compile_job(doc, {"return_to_origin": False}, m, start=(0.0, 0.0))
     assert job.laser_on_length_mm == pytest.approx(PERIMETER, rel=0.01)
     assert job.pierces == 3
-    sim = CardSimulator(period_ms=m.period_ms, time_scale=8.0).start()
+    # 2x: the 1.2 s motion cap is 0.6 s of real time (at 8x, 0.15 s: a stall of the test
+    # process on a macOS runner let the simulated card run dry, unexpected_idle)
+    sim = CardSimulator(period_ms=m.period_ms, time_scale=2.0).start()
     try:
         cfg = TransportConfig(host="127.0.0.1", port=sim.port)
         with MotionController(config=cfg, pulses_per_mm=m.pulses_per_mm_x) as mc:
