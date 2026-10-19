@@ -287,10 +287,9 @@ class MachineExtension:
     # ------------------------------------------------------------------ hardware
     def net_test(self) -> None:
         from mlaser.controller.nettest import network_test
-        cfg = getattr(self.w.ctl, "cfg", None)
-        ip = (getattr(self.w, "settings", {}) or {}).get("ip") or {}
-        card = (getattr(cfg, "host", None) or ip.get("pd445", "10.1.1.168"), getattr(cfg, "port", 502))
-        follower = (ip.get("pd447", "10.1.1.169"), 502)
+        ip = self.ctx.config.get("ip", None) or {}
+        card = self.w.ctl.endpoint() or (ip.get("pd445", "10.1.1.168"), 502)   # MachineAPI
+        follower = (ip.get("pd448", "10.1.1.169"), 502)      # pd448: FTC IP (pd447 is a gateway)
         self.log(f"mf436: testing {card[0]} and {follower[0]} ...")
         self.ops.run_async("net-test", lambda: [self.log(r.summary()) for r in network_test(card, follower)])
 

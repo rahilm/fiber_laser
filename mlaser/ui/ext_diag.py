@@ -82,8 +82,7 @@ def _log(window, msg: str) -> None:
 def _mc(window):
     """The supervised card handle (None without a card): every command is checked by the safety
     supervisor (arming for DA/PWM/laser outputs, no motion while a fault is latched)."""
-    ctl = getattr(window, "ctl", None)
-    return ctl.card() if ctl is not None else None
+    return window.ctl.card()                 # MachineAPI: None without a card
 
 
 def _lang(window) -> str:

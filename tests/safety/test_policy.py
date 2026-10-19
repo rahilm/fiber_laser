@@ -39,9 +39,9 @@ def test_ui_has_no_hasattr_probing_of_the_controller():
     """The UI talks to the MachineAPI directly (architecture review §1.4: 26 probing sites)."""
     pat = re.compile(r"(hasattr|getattr)\((self\.)?(w\.|window\.|self\.ext\.w\.)?ctl\b")
     hits = []
-    for p in sorted((ROOT / "mlaser" / "ui").glob("*.py")):
+    for p in sorted((ROOT / "mlaser" / "ui").rglob("*.py")):
         for n, line in enumerate(p.read_text("utf-8").splitlines(), 1):
-            if pat.search(line) and '"cfg"' not in line and '"scaling"' not in line:
+            if pat.search(line):
                 hits.append(f"{p.name}:{n}: {line.strip()}")
     assert hits == []
 

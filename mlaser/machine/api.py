@@ -97,6 +97,7 @@ class MachineAPI(Protocol):
     def snapshot(self) -> MachineState: ...
     def is_simulator(self) -> bool: ...
     def card(self) -> Any: ...       # supervised card handle (None without a card)
+    def endpoint(self) -> Optional[tuple[str, int]]: ...   # card (host, port), None without one
 
     # -- safety
     def safety(self) -> SafetyStatus: ...
@@ -104,6 +105,9 @@ class MachineAPI(Protocol):
     def disarm(self, reason: str = "") -> None: ...
     def reset_fault(self) -> bool: ...
     def safe_halt(self, reason: str = "") -> None: ...
+    def operator_action(self, what: str = "") -> None: ...
+    def heartbeat_status(self) -> dict: ...
+    def heartbeat_hold(self, hold: bool) -> None: ...
     def preflight(self, action: str, document: Any = None, selected_only: bool = False,
                   target: Optional[tuple[float, float]] = None) -> PF.PreflightReport: ...
 
@@ -217,6 +221,24 @@ class ControllerFacade(ABC):
 
     def card(self) -> Any:
         return None
+
+    def endpoint(self) -> Optional[tuple[str, int]]:
+        """The card's (host, port); None for a controller without a card."""
+        return None
+
+    def operator_action(self, what: str = "") -> None:
+        """The operator started a new action (a wizard step that moves): clears the halt latch
+        of the supervisor (docs/SAFETY.md §4; a latched FAULT still refuses motion).  Called
+        only from a button press, never from a worker on its own."""
+
+    def heartbeat_status(self) -> dict:
+        """The "PC alive" output (docs/SAFETY.md §11): output number (0 = off), frequency,
+        toggles sent so far, held (test) and active."""
+        return {"output": 0, "hz": 0.0, "toggles": 0, "hold": False, "active": False}
+
+    def heartbeat_hold(self, hold: bool) -> None:
+        """Commissioning test of the watchdog relay: stop toggling (output off) while held.
+        Stopping the heartbeat only ever drops the relay, so it is always allowed."""
 
     def arm(self) -> bool:
         self.fsm.dry_run = not self.laser_enabled
