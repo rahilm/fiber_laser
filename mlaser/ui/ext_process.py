@@ -28,7 +28,7 @@ from mlaser.services.preview import Timeline, build_timeline
 from mlaser.services.technology import TechnologyStore
 
 PLUGIN_API = 1
-LAZY_TIMELINE_ITEMS = 3_000_000      # larger plans build their timeline on the first scrub / play
+LAZY_TIMELINE_ITEMS = 1_000_000      # larger plans (about 0.5 s to build) wait for the first scrub / play
 
 SETTINGS = [
     Setting("machine_profile", "str", "default", label="process.set.machine_profile"),
@@ -144,11 +144,13 @@ class ProcessExtension:
         except (AttributeError, RuntimeError):
             pass
         self.scrubber.timeChanged.connect(self._time_changed)
+        self.scrubber.need_timeline = lambda: self._build_timeline() if self.plan is not None else None
         self.workspace.card.rates_btn.clicked.connect(self.rates_dialog)
         self.canvas.selectionChanged.connect(self.properties.refresh)
         ctx.on_document_changed(self._document_changed)
         ctx.on_plan(self._plan)
-        ctx.on_close(self.store.close)
+        self.closed = False
+        ctx.on_close(self._close)
         self.config_unsub = ctx.config.subscribe(self._config_changed)
         ctx.register_command("process.show", self.show_process, label="process.cmd.show")
         ctx.register_command("process.apply", self.workspace.apply_selected, label="process.cmd.apply")
@@ -180,6 +182,12 @@ class ProcessExtension:
             self.update_card()
 
     # ---------------------------------------------------------------- hooks
+    def _close(self) -> None:
+        # every save is committed at once; the connection stays usable (a "close" command can
+        # be cancelled, and the window may still run commands afterwards)
+        self.closed = True
+        self.scrubber.pause()
+
     def _document_changed(self, kind: str) -> None:
         self.workspace.refresh_layers()
         self.properties.refresh()
@@ -197,6 +205,8 @@ class ProcessExtension:
             self._build_timeline()
         else:
             self.scrubber.set_timeline(None)
+            self.scrubber.play_btn.setEnabled(plan is not None)
+            self.scrubber.state_label.setText(self.ctx.tr.tr("preview.lazy"))
             self.update_card()
 
     def _build_timeline(self) -> None:

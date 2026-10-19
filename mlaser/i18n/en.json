@@ -1789,6 +1789,7 @@
   "preview.goto_contour": "Contour",
   "preview.laser_off": "off",
   "preview.laser_on": "on",
+  "preview.lazy": "Large job: press ▶ to build the preview and the estimate",
   "preview.next_contour": "Next contour",
   "preview.no_plan": "No planned job yet",
   "preview.pause": "Pause",

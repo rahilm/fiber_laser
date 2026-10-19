@@ -210,3 +210,17 @@ def test_layer_dialog_values_reach_the_compiler(app):
     v = LayerView(lp)
     assert lp.duty_pct == 60 and v["GP.CutPower"] == 60          # duty, not the peak current
     assert v["GP.DrillHeight0"] == 7.5 and v.n_stages == 1
+
+
+def test_large_plan_builds_its_timeline_on_play(win, app, monkeypatch):
+    from mlaser.ui import ext_process
+
+    ext = _ext(win)
+    monkeypatch.setattr(ext_process, "LAZY_TIMELINE_ITEMS", 0)
+    ext._plan(win.jobs.current)
+    assert ext.timeline is None and ext.workspace.card.card is None
+    assert ext.scrubber.play_btn.isEnabled()
+    ext.scrubber.play()
+    assert ext.timeline is not None and ext.scrubber.playing
+    ext.scrubber.pause()
+    assert ext.workspace.card.card is not None

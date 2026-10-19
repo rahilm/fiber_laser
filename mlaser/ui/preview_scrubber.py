@@ -198,6 +198,7 @@ class ScrubberWidget(QWidget):
         self.clear_btn.clicked.connect(self.clear)
         # no Space shortcut here: Space is the global Hold key of the run bar (docs/SAFETY.md)
         self.cleared = False
+        self.need_timeline: Optional[Any] = None   # callable: build the timeline of a large plan
         self.set_timeline(None)
 
     # ---------------------------------------------------------------- data
@@ -227,6 +228,8 @@ class ScrubberWidget(QWidget):
         self.pause() if self.playing else self.play()
 
     def play(self) -> None:
+        if self.timeline is None and self.need_timeline is not None:
+            self.need_timeline()              # a large plan builds its timeline on demand
         tl = self.timeline
         if tl is None or not len(tl):
             return

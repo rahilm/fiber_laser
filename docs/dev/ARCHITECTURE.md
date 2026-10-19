@@ -237,6 +237,9 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
 | `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+| `TechnologyStore` (`technology.py`, `technology_examples.py`) | technology records (material × thickness × gas × nozzle × power class → GP.* layer parameters, craft defaults, rules) in SQLite per machine profile; versions, diff against factory values, revert; JSON and LayerPara.xml import/export; `apply_to_layer` fills a layer exactly as the layer dialog does | nothing (Wave 3 Process track; docs/user/process.md) |
+| `Timeline` (`preview.py`) | the preview scrubber's time axis, built from the PlannedJob's wire (step items = servo periods, process items = the encoder's card time): position, laser state and wire index at any time | the canvas simulation over the toolpath |
+| `cost_card` (`costing.py`) | time and cost card of a plan: measured times and lengths, labelled estimates (gas, energy, material, cost) from configurable rates | the estimate log line |
 
 ### Undo
 

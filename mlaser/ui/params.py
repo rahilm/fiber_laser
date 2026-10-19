@@ -9,7 +9,7 @@ whose catalogue text is ``Group.Label``), section (the category: ``ManuParam``, 
 from __future__ import annotations
 
 from mlaser.services.config import Setting, registry_settings
-from mlaser.services.technology import CORE_FIELDS as LAYER_FIELD_MAP  # re-exported
+from mlaser.services.technology import CORE_FIELDS as LAYER_FIELD_MAP  # noqa: F401 - re-exported
 
 from .i18n import Translator
 
