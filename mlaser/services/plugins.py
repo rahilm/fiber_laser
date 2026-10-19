@@ -13,7 +13,10 @@ detected instead of depending on load order (architecture.md §1.3, P1-5):
   ``ctx.on_document_changed(fn)``, ``ctx.on_plan(fn)``, ``ctx.on_close(fn)``.
 * ``ctx.provide(name, fn)``: single-slot providers (``"nudge.step"``); a second provider raises.
 * UI: ``ctx.add_dock(widget, title, area)``, ``ctx.add_ribbon_tab(title, command ids)``,
-  ``ctx.add_workspace(name, widget, title)`` (task workspaces of Wave 3).
+  ``ctx.add_workspace(name, widget, title, icon=, order=, shortcut=, min_mode=, canvas=,
+  toolbar=, docks=, description=, slot=)`` (task workspaces of the Wave 3 shell;
+  :mod:`mlaser.services.workspaces`), ``ctx.show_workspace(id)``, ``ctx.user_mode``.
+* hooks of the shell: ``ctx.on_workspace_changed(fn)``, ``ctx.on_user_mode_changed(fn)``.
 * ``ctx.settings_schema([...Setting])``: typed, validated, persisted plugin settings under
   ``plugin.<name>.<key>`` (:class:`mlaser.services.config.ConfigService`).
 * services: ``ctx.docs``, ``ctx.config``, ``ctx.jobs``, ``ctx.commands``; ``ctx.controller``,
@@ -44,7 +47,11 @@ log = logging.getLogger("mlaser.plugins")
 
 PLUGIN_API = 1
 ENTRY_POINT_GROUP = "mlaser.plugins"
-HOOKS = ("controller_changed", "mode_changed", "document_changed", "plan", "close")
+HOOKS = ("controller_changed", "mode_changed", "document_changed", "plan", "close",
+         "workspace_changed", "user_mode_changed")
+#: the options of ``PluginContext.add_workspace`` (WorkspaceSpec fields a plugin may set)
+WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar", "docks",
+                     "description", "slot")
 
 
 class DuplicateProviderError(KeyError):
@@ -66,6 +73,8 @@ class Host(Protocol):
     def host_add_dock(self, widget: Any, title: str, area: str, key: str) -> Any: ...
     def host_add_ribbon_tab(self, title: str, commands: list[str]) -> Any: ...
     def host_add_workspace(self, name: str, widget: Any, title: str) -> Any: ...
+    # optional (the Wave 3 shell): host_register_workspace(name, widget, title, options),
+    # show_workspace(id), user_mode; a host without them gets host_add_workspace and defaults
 
 
 class Hooks:
@@ -182,12 +191,23 @@ class PluginContext:
 
     # ------------------------------------------------------------------ commands
     def register_command(
-        self, cmd_id: str, handler: Callable[..., Any], label: str = "", checkable: bool = False
+        self,
+        cmd_id: str,
+        handler: Callable[..., Any],
+        label: str = "",
+        checkable: bool = False,
+        min_mode: str = "",
+        workspace: str = "",
     ) -> CommandSpec:
         """Bind ``cmd_id`` (a ribbon command, or a new one with ``label`` as its lang key or
         text) to ``handler``.  A checkable command's handler receives the checked state.
+        ``min_mode`` (``"operator"`` / ``"engineer"`` / ``"service"``) is the lowest user mode
+        that may run it (default: :func:`mlaser.services.usermodes.default_min_mode`);
+        ``workspace`` the workspace it belongs to (palette, shortcut sheet).
         Raises :class:`DuplicateCommandError` when the id is already bound."""
-        spec = self.host.commands.register(cmd_id, handler, self.name, label or cmd_id, checkable)
+        spec = self.host.commands.register(
+            cmd_id, handler, self.name, label or cmd_id, checkable, min_mode=min_mode, workspace=workspace
+        )
         self.commands_registered.append(cmd_id)
         return spec
 
@@ -227,6 +247,14 @@ class PluginContext:
     def on_close(self, fn: Callable[[], Any]) -> Callable[[], None]:
         return self.on("close", fn)
 
+    def on_workspace_changed(self, fn: Callable[[str], Any]) -> Callable[[], None]:
+        """``fn(workspace_id)`` after the shell switched workspace (``"run"``, ``"<plugin>.x"``)."""
+        return self.on("workspace_changed", fn)
+
+    def on_user_mode_changed(self, fn: Callable[[str], Any]) -> Callable[[], None]:
+        """``fn(mode)`` after the user mode changed (``operator`` / ``engineer`` / ``service``)."""
+        return self.on("user_mode_changed", fn)
+
     def provide(self, name: str, fn: Callable[..., Any]) -> None:
         self.host.hooks.provide(name, fn, self.name)
 
@@ -238,9 +266,35 @@ class PluginContext:
         """A ribbon tab with one button per command id (registered or ribbon commands)."""
         return self.host.host_add_ribbon_tab(title, commands)
 
-    def add_workspace(self, name: str, widget: Any, title: str = "") -> Any:
-        """A task workspace (Design / Process / Nest / Run / Report, docs/ROADMAP.md Wave 3)."""
-        return self.host.host_add_workspace(f"{self.name}.{name}", widget, title or name)
+    def add_workspace(self, name: str, widget: Any, title: str = "", **options: Any) -> Any:
+        """A task workspace in the shell's rail (docs/dev/PLUGINS.md §5).
+
+        ``name`` (or ``title``, or ``slot=``) equal to a built-in slot (``design``, ``process``,
+        ``nest``, ``run``, ``report``, ``machine``) fills that slot; anything else gets its own
+        rail button.  ``options`` are :class:`mlaser.services.workspaces.WorkspaceSpec` fields:
+        ``icon`` (Tabler name), ``order``, ``shortcut``, ``min_mode``, ``canvas`` (show the
+        shared canvas, ``widget`` as its side panel), ``toolbar`` (command ids), ``docks``
+        (dock object names shown in it), ``description``, ``slot``.  Returns ``widget``.
+        The id is ``"<plugin>.<name>"``; the three-argument form of Wave 2 still works."""
+        unknown = set(options) - set(WORKSPACE_OPTIONS)
+        if unknown:
+            raise TypeError(f"add_workspace: unknown option(s) {', '.join(sorted(unknown))}")
+        ws_id = f"{self.name}.{name}"
+        reg = getattr(self.host, "host_register_workspace", None)
+        if callable(reg):
+            return reg(ws_id, widget, title or name, options)
+        return self.host.host_add_workspace(ws_id, widget, title or name)
+
+    def show_workspace(self, ws_id: str) -> bool:
+        """Switch the shell to ``ws_id`` (a slot name or ``"<plugin>.<name>"``); False when the
+        host has no shell or the user mode hides it."""
+        fn = getattr(self.host, "show_workspace", None)
+        return bool(fn(ws_id)) if callable(fn) else False
+
+    @property
+    def user_mode(self) -> str:
+        """The current user mode (``"engineer"`` when the host has no shell)."""
+        return getattr(self.host, "user_mode", "engineer")
 
     # ------------------------------------------------------------------ settings
     def settings_schema(self, settings: Iterable[Setting]) -> PluginSettings:

@@ -36,6 +36,12 @@ class CommandSpec:
     label: str = ""  # lang key or text for a new ribbon action
     checkable: bool = False  # the handler receives the checked state
     takes_arg: bool = False
+    # Wave 3 shell (mlaser.services.usermodes): the lowest user mode that may run the command
+    # ("operator" | "engineer" | "service"); "" = the default policy of usermodes.default_min_mode
+    min_mode: str = ""
+    # the task workspace the command belongs to ("design", "process", ...); "" = derived from
+    # the id (mlaser.services.workspaces.command_workspace)
+    workspace: str = ""
 
     def call(self, *args) -> Any:
         if self.takes_arg or self.checkable:
@@ -71,6 +77,8 @@ class CommandRegistry:
         owner: str = "core",
         label: str = "",
         checkable: bool = False,
+        min_mode: str = "",
+        workspace: str = "",
     ) -> CommandSpec:
         if not cmd_id or not callable(handler):
             raise ValueError(f"bad command registration {cmd_id!r}")
@@ -81,7 +89,9 @@ class CommandRegistry:
                 f"command {cmd_id!r} is already registered by {old.owner!r} "
                 f"({owner!r} tried to register it again)"
             )
-        spec = CommandSpec(cmd_id, handler, owner, label, checkable, _takes_arg(handler))
+        if min_mode and min_mode not in ("operator", "engineer", "service"):
+            raise ValueError(f"command {cmd_id!r}: unknown min_mode {min_mode!r}")
+        spec = CommandSpec(cmd_id, handler, owner, label, checkable, _takes_arg(handler), min_mode, workspace)
         self.commands[cmd_id] = spec
         for fn in list(self.on_register):
             fn(spec)

@@ -53,7 +53,36 @@ LAYER_COLORS = load_layer_colors()
 
 
 def layer_color(index: int) -> QColor:
+    """The layer's colour as stored in the document (the original's palette; data, not theme)."""
     return QColor(LAYER_COLORS[index % len(LAYER_COLORS)])
+
+
+# Theme (mlaser.ui.shell.theme.apply_canvas_theme): the colour of each canvas role, and the
+# layer colours as drawn (contrast-adjusted for the canvas background).  The defaults are the
+# original's black drawing area, so a window without the shell looks as before.
+CANVAS_COLORS: dict[str, str] = {
+    "background": "#000000", "table": "#606060", "axis_x": "#c04040", "axis_y": "#40c040",
+    "cut": "#d0d0d0", "gap": "#ff8000", "rapid": "#8080ff", "track": "#ff6060",
+    "unclosed": "#ff0000", "selected": "#ffffff", "start": "#ffffff", "index": "#ffd700",
+    "bbox": "#707070", "arrow": "#ffffff", "head": "#ff4040", "marker": "#00ffff",
+    "sim": "#ffffff",
+}
+_DISPLAY_LAYER_COLORS: Optional[list[str]] = None
+
+
+def set_display_layer_colors(colors: Optional[list[str]]) -> None:
+    global _DISPLAY_LAYER_COLORS
+    _DISPLAY_LAYER_COLORS = list(colors) if colors else None
+
+
+def display_layer_color(index: int) -> QColor:
+    """The layer colour as drawn on the canvas in the current theme."""
+    cols = _DISPLAY_LAYER_COLORS or LAYER_COLORS
+    return QColor(cols[index % len(cols)])
+
+
+def _cc(role: str) -> QColor:
+    return QColor(CANVAS_COLORS[role])
 
 
 @dataclass
@@ -275,7 +304,7 @@ class CanvasView(QGraphicsView):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.setViewportUpdateMode(QGraphicsView.FullViewportUpdate)
         self.setMouseTracking(True)
-        self.setBackgroundBrush(QColor(self.options.background))
+        self.setBackgroundBrush(_cc("background"))
         self.setTransform(QTransform.fromScale(1, -1))
         self._scene.setSceneRect(-1e6, -1e6, 2e6, 2e6)
         self._items: list[tuple[int, int, QGraphicsPathItem, list]] = []   # (part, contour, item, pts)
@@ -304,14 +333,28 @@ class CanvasView(QGraphicsView):
     # ------------------------------------------------------------------ scene
     def _static_items(self) -> None:
         w, h = self.options.table_size
-        pen = QPen(QColor("#606060"), 0, Qt.DashLine)
+        pen = QPen(_cc("table"), 0, Qt.DashLine)
         self._table = self._scene.addRect(QRectF(0, 0, w, h), pen)
         self._table.setZValue(-10)
-        ax = QPen(QColor("#c04040"), 0)
-        ay = QPen(QColor("#40c040"), 0)
+        ax = QPen(_cc("axis_x"), 0)
+        ay = QPen(_cc("axis_y"), 0)
         self._axes = [self._scene.addLine(0, 0, 60, 0, ax), self._scene.addLine(0, 0, 0, 60, ay)]
         for a in self._axes:
             a.setZValue(-9)
+
+    def apply_theme(self) -> None:
+        """Re-read :data:`CANVAS_COLORS` / the display layer colours (theme change)."""
+        self.setBackgroundBrush(_cc("background"))
+        self._table.setPen(QPen(_cc("table"), 0, Qt.DashLine))
+        self._axes[0].setPen(QPen(_cc("axis_x"), 0))
+        self._axes[1].setPen(QPen(_cc("axis_y"), 0))
+        if self._head is not None:
+            self._head.setPen(QPen(_cc("head"), 1.5))
+        if self._track is not None:
+            pen = QPen(_cc("track"), 1.5)
+            pen.setCosmetic(True)
+            self._track.setPen(pen)
+        self.rebuild()
 
     def set_table_size(self, w: float, h: float) -> None:
         self.options.table_size = (w, h)
@@ -367,7 +410,7 @@ class CanvasView(QGraphicsView):
         item_cls = _LodPathItem if many else QGraphicsPathItem
         for pi, part in enumerate(doc.parts):
             if isinstance(part.extra, dict) and "raster" in part.extra:
-                rit = _RasterItem(part, layer_color(part.craft.layer))
+                rit = _RasterItem(part, display_layer_color(part.craft.layer))
                 if rit.raster is not None:
                     self._scene.addItem(rit)
                     self._raster_items.append((pi, rit))
@@ -416,9 +459,9 @@ class CanvasView(QGraphicsView):
                         path.lineTo(*a.point_at(k / n))
                 else:
                     path.lineTo(*m.end)
-        for path, color, style, show in ((cut, "#d0d0d0", Qt.SolidLine, True),
-                                         (gap, "#ff8000", Qt.SolidLine, True),
-                                         (rap, "#8080ff", Qt.DashLine, self.options.show_move_path)):
+        for path, color, style, show in ((cut, CANVAS_COLORS["cut"], Qt.SolidLine, True),
+                                         (gap, CANVAS_COLORS["gap"], Qt.SolidLine, True),
+                                         (rap, CANVAS_COLORS["rapid"], Qt.DashLine, self.options.show_move_path)):
             if not show or path.isEmpty():
                 continue
             it = QGraphicsPathItem(path)
@@ -432,7 +475,7 @@ class CanvasView(QGraphicsView):
         """Live machine track while a job runs (cut segments solid, moves skipped)."""
         if self._track is None:
             self._track = QGraphicsPathItem()
-            pen = QPen(QColor("#ff6060"), 1.5)
+            pen = QPen(_cc("track"), 1.5)
             pen.setCosmetic(True)
             self._track.setPen(pen)
             self._track.setZValue(9)
@@ -457,18 +500,18 @@ class CanvasView(QGraphicsView):
         for pi, ci, it, _ in self._items:
             part = doc.parts[pi]
             c = part.contours[ci]
-            color = layer_color(part.craft.layer)
+            color = display_layer_color(part.craft.layer)
             if self.options.unclosed_red and not c.closed:
-                color = QColor("#ff0000")
+                color = _cc("unclosed")
             pen = QPen(color, 0)
             pen.setCosmetic(True)
             if part.selected:
-                pen = QPen(QColor("#ffffff"), 1.5, Qt.DashLine)
+                pen = QPen(_cc("selected"), 1.5, Qt.DashLine)
                 pen.setCosmetic(True)
             it.setPen(pen)
         for pi, rit in self._raster_items:
             part = doc.parts[pi]
-            color = layer_color(part.craft.layer)
+            color = display_layer_color(part.craft.layer)
             rit.set_color(color.lighter(160) if part.selected else color)
 
     def _add_overlay(self, item: QGraphicsItem) -> None:
@@ -491,10 +534,10 @@ class CanvasView(QGraphicsView):
             part = doc.parts[pi]
             sx, sy = pts[0]
             if o.show_start:
-                self._add_overlay(_Marker(sx, sy, 2.5, QColor("#ffffff")))
+                self._add_overlay(_Marker(sx, sy, 2.5, _cc("start")))
             if o.show_index:
                 t = QGraphicsSimpleTextItem(str(n))
-                t.setBrush(QBrush(QColor("#ffd700")))
+                t.setBrush(QBrush(_cc("index")))
                 t.setFont(QFont("Sans", 8))
                 t.setFlag(QGraphicsItem.ItemIgnoresTransformations)
                 t.setPos(sx, sy)
@@ -504,9 +547,9 @@ class CanvasView(QGraphicsView):
                 self._add_overlay(self._arrow(pts))
             lead = getattr(part.craft, "lead_in", None)
             if lead is not None and lead.kind and len(pts) > 1 and not self.toolpath:
-                self._add_overlay(self._lead_item(pts, lead, layer_color(part.craft.layer)))
+                self._add_overlay(self._lead_item(pts, lead, display_layer_color(part.craft.layer)))
             if o.show_move_path and prev_end is not None and not self.toolpath:
-                pen = QPen(QColor("#8080ff"), 0, Qt.DashLine)
+                pen = QPen(_cc("rapid"), 0, Qt.DashLine)
                 pen.setCosmetic(True)
                 ln = QGraphicsLineItem(prev_end[0], prev_end[1], sx, sy)
                 ln.setPen(pen)
@@ -518,7 +561,7 @@ class CanvasView(QGraphicsView):
                 if part.contours:
                     x0, y0, x1, y1 = part.bbox()
                     r = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-                    pen = QPen(QColor("#707070"), 0, Qt.DotLine)
+                    pen = QPen(_cc("bbox"), 0, Qt.DotLine)
                     pen.setCosmetic(True)
                     r.setPen(pen)
                     self._add_overlay(r)
@@ -537,7 +580,7 @@ class CanvasView(QGraphicsView):
         it.setFlag(QGraphicsItem.ItemIgnoresTransformations)
         it.setPos((x0 + x1) / 2, (y0 + y1) / 2)
         it.setRotation(-math.degrees(ang))
-        pen = QPen(QColor("#ffffff"), 1)
+        pen = QPen(_cc("arrow"), 1)
         it.setPen(pen)
         it.setZValue(6)
         return it
@@ -589,7 +632,7 @@ class CanvasView(QGraphicsView):
 
     def set_head_position(self, x: float, y: float) -> None:
         if self._head is None:
-            pen = QPen(QColor("#ff4040"), 1.5)
+            pen = QPen(_cc("head"), 1.5)
             path = QPainterPath()
             path.addEllipse(QPointF(0, 0), 6, 6)
             path.moveTo(-10, 0); path.lineTo(10, 0)
@@ -782,7 +825,7 @@ class CanvasView(QGraphicsView):
             it.setZValue(30)
             self._scene.addItem(it)
             self._preview_items.append(it)
-        mpen = QPen(QColor("#00ffff"), 1.5)
+        mpen = QPen(_cc("marker"), 1.5)
         for (mx, my) in markers:
             it = QGraphicsRectItem(-5, -5, 10, 10)
             it.setPen(mpen)
@@ -868,7 +911,7 @@ class CanvasView(QGraphicsView):
             return False
         self._sim_pos = 0
         self._sim_trail = QGraphicsPathItem()
-        pen = QPen(QColor("#ffffff"), 2)
+        pen = QPen(_cc("sim"), 2)
         pen.setCosmetic(True)
         self._sim_trail.setPen(pen)
         self._sim_trail.setZValue(10)

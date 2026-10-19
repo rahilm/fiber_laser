@@ -1,4 +1,5 @@
-"""Main window: ribbon + canvas + docks + status bar (layout per docs/ui.md)."""
+"""Main window: the task shell (top bar, workspace rail, canvas, docks, run bar) or the classic
+ribbon (layout per docs/ui.md); the shell is :mod:`mlaser.ui.shell` (docs/user/shell.md)."""
 from __future__ import annotations
 
 import copy
@@ -144,18 +145,24 @@ class MainWindow(QMainWindow):
         self.estimate: dict = {}
         self.mj_params = MicroJointParams()
         self.resize(1400, 900)
-        self.tr_.bind(self, "mf459", lambda t: self.setWindowTitle(f"Mlaser - {t}"))
+        self.setWindowTitle("Mlaser")
 
         self.ribbon = Ribbon(self.tr_, self)
-        self.setMenuWidget(self.ribbon)
         self.lang_combo = QComboBox()
+        self.lang_combo.setObjectName("language")
+        self.tr_.bind(self.lang_combo, "shell.language", self.lang_combo.setAccessibleName)
+        self.tr_.bind(self.lang_combo, "shell.language", self.lang_combo.setToolTip)
         self._fill_lang_combo()
         self.lang_combo.currentIndexChanged.connect(
             lambda i: self.set_language(self.lang_combo.itemData(i)) if self.lang_combo.itemData(i) else None)
-        self.ribbon.setCornerWidget(self.lang_combo, Qt.TopRightCorner)
 
         self.canvas = CanvasView(self)
-        self.setCentralWidget(self.canvas)
+        self.canvas.setAccessibleName("Canvas")
+        self.tr_.bind(self.canvas, "shell.canvas", self.canvas.setAccessibleName)
+        # the task shell (mlaser.ui.shell): central workspace stack (Design holds the canvas), the
+        # rail, the top bar; plugins add workspaces while they load (host_register_workspace)
+        from .shell import install as install_shell
+        install_shell(self)
 
         # left: layers + parts (tabbed dock)
         self.layer_panel = LayerPanel(self.tr_)
@@ -202,6 +209,7 @@ class MainWindow(QMainWindow):
         from . import safety_ui
         safety_ui.install(self)
         # ---
+        self.shell.finish()       # commands, keys, palette, theme, user mode, layout
 
     # ------------------------------------------------------------------ plugins
     def _load_extensions(self, names, entry_points: bool = False) -> dict:
@@ -236,11 +244,42 @@ class MainWindow(QMainWindow):
         return self.ribbon.add_command_tab(title, commands)
 
     def host_add_workspace(self, name: str, widget, title: str):
-        """Wave 3 task workspaces: kept in ``self.workspaces`` (no workspace switcher yet)."""
+        """The plugin API of Wave 2 (``name, widget, title``): a workspace with the defaults."""
+        return self.host_register_workspace(name, widget, title, {})
+
+    def host_register_workspace(self, name: str, widget, title: str, options: dict):
+        """A task workspace (``PluginContext.add_workspace``; options of
+        :class:`mlaser.services.workspaces.WorkspaceSpec`).  It fills a built-in slot (Design,
+        Process, Nest, Run, Report, Machine) by the slot rule, else it gets a rail button of its
+        own.  Kept in ``self.workspaces`` as (title, widget) too."""
         if name in self.workspaces:
             raise KeyError(f"workspace {name!r} already exists")
+        from mlaser.services.workspaces import WorkspaceSpec
+        opts = dict(options)
+        extra = dict(opts.pop("extra", {}) or {})
+        extra["canvas_given"] = "canvas" in opts
+        extra["min_mode_given"] = "min_mode" in opts
+        if "toolbar" in opts:
+            opts["toolbar"] = tuple(opts["toolbar"] or ())
+        if opts.get("docks") is not None:
+            opts["docks"] = tuple(opts["docks"])
+        spec = WorkspaceSpec(id=name, title=title or name, widget=widget, owner=name.split(".", 1)[0],
+                             extra=extra, **opts)
+        self.shell.register_workspace(spec)
         self.workspaces[name] = (title, widget)
         return widget
+
+    def show_workspace(self, ws_id: str) -> bool:
+        """Switch to a workspace (``"design"`` ... ``"machine"`` or a plugin workspace id)."""
+        return self.shell.show_workspace(ws_id)
+
+    @property
+    def user_mode(self) -> str:
+        return self.shell.modes.mode
+
+    def set_user_mode(self, mode: str, pin: Optional[str] = None) -> bool:
+        """Programmatic user-mode switch (no dialog); ``pin`` when a PIN protects ``mode``."""
+        return self.shell.set_user_mode(mode, pin)
 
     @property
     def document(self) -> Document:
@@ -372,6 +411,7 @@ class MainWindow(QMainWindow):
             self._connect_action(act)
         for cmd, fn in handlers.items():
             self.commands.register(cmd, fn, "core", checkable=cmd in show)
+        self.commands.register("edit.delete", self.delete_selected, "core", "cmd.edit.delete")
         for how, label in SORT_LABELS.items():
             self.ribbon.action(f"sort.{how}", label)
         self.handlers = self.commands.handlers()
@@ -389,16 +429,8 @@ class MainWindow(QMainWindow):
         """Accelerators observed in RT_ACCELERATOR 128 (Ctrl+N/O/S/Z/X/C/V, Alt+Backspace,
         Shift+Del, Ctrl+Ins, Shift+Ins, F6) and the view key handler FUN_004d0480 (Esc cancel +
         deselect, arrows nudge selection, Del delete, Shift multi-select, Ctrl+A/C/V/Y/Z).
-        ``F`` (zoom fit) and Ctrl+I are rebuild additions."""
-        keys = {
-            "Ctrl+N": "file.new", "Ctrl+O": "file.open", "Ctrl+S": "file.save",
-            "Ctrl+Z": "edit.undo", "Alt+Backspace": "edit.undo", "Ctrl+Y": "edit.redo",
-            "Ctrl+A": "select.all", "F": "view.zoom_fit", "Ctrl+I": "file.import",
-            "Ctrl+C": "edit.copy", "Ctrl+V": "edit.paste",
-        }
-        for seq, cmd in keys.items():
-            QShortcut(QKeySequence(seq), self, activated=lambda c=cmd: self.run(c))
-        QShortcut(QKeySequence(Qt.Key_Delete), self, activated=self.delete_selected)
+        The command keys live in :mod:`mlaser.ui.shell.keymap` (set on the commands' actions by
+        the shell, listed in Help > Keyboard shortcuts); here only the canvas keys."""
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=lambda: (self.canvas.select_parts([]), self.set_mode(CanvasView.MODE_SELECT)))
         for key, (dx, dy) in ((Qt.Key_Left, (-1, 0)), (Qt.Key_Right, (1, 0)), (Qt.Key_Up, (0, 1)), (Qt.Key_Down, (0, -1))):
             QShortcut(QKeySequence(key), self.canvas, activated=lambda dx=dx, dy=dy: self.nudge(dx, dy))
@@ -478,6 +510,9 @@ class MainWindow(QMainWindow):
             self.lang_combo.blockSignals(False)
         self.layer_panel.refresh()
         self.part_list.refresh()
+        shell = getattr(self, "shell", None)
+        if shell is not None:
+            shell._update_title()
 
     def set_mode(self, mode: str) -> None:
         self.canvas.set_mode(mode)
@@ -532,6 +567,8 @@ class MainWindow(QMainWindow):
     def _config_changed(self, key: str) -> None:
         """ConfigService listener: the machine profile feeds the job compiler (re-plan) and the
         controller's own manual moves."""
+        if key.startswith("shell."):             # the shell's own settings (theme, layout...)
+            return
         m = self.config.machine()
         if m == self.machine:
             return
@@ -698,6 +735,10 @@ class MainWindow(QMainWindow):
             self._edit(ops.set_layer, layer, label="layer", scope="selection")
 
     def edit_layer(self, layer: int) -> None:
+        from mlaser.services.usermodes import OPERATOR
+        if self.shell.modes.mode == OPERATOR:      # Operator mode: no parameter editing
+            self.log_panel.log(self.tr_.tr("shell.mode.no_params"))
+            return
         lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
                                                                 extra={"placeholder": True}))
         if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
@@ -786,6 +827,7 @@ class MainWindow(QMainWindow):
             saver(expand_document(self.document), path)    # raster parts as their burn segments
             self.path = path
             self.log_panel.log(f"np_FileSaveDone: {path}")
+            self.shell.mark_saved()
 
     # ------------------------------------------------------------------ dialogs
     def options_dialog(self, which: str) -> None:

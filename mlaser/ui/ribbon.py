@@ -6,14 +6,63 @@ connect handlers by command id.
 """
 from __future__ import annotations
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QEvent, QSize, Qt
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWidgets import (QFrame, QHBoxLayout, QLabel, QMenu, QTabWidget, QToolButton,
-                               QVBoxLayout, QWidget, QGridLayout)
+from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QMenu, QScrollArea,
+                               QSizePolicy, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from . import ribbon_spec as spec
 from .i18n import Translator
 from .icons import command_icon
+
+
+def wrap_label(text: str, limit: int = 9) -> str:
+    """A large ribbon button's label on two lines (at the space nearest the middle), as the
+    original BCG ribbon does, instead of eliding it ("Mi…nt" for "Micro Joint")."""
+    t = text.replace("\n", " ").strip()
+    if len(t.replace("&", "")) <= limit or " " not in t:
+        return t
+    mid = len(t) / 2
+    spaces = [i for i, c in enumerate(t) if c == " "]
+    cut = min(spaces, key=lambda i: abs(i - mid))
+    return t[:cut] + "\n" + t[cut + 1:]
+
+
+class RibbonButton(QToolButton):
+    """A ribbon tool button that never shrinks below its label (fixed horizontal size policy:
+    a tab that does not fit scrolls instead of eliding) and, when ``wrap`` is set, shows a
+    long label on two lines.  The tooltip always carries the full label."""
+
+    def __init__(self, wrap: bool = False, parent=None):
+        super().__init__(parent)
+        self.wrap = wrap
+        self.min_width = 0          # large buttons: at least 52 px (an explicit minimum size
+        self.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)   # would override the hint)
+
+    def sizeHint(self):  # noqa: N802 - Qt API
+        s = super().sizeHint()
+        if s.width() < self.min_width:
+            s.setWidth(self.min_width)
+        return s
+
+    def setDefaultAction(self, act) -> None:  # noqa: N802 - Qt API
+        super().setDefaultAction(act)
+        self._rewrap()
+
+    def actionEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().actionEvent(ev)
+        if ev.type() == QEvent.ActionChanged and ev.action() is self.defaultAction():
+            self._rewrap()
+
+    def _rewrap(self) -> None:
+        act = self.defaultAction()
+        if act is None:
+            return
+        full = act.text()
+        if self.wrap:
+            self.setText(wrap_label(full))
+        self.setAccessibleName(full.replace("&", ""))
+
 
 
 class Ribbon(QTabWidget):
@@ -26,7 +75,8 @@ class Ribbon(QTabWidget):
         self.on_new_action = None      # MainWindow connects every new action to its registry
         self.setDocumentMode(True)
         self.setObjectName("Ribbon")
-        self.setFixedHeight(118)
+        self.setUsesScrollButtons(True)
+        self._fit_height()
         self._file_menu = QMenu(self)
         file_btn = QToolButton(self)
         file_btn.setPopupMode(QToolButton.InstantPopup)
@@ -42,12 +92,25 @@ class Ribbon(QTabWidget):
             self._add_tab(tab)
 
     # ------------------------------------------------------------------
+    def _fit_height(self) -> None:
+        """Height from the font (two label lines + icon + caption + a scroll bar), so a larger
+        font or 150 % scaling never clips the labels (the original's fixed 118 px did)."""
+        fm = self.fontMetrics()
+        line = fm.height()
+        self.setFixedHeight(32 + 3 * line + 2 * 6 + self.tabBar().sizeHint().height() + 12)
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._fit_height()
+
     def action(self, cmd: str, key: str, icon: QIcon | None = None, checkable: bool = False) -> QAction:
         act = self.actions.get(cmd)
         if act is None:
             act = QAction(self)
             act.setObjectName(cmd)
             act.setData(cmd)
+            act.setProperty("lang_key", key)
             self.tr_.bind(act, key, act.setText)
             self.tr_.bind(act, key, act.setToolTip)
             self.actions[cmd] = act
@@ -73,7 +136,7 @@ class Ribbon(QTabWidget):
             act = self.actions.get(cmd)
             if act is None:
                 continue
-            tb = QToolButton()
+            tb = RibbonButton(wrap=True)
             tb.setDefaultAction(act)
             tb.setAutoRaise(True)
             if act.icon().isNull():
@@ -84,8 +147,19 @@ class Ribbon(QTabWidget):
             row.addWidget(tb)
         lay.addWidget(box)
         lay.addStretch(1)
-        self.addTab(page, title)
+        self.addTab(self._scroll(page), title)
         return page
+
+    @staticmethod
+    def _scroll(page: QWidget) -> QScrollArea:
+        """A tab page that is wider than the window scrolls sideways (no elided labels)."""
+        sa = QScrollArea()
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setWidgetResizable(True)
+        sa.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        sa.setWidget(page)
+        return sa
 
     def _add_tab(self, tab: spec.Tab) -> None:
         page = QWidget()
@@ -95,7 +169,7 @@ class Ribbon(QTabWidget):
         for grp in tab.groups:
             lay.addWidget(self._group_widget(grp))
         lay.addStretch(1)
-        idx = self.addTab(page, tab.key)
+        idx = self.addTab(self._scroll(page), tab.key)
         self.tr_.bind(page, tab.key, lambda t, i=idx: self.setTabText(i, t))
 
     def _group_widget(self, grp: spec.Group) -> QWidget:
@@ -111,7 +185,7 @@ class Ribbon(QTabWidget):
             icon = command_icon(b.cmd, b.icon)
             act = self.action(b.cmd, b.key, icon, b.checkable)
             text_only = act.icon().isNull()
-            tb = QToolButton()
+            tb = RibbonButton(wrap=b.large)
             tb.setDefaultAction(act)
             tb.setAutoRaise(True)
             if b.menu:
@@ -126,7 +200,8 @@ class Ribbon(QTabWidget):
                 if not text_only:
                     tb.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
                 tb.setIconSize(QSize(32, 32))
-                tb.setMinimumWidth(52)
+                tb.min_width = 52
+                tb.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding)
                 self._flush_small(row, small)
                 row.addWidget(tb)
             else:

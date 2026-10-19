@@ -60,6 +60,7 @@ def coverage() -> dict:
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import EXTENSIONS, MainWindow
     w = MainWindow(DemoController(), extensions=EXTENSIONS)
+    w.set_user_mode("service")          # every command enabled (the shell's user modes)
     w.set_document(ops.demo_document())
     missing: list[str] = []
     errors: dict[str, str] = {}
@@ -70,6 +71,8 @@ def coverage() -> dict:
             act.trigger()
         except Exception as e:  # noqa: BLE001 - report, keep going
             errors[cmd] = f"{type(e).__name__}: {e}"
+        if cmd.startswith("shell.mode_"):
+            w.set_user_mode("service")    # a user-mode command ran: the next ones stay enabled
         app.processEvents()
     errors.update({c: e for c, e in w.commands.failures.items() if c not in errors})
     total = len(w.ribbon.actions)
