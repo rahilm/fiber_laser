@@ -103,11 +103,30 @@ class ProjectExtension:
                 except Exception:  # noqa: BLE001
                     log.exception("project section %s", name)
 
+    def _job_running(self) -> bool:
+        if getattr(self.w, "safety_ui", None) is None:
+            return False
+        from . import safety_ui
+        return safety_ui.job_running(self.w)
+
     def open(self, path: str) -> bool:
+        from mlaser.io.limits import ImportCancelled
+        from .import_worker import ImportBusy, run_import, show_error
         try:
-            pr = load_project(path)
+            # off the GUI thread with progress and Cancel; .mlz limits in mlaser.project.format
+            pr = run_import(self.w, lambda: load_project(path), f"Opening {os.path.basename(path)}...")
         except ProjectError as e:
             self.ctx.log(self.tr("project.error", error=str(e)))
+            show_error(self.w, "Project not opened", str(e))
+            return False
+        except ImportCancelled:
+            self.ctx.log(f"{os.path.basename(path)}: opening cancelled")
+            return False
+        except ImportBusy as e:
+            self.ctx.log(f"{os.path.basename(path)}: not opened ({e})")
+            return False
+        if self._job_running():                          # a job started while the file was read
+            self.ctx.log(f"{os.path.basename(path)}: not opened (a job is running)")
             return False
         self.ctx.replace_document(pr.document, "open project", path=path)
         self.apply(pr)

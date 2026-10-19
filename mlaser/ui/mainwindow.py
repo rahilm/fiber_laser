@@ -849,10 +849,26 @@ class MainWindow(QMainWindow):
         if loader is None:
             self.log_panel.log(f"mf155: no importer for {ext} yet")
             return False
+        from mlaser.io.limits import ImportCancelled, ImportLimitError
+        from .import_worker import ImportBusy, run_import, show_error
         try:
-            doc = loader(path)
+            # off the GUI thread, with a progress dialog and Cancel (untrusted input:
+            # mlaser.io.limits refuses expansion bombs)
+            doc = run_import(self, lambda: loader(path), f"Opening {os.path.basename(path)}...")
+        except ImportCancelled:
+            self.log_panel.log(f"{os.path.basename(path)}: opening cancelled")
+            return False
+        except ImportBusy as exc:
+            self.log_panel.log(f"{os.path.basename(path)}: not opened ({exc})")
+            return False
+        except ImportLimitError as exc:
+            self.log_panel.log(f"mv32: {os.path.basename(path)}: {exc}")
+            show_error(self, "File not imported", f"{os.path.basename(path)}\n\n{exc}")
+            return False
         except Exception as exc:  # noqa: BLE001 - show any loader failure to the user
             self.log_panel.log(f"mv32: {exc}")
+            return False
+        if self._job_locked("open"):                    # a job started while the file was read
             return False
         self._snapshot()
         self.set_document(doc, path if ext == ".chf" else None)
