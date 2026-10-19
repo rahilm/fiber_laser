@@ -381,16 +381,25 @@ class SafetySupervisor:
     def _monitor(self) -> None:
         next_retry = 0.0
         next_tick = time.monotonic() + self.monitor_s
+        slack = 0.0                 # how late wake-ups come (moving average), for the heartbeat
         while True:
             # wake for the link / retry tick (monitor_s) and for each heartbeat edge: the edges
-            # used to wait for the next 50 ms tick, so a 10 Hz heartbeat ran at 6-7 Hz
+            # used to wait for the next 50 ms tick, so a 10 Hz heartbeat ran at 6-7 Hz.  On a
+            # host whose timers fire late (macOS VMs: a 50 ms wait takes 80-100 ms) the edge
+            # wake-up is requested that much earlier, at most a quarter period
             due = next_tick
-            if self.heartbeat_output and self.heartbeat_hz > 0 and self._hb_next > 0.0:
-                due = min(due, self._hb_next)
-            if self._mon_stop.wait(max(0.0, due - time.monotonic())):
+            hb = self.heartbeat_output and self.heartbeat_hz > 0 and self._hb_next > 0.0
+            if hb:
+                due = min(due, self._hb_next - slack)
+            t0 = time.monotonic()
+            req = max(0.0, due - t0)
+            if self._mon_stop.wait(req):
                 break
             try:
                 now = time.monotonic()
+                if hb:
+                    late = max(0.0, now - t0 - req)
+                    slack = min(0.8 * slack + 0.2 * late, 0.25 / max(self.heartbeat_hz, 1e-3))
                 if now >= next_tick:
                     next_tick = now + self.monitor_s
                     self._tick_link()
@@ -399,7 +408,7 @@ class SafetySupervisor:
                         next_retry = now + self.halt_retry_s
                         reason, pause = self._retry
                         self.safe_halt(f"{reason} (repeat)", pause, latch=False)
-                self._tick_heartbeat(time.monotonic())
+                self._tick_heartbeat(time.monotonic(), slack)
             except Exception:  # noqa: BLE001 - the monitor must keep running
                 log.exception("safety monitor")
 
@@ -426,7 +435,7 @@ class SafetySupervisor:
                     self.on_link_restored()
             self.link_ok = True
 
-    def _tick_heartbeat(self, now: float) -> None:
+    def _tick_heartbeat(self, now: float, slack: float = 0.0) -> None:
         if not self.heartbeat_output or self.heartbeat_hz <= 0:
             return
         alive = (self._mc is not None and self.fsm.state not in (SafetyState.FAULT, SafetyState.OFFLINE)
@@ -435,7 +444,7 @@ class SafetySupervisor:
             if self._hb_state:
                 self._heartbeat_write(False)
             return
-        if now >= self._hb_next:
+        if now + slack >= self._hb_next:
             half = 1.0 / (2.0 * self.heartbeat_hz)
             # phase-locked (the edges keep the configured rate however late a wake-up is),
             # resynchronised after a stall of more than half a period
