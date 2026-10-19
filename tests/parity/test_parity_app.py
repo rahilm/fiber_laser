@@ -1,6 +1,6 @@
 """App-level parity: files and card frames produced by the ORIGINAL MainApp under Wine.
 
-These read captures made by /home/dev/scratch/mlaser/parity/run_app.sh (MainApp driven with
+These read captures made by the parity harness's run_app.sh (MainApp driven with
 xdotool inside a loopback-only network namespace); they skip when no capture exists.
 """
 from parity_helpers import assert_no_new_discrepancies, run_area

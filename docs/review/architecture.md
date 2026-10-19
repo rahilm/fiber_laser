@@ -1,6 +1,6 @@
 # Architecture review: mlaser rebuild
 
-Scope: `/home/dev/scratch/mlaser/rebuild/` (131 modules, 44,452 lines in `mlaser/`; 9,471 lines of tests; 6,096 lines of docs) and the parity harness in `/home/dev/scratch/mlaser/parity/`. This was a read-only review: no project file was edited.
+Scope: `<workspace>/rebuild/` (131 modules, 44,452 lines in `mlaser/`; 9,471 lines of tests; 6,096 lines of docs) and the parity harness in `<workspace>/parity/`. This was a read-only review: no project file was edited.
 
 Every number below comes from scripts run during this review:
 
@@ -406,7 +406,7 @@ DISCONNECTED -> CONNECTED_DISARMED -> ARMED -> RUNNING/PAUSED
 - **Hard-coded external paths in 10 test files:**
   - original install: `test_cam.py:17`, `test_devices_follower.py:10`, `test_camx_flycut.py:11`, `test_machine_ops.py:21`;
   - parity directory: `test_io_dxf_sort.py:20`, `test_io_dxf_original.py:21`, `parity_helpers.py:24` (that one can be overridden);
-  - `test_ui.py:17` writes a screenshot to `/home/dev/scratch/mlaser/work/ui/`.
+  - `test_ui.py:17` writes a screenshot to `<workspace>/work/ui/`.
 - Parity tests need captures from Wine runs of the proprietary binaries, so they can't run in public CI.
 - `conftest.py` works around PySide6 crashing at interpreter exit.
 
@@ -422,7 +422,7 @@ DISCONNECTED -> CONNECTED_DISARMED -> ARMED -> RUNNING/PAUSED
 - **Translation and help:**
   - The i18n system is custom and keyed by opaque ids (`mf459`, `gp83`).
   - `diag/helpdocs.py:18` reads `../../docs`, which is not packaged, and that content is reverse-engineering notes rather than user help.
-- **No git, LICENSE, CONTRIBUTING, CHANGELOG, CI or pre-commit** anywhere under `/home/dev/scratch/mlaser`.
+- **No git, LICENSE, CONTRIBUTING, CHANGELOG, CI or pre-commit** anywhere under `<workspace>`.
 
 ### 3.5 Cross-platform
 

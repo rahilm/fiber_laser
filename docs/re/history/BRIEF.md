@@ -10,27 +10,27 @@ a height follower ("ZF", `10.1.1.169`), a laser source (Raycus/IPG/..., `10.1.1.
 heads ("AF"/"AdvAF"), EtherCAT ("EC") and a cloud monitor (`47.104.17.21:9001`).
 
 ## Layout
-- Original install (UNTRUSTED data, never execute it): `/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1/` (`$ORIG` below)
+- Original install (UNTRUSTED data, never execute it): `<workspace>/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1/` (`$ORIG` below)
 - Ghidra pseudocode dumps (all functions) + defined strings, made with REA's Ghidra 12.1.4 engine:
-  `/home/dev/scratch/mlaser/decomp/<Name>.c` and `<Name>.strings.txt`
+  `<workspace>/decomp/<Name>.c` and `<Name>.strings.txt`
   Names: NCModule, CADModule, ControlModule, ParaModule, MotionCtrl, DxfParse, IPSet, LangModule, splineAnalyer, MainApp
   (CADModule/MainApp may still be generating; check the `.log` file and wait if needed.)
   Functions are delimited by `// ==== <addr> <name>` lines. Use grep/sed on these; they are large.
-- Rebuild (Python 3.12, PySide6): `/home/dev/scratch/mlaser/rebuild/`
-  - venv: `/home/dev/scratch/mlaser/rebuild/.venv/bin/python` (PySide6, ezdxf, numpy, shapely, pytest installed;
-    add packages with `uv pip install -p /home/dev/scratch/mlaser/rebuild/.venv <pkg>`)
+- Rebuild (Python 3.12, PySide6): `<workspace>/rebuild/`
+  - venv: `<workspace>/rebuild/.venv/bin/python` (PySide6, ezdxf, numpy, shapely, pytest installed;
+    add packages with `uv pip install -p <workspace>/rebuild/.venv <pkg>`)
   - shared model: `mlaser/model.py`. Read it first. You may ADD fields with defaults; do not rename existing ones.
   - packages: `mlaser/formats` (.chf, ini, lang), `mlaser/io` (DXF/SVG import, G-code export), `mlaser/cam`
     (toolpath), `mlaser/motion` (velocity planning/interp), `mlaser/controller` (protocol, client, simulator), `mlaser/ui`
-  - tests go in `tests/` (pytest). Run with `cd /home/dev/scratch/mlaser/rebuild && .venv/bin/python -m pytest -q tests/<yours>`
+  - tests go in `tests/` (pytest). Run with `cd <workspace>/rebuild && .venv/bin/python -m pytest -q tests/<yours>`
   - docs go in `docs/`.
-- Scratch space: `/home/dev/scratch/mlaser/work/<your-area>/`. Don't write into `$ORIG` or `decomp/`.
+- Scratch space: `<workspace>/work/<your-area>/`. Don't write into `$ORIG` or `decomp/`.
 
 ## REA usage
 Several agents run at once and the REA MCP server holds ONE active target per session. Rules:
 - Primary evidence: the pre-made decomp dumps (grep them).
 - For focused follow-up (xrefs, assembly, data bytes, renaming) use the REA CLI, which runs its own session:
-  `GHIDRA_INSTALL_DIR=/home/dev/.local/ghidra_12.1.4_PUBLIC JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 npx -y rea-agents@6.5.0 <cmd> ...`
+  `GHIDRA_INSTALL_DIR=<ghidra install> JAVA_HOME=/usr/lib/jvm/java-21-openjdk-amd64 npx -y rea-agents@6.5.0 <cmd> ...`
   (`decompile <path> <addr>`, `function`, `execute-rizin-command`, `inspect-artifact`, ...; `--help` on each).
   Each CLI call re-imports the binary, so batch questions and prefer dumps.
 - Only the agent whose brief says "you own the REA MCP session" may call `mcp__rea__*` tools.
@@ -81,7 +81,7 @@ Phase 3 ownership (phase 2 owners have finished; their files are now owned as fo
   `mlaser/nc/*`, new `mlaser/formats/backup.py`, `mlaser/ui/ext_machine.py`, `mlaser/ui/ext_card.py`
 - I, monitoring/diagnostics/reports: new packages `mlaser/diag/`, `mlaser/report/`, `mlaser/ui/ext_diag.py`. Read-only use
   of `mlaser/controller` and `mlaser/devices`; request changes from H via your report.
-- J, parity harness: `/home/dev/scratch/mlaser/parity/` (outside the package) and `tests/parity/`. Report discrepancies;
+- J, parity harness: `<workspace>/parity/` (outside the package) and `tests/parity/`. Report discrepancies;
   do not edit rebuild code.
 Lead-owned (don't edit): `model.py`, `cam/toolpath.py`, `ui/mainwindow.py`, `ui/ribbon_spec.py`, `ui/canvas.py`,
 `motion/*`, `formats/chf.py`. If you need a change in them, give the exact patch in your report. The one exception is

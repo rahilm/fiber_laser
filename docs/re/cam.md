@@ -4,7 +4,7 @@
 - `Module/CADModule.dll`: dump `decomp/CADModule.c`. Addresses below are CADModule addresses unless prefixed.
 - `NCModule.dll`, `MainApp.exe`, `DxfParseDllvc100.dll`, `Dxf2Grp.dll`, `SVG/SVG2GCode.exe`.
 - `Lang/lang.txt` keys, written `pdNNN`.
-- Scratch extracts: `/home/dev/scratch/mlaser/work/cam/` (vtable dumper `vft.py`; NC/MainApp extracts in `nc/`) and `/home/dev/scratch/mlaser/work/io/`.
+- Scratch extracts: `<workspace>/work/cam/` (vtable dumper `vft.py`; NC/MainApp extracts in `nc/`) and `<workspace>/work/io/`.
 
 **Tags:** **O** observed, **I** inferred, **U** unknown.
 

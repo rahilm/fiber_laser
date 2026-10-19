@@ -1,6 +1,6 @@
 """Parity tests: the ORIGINAL Mlaser DLLs run under Wine vs the rebuild.
 
-The harness lives outside the package, in /home/dev/scratch/mlaser/parity (override with
+The harness lives outside the package, in ``parity/`` next to the checkout (``$MLASER_WORKSPACE/parity``; override with
 MLASER_PARITY_DIR).  These tests run the comparisons when Wine, the built harnesses and the
 copy of the original install are available, and skip cleanly otherwise.  Set
 MLASER_PARITY=0 to skip them even when Wine is present.
@@ -21,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-PARITY_DIR = Path(os.environ.get("MLASER_PARITY_DIR", "/home/dev/scratch/mlaser/parity"))
+PARITY_DIR = Path(os.environ.get("MLASER_PARITY_DIR") or Path(os.environ.get("MLASER_WORKSPACE") or Path(__file__).resolve().parents[2].parent) / "parity")
 # The harness imports the rebuild from MLASER_REBUILD; point it at THIS checkout so worktrees and CI
 # never silently compare another copy of the code.
 os.environ.setdefault("MLASER_REBUILD", str(Path(__file__).resolve().parents[2]))

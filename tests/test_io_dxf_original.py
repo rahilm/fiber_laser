@@ -6,6 +6,7 @@ Goldens marked "orig" come from .chf files the original MainApp wrote for the pa
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import pytest
@@ -18,7 +19,7 @@ from mlaser.io.dxf_import import import_dxf  # noqa: E402
 from mlaser.model import (GLYPH_ARC, GLYPH_CIRCLE, GLYPH_LINE, GLYPH_LWPOLY, GLYPH_POINT,  # noqa: E402
                           GLYPH_SPLINE, Line)
 
-PARITY = Path("/home/dev/scratch/mlaser/parity")
+PARITY = Path(os.environ.get("MLASER_WORKSPACE") or Path(__file__).resolve().parents[1].parent) / "parity"
 
 
 def _save(doc, tmp_path, name="t.dxf"):

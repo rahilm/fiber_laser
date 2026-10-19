@@ -1,13 +1,18 @@
 # mlaser: cross-platform rebuild of Gweike Mlaser
 
-A pure-Python (PySide6) rebuild of **Gweike Mlaser v0.0.1.51_SP1**, the Windows CAM/CNC program
-for fiber-laser sheet cutting with the MCC100 Ethernet motion card. The original's behaviour was
-reverse-engineered from its binaries and shipped files. The rebuild covers file formats, DXF/SVG/
-G-code import, the CAM toolpath (leads, kerf, micro-joints, ordering), the velocity planner, the
-card protocol, an NC compiler that turns a drawing into the card's FIFO step stream, a card
-simulator, and the main window.
+A Python (PySide6) rebuild of **Gweike Mlaser v0.0.1.51_SP1**, the Windows CAM/CNC program for
+fiber-laser sheet cutting with the MCC100 Ethernet motion card, with an optional C kernel for the
+step emitter. The original's behaviour was reverse-engineered from its binaries and shipped
+files. The rebuild covers file formats, DXF/SVG/G-code import, the CAM toolpath (leads, kerf,
+micro-joints, ordering), the velocity planner, the card protocol, an NC compiler that turns a
+drawing into the card's FIFO step stream, a card simulator, and the main window.
 
 > ## ⚠ Safety warning
+> **Status: pre-release (0.1.0 release candidates). Not validated on any real machine.** No part of
+> mlaser (card protocol, motion planner, laser, gas, follower or interlock handling) has been run
+> against a real MCC100 card or a real laser; everything is tested against mlaser's own card
+> simulator and, for file formats and computations, against the original program under Wine.
+>
 > The motion-card protocol is **reverse-engineered and has never been tested on real hardware**.
 > Much is observed in the original code, but a lot is still inferred: the meaning of some status
 > words, the bench output/DA wiring used when no machine parameter files are loaded, follower
@@ -80,7 +85,7 @@ Platform notes:
 ### From the source
 
 ```bash
-cd rebuild
+git clone https://github.com/rahilm/fiber_laser.git && cd fiber_laser
 uv sync --locked                        # .venv from uv.lock: the package (with its C emitter kernel
                                         #   when a C compiler is present), pytest, ruff, pre-commit
 uv sync --locked --extra devices        # + hidapi / pyserial (pendant, serial links)
@@ -252,7 +257,8 @@ The bit-exact ports change only with a Wine parity re-run; new algorithms are ad
 
 ## Parity with the original
 
-`/home/dev/scratch/mlaser/parity/` runs the original binaries under 32-bit Wine (loopback-only
+A separate parity harness, not part of this repository (`../parity/` next to the checkout on the
+development machine), runs the original binaries under 32-bit Wine (loopback-only
 network namespace, unpatched, licence checks untouched) and compares them with the rebuild:
 `./run_parity.sh` for the DLL level, `--app` and `run_app.sh machine` to drive MainApp itself.
 Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/re/parity.md](docs/re/parity.md)).

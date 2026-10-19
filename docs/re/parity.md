@@ -1,6 +1,6 @@
 # Parity harness: the original binaries under Wine vs the rebuild
 
-Owner: agent J (phase 3). Harness: `/home/dev/scratch/mlaser/parity/` (outside the package).
+Owner: agent J (phase 3). Harness: `<workspace>/parity/` (outside the package).
 Tests: `tests/parity/test_parity_*.py`. Latest generated report: `parity/out/report.md`
 (machine-readable: `parity/out/results.json`).
 

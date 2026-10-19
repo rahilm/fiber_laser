@@ -6,7 +6,7 @@ Tests: `tests/test_draw_geometry.py`, `tests/test_draw_tools.py`.
 
 Tags: **O** = observed in the decomp or the binary (address given), **I** = inferred,
 **U** = unknown. MainApp addresses are `0x004xxxxx`, CADModule addresses are `0x10xxxxxx`.
-Scratch evidence (asm dumps, scripts): `/home/dev/scratch/mlaser/work/draw/`.
+Scratch evidence (asm dumps, scripts): `<workspace>/work/draw/`.
 
 ## 1. Command routing (O)
 

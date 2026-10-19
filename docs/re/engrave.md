@@ -7,7 +7,7 @@ Original: `$ORIG/Bitmap/Bitmap.exe` (.NET apphost) + `next_cut.dll` (.NET 8 WinF
 Evidence tags: **O** = observed in the CIL of `next_cut.dll` (method token, IL offset); **I** =
 inferred (mostly the behaviour of the OpenCV/.NET routine that the original calls); **U** = unknown.
 The CIL was disassembled from the file bytes with a small decoder written for this task
-(`/home/dev/scratch/mlaser/work/engrave/tools/ildis.py` -> `nextcut.il.txt`), driven by the REA
+(`<workspace>/work/engrave/tools/ildis.py` -> `nextcut.il.txt`), driven by the REA
 member dump `work/ui/nextcut.members.json`. Nothing from the target was executed.
 
 ## 1. Program structure (O)

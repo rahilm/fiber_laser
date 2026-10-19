@@ -15,7 +15,7 @@ from typing import Optional
 
 import pytest
 
-DEFAULT = "/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1"
+DEFAULT = str(Path(os.environ.get("MLASER_WORKSPACE") or Path(__file__).resolve().parents[1].parent) / "extracted" / "Mlaser-v0.0.1.51_SP1" / "Mlaser-v0.0.1.51_SP1")
 #: the generated stand-in of the install folder (same relative layout)
 OWN_APPDIR = Path(__file__).parent / "data" / "appdir"
 

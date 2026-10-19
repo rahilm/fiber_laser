@@ -2,7 +2,7 @@
 (Go Origin, jog, step, mark/return, 回零位, outputs, laser, stop, coordinate origins, laser type)
 vs the rebuild's UiController / MachineOps on its CardSimulator.
 
-Reads the capture made by /home/dev/scratch/mlaser/parity/run_app.sh machine; skips when the
+Reads the capture made by the parity harness's run_app.sh machine; skips when the
 harness, its capture or Wine is missing (MLASER_PARITY=0 skips explicitly).  Frame / Dry Cut /
 Start are refused by the original (hardware authorisation state), so they are only checked for
 "no FIFO traffic"; see docs/re/parity.md §7.  Every other action must match exactly.

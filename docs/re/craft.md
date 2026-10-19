@@ -4,7 +4,7 @@
 added), `mlaser/ui/ext_craft.py` (`register(window)`: ribbon re-binding, dialogs and canvas click
 tools), `mlaser/engrave/` (Bitmap.exe port, see [engrave.md](engrave.md)).
 **Tests:** `tests/test_craft_manual.py`, `tests/test_craft_ui.py`, `tests/test_engrave_*.py`.
-**Scratch:** `/home/dev/scratch/mlaser/work/craft/` (`ribbon_ids.py` key→command-id pairs from the
+**Scratch:** `<workspace>/work/craft/` (`ribbon_ids.py` key→command-id pairs from the
 ribbon builder, `msgmap.py` MFC message map, `xref.py`, `peread.py`; `forkA/`, `forkB/` notes:
 CADModule vtables `vft.txt`, GraphParam offset→key maps).
 

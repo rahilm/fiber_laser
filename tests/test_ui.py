@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 import tempfile
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -18,7 +19,7 @@ from mlaser.ui.facade import DemoController  # noqa: E402
 
 # screenshot of the main window: MLASER_SHOT_DIR, else the dev box's work/ui folder when it
 # exists, else the temp directory (CI)
-_WORK = "/home/dev/scratch/mlaser/work"
+_WORK = str(Path(os.environ.get("MLASER_WORKSPACE") or Path(__file__).resolve().parents[1].parent) / "work")
 SHOT = os.path.join(os.environ.get("MLASER_SHOT_DIR")
                     or (os.path.join(_WORK, "ui") if os.path.isdir(_WORK) else tempfile.gettempdir()),
                     "screenshot.png")

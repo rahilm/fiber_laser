@@ -3,6 +3,7 @@ start points and TrueType text glyphs (docs/re/cam.md §1 / §8.4, docs/re/parit
 from __future__ import annotations
 
 import math
+import os
 from pathlib import Path
 
 import pytest
@@ -17,7 +18,7 @@ from mlaser.formats.chf import dumps_chf, loads_chf  # noqa: E402
 from mlaser.io.dxf_import import import_dxf  # noqa: E402
 from mlaser.model import GLYPH_LINE, GLYPH_LWPOLY, GLYPH_SPLINE  # noqa: E402
 
-PARITY = Path("/home/dev/scratch/mlaser/parity")
+PARITY = Path(os.environ.get("MLASER_WORKSPACE") or Path(__file__).resolve().parents[1].parent) / "parity"
 SAMPLES = ["basic_r2000", "dxfTemplate", "extrusion", "gear", "inserts", "inserts2", "mix",
            "r12_polyline", "spline_ellipse", "spline_rational_acad", "visibility"]
 

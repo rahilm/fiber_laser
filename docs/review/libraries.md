@@ -1,6 +1,6 @@
 # Library and platform review: what to replace, wrap or keep
 
-Scope: `/home/dev/scratch/mlaser/rebuild/` (about 44.5k LOC of Python in `mlaser/`, 528 tests). This was a read-only review; no project file was changed.
+Scope: `<workspace>/rebuild/` (about 44.5k LOC of Python in `mlaser/`, 528 tests). This was a read-only review; no project file was changed.
 Library status was checked on 2026-10-18 against the PyPI JSON API, GitHub and the project docs. The GitHub and web-search rate limits hit partway through, so a few activity figures come from PyPI release cadence instead.
 
 ## 0. What I checked first
