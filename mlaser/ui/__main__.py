@@ -65,7 +65,7 @@ def main(argv=None) -> int:
             ctl = UiController(args.host, args.port, ini_path=args.ini, laser_enabled=not args.laser_off)
         except Exception as exc:  # pragma: no cover - controller package broken
             print(f"real controller unavailable ({exc}); using the demo controller", file=sys.stderr)
-    win = MainWindow(ctl or DemoController(), tr, extensions=EXTENSIONS)
+    win = MainWindow(ctl or DemoController(), tr, extensions=EXTENSIONS, entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
     if args.file:

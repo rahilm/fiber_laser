@@ -52,14 +52,27 @@ class WireJob:
     wire: list
     period_ms: float = 1.0
     duration_s: float = 0.0
+    groups: Optional[tuple] = None     # wire index where each ManuItem expansion starts (Job._groups)
 
     @classmethod
     def of(cls, job) -> "WireJob":
         if isinstance(job, WireJob):
             return job
+        if hasattr(job, "job") and hasattr(job, "toolpath") and not hasattr(job, "wire_bytes"):
+            job = job.job                  # a services.jobs.PlannedJob
         m = getattr(job, "machine", None)
         per = float(getattr(m, "period_ms", getattr(job, "period_ms", 1.0)) or 1.0)
-        return cls([list(w) for w in job.wire], per, float(getattr(job, "duration_s", 0.0) or 0.0))
+        g = getattr(job, "_groups", None)
+        starts = tuple(g[2]) if g is not None and g[0] is job.wire and g[1] == len(job.wire) else None
+        return cls([list(w) for w in job.wire], per, float(getattr(job, "duration_s", 0.0) or 0.0), starts)
+
+    def frames(self, first_seq: int) -> list[list[int]]:
+        """The FIFO frames exactly as ``Job.frames()`` builds them: the frame size is tested once
+        per ManuItem expansion (FUN_10043c20, parity JN-08), not after every item."""
+        if not self.groups:
+            return F.build_fifo_frames(self.wire, first_seq)
+        starts = list(self.groups) + [len(self.wire)]
+        return F.build_fifo_frames([self.wire[a:b] for a, b in zip(starts, starts[1:]) if b > a], first_seq)
 
 
 def wire_timing(wire: Sequence[Sequence[int]], period_ms: float) -> tuple[list[int], list[float]]:
@@ -138,7 +151,7 @@ class JobStreamer(FifoStreamer):
         st = mc.read_status()
         capacity = st.fifo_free
         self.buf = BufferStats(capacity=capacity)
-        frames = F.build_fifo_frames(wj.wire, st.fifo_seq + 1)
+        frames = wj.frames(st.fifo_seq + 1)       # == Job.frames(): what parity verified
         frame_bytes = [4 * (len(fr) - 1) for fr in frames]
         frame_end = []              # wire index of the last item in each frame
         acc, k = 0, 0

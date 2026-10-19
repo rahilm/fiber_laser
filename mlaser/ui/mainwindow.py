@@ -5,7 +5,7 @@ import copy
 import os
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
                                QScrollArea, QTabWidget)
@@ -16,6 +16,7 @@ from mlaser.ops.craft import MicroJointParams, default_lead_params  # noqa: F401
 from mlaser.services.commands import CommandRegistry, UnknownCommandError
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService, clone_parts
+from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import Hooks, discover, register_plugin
 
 from . import dialogs
@@ -54,6 +55,35 @@ def _lazy(module: str, attr: str) -> Optional[Callable]:
         logging.getLogger("mlaser.ui").exception("cannot load %s.%s", module, attr)
         return None
 
+class _RunRouter:
+    """The controller as the run controls (ControlPanel, pendant) see it: Start / Dry Cut /
+    Frame run the planned job (``MainWindow.run_job``); everything else is the live controller."""
+
+    def __init__(self, window) -> None:
+        self._w = window
+
+    def __getattr__(self, name):
+        return getattr(self._w.ctl, name)
+
+    def start(self, document=None, selected_only: bool = False) -> None:
+        self._w.run_job("process", selected_only)
+
+    def dry_run(self, document=None) -> None:
+        self._w.run_job("dry_run")
+
+    def frame(self, document=None) -> None:
+        self._w.run_job("frame")
+
+
+class _Bridge(QObject):
+    """Runs callables posted from worker threads on the GUI thread (queued signal)."""
+    call = Signal(object)
+
+    def __init__(self, parent) -> None:
+        super().__init__(parent)
+        self.call.connect(lambda fn: fn())
+
+
 class _CloseWatch(QObject):
     """Runs the plugins' ``close`` hooks before the window's closeEvent (an event filter, so the
     window's own close handling stays untouched)."""
@@ -67,6 +97,7 @@ class _CloseWatch(QObject):
         if obj is self._w and ev.type() == QEvent.Close and not self._done:
             self._done = True
             self._w.hooks.emit("close")
+            self._w.jobs.shutdown()
             self._w.config.flush()
         return False
 
@@ -85,7 +116,19 @@ class MainWindow(QMainWindow):
         self.docs = DocumentService()
         self.commands = CommandRegistry()
         self.hooks = Hooks()
-        self.jobs = None
+        # planned jobs: compiled in a worker, debounced, cached; the canvas shows the plan's
+        # toolpath and Start / Dry Cut / Frame stream exactly that plan (services.jobs)
+        self._bridge = _Bridge(self)
+        self._plan_timer = QTimer(self)
+        self._plan_timer.setSingleShot(True)
+        self._plan_timer_fn: Optional[Callable] = None
+        self._plan_timer.timeout.connect(lambda: self._plan_timer_fn() if self._plan_timer_fn else None)
+        self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule)
+        self.jobs.on_toolpath.append(self._plan_toolpath_ready)
+        self.jobs.on_planned.append(self._plan_ready)
+        self.jobs.on_failed.append(lambda t, exc: self.log_panel.log(f"toolpath: {exc}"))
+        self.plan = None                          # the current preview PlannedJob
+        self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
@@ -97,7 +140,7 @@ class MainWindow(QMainWindow):
         self.cam_params = CamParams()            # sort mode etc.
         self.machine = self.config.machine()     # mlaser.nc.Machine from the machine profile
         self.config.subscribe(self._config_changed)
-        self.toolpath: list = []
+        self._toolpath: list = []
         self.estimate: dict = {}
         self.mj_params = MicroJointParams()
         self.resize(1400, 900)
@@ -136,6 +179,8 @@ class MainWindow(QMainWindow):
         self.log_dock = self._dock("mf124", self.log_panel, Qt.BottomDockWidgetArea)
         self.ctl.add_log_listener(self.log_panel.log)
 
+        self.run_controls = _RunRouter(self)
+        self.control.ctl = self.run_controls       # Start / Dry Cut / Frame: the planned job
         self.resizeDocks([self.log_dock], [150], Qt.Vertical)
         self.resizeDocks([self.left_dock, self.right_dock], [320, 300], Qt.Horizontal)
         self._status_bar()
@@ -450,24 +495,89 @@ class MainWindow(QMainWindow):
         self._document_changed("edit")
 
     def _config_changed(self, key: str) -> None:
-        """ConfigService listener: the machine profile feeds the job compiler and the controller."""
-        self.machine = self.config.machine()
+        """ConfigService listener: the machine profile feeds the job compiler (re-plan) and the
+        controller's own manual moves."""
+        m = self.config.machine()
+        if m == self.machine:
+            return
+        self.machine = m
         if hasattr(self.ctl, "machine"):
             try:
-                self.ctl.machine = self.machine
+                self.ctl.machine = m
             except AttributeError:
                 pass
+        self._update_toolpath()
+
+    # ------------------------------------------------------------------ planned job
+    def _schedule(self, delay_s: float, fn):
+        """JobService debounce timer on the GUI thread (one shared single-shot timer)."""
+        self._plan_timer_fn = fn
+        self._plan_timer.start(int(delay_s * 1000))
+        return self._plan_timer.stop
+
+    def _preview_request(self):
+        doc = self.document
+        if not doc.parts:
+            self.jobs.preview = None
+            self.plan = None
+            self._set_toolpath([])
+            return None
+        req = build_request("process", self.docs, self.ctl, self.machine, self.cam_params)
+        self._plan_head = req.start
+        return req
+
+    def _plan_toolpath_ready(self, ticket) -> None:
+        if ticket is self.jobs.preview:
+            self._set_toolpath(ticket.toolpath or [])
+
+    def _plan_ready(self, plan, ticket) -> None:
+        if ticket is not self.jobs.preview:
+            return
+        self.plan = plan
+        self.estimate = dict(plan.estimate)
+        self.hooks.emit("plan", plan)
+
+    def _set_toolpath(self, items) -> None:
+        self._toolpath = list(items)
+        self.canvas.set_toolpath(self._toolpath)
+
+    @property
+    def toolpath(self) -> list:
+        """The toolpath of the current plan (waits for the toolpath stage of a pending plan;
+        the compile itself keeps running in the worker)."""
+        if self.jobs.pending or (self.jobs.preview is not None and not self.jobs.preview.toolpath_event.is_set()):
+            self.jobs.settle(toolpath_only=True)
+        return self._toolpath
+
+    @toolpath.setter
+    def toolpath(self, items) -> None:
+        self._set_toolpath(items or [])
+
+    def run_job(self, mode: str = "process", selected_only: bool = False) -> None:
+        """Start (``process``), Dry Cut (``dry_run``) or Frame (``frame``) with the planned job:
+        the plan for the current inputs (normally the cached preview plan) goes to the
+        controller; a compile, when one is needed, runs in the worker, never here."""
+        ctl = self.ctl
+        doc = self.document
+        if mode == "process" and getattr(ctl, "breakpoint", None) is not None:
+            busy = getattr(ctl, "_busy", lambda: False)
+            if not busy():
+                ctl.resume()
+                return
+        if not doc.parts or (selected_only and not any(p.selected for p in doc.parts)):
+            self.log_panel.log("mp78: graphic data is empty, cannot go frame" if mode == "frame"
+                               else "mp74: graphic data is empty, cannot start")
+            return
+        req = build_request(mode, self.docs, ctl, self.machine, self.cam_params, selected_only)
+
+        def result(ok: bool, msg: str) -> None:
+            if not ok:
+                self.log_panel.log(msg)
+        self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
 
     def _update_toolpath(self) -> None:
-        """Rebuild the CAM toolpath (mlaser.cam.build_toolpath) and show it on the canvas."""
-        build = _lazy("mlaser.cam.toolpath", "build_toolpath")
-        self.toolpath = []
-        if build is not None and self.document.parts:
-            try:
-                self.toolpath = build(self.document, self.cam_params)
-            except Exception as exc:  # noqa: BLE001 - CAM errors must not break editing
-                self.log_panel.log(f"toolpath: {exc}")
-        self.canvas.set_toolpath(self.toolpath)
+        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller."""
+        self.jobs.schedule_preview(self._preview_request)
 
     def _refresh(self) -> None:
         """Views after an in-place change; records it when :meth:`_snapshot` was called first."""
@@ -729,9 +839,10 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.ctl = ctl
-        self.control.ctl = ctl
+        self.control.ctl = self.run_controls
         ctl.add_log_listener(self.log_panel.log)
         self.hooks.emit("controller_changed", ctl)      # plugins re-attach (PluginContext)
+        self._update_toolpath()                          # start / placement / layers may differ
 
     def connect_simulator(self, time_scale: float = 1.0) -> bool:
         """Start the in-process MCC100 simulator (mlaser.controller.simulator) on localhost UDP
@@ -769,3 +880,13 @@ class MainWindow(QMainWindow):
         elif st.mode == "ready" and self._last_mode in ("process", "dry_run", "frame"):
             self.canvas.add_track_point(st.x, st.y, False)
         self._last_mode = st.mode
+        self._replan_if_head_moved(st)
+
+    def _replan_if_head_moved(self, st) -> None:
+        """The plan starts at the head position (it is the sort origin and the first rapid's
+        start), so an idle head that moved means a new plan (debounced)."""
+        h = self._plan_head
+        if (st.mode == "ready" and h is not None and self.document.parts
+                and abs(st.x - h[0]) + abs(st.y - h[1]) > 0.5):
+            self._plan_head = (st.x, st.y)
+            self.jobs.schedule_preview(self._preview_request, 0.3)

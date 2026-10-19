@@ -202,7 +202,7 @@ def test_main_window_screenshot(app, tmp_path):
 def test_dialogs_build(app):
     from mlaser.model import LayerParams, LeadParams
     from mlaser.ui import dialogs
-    from mlaser.ui.params import OPTION_SECTIONS, registry
+    from mlaser.ui.params import OPTION_SECTIONS, registry  # noqa: F401
 
     tr = i18n.Translator(language="en")
     assert len(registry()) > 500
@@ -220,5 +220,5 @@ def test_dialogs_build(app):
     for which, secs in OPTION_SECTIONS.items():
         dialogs.ParamGridDialog(tr, "mf137", secs, {})
     assert dialogs.IPDialog(tr).result_values()["pd445"] == "10.1.1.168"
-    for cls in (dialogs.MicroJointDialog, dialogs.ArrayDialog, dialogs.PasswordDialog, dialogs.AboutDialog):
+    for cls in (dialogs.MicroJointDialog, dialogs.PasswordDialog, dialogs.AboutDialog):
         cls(tr)

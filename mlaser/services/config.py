@@ -147,6 +147,16 @@ def _registry_settings() -> dict[str, Setting]:
     return out
 
 
+_REGISTRY_CACHE: dict[str, Setting] = {}
+
+
+def registry_settings() -> dict[str, Setting]:
+    """The registry part of the schema (cached; shared by every ConfigService)."""
+    if not _REGISTRY_CACHE:
+        _REGISTRY_CACHE.update(_registry_settings())
+    return _REGISTRY_CACHE
+
+
 # --------------------------------------------------------------------------- paths
 def _test_run() -> bool:
     return bool(os.environ.get("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
@@ -194,7 +204,7 @@ class ConfigService:
     FILE = "config.json"
 
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
-        self.schema: dict[str, Setting] = dict(_registry_settings())
+        self.schema: dict[str, Setting] = dict(registry_settings())
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE

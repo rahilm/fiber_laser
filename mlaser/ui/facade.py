@@ -186,6 +186,25 @@ class DemoController(_api.ControllerFacade):
         self._s.outputs["laser"] = True
         self._run(pts, speed, "process")
 
+    def start_job(self, job) -> None:
+        """Run a :class:`mlaser.services.jobs.PlannedJob` (the JobSubmitter protocol): follow
+        its toolpath (the planned order, leads and rapids) instead of the raw contours."""
+        if not self._require():
+            return
+        from mlaser.services.jobs import path_points
+        pts = [(x, y) for x, y, _on in path_points(job.toolpath)]
+        if not pts:
+            self._log("mp74: nothing to cut")
+            return
+        self._advance()
+        if job.mode == "process":
+            layers = getattr(job.document, "layers", {}) or {}
+            speed = max(1.0, min(lp.speed for lp in layers.values())) if layers else 100.0
+            self._s.outputs["laser"] = not job.dry_run
+        else:
+            speed = self.RAPID / 2
+        self._run(pts, speed, job.mode)
+
     def pause(self) -> None:
         self._advance()
         if self._s.mode in ("process", "dry_run", "frame"):

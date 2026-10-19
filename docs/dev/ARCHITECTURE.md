@@ -21,9 +21,11 @@ other. Lazy (function-level) imports count like top-level ones.
 
 ```
  apps          ui            parity (capture/compare tooling)
+ services      services      (documents + undo, commands, plugins, config, planned jobs)
  app support   diag          report          engrave
  machine       controller    (card client, simulator, job streamer, UI adapter)
                devices       machine (api.py: ControllerFacade, MachineState)
+ operations    ops           (document operations: transforms, craft, ribbon CAM ops)
  NC            nc            (job compiler, process sequences, machine config, resume)
  import        io            nest
  CAM           cam           (toolpath, leads, kerf, micro-joints, ordering, cleanup)
@@ -50,18 +52,22 @@ other. Lazy (function-level) imports count like top-level ones.
 | `machine`, `devices` | `machine.api` (the controller interface the UI uses); peripheral device clients |
 | `controller` | card client, simulator (+ `follower_sim`), `stream` (JobStreamer / ProcessStreamer), alarms, startup, UI adapter |
 | `diag`, `report`, `engrave` | diagnostics tools, production report window, bitmap engraving (they may use Qt) |
+| `services` | the application services, Qt-free (§7): `document` (DocumentService, undo), `undo`, `commands`, `plugins` (PluginContext), `config` (ConfigService), `jobs` (PlannedJob, JobService), `production` |
+| `ops` | Qt-free document operations the UI, services and diag share (`document`, `craft`, `cam`) |
 | `ui`, `parity` | the PySide6 application; the parity capture/compare tooling |
 
 ### Rules (import-linter contracts)
 
 1. **Dependencies point downward only** (the layers above).
 2. **Domain packages import no Qt**: model, geom, protocol, toolpath, i18n, parity_ports, formats,
-   cad, motion, cam, io, nest, nc, machine, devices, controller must not import PySide6 or shiboken6.
+   cad, motion, cam, io, nest, nc, ops, machine, devices, controller and services must not import
+   PySide6 or shiboken6.
 3. **`parity_ports` imports only `geom`, `protocol` and `model`** (plus the standard library,
    numpy and ezdxf).
 
-Not yet enforced (no `services` layer exists yet, ROADMAP Wave 2): "the app imports only
-services, never machine internals" and "only the SafetySupervisor holds a transport".
+Not yet enforced: "the app imports only services, never machine internals" (the UI still
+talks to the controller object for jog/IO; the typed MachineAPI of the Safety track is the step
+before that contract) and "only the SafetySupervisor holds a transport".
 
 ### Explicit ignores
 
@@ -70,7 +76,6 @@ a comment and has a ROADMAP item that removes it.
 
 | Import | Why | Removed by (ROADMAP) |
 |---|---|---|
-| `diag.batch -> ui.docops` | batch cutting rotates the document with the UI's docops | Wave 2 "business logic out of the UI" |
 | `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
 | `cad.text -> PySide6`, `io.dxf_import -> PySide6` | TEXT outlines fall back to Qt's font engine | Wave 2 "fontTools + uharfbuzz text" |
 | `controller.ui_adapter -> PySide6` | the UI adapter emits Qt signals to the GUI thread | Wave 2 "typed MachineAPI plus an event bus" |
@@ -207,4 +212,52 @@ summation since 3.12; 3.11's plain `sum()` made a random job plan differently). 
 2. `.venv/bin/mypy` and `.venv/bin/lint-imports`
 3. `python tools/make_goldens.py --check` on Python 3.12 (bit-identical, or a reviewed new profile)
 4. a change under `mlaser/parity_ports/`: `pytest -m parity` and `../parity/run_parity.sh`
-5. `python tools/command_coverage.py`: every ribbon command bound, none raising
+5. `python tools/command_coverage.py`: every ribbon command bound, none raising, no duplicate
+   registration (0 / 0 / 0)
+
+## 7. Services layer (Wave 2)
+
+`mlaser.services` sits between the Qt application and the domain.  It imports no Qt (import
+contract), so every service has unit tests without a display; the application injects the two
+Qt-specific pieces (a "post to the GUI thread" callable and a timer).
+
+| Service | What it owns | Replaces |
+|---|---|---|
+| `DocumentService` (`document.py`, `undo.py`) | the open document and its path; `edit(fn, label, parts=scope)` transactions with rollback; `replace(doc)`; command undo/redo | `MainWindow._snapshot` / `_edit` / `_refresh` and the 50 deep copies |
+| `CommandRegistry` (`commands.py`) | one handler per command id; duplicates raise and are recorded; failures logged | `QAction.triggered` rebinding by the extensions |
+| `PluginContext` (`plugins.py`) | the plugin API, hooks, providers, entry-point discovery | `register(window)` and monkeypatching (docs/dev/PLUGINS.md) |
+| `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
+| `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
+| `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+
+### Undo
+
+An edit is a `PartsEdit` command: copies of the parts in its scope taken before `fn` runs, the
+part order (by uid) before and after, and the document's `layers` / `extra`.  Undo and redo swap
+the stored objects with the live ones (no copy).  Parts and contours carry a stable `uid`
+(`mlaser.model`, no part in equality).  The `.chf` round-trip records (`Part.extra['chf']`,
+`['_chf_snapshot']`, `Contour.extra['chf']`, source glyphs, `Document.extra['chf']`) are
+registered in the `RoundTripTable` side table and shared by every copy (a deepcopy memo), never
+copied per edit; the codec copies before it writes, so they are immutable.  The stack is bounded
+by count (100) and estimated retained bytes (256 MiB).
+
+### Planned jobs
+
+`build_request(mode, docs, ctl, machine, cam_params)` captures on the GUI thread: a private
+snapshot of the document, the controller's placement (`place`), the head position (the start and
+sort origin), the layers, the laser-enabled state and the ParityProfile.  The worker runs
+`nc.compiler.plan_toolpath` (the first half of `compile_job`, published to the canvas at once)
+and `compile_items` (with a `progress` hook that cancels).  `PlannedJob.frames()` is
+`Job.frames()`, and `controller.stream.WireJob` now carries the ManuItem grouping so the streamer
+sends exactly these frames.  `ControllerSubmitter` implements the `JobSubmitter` protocol
+(`start_job(plan)`) for today's controllers; the Safety track's MachineAPI takes it over.
+
+### Configuration
+
+`ConfigService.schema` has one `Setting` per registry entry (type, unit, range, options,
+default, section, file); `values` holds only what the user set.  `machine()` builds the
+`nc.Machine` from the profile: `bench` (default: `Machine()` plus every changed parameter,
+applied the way `Machine.from_params` applies it; nothing changed = exactly `Machine()`) or
+`params` (everything from the parameter set, chosen after `import_dat`).  The window's
+`settings` is `ConfigService.mapping()`, a dict view, so the Options dialogs, diag `ParamSet`
+and the plugins write validated values into the one store.

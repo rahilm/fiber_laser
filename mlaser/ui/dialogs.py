@@ -2,7 +2,7 @@
 
 The original builds almost every dialog at run time on top of BCGP property grids
 (MainApp.exe has only 7 empty dialog templates, RT_DIALOG 319..459), so most dialogs here are
-data-driven from :mod:`mlaser.ui.params`.
+data-driven from :mod:`mlaser.ui.params` (the ConfigService schema).
 """
 from __future__ import annotations
 
@@ -54,21 +54,26 @@ class _Base(QDialog):
 class ParamGridDialog(QDialog):
     """Property-grid style editor for one or more parameter sections (CBCGPPropList replacement).
 
-    ``values`` maps parameter names (``GP.CutSpeed``...) to values and is edited in place
-    on accept.
+    The editors are typed from the ConfigService schema (:mod:`mlaser.ui.params`): check boxes
+    for booleans, option lists for enums, spin boxes with the registry range and unit for
+    numbers.  ``values`` (the window's settings view, or a plain dict) receives on accept only
+    the values that changed; a value the schema refuses is reported, not stored.
     """
 
-    def __init__(self, tr: Translator, title_key: str, sections: list[str], values: dict,
+    def __init__(self, tr: Translator, title_key: str, sections: list[str], values,
                  parent=None):
         super().__init__(parent)
         self.tr_ = tr
         self.values = values
+        self.errors: list[str] = []
         self.setWindowTitle(tr.tr(title_key))
         self.resize(640, 560)
         lay = QVBoxLayout(self)
         tabs = QTabWidget()
         lay.addWidget(tabs)
         self._editors: dict[str, QWidget] = {}
+        self._settings: dict = {}
+        self._initial: dict = {}
         for sec in sections:
             defs = P.section(sec)
             if not defs:
@@ -82,12 +87,14 @@ class ParamGridDialog(QDialog):
                 g.setFirstColumnSpanned(True)
                 tree.addTopLevelItem(g)
                 for d, label in items:
-                    it = QTreeWidgetItem([label])
-                    it.setToolTip(0, d.name)
+                    it = QTreeWidgetItem([label + (f" ({d.unit})" if d.unit else "")])
+                    it.setToolTip(0, d.key)
                     g.addChild(it)
                     ed = self._editor(d)
                     tree.setItemWidget(it, 1, ed)
-                    self._editors[d.name] = ed
+                    self._editors[d.key] = ed
+                    self._settings[d.key] = d
+                    self._initial[d.key] = self._read(ed)
                 g.setExpanded(True)
             tabs.addTab(tree, sec)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -95,31 +102,61 @@ class ParamGridDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
-    def _editor(self, d: P.ParamDef) -> QWidget:
-        v = self.values.get(d.name)
-        if d.is_bool():
+    def _editor(self, d) -> QWidget:
+        v = self.values.get(d.key)
+        if v is None:
+            v = d.default
+        if d.kind == "bool":
             w = QCheckBox()
             w.setChecked(bool(v))
             return w
-        w = QLineEdit("" if v is None else str(v))
-        default = d.hint[0] if d.hint else ""
-        if v is None and default not in ("", None, 'L""'):
-            w.setPlaceholderText(str(default))
-        return w
+        if d.kind == "enum" and d.options:
+            w = QComboBox()
+            w.addItems([self.tr_.tr(o) if self.tr_.has(o) else str(o) for o in d.options])
+            try:
+                w.setCurrentIndex(int(v))
+            except (TypeError, ValueError):
+                pass
+            return w
+        if d.kind in ("int", "float", "enum"):
+            lo = d.min if d.min is not None else -1e9
+            hi = d.max if d.max is not None else 1e9
+            if d.kind == "float":
+                ws: QWidget = _spin(lo, hi, 0.0, 4)
+            else:
+                ws = QSpinBox()
+                ws.setRange(int(max(lo, -2**31)), int(min(hi, 2**31 - 1)))
+            try:
+                ws.setValue(float(v) if d.kind == "float" else int(float(v)))
+            except (TypeError, ValueError):
+                pass
+            if d.unit:
+                ws.setSuffix(f" {d.unit}")
+            return ws
+        return QLineEdit("" if v is None else str(v))
+
+    @staticmethod
+    def _read(w):
+        if isinstance(w, QCheckBox):
+            return w.isChecked()
+        if isinstance(w, QComboBox):
+            return w.currentIndex()
+        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+            return w.value()
+        return w.text().strip()
 
     def _ok(self) -> None:
+        self.errors = []
         for name, w in self._editors.items():
-            if isinstance(w, QCheckBox):
-                if w.isChecked() or name in self.values:
-                    self.values[name] = w.isChecked()
-            else:
-                t = w.text().strip()
-                if not t:
-                    continue
-                try:
-                    self.values[name] = float(t) if any(c in t for c in ".eE") else int(t)
-                except ValueError:
-                    self.values[name] = t
+            v = self._read(w)
+            if v == self._initial.get(name) and name not in self.values:
+                continue
+            if v == self.values.get(name):
+                continue
+            try:
+                self.values[name] = self._settings[name].validate(v)
+            except ValueError as e:
+                self.errors.append(str(e))
         self.accept()
 
 
@@ -220,23 +257,6 @@ class MicroJointDialog(_Base):
         self.distance = self.row("pd345", _spin(1, 10000, 100, 1))
         self.length = self.row("pd346", _spin(0.01, 50, 0.5, 2, 0.1))
         self.min_size = self.row("pd314_1", _spin(0, 10000, 0, 1))
-        self.finish()
-
-
-class ArrayDialog(_Base):
-    """mf79 "Array": pd332 rows, pd333 columns, pd334 offset type, pd335/pd336 spacing,
-    pd337/pd338 directions."""
-
-    def __init__(self, tr: Translator, parent=None):
-        super().__init__(tr, "mf79", parent)
-        self.rows = self.row("pd332", QSpinBox()); self.rows.setRange(1, 1000); self.rows.setValue(2)
-        self.cols = self.row("pd333", QSpinBox()); self.cols.setRange(1, 1000); self.cols.setValue(2)
-        self.offset_type = self.row("pd334", QComboBox())
-        self.offset_type.addItems(["Spacing", "Offset"])
-        self.row_gap = self.row("pd335", _spin(-1e5, 1e5, 10, 3))
-        self.col_gap = self.row("pd336", _spin(-1e5, 1e5, 10, 3))
-        self.row_dir = self.row("pd337", QComboBox()); self.row_dir.addItems(["+", "-"])
-        self.col_dir = self.row("pd338", QComboBox()); self.col_dir.addItems(["+", "-"])
         self.finish()
 
 

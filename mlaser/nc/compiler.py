@@ -42,7 +42,7 @@ from __future__ import annotations
 import bisect  # noqa: F401 - kept in the module namespace (moved code used it)
 import math
 from dataclasses import dataclass, field, replace
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 from ..toolpath import items as I
 from ..cam.toolpath import CamParams, build_toolpath
@@ -271,14 +271,17 @@ def laser_on_sequence(seq: "P.ProcessSequencer", layer: int, laser: bool = True)
 
 def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Point = (0.0, 0.0),
                   doc: Optional[Document] = None, dry_run: bool = False,
-                  carry: Sequence[float] = (0.0, 0.0)) -> Job:
+                  carry: Sequence[float] = (0.0, 0.0),
+                  progress: Optional[Callable[[float], None]] = None) -> Job:
     """Compile a MotionItem stream (mm, mm/s, s) into a :class:`Job`.
 
     With ``machine.process.enabled`` (default) LaserOn/LaserOff/Pierce/Rapid produce the
     original's process items (docs/protocol.md "Process items"); otherwise the phase-1
     behaviour (laser-on dwell for the pierce, optional gas output) is used.  ``carry`` is the
     initial pulse remainder (FUN_00473bd0's never-reset globals; (0, 0) = fresh program start,
-    pass a previous ``Job.pulse_carry`` to chain jobs as one session would).
+    pass a previous ``Job.pulse_carry`` to chain jobs as one session would).  ``progress`` is
+    called with the fraction of items done after each chain (cut run or item); it may raise to
+    cancel (``mlaser.services.jobs``).  It does not change the result.
     """
     m = machine or Machine()
     cfg = m.motion_config()
@@ -326,7 +329,11 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
         rapid_len += L
         em.dwell(m.jump_add_time_ms * 1e-3, False)
 
+    n_items, n_done = max(1, len(items)), 0
     for kind, obj in _chains(items):
+        if progress is not None:
+            n_done += len(obj) if kind == "path" else 1
+            progress(min(1.0, n_done / n_items))
         if kind == "path":
             moves = obj
             if math.dist(em.pos, moves[0].start) > 1e-6:
@@ -463,6 +470,16 @@ def compile_job(doc: Document, cam_params=None, machine: Optional[Machine] = Non
     ``layers`` (a ``mlaser.formats.params.MachineParams`` or ``dict[int, LayerParams]``) supplies
     the speed/power of layers the document does not define (LayerPara.xml, docs/formats.md).
     """
+    doc, prm, items = plan_toolpath(doc, cam_params, start, layers)
+    return compile_items(items, machine, prm.origin, doc, dry_run)
+
+
+def plan_toolpath(doc: Document, cam_params=None, start: Optional[Point] = None,
+                  layers=None) -> tuple[Document, CamParams, list]:
+    """The first half of :func:`compile_job`: the placed document (layers filled, job placement
+    and rotation applied), the CamParams with ``origin = start`` and the ordered MotionItems.
+    ``compile_items(items, machine, prm.origin, doc, dry_run)`` is the second half; the
+    JobService runs both in a worker so the preview shows exactly the toolpath that is cut."""
     doc = placed_document(with_layers(doc, layers))
     if cam_params is None:
         prm = CamParams()
@@ -473,7 +490,7 @@ def compile_job(doc: Document, cam_params=None, machine: Optional[Machine] = Non
     if start is not None:
         prm.origin = (float(start[0]), float(start[1]))
     items = build_toolpath(doc, prm)
-    return compile_items(items, machine, prm.origin, doc, dry_run)
+    return doc, prm, items
 
 
 APPLY_MIN_ANGLE = 0.0015     # CADModule FUN_100bd2bc: |angle| > 0.0015 rad -> rotation applied

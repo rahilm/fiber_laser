@@ -350,7 +350,6 @@ class MachineExtension:
 
     # ------------------------------------------------------------------ job / files
     def offline(self) -> None:
-        from mlaser.nc import compile_job
         from mlaser.nc.offline import export_offline
         doc = self.w.document
         if not doc.parts:
@@ -361,11 +360,24 @@ class MachineExtension:
                                               f"{ext} (*.{ext})")
         if not path:
             return
-        place = getattr(self.w.ctl, "place", None)
-        d = place(doc) if callable(place) else doc
-        job = compile_job(d, getattr(self.w, "cam_params", None), getattr(self.w, "machine", None))
-        out = export_offline(path, job, doc, laser_type=self.ops.laser_type)
-        self.log(f"A241115_1: offline job written to {out} ({job.steps} steps)")
+        # compiled by the JobService worker (not on the GUI thread); the offline job starts at the
+        # CAM origin as compile_job without a start did
+        import dataclasses
+        from mlaser.services.jobs import build_request
+        jobs = self.ctx.jobs
+        req = build_request("process", self.ctx.docs, self.w.ctl, self.w.machine, self.w.cam_params)
+        req = dataclasses.replace(req, start=tuple(self.w.cam_params.origin), dry_run=False)
+        ticket = jobs.plan(req)
+
+        def done(plan, t):
+            if t is not ticket:
+                return
+            jobs.on_planned.remove(done)
+            out = export_offline(path, plan.job, doc, laser_type=self.ops.laser_type)
+            self.log(f"A241115_1: offline job written to {out} ({plan.job.steps} steps)")
+        jobs.on_planned.append(done)
+        if ticket.done_event.is_set():
+            jobs.settle(ticket)
 
     def _backup(self):
         from mlaser.formats.backup import ParamBackup, default_param_dir

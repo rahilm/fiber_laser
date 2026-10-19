@@ -1,5 +1,6 @@
 """CommandRegistry, hooks and the plugin API (mlaser.services, Qt-free), plus the real wiring of
 the application: MainWindow with EXTENSIONS loaded through PluginContext."""
+
 from __future__ import annotations
 
 import os
@@ -11,8 +12,14 @@ import pytest
 from mlaser.services.commands import CommandRegistry, DuplicateCommandError, UnknownCommandError
 from mlaser.services.config import ConfigService, Setting
 from mlaser.services.document import DocumentService
-from mlaser.services.plugins import (DuplicateProviderError, Hooks, PluginContext, PluginInfo, discover,
-                                     register_plugin)
+from mlaser.services.plugins import (
+    DuplicateProviderError,
+    Hooks,
+    PluginContext,
+    PluginInfo,
+    discover,
+    register_plugin,
+)
 
 
 def test_registry_refuses_duplicates_and_reports_failures():
@@ -96,6 +103,7 @@ def test_plugin_context_edit_settings_and_rollback():
 
     def reg(ctx):
         from mlaser.model import Part
+
         ctx.register_command("hello.add", lambda: ctx.edit(lambda d: d.parts.append(Part(name="h")), "add"))
         s = ctx.settings_schema([Setting("count", "int", 3, min=1, max=10)])
         assert s["count"] == 3
@@ -105,6 +113,7 @@ def test_plugin_context_edit_settings_and_rollback():
         ctx.on_controller_changed(lambda c: None)
         ctx.add_dock(object(), "Hello")
         return "ok"
+
     ctx, res = register_plugin(host, PluginInfo("hello", _plugin_module("_mlaser_test_hello", reg)))
     assert res == "ok" and isinstance(ctx, PluginContext)
     host.commands.run("hello.add")
@@ -119,6 +128,7 @@ def test_plugin_context_edit_settings_and_rollback():
         ctx.register_command("bad.one", print)
         ctx.on_mode_changed(print)
         ctx.register_command("hello.add", print)
+
     ctx2, err = register_plugin(host, PluginInfo("bad", _plugin_module("_mlaser_test_bad", bad)))
     assert ctx2 is None and isinstance(err, DuplicateCommandError)
     assert "bad.one" not in host.commands and host.hooks.count("mode_changed") == 0
@@ -134,9 +144,14 @@ def test_entry_point_discovery(monkeypatch):
     class EP:
         def __init__(self, name, value):
             self.name, self.value = name, value
+
     import importlib.metadata as md
-    monkeypatch.setattr(md, "entry_points", lambda group: [EP("zeta", "pkg:z"), EP("ext_cam", "x:y")]
-                        if group == "mlaser.plugins" else [])
+
+    monkeypatch.setattr(
+        md,
+        "entry_points",
+        lambda group: [EP("zeta", "pkg:z"), EP("ext_cam", "x:y")] if group == "mlaser.plugins" else [],
+    )
     infos = discover(["mlaser.ui.ext_cam"])
     assert [(i.name, i.origin) for i in infos] == [("ext_cam", "builtin"), ("zeta", "entry-point")]
 
@@ -163,6 +178,7 @@ def test_example_plugin_loads():
 def app():
     pytest.importorskip("PySide6")
     from PySide6.QtWidgets import QApplication
+
     return QApplication.instance() or QApplication([])
 
 
@@ -170,6 +186,7 @@ def app():
 def test_real_wiring_no_monkeypatching_no_duplicates(app):
     from mlaser.ui.mainwindow import EXTENSIONS, MainWindow
     from wiring import real_window
+
     w = real_window()
     try:
         assert sorted(w.extensions) == sorted(EXTENSIONS)
@@ -180,8 +197,12 @@ def test_real_wiring_no_monkeypatching_no_duplicates(app):
             assert name not in vars(w)
         # each command has exactly one owner; the formerly overridden core commands
         own = {c: w.commands.owner(c) for c in ("machine.home", "sort.nearest", "sort.in_out", "tool.array")}
-        assert own == {"machine.home": "core", "sort.nearest": "core", "sort.in_out": "core",
-                       "tool.array": "ext_cam"}
+        assert own == {
+            "machine.home": "core",
+            "sort.nearest": "core",
+            "sort.in_out": "core",
+            "tool.array": "ext_cam",
+        }
         # controller hooks: every plugin re-attaches through the hook
         assert w.hooks.count("controller_changed") >= 3
         # the nudge provider of ext_draw is used by the window's arrow keys
