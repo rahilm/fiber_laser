@@ -14,6 +14,8 @@ Step kinds:
   once with ``auto``); Next is possible after it succeeded.  An exception fails the procedure
   (and halts the machine); :class:`StepFailed` carries a catalogue id for the message.
 * ``confirm``: a result to accept (Next) or reject (Back / Abort); e.g. the measured sheet.
+* ``question``: the operator answers yes / no (:meth:`Procedure.answer`), e.g. "did the head move
+  to the right?"; Next after an answer.
 
 Safety (docs/SAFETY.md):
 
@@ -75,12 +77,14 @@ class Step:
     id: str
     title: str                                   # catalogue id
     text: str = ""                               # catalogue id of the instructions
-    kind: str = "info"                           # info | input | action | confirm
+    kind: str = "info"                           # info | input | action | confirm | question
     safety: tuple = ()                           # catalogue ids of the safety notes
     run: Optional[Callable[["Procedure"], Any]] = None
     auto: bool = False                           # action: start when the step is entered
     motion: bool = False                         # the step moves the axes or fires
     skip: Optional[Callable[["Procedure"], bool]] = None
+    action_label: str = ""                       # catalogue id of the Run button
+    jog: bool = False                            # the UI offers hold-to-jog on this step
 
 
 @dataclass
@@ -108,6 +112,7 @@ class Procedure:
         self.state = READY
         self.index = 0
         self.results: dict[str, Any] = {}
+        self.answers: dict[str, bool] = {}
         self.done: set[str] = set()
         self.error: Optional[StepFailed] = None
         self.history: list[StepRecord] = []
@@ -207,7 +212,21 @@ class Procedure:
         s = self.step
         if s is None or self.state != WAITING:
             return False
+        if s.kind == "question":
+            return s.id in self.answers
         return s.kind != "action" or s.id in self.done
+
+    def answer(self, value: bool) -> None:
+        """Answer the current ``question`` step."""
+        s = self.step
+        if s is None or s.kind != "question" or self.state != WAITING:
+            raise RuntimeError(f"{self.id}: no question to answer")
+        self.answers[s.id] = bool(value)
+        self.on_answer(s, bool(value))
+        self._notify()
+
+    def on_answer(self, step: Step, value: bool) -> None:
+        """Hook: a question was answered."""
 
     def can_back(self) -> bool:
         """Back over info / input / confirm steps only (an action already ran)."""
@@ -277,12 +296,16 @@ class Procedure:
                 self._abort("operator", notify=False)
             self._notify()
             return False
-        except StepFailed as e:
-            self._fail(s, e)
-            return False
         except Exception as e:  # noqa: BLE001 - every failure is reported and halts
-            log.exception("%s: step %s failed", self.id, s.id)
-            self._fail(s, StepFailed("wizard.error.step", detail=f"{type(e).__name__}: {e}"))
+            if self.cancel.is_set():         # the abort made the step fail (refused, cancelled)
+                if self.state != ABORTED:
+                    self._abort("operator", notify=False)
+                self._notify()
+                return False
+            if not isinstance(e, StepFailed):
+                log.exception("%s: step %s failed", self.id, s.id)
+                e = StepFailed("wizard.error.step", detail=f"{type(e).__name__}: {e}")
+            self._fail(s, e)
             return False
         if self.state == ABORTED:            # aborted while the step was finishing
             return False

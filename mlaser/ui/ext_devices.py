@@ -70,7 +70,7 @@ class CurvePlot(QWidget):
         sx = w / max(1, x1 - x0)
         sy = h / max(1, y1 - y0)
         poly = QPolygonF([QPointF(m + (x - x0) * sx, m + h - (y - y0) * sy) for x, y in self.points])
-        p.setPen(QPen(Qt.blue, 2))
+        p.setPen(QPen(self.palette().highlight().color(), 2))     # palette: dark theme safe
         p.drawPolyline(poly)
         p.setPen(QPen(self.palette().text().color(), 1))
         p.drawText(2, m + 10, str(y1))
