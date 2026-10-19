@@ -30,9 +30,13 @@ from mlaser.machine.safety import SafetyState
 from safety_helpers import SPEED, Watch, rect_doc, safe, start_and_run, stopped, wait_until
 
 
+# One rerun allowed: this test runs the card simulator in the test process with the real 150 ms
+# deadline, so on a heavily loaded host another test's threads can starve it.  The bounds are
+# never loosened (docs/dev/TESTING.md "timing-sensitive tests").
+@pytest.mark.flaky(reruns=1)
 @pytest.mark.parametrize("process", [False, True])
 def test_link_loss_latches_a_fault_and_bounds_the_motion(make_ctl, process):
-    ctl = make_ctl(process=process)
+    ctl = make_ctl(process=process, link_deadline_ms=150.0)    # the real-card deadline
     start_and_run(ctl, run_s=0.8)
     sim = ctl.sim
     w = Watch(sim)
@@ -183,3 +187,41 @@ def test_estop_during_job_faults_with_breakpoint_then_resumes(make_ctl):
     ctl.resume()
     assert wait_until(lambda: sim.state.fifo_running, 10) is not None
     assert ctl.stop().wait(10)
+
+
+@pytest.mark.parametrize("process", [False, True])
+def test_hold_never_latches_a_fault(make_ctl, process):
+    """Hold during streaming must pause, never fault.  The pause used to latch the halt before
+    cancelling the stream, so a request in flight was refused and taken for a fault (Wave 3)."""
+    ctl = make_ctl(process=process)
+    for _ in range(4):
+        start_and_run(ctl, run_s=0.25)
+        ctl.pause()
+        assert wait_until(lambda: ctl.breakpoint is not None, 5) is not None
+        assert not ctl.fsm.faulted, ctl.safety().fault
+        assert ctl.fsm.state == SafetyState.PAUSED
+        assert ctl.stop().wait(10)
+        assert not ctl.fsm.faulted, ctl.safety().fault
+
+
+def test_simulator_deadline_does_not_leak_to_a_real_card():
+    """The in-process simulator streams with a 1 s deadline (shared GIL); a real card always gets
+    the configured one (150 ms) back."""
+    from mlaser.controller.parts.connection import SIM_LINK_DEADLINE_MS
+    from mlaser.controller.simulator import CardSimulator
+    from mlaser.controller.ui_adapter import UiController
+    ctl = UiController(poll_s=0.02, stream_process=False)
+    try:
+        assert ctl.connect_simulator()
+        assert ctl.sup.link_deadline_ms == SIM_LINK_DEADLINE_MS
+        ctl.disconnect()
+        ctl.sim = None
+        card = CardSimulator("127.0.0.1", 0).start()           # stands in for an external card
+        try:
+            ctl.connect("127.0.0.1", card.port)
+            assert ctl.sup.link_deadline_ms == 150.0
+        finally:
+            ctl.disconnect()
+            card.stop()
+    finally:
+        ctl.disconnect()

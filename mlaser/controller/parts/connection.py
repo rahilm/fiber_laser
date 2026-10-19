@@ -20,6 +20,10 @@ log = logging.getLogger("mlaser.controller.ui_adapter")
 AXES = {"X": 0, "Y": 1, "Z": 2, "W": 3}
 
 
+
+# streaming link deadline while the in-process simulator is the card (connect_simulator)
+SIM_LINK_DEADLINE_MS = 1000.0
+
 class ConnectionPart:
     # ------------------------------------------------------------------ connection
     def connect(self, host: Optional[str] = None, port: Optional[int] = None) -> bool:
@@ -28,6 +32,10 @@ class ConnectionPart:
         parameters (FUN_10039f20) and adopt the scaling.  The connection always starts
         **disarmed** (or in FAULT when a fault is still latched)."""
         self.disconnect(quiet=True, keep_sim=True)
+        # the streaming link deadline: the configured one for a real card, the simulator's own
+        # (see connect_simulator) while self.sim runs in this process
+        if self.sim is None:
+            self.sup.link_deadline_ms = self._card_link_deadline_ms()
         if host:
             self.cfg.host = host
         if port:
@@ -108,12 +116,22 @@ class ConnectionPart:
                 if self.sim is not None:
                     self.sim.period_ms = sc.period_ms
 
-    def connect_simulator(self, time_scale: float = 1.0, require_homed: bool = False, **sim_kw) -> bool:
+    def connect_simulator(self, time_scale: float = 1.0, require_homed: bool = False,
+                          link_deadline_ms: Optional[float] = None, **sim_kw) -> bool:
         """Start an in-process :class:`CardSimulator` on localhost UDP and connect to it.  The
         simulator's parameter image matches ``machine`` (period, pulses/mm).  The pre-flight
-        homing requirement is off for the simulator unless ``require_homed``."""
+        homing requirement is off for the simulator unless ``require_homed``.
+
+        The streaming link deadline defaults to ``SIM_LINK_DEADLINE_MS`` (1 s) here: the simulated
+        card shares this Python process (and its GIL) with the streamer, so on a loaded PC a
+        150 ms gap measures thread scheduling, not the link, and faulted demo jobs spuriously.  A
+        real card keeps the configured deadline (150 ms default); pass ``link_deadline_ms`` to
+        test link-loss behaviour at the real value."""
         from ..simulator import CardSimulator
         self.disconnect(quiet=True)
+        self._card_link_deadline_ms()                       # remember the configured value
+        self.sup.link_deadline_ms = float(link_deadline_ms if link_deadline_ms is not None
+                                          else SIM_LINK_DEADLINE_MS)
         m = self.machine
         sim_kw.setdefault("ppm", m.pulses_per_mm_x)          # position counts = step pulses
         sim_kw.setdefault("step_ppm", m.pulses_per_mm_x)
@@ -123,6 +141,13 @@ class ConnectionPart:
         self._log(f"simulator started on 127.0.0.1:{self.sim.port} (UDP)")
         self.cfg.transport = "udp"
         return self.connect("127.0.0.1", self.sim.port)
+
+    def _card_link_deadline_ms(self) -> float:
+        """The deadline configured for a real card (captured once, before any simulator)."""
+        v = getattr(self, "_card_deadline_ms", None)
+        if v is None:
+            v = self._card_deadline_ms = float(self.sup.link_deadline_ms)
+        return v
 
     def is_simulator(self) -> bool:
         return self.sim is not None

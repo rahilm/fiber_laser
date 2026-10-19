@@ -592,8 +592,7 @@ class OperatorScreen(QWidget):
             return
         st = ctl.safety()
         ui = getattr(w, "safety_ui", None)
-        bp = ctl.breakpoint
-        if ctl.laser_enabled and not st.armed and getattr(bp, "mode", "process") == "process":
+        if ctl.laser_enabled and not st.armed and ctl.breakpoint.mode == "process":
             if ui is None or not ui.arm():
                 return
         ctl.resume(mode)

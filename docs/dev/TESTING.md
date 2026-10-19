@@ -42,3 +42,17 @@ only after a reviewed behaviour change. 3.13 is checked as information
 * Randomised equivalence tests (hypothesis) compare a new implementation with the reference one
   before the reference is retired.
 * Screenshots of new screens: offscreen, at 1280×800 and at 150 % of 1920×1080, light and dark.
+
+
+## Timing-sensitive tests
+
+The safety suite asserts real-time bounds (stop latency, link-loss detection, motion after a loss).
+Two rules keep those assertions meaningful on busy CI or development hosts:
+
+- **The in-process simulator gets its own link deadline.** `connect_simulator()` streams with
+  `SIM_LINK_DEADLINE_MS` (1 s) because the simulated card shares the Python process (and GIL)
+  with the streamer. A real card always gets the configured deadline (150 ms default), and a test
+  proves the simulator value never leaks to a real connection.
+- **Tests of the real 150 ms deadline may rerun once.** They are marked `@pytest.mark.flaky(reruns=1)`
+  (pytest-rerunfailures). A test that fails twice is a real failure. Bounds are never loosened to
+  make a test pass.
