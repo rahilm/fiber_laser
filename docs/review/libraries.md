@@ -11,7 +11,7 @@ Library status was checked on 2026-10-18 against the PyPI JSON API, GitHub and t
 - `devices/transport.py` imports `serial` (pyserial), which is neither installed nor declared.
 - Fix: put them in extras (`[qr]`, `[pendant]`, `[serial]`, `[parity]`), or make them required.
 
-**Parity scope is wider than the brief's list.** `docs/parity.md` §3 and §9 compare these against the original running under Wine:
+**Parity scope is wider than the brief's list.** `docs/re/parity.md` §3 and §9 compare these against the original running under Wine:
 - motion planner, segInterp/arcInterp, CContoutSmooth;
 - NC frames and process items, `.chf` bytes;
 - **DXF import** (DxfParse, 12 DXFs, byte-identical `.chf` for 11 of them);

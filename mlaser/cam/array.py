@@ -1,6 +1,6 @@
 """Array (阵列, mf79) and fill (圆填充 mf100_1 / 直线填充 A250707_10) operations.
 
-Evidence (docs/cam.md §14):
+Evidence (docs/re/cam.md §14):
 
 * **Rectangular array**, CADModule ``0x100b92b0`` (CCADModule vtable slot 73 = +0x124,
   thunk ``0x100f2ea0``), called by MainApp ``0x004b29b0`` with the GraphParam block at

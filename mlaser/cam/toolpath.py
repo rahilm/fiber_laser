@@ -1,6 +1,6 @@
 """Document -> MotionItem stream (CAM pipeline).
 
-Mirrors the original data flow (see docs/cam.md):
+Mirrors the original data flow (see docs/re/cam.md):
 
 1. containment tree & depth (CContourTopTree), inner-before-outer order
    (ordering.py, CADModule 0x1003f010);
@@ -120,7 +120,7 @@ def _overcut(craft: Craft, c: Contour, has_lead_out: bool) -> float:
     keep only gaps, clamped to +-L/2, |v| <= 0.05 ignored, and FUN_1006f2d0 uses 0 for the value
     whenever the contour has a lead-out (+0x1d8 != 0, local_12d): an overcut AND a gap are
     dropped then, the whole contour is cut and the lead-out leaves from the start (parity JC-02)."""
-    v = float(craft.extra.get("overcut", 0.0) or 0.0)
+    v = float(craft.overcut or 0.0)
     L = c.length()
     if not c.closed and v > 0:
         v = 0.0
@@ -133,21 +133,11 @@ def _overcut(craft: Craft, c: Contour, has_lead_out: bool) -> float:
 
 
 def _joint_list(craft: Craft) -> list[tuple[float, float]]:
-    """(centre mm on the stored contour, width mm) per joint.  Widths: a (pos, len) entry's own,
-    else the per-joint widths a .chf load carries (``Craft.extra['micro_joint_widths']``, the
-    +0x128 list read by FUN_10072ad0, parity JC-10), else ``extra['micro_joint_len']`` (default
-    0.5)."""
-    jl = float(craft.extra.get("micro_joint_len", DEFAULT_JOINT_LEN))
-    widths = list(craft.extra.get("micro_joint_widths", []) or [])
-    out = []
-    for i, j in enumerate(craft.micro_joints):
-        if isinstance(j, (tuple, list)):
-            out.append((float(j[0]), float(j[1])))
-        elif i < len(widths) and widths[i] is not None:
-            out.append((float(j), float(widths[i])))
-        else:
-            out.append((float(j), jl))
-    return out
+    """(centre mm on the stored contour, width mm) per joint (``Craft.micro_joints``).  A joint
+    given without a width takes the per-joint width a .chf load carries (the +0x128 list read by
+    FUN_10072ad0, parity JC-10), else ``Craft.joint_width`` (default 0.5): resolved by the model
+    when the joints are assigned (``model._resolve_joint_widths``)."""
+    return craft.joint_list()
 
 
 def start_fraction(c: Contour, craft: Craft, prm: CamParams) -> float:
@@ -157,8 +147,8 @@ def start_fraction(c: Contour, craft: Craft, prm: CamParams) -> float:
     Open contours start at 0 (FUN_10071f30)."""
     if not c.closed:
         return 0.0
-    if "start_param" in craft.extra:
-        return float(craft.extra["start_param"])
+    if craft.start_param is not None:
+        return float(craft.start_param)
     L0 = c.length()
     d = choose_start(c, prm.start_mode, craft.lead_in.length, prm.start_percent)
     return (d % L0) / L0 if L0 > 0 else 0.0
@@ -234,10 +224,7 @@ def prepare_contour(c: Contour, craft: Craft, depth: int, prm: CamParams) -> Opt
     # --- cooling points ------------------------------------------------------
     cool = []
     lead_len = sum(s.length() for s in lin)
-    pts = list(craft.extra.get("cool_points", []))
-    if craft.cool_point is not None:
-        pts.append(craft.cool_point)
-    for p in pts:
+    for p in craft.cool_points:
         dist = _nearest_dist(c, p) if isinstance(p, (tuple, list)) else float(p)
         dist = ((dist - start) % L0 if c.closed else dist) * scale
         if 0.2 < dist < L - 0.2:   # points within 0.2 mm of either end are ignored (0x10104640)
@@ -513,7 +500,7 @@ def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
 
     for n in nodes:
         pi, _ci = n.key
-        # a contour may carry its own craft (manual lead/start/joints on one hole; docs/craft.md)
+        # a contour may carry its own craft (manual lead/start/joints on one hole; docs/re/craft.md)
         ov = n.contour.extra.get("craft") if isinstance(n.contour.extra, dict) else None
         crafts[id(n)] = ov if isinstance(ov, Craft) else doc.parts[pi].craft
         n.layer = crafts[id(n)].layer

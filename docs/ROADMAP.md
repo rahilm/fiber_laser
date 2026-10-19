@@ -148,13 +148,17 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 - ☐ touch-first Run screen; Operator, Engineer and Service modes
 - ☐ graphical nest workspace; job queue; production reports; remnant stock
 - ☐ guided edge-seek and calibration procedures
-- ☐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
-  files
+- ◐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
+  files. Done: readable ids, the importer, Qt Linguist `.ts`/`.qm` round trip, `tools/i18n_check.py` in
+  CI, the bundled cutting-text font (docs/dev/i18n.md); open: cleaned-up translations (none ship yet)
 - ☐ dark and high-contrast themes, SVG icons, accessibility
 - ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
-- ☐ typed model and versioned native project format; `.chf` kept as interchange (byte-exact)
-- ☐ docs split into user / dev / re; packaged help
+- ☑ typed model and versioned native project format; `.chf` kept as interchange (byte-exact):
+  typed contour craft / micro-joints / cooling points / source glyphs / raster parts with
+  `LegacyExtra` shims, `.mlz` with schema, migrations, atomic save, autosave and recovery
+  (docs/dev/project-format.md)
+- ☑ docs split into user / dev / re; packaged help (help browser with search, link check in CI)
 
 ## Outside software
 - ☐ a hardware watchdog relay in the laser-enable chain (owner, with the documented wiring)
-- ☐ the first hardware session, following docs/parity.md §8 and protocol.md §8
+- ☐ the first hardware session, following docs/re/parity.md §8 and protocol.md §8

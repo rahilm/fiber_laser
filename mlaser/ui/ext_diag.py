@@ -22,7 +22,7 @@ aux.ball_arm           mf702 426b   ball-bar pattern into the drawing
 aux.interferometer     mf180 17000  interferometer dock (:class:`InterferometerPanel`)
 aux.batch_cut          mf705 4270   :class:`BatchDialog` + batch runner / production counter
 aux.maintain           A251113_0    :class:`MaintainDialog` + reminders
-app.help               mf23         :class:`HelpWindow` (docs/ + About)
+app.help               mf23         :class:`HelpWindow` (packaged docs + About)
 =====================  ===========  =========================================================
 
 Job statistics, device counters, the planned-quantity interlock and the maintenance reminders
@@ -30,7 +30,7 @@ are :class:`mlaser.services.production.ProductionService` (Qt-free); this module
 messages.  Settings (counters, maintenance plan, batch list, custom IO) are ConfigService values;
 files (statistics, logs, reports) live in the data directory: ``settings["data_dir"]``, the
 ``MLASER_DATA_DIR`` environment variable, or the platform data directory (platformdirs).
-Evidence: docs/diag.md.
+Evidence: docs/re/diag.md.
 """
 from __future__ import annotations
 
@@ -46,14 +46,15 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
-                               QTextBrowser, QVBoxLayout, QWidget)
+                               QVBoxLayout, QWidget)
 
 from mlaser.diag import ballarm, batch as B, burnin, customio as CIO, devicereport as DR
-from mlaser.diag import helpdocs, interferometer as IF, lighttest, logs as L, maintain as M
+from mlaser.diag import interferometer as IF, lighttest, logs as L, maintain as M
 from mlaser.diag import registers as R
 from mlaser.diag.measure import DataRecorder
 from mlaser.diag.paramset import ParamSet, find_def
 from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
+from mlaser.ui.help_browser import HelpBrowser
 
 
 # =========================================================================== helpers
@@ -1249,56 +1250,13 @@ class MaintainDialog(QDialog):
         self.accept()
 
 
-class HelpWindow(QDialog):
-    """Offline help from docs/ plus About (mf23 / mf24)."""
+class HelpWindow(HelpBrowser):
+    """Offline help (mf23) with About (mf24): :class:`mlaser.ui.help_browser.HelpBrowser` on the
+    packaged documents (``mlaser.diag.helpdocs.docs_root``)."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
         self.ext = ext
-        self.setWindowTitle(_tr(ext.w, "mf23", "Help"))
-        self.resize(980, 680)
-        lay = QVBoxLayout(self)
-        top = QHBoxLayout()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("search")
-        self.search.returnPressed.connect(self.do_search)
-        top.addWidget(self.search, 1)
-        lay.addLayout(top)
-        sp = QSplitter()
-        self.list = QListWidget()
-        self.topics = helpdocs.topics()
-        for t in self.topics:
-            self.list.addItem(t.title)
-        self.list.addItem(_tr(ext.w, "mf24", "About"))
-        self.list.currentRowChanged.connect(self.show_topic)
-        self.view = QTextBrowser()
-        self.view.setOpenExternalLinks(False)
-        self.view.setOpenLinks(False)
-        self.view.anchorClicked.connect(self._link)
-        sp.addWidget(self.list)
-        sp.addWidget(self.view)
-        sp.setSizes([240, 740])
-        lay.addWidget(sp, 1)
-        self.list.setCurrentRow(0)
-
-    def show_topic(self, row: int) -> None:
-        if 0 <= row < len(self.topics):
-            self.view.setMarkdown(helpdocs.read_topic(self.topics[row].path))
-        else:
-            self.view.setPlainText(helpdocs.about_text())
-
-    def _link(self, url: QUrl) -> None:
-        """Only local documents are followed (no network access)."""
-        name = os.path.basename(url.path() or url.toString())
-        for i, t in enumerate(self.topics):
-            if os.path.basename(t.path) == name:
-                self.list.setCurrentRow(i)
-                return
-
-    def do_search(self) -> None:
-        hits = helpdocs.search(self.search.text())
-        self.view.setPlainText("\n".join(f"{os.path.basename(t.path)}:{n}: {ln}" for t, n, ln in hits)
-                               or "no match")
+        super().__init__(_parent(ext.w), getattr(ext.w, "tr_", None))
 
 
 # =========================================================================== extension

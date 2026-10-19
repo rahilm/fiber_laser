@@ -5,7 +5,7 @@ job), throttled to ``period_s`` (50 ms).  A trip latches a FAULT through the con
 halts the card.  Sources:
 
 * **follower** (on-board FTC, ``ZF.ZFType`` != 0): follower status word 1 ("alarm status",
-  register 10001, docs/devices.md §3; collision and overrange are card-side alarms configured by
+  register 10001, docs/re/devices.md §3; collision and overrange are card-side alarms configured by
   follower properties 18..26).  Any non-zero value while a job runs or the machine is armed;
 * **gas pressure**: a digital input wired to a low-pressure switch (``gas_low_input``), while a
   job that fires the laser runs;

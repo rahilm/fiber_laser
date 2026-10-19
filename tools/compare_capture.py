@@ -18,7 +18,7 @@ reports the verdict, the first divergence with context and statistics.  Exit sta
 verdict is IDENTICAL or EQUIVALENT, 1 when DIFFERENT, 2 on errors.
 
 ``--list`` lists the jobs in the capture; ``--dump FILE`` writes the decoded FIFO stream of the
-selected job (no drawing needed for either).  Procedure: docs/parity.md "Verifying against your
+selected job (no drawing needed for either).  Procedure: docs/re/parity.md "Verifying against your
 machine".  The tool only reads files; it never talks to a card.
 """
 from __future__ import annotations

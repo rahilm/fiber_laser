@@ -1,6 +1,6 @@
 """Draw tab and CAD editing commands (phase 3, agent F).
 
-``register(ctx)`` (PluginContext) binds these ribbon commands (see docs/draw.md for the evidence):
+``register(ctx)`` (PluginContext) binds these ribbon commands (see docs/re/draw.md for the evidence):
 
 * drawing tools ``draw.point/line/pline/rect/round_rect/circle/circle3/arc3/scan_arc/
   ellipse/polygon/star/curve`` -> interactive tools from :mod:`mlaser.cad.tools`, driven
@@ -34,6 +34,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from mlaser.cad import arrange as AR
 from mlaser.cad import edit as ED
 from mlaser.cad import tools as T
+from mlaser.cad.text import DEFAULT_FONT
 from mlaser.model import Contour, Document, Part
 
 SNAP_PX = 8.0          # object-snap window (pixels)
@@ -45,7 +46,9 @@ PICK_PX = 6.0          # trim / extend / split pick distance (CCADModule+0x270)
 @dataclasses.dataclass
 class TextParams:
     text: str = "Mlaser"
-    font: str = "SimSun"          # gp79
+    # gp79 (the original's 宋体); the rebuild draws with the bundled Noto Sans SC subset unless
+    # the user picks another font, so the cut geometry is the same on every machine
+    font: str = DEFAULT_FONT
     height: float = 10.0          # ti0 / app+0xb490
 
 

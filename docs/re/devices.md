@@ -13,7 +13,7 @@ Code: `mlaser/devices/` (`codecs`, `transport`, `modbus_rtu`, `follower`, `laser
 
 | Device | ini keys (shipped value) | Codec / framing | HAL | Evidence |
 |---|---|---|---|---|
-| Motion card | `CardIP:CardPort` 10.1.1.168:502 | CExtModbus (docs/protocol.md) | CMCHalAPI | [O] |
+| Motion card | `CardIP:CardPort` 10.1.1.168:502 | CExtModbus (docs/re/protocol.md) | CMCHalAPI | [O] |
 | On-board follower | MC registers 10000+/11000+; `OnBZFIP:OnBZFPort` 10.1.1.168:999 read but only used as the EC endpoint for card variants 5/6 | CExtModbus | MC HAL | [O] FUN_1004f3e0, FUN_1004ed60 |
 | Network follower | `ZFIP:ZFPort` 10.1.1.169:502 | CStdModbus | none | [O] codec has **no users** in this build |
 | Laser IPG (control type 2 "net") | `LaserIP:LaserPort` 10.1.1.170:10001 | raw bytes (CIPGModbus) | CLaserNetHalAPI | [O] FUN_10058b70, FUN_10010cd0 |

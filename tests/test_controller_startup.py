@@ -1,7 +1,7 @@
 """Start-up sequence, fast-status map and reply decoding (parity items D-10, D-11, D-13, D-14).
 
 Expected values come from the ORIGINAL MainApp's start-up traffic captured by the parity
-harness (parity/out/app_startup, docs/parity.md §5) and from NCModule FUN_10029a90,
+harness (parity/out/app_startup, docs/re/parity.md §5) and from NCModule FUN_10029a90,
 FUN_1002e500, FUN_1003ee50, FUN_10052c30.
 """
 from __future__ import annotations

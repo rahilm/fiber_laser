@@ -57,6 +57,12 @@ ignored with a log line.
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
 | `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs |
 
+Data that belongs to the job (a technology assignment, queue entries, a plugin's own state) is
+saved in the `.mlz` project and its autosave when the plugin registers a section:
+`window.extension("ext_project").register_section(name, get, set)`; see
+[project-format.md](project-format.md#plugin-sections).  Keep typed data in the model's typed
+fields, not in new `extra` keys (`extra` is for opaque round-trip data, `model.EXTRA_KEYS`).
+
 Rules:
 
 * Change the document only inside `ctx.edit` / `ctx.replace_document`.  Never call the window's

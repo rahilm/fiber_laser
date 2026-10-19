@@ -14,5 +14,5 @@
 ``maintain``      maintenance reminders (A251113_0)
 ``jobwatch``      job start / completion detection
 ``helpdocs``      offline help built from docs/
-Evidence and tags: docs/diag.md.
+Evidence and tags: docs/re/diag.md.
 """

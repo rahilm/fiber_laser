@@ -1,6 +1,6 @@
 """Document -> sampled, pulse-quantised MCC100 FIFO job.
 
-Pipeline (original data flow, docs/cam.md §10 and docs/motion.md §1):
+Pipeline (original data flow, docs/re/cam.md §10 and docs/re/motion.md §1):
 
 1. ``mlaser.cam.toolpath.build_toolpath``: ordered MotionItems (rapids, leads, cuts, pierce...).
 2. Velocity planning of every connected cut run (``mlaser.motion`` look-ahead planner, a port of
@@ -25,7 +25,7 @@ Rapids are emitted with the laser off; Delay items become dwell steps with zero 
 current laser state is held).  After each rapid the JumpAddTime settle time is emitted as a
 laser-off dwell.
 
-Process items (``Machine.process``, :mod:`mlaser.nc.process`, docs/protocol.md
+Process items (``Machine.process``, :mod:`mlaser.nc.process`, docs/re/protocol.md
 "Process items"): LaserOn -> MainApp start-cut sequence (gas select, follower item, gas delay,
 laser PWM, GP.LaserOnDelay); the job loop's laser sync on is pushed into the vector that the
 start cut then clears (0x0045a101 / 0x0045a166 -> 0x0046546a resize(0)), so it never reaches the
@@ -342,7 +342,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     """Compile a MotionItem stream (mm, mm/s, s) into a :class:`Job`.
 
     With ``machine.process.enabled`` (default) LaserOn/LaserOff/Pierce/Rapid produce the
-    original's process items (docs/protocol.md "Process items"); otherwise the phase-1
+    original's process items (docs/re/protocol.md "Process items"); otherwise the phase-1
     behaviour (laser-on dwell for the pierce, optional gas output) is used.  ``carry`` is the
     initial pulse remainder (FUN_00473bd0's never-reset globals; (0, 0) = fresh program start,
     pass a previous ``Job.pulse_carry`` to chain jobs as one session would).  ``progress`` is
@@ -441,7 +441,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
                              up=up, down=down, micro_pct=micro)
             else:
                 emit_samples(em, pts, ss, total=total, gaps=gaps)
-            # no step to the exact end (the last sample is the last tick t <= T, docs/motion.md
+            # no step to the exact end (the last sample is the last tick t <= T, docs/re/motion.md
             # §4): the next element is measured from the run's nominal end, as the job loop
             # starts the next jump at the element end point (FUN_0045f5b0 local_a0 = start * 1e4)
             end = moves[-1].end
@@ -557,7 +557,7 @@ def compile_job(doc: Document, cam_params=None, machine: Optional[Machine] = Non
     current machine position in mm (defaults to ``cam_params.origin``); it is also used as the
     sort origin.  ``dry_run`` clears the laser byte of every step and skips laser/gas items.
     ``layers`` (a ``mlaser.formats.params.MachineParams`` or ``dict[int, LayerParams]``) supplies
-    the speed/power of layers the document does not define (LayerPara.xml, docs/formats.md).
+    the speed/power of layers the document does not define (LayerPara.xml, docs/re/formats.md).
     """
     doc, prm, items = plan_toolpath(doc, cam_params, start, layers)
     return compile_items(items, machine, prm.origin, doc, dry_run)
@@ -598,8 +598,9 @@ def _xform_doc(doc: Document, fn) -> Document:
                 else:
                     new.append(Line(fn(sg.start), fn(sg.end)))  # type: ignore[arg-type]
             c.segments = new  # type: ignore[assignment]
-        if part.craft.cool_point is not None:
-            part.craft.cool_point = fn(part.craft.cool_point)
+        # cooling points are arc lengths; only legacy (x, y) entries move with the drawing
+        part.craft.cool_points = [fn(p) if isinstance(p, (tuple, list)) else p
+                                  for p in part.craft.cool_points]
     return d
 
 

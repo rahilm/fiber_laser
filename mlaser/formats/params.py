@@ -294,7 +294,7 @@ def _defmap(co2: bool) -> dict[str, ParamDef]:
     return {d.key: d for d in layer_defs(co2)}
 
 
-# Model-field mapping (INFERRED semantics, see docs/formats.md):
+# Model-field mapping (INFERRED semantics, see docs/re/formats.md):
 #   speed <- GP.CutSpeed (mm/s), power_pct <- GP.CutPeakCurrent (laser power %, fiber) /
 #   GP.CutDuty (CO2), duty_pct <- GP.CutPower (PWM duty %, fiber) / GP.CutDuty (CO2),
 #   frequency_hz <- GP.CutFreq, gas <- GP.CutGasType, gas_pressure <- GP.CutAirPressure,

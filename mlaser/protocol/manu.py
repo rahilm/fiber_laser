@@ -3,7 +3,7 @@
 Moved from ``mlaser.controller.process`` (Wave 1): the record and its class, sub-op and stage
 codes are the input vocabulary of the NC encoder (``mlaser.parity_ports.ncmodule.manu``) and of
 the process sequences (``mlaser.nc.process``).  Layout confirmed by NCModule FUN_100352b0's
-``_tempManuItem`` dump (docs/protocol.md "Process items").
+``_tempManuItem`` dump (docs/re/protocol.md "Process items").
 """
 from __future__ import annotations
 

@@ -1,0 +1,4 @@
+# sdist: the help documents and the build hook that copies them into the wheel
+graft docs
+prune docs/review
+include tools/help_build.py

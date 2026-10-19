@@ -5,7 +5,7 @@ like the real card) or TCP, keeps a register image, executes mailbox commands
 (reg 101), FIFO control (reg 103) and FIFO frames (reg 102) over time and reports
 status through the 1000/2000 register blocks.  Behaviour that the reverse
 engineering could not pin down (time unit of step items, what a jog flag means,
-...) follows the INFERRED choices documented in docs/protocol.md.
+...) follows the INFERRED choices documented in docs/re/protocol.md.
 
 Two behaviour modes and a fault-injection API (docs/SAFETY.md §9):
 

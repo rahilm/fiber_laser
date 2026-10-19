@@ -5,7 +5,7 @@
   "numpy": "2.5.4",
   "platform": "Linux-6.12.105-production+truenas-x86_64-with-glibc2.39",
   "pyside6": "6.12.0",
-  "python": "3.12.3",
+  "python": "3.12.14",
   "shapely": "2.2.0"
  },
  "groups": {
@@ -16,7 +16,7 @@
   "orders": 660
  },
  "text_font": {
-  "family": "WenQuanYi Micro Hei",
-  "probe": "10e96370a789ac53e5e8ece165de43a1238e26602585902540f74adcc19fa0a1"
+  "family": "Noto Sans SC",
+  "probe": "44cbb67029f4fa711520df72a1bd5b1a572aa2dfbad5c0db924d3f0e6b9d68bc"
  }
 }

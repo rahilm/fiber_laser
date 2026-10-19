@@ -5,7 +5,7 @@ vs the rebuild's UiController / MachineOps on its CardSimulator.
 Reads the capture made by /home/dev/scratch/mlaser/parity/run_app.sh machine; skips when the
 harness, its capture or Wine is missing (MLASER_PARITY=0 skips explicitly).  Frame / Dry Cut /
 Start are refused by the original (hardware authorisation state), so they are only checked for
-"no FIFO traffic"; see docs/parity.md §7.  Every other action must match exactly.
+"no FIFO traffic"; see docs/re/parity.md §7.  Every other action must match exactly.
 """
 from parity_helpers import assert_no_new_discrepancies, run_area
 
@@ -31,7 +31,7 @@ def test_refused_operations_sent_no_fifo_traffic():
 
 def test_matching_operations_still_match():
     """Every compared action matches the original request for request (D-20..D-32 fixed by agent P,
-    docs/parity.md section 7); no machine-level discrepancy is accepted."""
+    docs/re/parity.md section 7); no machine-level discrepancy is accepted."""
     res = _results()
     import known_diffs          # compare/ is on sys.path once run_area ran
     assert not [k for k in known_diffs.KNOWN if k["area"] == "MainApp machine operations"]

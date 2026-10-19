@@ -202,5 +202,5 @@ reads the output: `M4` turns the laser on, `S` words are ignored, each `G1` run 
 
 ## 9. How MainApp consumes it
 
-see docs/craft.md §6 (status.ini check, `newGcode.nc` imported as a type-5 scan G-code,
+see docs/re/craft.md §6 (status.ini check, `newGcode.nc` imported as a type-5 scan G-code,
 `ext_craft.CraftExtension.bitmap` / `import_bitmap_result`).

@@ -506,7 +506,7 @@ def _load_doc(path: str) -> Optional[Document]:
 class SortExtension:
     """Ordering edits and the manual-sort tool.
 
-    MainApp FUN_004b6190 (docs/cam.md section 8): mf610/611 selected layer first/last = types
+    MainApp FUN_004b6190 (docs/re/cam.md section 8): mf610/611 selected layer first/last = types
     10/11 (stable partition of the graph list), mf111 manual sort = tool 9; mv15/mv16 move one
     part last/first.  Each changes the part order and switches to mode 0 (keep)."""
 

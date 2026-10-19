@@ -1,7 +1,7 @@
 """Peripheral devices next to the motion card (compatibility facade).
 
 The implementations live in :mod:`mlaser.devices` (one module per device, each with a client
-and a simulator); this module keeps the phase-1 names importable.  See docs/devices.md.
+and a simulator); this module keeps the phase-1 names importable.  See docs/re/devices.md.
 
 Endpoints (File/ipAdd.ini, read in FUN_10058b70 / FUN_1004ed60):
     ZF     10.1.1.169:502   CStdModbus - codec never referenced in this build (unused)

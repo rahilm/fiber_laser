@@ -1,4 +1,4 @@
-"""MCC100 alarm words and their messages (docs/protocol.md §11).
+"""MCC100 alarm words and their messages (docs/re/protocol.md §11).
 
 Observed in MainApp.exe ``FUN_00598280`` (status timer, disassembly 0x59a265..0x59a5cf):
 

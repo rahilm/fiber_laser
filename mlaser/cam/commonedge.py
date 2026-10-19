@@ -1,6 +1,6 @@
 """Common-edge (shared-edge) cutting, "共边" (mf250), "C型共边" (mf250_1) and the rectangle
 grid variant "矩形共边" (A250707_0..2).  Port of CADModule CShareEdge (vtable 0x101213a4)
-and its drivers; see docs/cam.md section 12.
+and its drivers; see docs/re/cam.md section 12.
 
 Evidence (CADModule.dll):
 

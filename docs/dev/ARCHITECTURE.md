@@ -27,6 +27,7 @@ other. Lazy (function-level) imports count like top-level ones.
                devices       machine (api.py: ControllerFacade, MachineState)
  operations    ops           (document operations: transforms, craft, ribbon CAM ops)
  NC            nc            (job compiler, process sequences, machine config, resume)
+               project       (.mlz project files, autosave; sibling of nc)
  import        io            nest
  CAM           cam           (toolpath, leads, kerf, micro-joints, ordering, cleanup)
  motion        motion        (path planning over MotionItems, simulation, time estimate)
@@ -38,7 +39,7 @@ other. Lazy (function-level) imports count like top-level ones.
 
 | Package | Content |
 |---|---|
-| `model` | the document model (Line/Arc, Contour, Part, Craft, layers, glyphs, `GlyphKind`) |
+| `model` | the document model (Line/Arc, Contour, Part, Craft, layers, glyphs, `GlyphKind`); typed fields with `extra` kept for opaque round-trip data ([project-format.md](project-format.md#typed-model)) |
 | `geom` | one geometry library: `curves` (bulge arcs, splines, glyph expansion, chaining, bboxes), `contour` (arc-length points/tangents, sub-paths, start rotation, orientation, point-in-polygon) |
 | `protocol` | the MCC100 wire protocol: `frames` (CExtModbus frame codec, FIFO item encoders, register map), `manu` (MainApp's ManuItem record), `enums` (IntEnum/IntFlag codes) |
 | `toolpath` | `items`: the MotionItem types CAM produces and motion/NC/G-code/UI consume |
@@ -49,6 +50,7 @@ other. Lazy (function-level) imports count like top-level ones.
 | `cam` | toolpath building, leads, kerf, micro-joints, cleanup, the rebuild's own ordering modes and the containment tree |
 | `io`, `nest` | DXF/SVG/G-code import and export; nesting |
 | `nc` | `compiler` (document -> FIFO job), `process` (ProcessConfig, ProcessSequencer), `machine`, `offline`, `resume` |
+| `project` | the native `.mlz` project format: codec, schema, migrations, atomic save, `Autosave` ([project-format.md](project-format.md)) |
 | `machine`, `devices` | `machine.api` (`MachineAPI`, `ControllerFacade`), `events` (event bus), `safety` (FSM, command policy), `preflight`, `demo`, `audit`/`logsetup`/`lifecycle`; peripheral device clients |
 | `controller` | card client, simulator (+ `follower_sim`), `supervisor` (SafetySupervisor), `stream` (JobStreamer / ProcessStreamer), `interlocks`, alarms, startup, UI adapter (`ui_adapter` + `parts/`) |
 | `diag`, `report`, `engrave` | diagnostics tools, production report window, bitmap engraving (they may use Qt) |
@@ -60,7 +62,7 @@ other. Lazy (function-level) imports count like top-level ones.
 
 1. **Dependencies point downward only** (the layers above).
 2. **Domain packages import no Qt**: model, geom, protocol, toolpath, i18n, parity_ports, formats,
-   cad, motion, cam, io, nest, nc, ops, machine, devices, controller and services must not import
+   cad, motion, cam, io, nest, nc, project, ops, machine, devices, controller and services must not import
    PySide6 or shiboken6.
 3. **`parity_ports` imports only `geom`, `protocol` and `model`** (plus the standard library,
    numpy and ezdxf).
@@ -111,7 +113,7 @@ re-export the port (private names too) and their entry points dispatch through t
 ## 3. The parity fence (`mlaser/parity_ports/`)
 
 A *port* reproduces a function of Mlaser v0.0.1.51_SP1 operation by operation. Its output is
-pinned by the Wine parity run (docs/parity.md) and the goldens (tests/golden/). Rules:
+pinned by the Wine parity run (docs/re/parity.md) and the goldens (tests/golden/). Rules:
 
 * a port changes only together with a Wine parity re-run;
 * new behaviour is a new `ParityProfile`, never an edit of a port;

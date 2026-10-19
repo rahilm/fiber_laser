@@ -62,7 +62,7 @@ Rapids use the same quantiser (the rebuild's own S-curve samples, I).
 
 The step item has no duration: each one is one servo period. Its 16-bit field is the PWM
 frequency and its byte is the duty (MainApp FUN_00462630, see protocol.md §5); this resolves the
-earlier conflict with docs/cam.md §10 in cam.md's favour. Job time = steps × period.
+earlier conflict with docs/re/cam.md §10 in cam.md's favour. Job time = steps × period.
 
 ## 3. UiController (facade → card)
 

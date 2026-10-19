@@ -1,5 +1,5 @@
 """Manual machine operations against the simulator, wire-exact as the original MainApp sends them
-(docs/parity.md section 7, D-20..D-32; evidence in docs/protocol.md section 4 and 11-17).
+(docs/re/parity.md section 7, D-20..D-32; evidence in docs/re/protocol.md section 4 and 11-17).
 
 Every test captures the requests the controller sends (like parity/compare/cmp_machine.py) and
 checks the mailbox / register writes value by value.  Card scale: 1000 counts/mm (the shipped

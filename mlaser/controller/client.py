@@ -627,7 +627,7 @@ class MotionController:
         excluded: connect, one status poll, parameter download (+ FIFO clear and capacity),
         fast-status map, FIFO clear, servo info.  Later :meth:`poll` calls use the fast read.  The original's 59500 hardware challenge between the
         poll and the download is a licensing check and is intentionally not sent
-        (docs/protocol.md §8).  Returns (config_word, version_code)."""
+        (docs/re/protocol.md §8).  Returns (config_word, version_code)."""
         cfgw, ver = self.connect()
         self.poll()
         # CNCModule +0x48 = FUN_1002b3f0: +0x194 download (ends with VM +0x248: 103 := 1,

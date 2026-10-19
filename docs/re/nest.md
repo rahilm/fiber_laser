@@ -88,7 +88,7 @@ Tags: **O** = observed (address in the decomp dump or file offset), **I** = infe
     +0 part id, +0x18 x, +0x20 y, +0x28 angle (+8/+0x10 U).
   - `Nest_ReadOddData` / `Nest_GetOddCountByNest` return remnant polylines, which CADModule does not use.
 - **Common line (I):** with share edge on, part edges at 0°/180° that are longer than the minimum common-edge
-  length are flagged (AutoNest.c ~8229). The common-edge cutting itself is CAM (CShareEdge, docs/cam.md §12).
+  length are flagged (AutoNest.c ~8229). The common-edge cutting itself is CAM (CShareEdge, docs/re/cam.md §12).
 
 ### 1.4 CADModule / MainApp side (O)
 

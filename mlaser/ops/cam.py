@@ -198,7 +198,7 @@ def _reset_craft_after_geometry(p: Part) -> None:
     """After a corner edit the original recomputes kerf child / micro-joints (0x10074e00,
     0x1006c930); the rebuild recomputes kerf on the fly and drops stale joint positions."""
     p.craft.micro_joints = []
-    p.craft.extra.pop("cool_points", None)
+    p.craft.cool_points = []
 
 
 def per_contour(doc: Document, fn: Callable[[Contour, Part], Contour], closed_only: bool = True) -> int:
@@ -289,18 +289,17 @@ def cool_auto(doc: Document, q: CoolParams) -> int:
     n = 0
     for p in targets(doc):
         pts: list = []
-        for c in p.contours[:1]:  # Craft.extra['cool_points'] applies to the part's contours
+        for c in p.contours[:1]:  # Craft.cool_points applies to the part's contours
             if c.closed:
                 pts = auto_cool_points(c, q.max_angle, q.sharp, q.lead_point)
-        p.craft.extra["cool_points"] = pts
+        p.craft.cool_points = list(pts)
         n += len(pts)
     return n
 
 
 def cool_clear(doc: Document) -> None:
     for p in targets(doc):
-        p.craft.extra.pop("cool_points", None)
-        p.craft.cool_point = None
+        p.craft.cool_points = []
 
 
 # --------------------------------------------------------------------------- common edge

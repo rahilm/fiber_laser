@@ -5,23 +5,40 @@ Texts come from:
 1. mlaser's own catalogues, ``mlaser/i18n/<code>.json`` (English ships; see
    :mod:`mlaser.i18n` for the format: readable ids, named placeholders, and a ``legacy`` map
    from the original program's opaque keys such as ``mf15``/``pd125`` to those ids);
-2. translations imported from the user's own Mlaser install (:mod:`mlaser.i18n.importer`,
+2. compiled Qt Linguist translations, ``<code>.qm`` in ``mlaser/i18n/qm/`` (shipped) or in the
+   user's language folder (``~/.mlaser/lang``, which wins), made from the ``.ts`` files of
+   :mod:`mlaser.i18n.linguist` with ``lrelease``; looked up with ``QTranslator.translate(context,
+   English text, id)``;
+3. translations imported from the user's own Mlaser install (:mod:`mlaser.i18n.importer`,
    stored under ``~/.mlaser/lang``), or read directly from an install folder passed as
    ``Translator(lang_dir=...)``. Those are keyed by the original's keys.
 
 ``tr(key)`` accepts either a readable id (``"cmd.machine.home"``) or an original key
-(``"mf15"``). Lookup order: the current language (our catalogue, then the imported one), then
-English, then ``default``, then the key itself. ``format(key, ...)`` fills placeholders, both our
+(``"mf15"``). Lookup order: the current language (our JSON catalogue, then a .qm, then the
+imported original texts), then English, then ``default``, then the key itself.  The JSON is the
+reviewed source of truth (a finished .ts is imported into it); a .qm lets a translator try a
+translation in the running program without that step; the original's texts come last because
+they are machine-imported, keyed by opaque ids and use printf placeholders. ``format(key, ...)`` fills placeholders, both our
 named ``{minutes}`` ones and the printf ones of imported texts.
 """
 from __future__ import annotations
 
+import os
 import weakref
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 from mlaser import i18n as cat
 from mlaser.i18n import importer
+
+#: shipped compiled Linguist translations (``<code>.qm``)
+QM_DIR = os.path.join(os.path.dirname(cat.__file__), "qm")
+
+
+def qm_paths(code: str, import_dir: Optional[str] = None) -> list[str]:
+    """Existing ``<code>.qm`` files, highest priority first (user folder, then shipped)."""
+    dirs = [str(import_dir) if import_dir else str(importer.lang_store()), QM_DIR]
+    return [p for p in (os.path.join(d, f"{code}.qm") for d in dirs) if os.path.isfile(p)]
 
 
 @dataclass(frozen=True)
@@ -62,6 +79,7 @@ class Translator:
         self.import_dir = import_dir
         self.en = cat.catalogue("en")
         self._imported: dict[str, dict[str, str]] = {}
+        self._qm: dict[str, list] = {}
         self._bindings: list[tuple[weakref.ref, str, Callable, tuple]] = []
         self.language = "en"
         self.reload()
@@ -79,6 +97,7 @@ class Translator:
                 if parsed is not None:
                     tables.setdefault(parsed[0], {}).update(parsed[2])
         self._imported = tables
+        self._qm = {}
 
     def import_from(self, path: str) -> list[str]:
         """Import an original install's language files (see :mod:`mlaser.i18n.importer`)."""
@@ -96,6 +115,7 @@ class Translator:
     def available(self) -> list[LanguageInfo]:
         """Languages with texts: English, shipped catalogues and imported translations."""
         have = {"en"} | set(cat.shipped_languages()) | {c for c, t in self._imported.items() if t}
+        have |= {li.code for li in LANGUAGES if qm_paths(li.code, self.import_dir)}
         return [li for li in LANGUAGES if li.code in have]
 
     # -- lookup ------------------------------------------------------------
@@ -106,6 +126,9 @@ class Translator:
                 t = cat.catalogue(code).strings.get(sid)
                 if t and t.strip():
                     return t
+                t = self._qm_text(code, sid)
+                if t:
+                    return t
             table = self._imported.get(code)
             if table:
                 legacy = cat.legacy_key(key) or key
@@ -114,6 +137,32 @@ class Translator:
                     return t
         if sid is not None:
             return self.en.strings.get(sid)
+        return None
+
+    def _qm_translators(self, code: str) -> list:
+        qs = self._qm.get(code)
+        if qs is None:
+            qs = []
+            paths = qm_paths(code, self.import_dir)
+            if paths:
+                from PySide6.QtCore import QTranslator
+                for p in paths:
+                    q = QTranslator()
+                    if q.load(p):
+                        qs.append(q)
+            self._qm[code] = qs
+        return qs
+
+    def _qm_text(self, code: str, sid: str) -> Optional[str]:
+        qs = self._qm_translators(code)
+        if not qs:
+            return None
+        src = self.en.strings.get(sid, "")
+        ctx = sid.split(".", 1)[0] if "." in sid else "main"
+        for q in qs:
+            t = q.translate(ctx, src, sid)
+            if t and t.strip():
+                return t
         return None
 
     def has(self, key: str) -> bool:

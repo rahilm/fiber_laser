@@ -1,5 +1,5 @@
 """Geometric checks for mlaser.cam.corners (CArcRound, CUnloadAngle, CAlphaRound, CCoolPoint,
-kerf Bezier join; docs/cam.md section 13)."""
+kerf Bezier join; docs/re/cam.md section 13)."""
 import math
 
 import pytest

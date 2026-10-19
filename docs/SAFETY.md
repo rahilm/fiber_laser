@@ -143,7 +143,7 @@ can only run out what is buffered (≤ 1.2 s).
 * Interlocks (`InterlockConfig`, values `safety.*`): follower status word 1 non-zero (on-board
   FTC), gas-low input during a cut, laser-source alarm input when armed or running, door input
   during a cut. A trip latches FAULT and halts; an active interlock refuses arming and reset.
-  The original has no readable laser-source alarm (docs/devices.md §4), so the source's alarm
+  The original has no readable laser-source alarm (docs/re/devices.md §4), so the source's alarm
   output must be wired to an input to be monitored.
 * Hold-to-jog: a continuous jog needs a keep-alive (`jog_keepalive()`, sent every 100 ms by the
   run panel and by the pendant reader); without one for `jog_deadman_s` (0.5 s) the jog is
@@ -187,7 +187,7 @@ the laser cannot emit, whatever the card does with its buffered FIFO.
 according to the laser source's interlock documentation and the machine's risk assessment, and
 validate it with the laser physically disabled: pull the network cable mid-job, kill the
 program, power off the PC, and check that the enable chain opens within the timeout. The MCC100's
-own behaviour on link loss is unknown (docs/protocol.md §9) and must be bench-tested too.
+own behaviour on link loss is unknown (docs/re/protocol.md §9) and must be bench-tested too.
 
 ## 12. Measured bounds (simulator, pessimistic mode)
 

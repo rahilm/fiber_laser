@@ -34,8 +34,17 @@ from mlaser.model import Document, Part
 
 # --------------------------------------------------------------------------- side table
 PART_BLOB_KEYS = ("chf", "_chf_snapshot")
-CONTOUR_BLOB_KEYS = ("chf", "glyphs", "glyph_segments")
+CONTOUR_BLOB_KEYS = ("chf",)
+CONTOUR_BLOB_ATTRS = ("glyphs", "glyph_key")  # typed source glyphs and their segment fingerprint
 DOC_BLOB_KEYS = ("chf",)
+
+
+def contour_blobs(c) -> list[tuple[str, Any]]:
+    """(key, record) of the immutable round-trip records a contour holds."""
+    cx = c.extra if isinstance(c.extra, dict) else {}
+    out = [(k, cx.get(k)) for k in CONTOUR_BLOB_KEYS]
+    out += [(k, getattr(c, k, None)) for k in CONTOUR_BLOB_ATTRS]
+    return out
 
 
 class RoundTripTable:
@@ -65,9 +74,7 @@ class RoundTripTable:
             else:
                 self._blobs.pop((part.uid, k), None)
         for c in part.contours:
-            cx = c.extra if isinstance(c.extra, dict) else {}
-            for k in CONTOUR_BLOB_KEYS:
-                v = cx.get(k)
+            for k, v in contour_blobs(c):
                 if v is not None:
                     self._blobs[(c.uid, k)] = v
                 else:

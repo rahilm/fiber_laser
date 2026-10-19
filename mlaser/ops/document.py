@@ -85,7 +85,7 @@ def rotate(doc: Document, degrees: float) -> None:
 
 def scale(doc: Document, factor: float) -> None:
     """mf591 Size presets / mf60 scale: about the selection centre (the original's anchor
-    +0xb400 defaults to 5 = centre, FUN_004b20a0; docs/draw.md)."""
+    +0xb400 defaults to 5 = centre, FUN_004b20a0; docs/re/draw.md)."""
     parts = targets(doc)
     x0, y0, x1, y1 = _bbox(parts)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2

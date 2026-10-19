@@ -1,4 +1,4 @@
-"""Job-stream parity fixes (docs/parity.md §9, JB-01..06, JN-01..08, JC-12): the rebuild's
+"""Job-stream parity fixes (docs/re/parity.md §9, JB-01..06, JN-01..08, JC-12): the rebuild's
 ManuItems and FIFO stream follow MainApp FUN_00462630 / NCModule FUN_10043c20."""
 from __future__ import annotations
 

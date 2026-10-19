@@ -29,7 +29,7 @@ Observed (Module/NCModule.dll):
 * Status (updateECStatus FUN_10050900): read 30 words at 1000 (51000 with the +50000 rule)
   -> 15 x 32-bit values stored at VM+0x5a4 = ``getReg(11, i)``.  Properties (updateECProp
   FUN_10050c70): read ``2n`` words at 2000 (52000) -> VM+0x5e0 = ``getReg(12, i)``; ``n`` comes
-  from a VM slot (+0x98) and is UNKNOWN.  Meaning of the individual values: see docs/devices.md.
+  from a VM slot (+0x98) and is UNKNOWN.  Meaning of the individual values: see docs/re/devices.md.
 * MainApp (EC view FUN_00549940) also uses: ``[7]`` to 101 (CNCModule +0xc8, UNKNOWN),
   ``writeECReg(104, freq)`` / ``writeECReg(105, duty)`` PWM (+0xd8/+0xdc), register 103
   (+0xcc), ``writeECReg(100, 8888/9999)``, reads of 1012 and 2026.  Status ``getReg(11, i)``:

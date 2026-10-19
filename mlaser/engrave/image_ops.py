@@ -2,7 +2,7 @@
 
 Port of ``$ORIG/Bitmap/next_cut.dll`` (.NET 8 WinForms + OpenCvSharp 4.11).  Every function works
 on a 2-D ``numpy.uint8`` grayscale array (rows x cols, row 0 = top of the picture) and returns a
-new array; nothing is modified in place.  Evidence tags follow docs/engrave.md:
+new array; nothing is modified in place.  Evidence tags follow docs/re/engrave.md:
 O = observed in the IL of next_cut.dll (method token + IL offset), I = inferred (usually: the
 behaviour of the OpenCV routine the original calls), U = unknown.
 
@@ -27,7 +27,7 @@ __all__ = [
     "floyd_steinberg", "halftone",
 ]
 
-# --- constants (all O, see docs/engrave.md) ------------------------------------------------------
+# --- constants (all O, see docs/re/engrave.md) ------------------------------------------------------
 #: ImageHandle.ImageBinarization (0x06000050) IL_0006: ``ldc.r8 170``; maxval 255, type 0 (BINARY).
 BINARIZE_THRESHOLD = 170
 #: ImageHandle.GaussianBlur (0x06000051) IL_0008: ``new Size(7, 7)``, sigmaX = sigmaY = 0, border 4.

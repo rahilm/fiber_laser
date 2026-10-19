@@ -75,7 +75,7 @@ Other observations:
 * **Errors carry no remedy.** `RecvDataErr (code 502)`, Python exception text, and `card alarm: X servo input alarm (code 8104)`. None says what to check.
 
 ### 2.4 Parameters and process knowledge
-* There is no material, thickness, gas or nozzle concept. The tech library (`A250418_*`, `db*`) is listed in docs/ui.md as P1 but isn't implemented.
+* There is no material, thickness, gas or nozzle concept. The tech library (`A250418_*`, `db*`) is listed in docs/re/ui.md as P1 but isn't implemented.
 * Layer table columns: Speed, Power, Freq, Gas, Pressure, Height, all without units. Pierce stages, focus, slow start, etc. are hidden in the 160-row grid.
 * Nest parameters, sheet dialog, micro-joint, lead and kerf are each a separate modal dialog. Four styles are in use: tabbed form, form, `ParamGridDialog` tree, and hand-built form.
 

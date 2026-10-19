@@ -1,4 +1,4 @@
-"""CAM geometry fixes found by the CADModule job harness (docs/parity.md §9.Q1, JC-02..JC-11)
+"""CAM geometry fixes found by the CADModule job harness (docs/re/parity.md §9.Q1, JC-02..JC-11)
 and the faithful mode-5 sort in the toolpath."""
 import math
 

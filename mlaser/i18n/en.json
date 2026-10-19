@@ -376,6 +376,21 @@
   "ftc.signal_strength": "Signal Strength",
   "ftc.soft_lower_limit_coordinates": "Soft lower limit coordinates",
   "ftc.write_params": "Write Params",
+  "help.back": "Back",
+  "help.contents": "Contents",
+  "help.forward": "Forward",
+  "help.not_packaged": "{target} is not part of the installed help.",
+  "help.page": "Help page",
+  "help.results": "Search results",
+  "help.search": "Search",
+  "help.search_none": "No results for “{query}”",
+  "help.search_placeholder": "Search the help (Ctrl+F)",
+  "help.search_results": "{count} results for “{query}”",
+  "help.section.dev": "Developer",
+  "help.section.re": "Reverse engineering",
+  "help.section.user": "User guide",
+  "help.title": "Help",
+  "help.topics": "Topics",
   "io.axis": "Axis",
   "io.axis_2": "Axis",
   "io.di": "DI",
@@ -1861,7 +1876,19 @@
   "view.previous_step": "Previous Step",
   "view.reset_view": "Reset View",
   "view.select_same_layer_contours": "Select Same Layer Contours",
-  "view.stop_manual_sort": "Stop manual sort"
+  "view.stop_manual_sort": "Stop manual sort",
+  "project.open": "Open project…",
+  "project.save": "Save project…",
+  "project.export_chf": "Export .chf…",
+  "project.filter": "mlaser project (*.mlz);;Mlaser drawing (*.chf);;All files (*)",
+  "project.chf_filter": "Mlaser drawing (*.chf)",
+  "project.saved": "Saved: {path}",
+  "project.opened": "Project opened: {path}",
+  "project.error": "Cannot open the project: {error}",
+  "project.save_error": "Not saved: {error}",
+  "project.notes": "Saved with notes: {notes}",
+  "project.autosave_failed": "Autosave failed: {error}",
+  "project.autosave_interval": "Autosave interval"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -1886,6 +1913,16 @@
    "done",
    "total"
   ],
+  "help.not_packaged": [
+   "target"
+  ],
+  "help.search_none": [
+   "query"
+  ],
+  "help.search_results": [
+   "count",
+   "query"
+  ],
   "main.import_language_done": [
    "languages"
   ],
@@ -1907,6 +1944,24 @@
    "dx",
    "dy",
    "length"
+  ],
+  "project.saved": [
+   "path"
+  ],
+  "project.opened": [
+   "path"
+  ],
+  "project.error": [
+   "error"
+  ],
+  "project.save_error": [
+   "error"
+  ],
+  "project.notes": [
+   "notes"
+  ],
+  "project.autosave_failed": [
+   "error"
   ]
  },
  "legacy": {

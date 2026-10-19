@@ -1,6 +1,6 @@
 """Nesting (排样): data model, true-shape nester, result application and project files.
 
-See docs/nest.md for what the original (SmartNest.dll / AutoNest.dll driven from MainApp /
+See docs/re/nest.md for what the original (SmartNest.dll / AutoNest.dll driven from MainApp /
 CADModule) does and how this package maps onto it. ``NestParams.engine`` selects the engine:
 the built-in raster nester (default) or the optional sparrow engine (``sparrow_engine``).
 """
