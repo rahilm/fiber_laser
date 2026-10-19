@@ -104,6 +104,24 @@ def validate_param(key: str, value: Any, strict: bool = True) -> Any:
     return out
 
 
+def display_unit(key: str, pressure_unit: int = 0) -> str:
+    """The unit shown for a layer parameter: the registry's, except gas pressures, which the
+    registry tags "V" (the analog output) but the original's UI shows in the unit chosen by
+    UN.GasPressureUnit (0 bar, 1 MPa)."""
+    d = layer_registry().get(key)
+    if d is None:
+        return ""
+    if "Pressure" in key or key.endswith("GasP"):
+        return "MPa" if pressure_unit == 1 else "bar"
+    if d.type_name in ("bool", "enum", "string") or d.unit in ('L""',):
+        return ""
+    if not d.unit and ("Power" in key or "PeakCurrent" in key):
+        return "%"
+    if not d.unit and "Freq" in key:
+        return "Hz"
+    return d.unit
+
+
 def stage_count(params: dict) -> int:
     return PIERCE_STAGES.get(int(params.get("GP.ManuType", 0) or 0), 0)
 

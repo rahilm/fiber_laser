@@ -38,7 +38,8 @@ SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid"
 # Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
 # plugins come from the "mlaser.plugins" entry-point group.
 EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
-              "ext_draw", "ext_craft", "ext_machine", "ext_diag", "ext_options")
+              "ext_draw", "ext_craft", "ext_machine", "ext_diag", "ext_options",
+              "ext_process")   # Wave 3 Process track: technology, Process workspace, properties, preview
 
 
 def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow
