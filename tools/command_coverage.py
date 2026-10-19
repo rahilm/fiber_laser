@@ -66,9 +66,15 @@ def coverage() -> dict:
     errors: dict[str, str] = {}
     w.not_implemented = lambda c: missing.append(c)
     w.commands.failures.clear()
-    trace = bool(os.environ.get("MLASER_COVERAGE_TRACE"))     # name each command first (a crash)
+    # name each command before it runs (to find one that crashes the process): "1" = stderr,
+    # otherwise a file to append to (survives a crash, and pytest's output capture)
+    trace = os.environ.get("MLASER_COVERAGE_TRACE", "")
+    tf = None if trace in ("", "1") else open(trace, "a", encoding="utf-8")  # noqa: SIM115
     for cmd, act in sorted(w.ribbon.actions.items()):
-        if trace:
+        if tf is not None:
+            tf.write(f"command_coverage: {cmd}\n")
+            tf.flush()
+        elif trace:
             print(f"command_coverage: {cmd}", file=sys.stderr, flush=True)
         try:
             act.trigger()
@@ -82,6 +88,8 @@ def coverage() -> dict:
     duplicates = [f"{c} ({a} / {b})" for c, a, b in w.commands.duplicates]
     hook_errors = [f"{h} in {o}: {e}" for h, o, e in w.hooks.errors]
     w.close()
+    if tf is not None:
+        tf.close()
     return {"total": total, "unimplemented": sorted(set(missing)), "errors": errors,
             "duplicates": duplicates, "hook_errors": hook_errors,
             "extensions": sorted(w.extensions)}

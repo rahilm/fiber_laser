@@ -90,12 +90,14 @@ jobs:
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         env:
           MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log
+          MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
         run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
       - name: "DEBUG (temporary): macOS crash report"
         if: failure() && runner.os == 'macOS'
         run: |
           echo "== fault log"; cat "$RUNNER_TEMP/fault.log" || true
+          echo "== coverage trace (last commands)"; tail -5 "$RUNNER_TEMP/coverage.log" || true
           uv run --locked python -c "import PySide6, sys; print(PySide6.__file__)"
           ls -lt ~/Library/Logs/DiagnosticReports/ | head -5 || true
           f=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
