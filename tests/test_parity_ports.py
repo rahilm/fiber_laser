@@ -17,13 +17,15 @@ import mlaser.parity_ports as PP
 from mlaser.parity_ports import ORIGINAL, Implementation, profile as prof
 
 _INFRA = {"mlaser.parity_ports", "mlaser.parity_ports._registry", "mlaser.parity_ports.profile"}
+_OPTIONAL = "mlaser.parity_ports.profiles."
 
 
 def _port_modules():
     mods = []
     for m in pkgutil.walk_packages(PP.__path__, "mlaser.parity_ports."):
         mod = importlib.import_module(m.name)
-        if m.name not in _INFRA and not m.ispkg:
+        # parity_ports.profiles holds optional non-default profiles (new behaviour, not ports)
+        if m.name not in _INFRA and not m.ispkg and not m.name.startswith(_OPTIONAL):
             mods.append(mod)
     return mods
 
@@ -45,15 +47,24 @@ def test_every_port_module_has_a_record():
 
 
 def test_every_port_symbol_is_reachable_through_the_default_profile():
+    """... or, for a statement-level reference that ORIGINAL runs as a fast drop-in (same
+    output, tests/test_ordering_fast.py), through the "original-reference" profile."""
     _port_modules()
+    from mlaser.parity_ports.profiles.reference import REFERENCE
     reachable = {}
-    for slot, impl in ORIGINAL.slots().items():
-        for name in impl.names():
-            reachable[id(getattr(impl, name))] = f"{slot}.{name}"
+    for prof_ in (ORIGINAL, REFERENCE):
+        for slot, impl in prof_.slots().items():
+            for name in impl.names():
+                reachable[id(getattr(impl, name))] = f"{slot}.{name}"
     recs = PP.registered()
     assert recs
     missing = [r.name for r in recs if id(_resolve(r)) not in reachable]
     assert not missing, f"@port symbols not reachable through ORIGINAL: {missing}"
+    # the reference profile differs from ORIGINAL only in the kernels that have a drop-in
+    for slot, impl in REFERENCE.slots().items():
+        for name in impl.names():
+            if getattr(impl, name) is not getattr(getattr(ORIGINAL, slot), name):
+                assert slot == "ordering", (slot, name)
 
 
 def test_every_profile_target_is_a_port():

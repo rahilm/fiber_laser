@@ -1,0 +1,6 @@
+# build outputs of tools/build_native.py
+*.so
+*.pyd
+build/
+dist/
+*.egg-info/

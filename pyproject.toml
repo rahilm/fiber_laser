@@ -23,13 +23,21 @@ dependencies = [
     "segno>=1.6",        # Draw -> QR code
     "fontTools>=4.40",   # DXF TEXT / Draw text outlines (GGO_BEZIER-style records)
     "Pillow>=10",        # bitmap engraving (Bitmap.exe port)
+    "svgelements>=1.9.6",  # SVG import (MIT): <use>, CSS, transforms, shapes
+    "pyclipper>=1.3",      # kerf fallback offset (MIT, Clipper1)
+    "uharfbuzz>=0.40",     # text shaping for Draw -> Text and modern DXF TEXT (Apache-2.0)
 ]
 
 [project.optional-dependencies]
 devices = ["hidapi>=0.14", "pyserial>=3.5"]   # XHC pendant (HID), serial follower/laser links
 plots = ["matplotlib>=3.7"]                     # HTML plots in tools/compare_capture.py
 test = ["pytest>=7"]
-all = ["mlaser[devices,plots,test]"]
+# optional "modern" ParityProfile options (docs/dev/PERFORMANCE.md, docs/ASSETS.md)
+ortools = ["ortools>=9.10"]   # sort mode 20 on OR-Tools routing (Apache-2.0, ~25 MB wheel)
+nest = ["spyrrow>=0.9"]       # sparrow strip-packing nester (MIT; jagua-rs MPL-2.0 inside)
+ruckig = ["ruckig>=0.14"]     # jerk-limited per-segment profiles, modern planner (MIT, Community)
+modern = ["mlaser[ortools,nest,ruckig]"]
+all = ["mlaser[devices,plots,test,modern]"]
 
 [project.scripts]
 mlaser = "mlaser.ui.__main__:main"
@@ -42,6 +50,7 @@ include = ["mlaser*"]
 "mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*"]
 "mlaser.i18n" = ["*.json"]
 "mlaser.formats" = ["data/*"]
+"mlaser.cad" = ["fontdata/*"]   # bundled Noto Sans SC / Arabic subsets + OFL (tools/build_bundled_fonts.py)
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -67,6 +76,12 @@ dev = [
     "ruff>=0.6",
     "import-linter>=2.15",
     "mypy>=2.4.0",
+    "hypothesis>=6.100",
+]
+# PyInstaller one-folder builds (packaging/, CI job "package"); GPL with the bootloader exception,
+# a build tool only, never shipped as a library
+packaging = [
+    "pyinstaller>=6.10",
 ]
 
 [tool.ruff]
@@ -139,12 +154,8 @@ source_modules = [
     "mlaser.services",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
-ignore_imports = [
-    # TEXT outlines come from Qt's font engine (QPainterPath) when no TrueType file is found;
-    # ROADMAP Wave 2 "fontTools + uharfbuzz text" removes the Qt fallback
-    "mlaser.cad.text -> PySide6",
-    "mlaser.io.dxf_import -> PySide6",
-]
+# no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt
+# bridge moved out of the controller (Wave 2 safety track)
 
 [[tool.importlinter.contracts]]
 name = "parity_ports imports only geom, protocol and model"

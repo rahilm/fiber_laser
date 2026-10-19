@@ -90,7 +90,76 @@ class Node:
 
 def build_tree(contours: list[Contour], keys: Optional[list] = None) -> list[Node]:
     """Return all nodes with parent/children/depth filled (open contours can be
-    children but never parents)."""
+    children but never parents).
+
+    The parent of a contour is the first closed contour, in ascending (area, index) order, with
+    a strictly larger bbox area, whose bbox contains the contour's bbox (1e-9 tolerance) and
+    whose polygon contains the contour's probe point.  Candidates come from an STRtree over the
+    (slightly grown) closed bboxes; the exact tests are the reference's own expressions, so the
+    tree is identical to :func:`build_tree_reference` (tests/test_ordering_fast.py)."""
+    keys = keys if keys is not None else list(range(len(contours)))
+    nodes = []
+    pts_of: list = []
+    for c, k in zip(contours, keys):
+        if c.segments:
+            pts = polyline(c)
+            xs = [p[0] for p in pts]
+            ys = [p[1] for p in pts]
+            bb = (min(xs), min(ys), max(xs), max(ys))      # contour_bbox(c)
+        else:
+            pts, bb = None, (0, 0, 0, 0)
+        n = Node(c, k, bbox=bb, area=(bb[2] - bb[0]) * (bb[3] - bb[1]))
+        n.entry = c.segments[0].start if c.segments else (0, 0)
+        n.exit = c.segments[-1].end if c.segments else (0, 0)
+        nodes.append(n)
+        pts_of.append(pts)
+    N = len(nodes)
+    order = sorted(range(N), key=lambda i: nodes[i].area)
+    rank = [0] * N
+    for ii, i in enumerate(order):
+        rank[i] = ii
+    parents = [j for j in range(N) if nodes[j].contour.closed]
+    if N > 1 and parents:
+        import shapely
+        B = np.array([n.bbox for n in nodes], dtype=float)
+        P = np.asarray(parents)
+        g = 1e-6 + 1e-12 * np.abs(B[P]).max(axis=1)           # grow: a superset filter only
+        tree = shapely.STRtree(shapely.box(B[P, 0] - g, B[P, 1] - g, B[P, 2] + g, B[P, 3] + g))
+        qi, ti = tree.query(shapely.box(B[:, 0], B[:, 1], B[:, 2], B[:, 3]))
+        cand: dict[int, list[int]] = {}
+        for i, j in zip(qi.tolist(), P[ti].tolist()):
+            if rank[j] > rank[i]:
+                cand.setdefault(i, []).append(j)
+        for i in sorted(cand, key=rank.__getitem__):    # the reference's (area, index) order
+            js = cand[i]
+            n = nodes[i]
+            b = n.bbox
+            probe = None
+            for j in sorted(js, key=rank.__getitem__):
+                m = nodes[j]
+                if m.area <= n.area:
+                    continue
+                mb = m.bbox
+                if b[0] < mb[0] - 1e-9 or b[1] < mb[1] - 1e-9 or b[2] > mb[2] + 1e-9 or b[3] > mb[3] + 1e-9:
+                    continue
+                if probe is None:
+                    probe = _probe_point(n.contour)
+                if point_in_contour(probe, m.contour, pts_of[j]):
+                    n.parent = m
+                    m.children.append(n)
+                    break
+    for n in nodes:
+        d, p = 1, n.parent
+        while p is not None:
+            d += 1
+            p = p.parent
+        n.depth = d
+    return nodes
+
+
+def build_tree_reference(contours: list[Contour], keys: Optional[list] = None) -> list[Node]:
+    """The O(n^2) containment scan :func:`build_tree` replaced (kept as the reference its
+    tests compare against, tests/test_ordering_fast.py)."""
     keys = keys if keys is not None else list(range(len(contours)))
     nodes = []
     for c, k in zip(contours, keys):
@@ -234,6 +303,9 @@ def order_nodes(nodes: list[Node], mode: int = 5, small_first: bool = False,
     Modes: see the module constants. In mode 5 small-first is handled by the level sort
     as in the original (small items first, the rest inserted behind them)."""
     if mode == MODE_SHORTEST:
+        from .order_ortools import ordering_backend, shortest_path_ortools
+        if ordering_backend() == "ortools":        # profile "modern-ortools" (optional)
+            return shortest_path_ortools(nodes, start, small_first)
         return shortest_path(nodes, start, small_first)
     if mode == MODE_LOCAL:
         # the statement-level port (0x1003d300 etc.), on the nodes' entry / exit points; the

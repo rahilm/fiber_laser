@@ -52,8 +52,22 @@ simulator, and the main window.
 cd rebuild
 uv sync --locked                        # .venv from uv.lock: the package, pytest, ruff, pre-commit
 uv sync --locked --extra devices        # + hidapi / pyserial (pendant, serial links)
+uv sync --locked --extra modern         # + optional modern options: OR-Tools (sort mode 20),
+                                        #   spyrrow (nesting), Ruckig (planner, NOT hardware-validated)
 pre-commit install                      # optional: ruff on every commit
+python tools/build_native.py            # optional C emitter kernel (needs a C compiler; rerun after uv sync)
+uv sync --group packaging --all-extras && uv run python packaging/build.py --smoke   # frozen one-folder build
 ```
+
+Optional behaviour is selected through parity profiles; the default `"original"` is the
+bit-exact one: `use_profile("modern-ortools")`, `"modern-ruckig"`, `"modern-dxf"` (or
+`import_dxf(path, mode="modern")`), `"native-sampling"`; nesting with
+`NestParams.engine="spyrrow"`; kerf fallback with `CamParams.kerf_fallback="clipper"`. Text uses
+the bundled Noto Sans SC subset (OFL) when no installed font matches
+(`python tools/build_bundled_fonts.py --full-cjk` rebuilds it with all CJK ideographs). A first
+start runs a network self-test (`python -m mlaser --selftest [--probe]` runs it on demand;
+`MLASER_NO_FIRSTRUN=1` skips it). Measurements: docs/dev/PERFORMANCE.md; licences:
+docs/ASSETS.md.
 
 Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"`. Python 3.12 or 3.13
 (both tested in CI). CPython 3.12 is the reference interpreter: the goldens are pinned to its float

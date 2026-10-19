@@ -41,8 +41,8 @@ from __future__ import annotations
 
 import bisect  # noqa: F401 - kept in the module namespace (moved code used it)
 import math
-from dataclasses import dataclass, field, replace
-from typing import Callable, Iterable, Optional, Sequence
+from dataclasses import dataclass, field, fields, replace
+from typing import Any, Callable, Iterable, Optional, Sequence, Union
 
 from ..toolpath import items as I
 from ..cam.toolpath import CamParams, build_toolpath
@@ -53,6 +53,10 @@ from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, 
                              lead_in_index, plan_path)
 from ..parity_ports import active_profile, dispatch
 from .machine import Machine
+from .packed import PackedWire, SharedWireHandle, WireBuilder
+
+#: compile into packed numpy wire storage (nc/packed.py); False keeps plain lists
+PACK_WIRE = True
 
 Point = tuple[float, float]
 
@@ -60,7 +64,9 @@ Point = tuple[float, float]
 @dataclass
 class Job:
     """A compiled job: wire items plus bookkeeping for progress and checks."""
-    wire: list[list[int]] = field(default_factory=list)   # encoded FIFO items (header + params)
+    # encoded FIFO items (header + params): a PackedWire (nc/packed.py, the same items in numpy
+    # arrays) from compile_items, or a plain list
+    wire: Union[list[list[int]], PackedWire] = field(default_factory=list)
     toolpath: list = field(default_factory=list)          # source MotionItems
     machine: Machine = field(default_factory=Machine)
     start_mm: Point = (0.0, 0.0)
@@ -97,13 +103,54 @@ class Job:
         g = self._groups
         if g is None or g[0] is not self.wire or g[1] != len(self.wire):
             return [[w] for w in self.wire]
+        if isinstance(g[2], str):                      # "packed": the starts are in the runs
+            return self.wire.groups()
         starts = list(g[2]) + [len(self.wire)]
         return [self.wire[a:b] for a, b in zip(starts, starts[1:]) if b > a]
 
     def frames(self, first_seq: int = 1) -> list[list[int]]:
         """FIFO frames for write(102, ...) starting at sequence ``first_seq`` (RO[15] + 1), with
         the original's frame size test once per ManuItem (``frames.build_fifo_frames``)."""
+        g = self._groups
+        if isinstance(self.wire, PackedWire) and g is not None and g[0] is self.wire and isinstance(g[2], str):
+            return self.wire.frames(first_seq)
         return F.build_fifo_frames(self.groups(), first_seq)
+
+    def iter_frames(self, first_seq: int = 1):
+        """:meth:`frames` one frame at a time (no full list of frames in memory)."""
+        g = self._groups
+        if isinstance(self.wire, PackedWire) and g is not None and g[0] is self.wire and isinstance(g[2], str):
+            return self.wire.iter_frames(first_seq)
+        return iter(self.frames(first_seq))
+
+    # ------------------------------------------------------------------ shared memory
+    def to_shared(self, include_toolpath: bool = False) -> "SharedJob":
+        """Hand-off to another process: the wire goes into shared memory (packed arrays), the
+        rest of the Job is pickled small.  The caller owns the block: keep the returned
+        handle until the reader has attached, then ``release()`` it."""
+        wire = self.wire if isinstance(self.wire, PackedWire) else PackedWire.from_items(
+            self.wire, self._starts_for_packing())
+        handle, shm = wire.to_shared()
+        meta = {f.name: getattr(self, f.name) for f in fields(self)
+                if f.init and f.name not in ("wire", "toolpath")}
+        if include_toolpath:
+            meta["toolpath"] = self.toolpath
+        return SharedJob(handle, meta, _shm=shm)
+
+    def _starts_for_packing(self):
+        g = self._groups
+        if g is not None and g[0] is self.wire and g[1] == len(self.wire) and not isinstance(g[2], str):
+            return g[2]
+        return None
+
+    @classmethod
+    def from_shared(cls, shared: "SharedJob", copy: bool = False) -> "Job":
+        """The Job of :meth:`to_shared` in this process (wire as zero-copy views of the shared
+        block unless ``copy``); ``frames()`` and ``wire`` are identical to the original's."""
+        job = cls(**shared.meta)
+        job.wire = PackedWire.from_shared(shared.handle, copy=copy)
+        job._groups = (job.wire, len(job.wire), "packed")
+        return job
 
     def wire_bytes(self) -> list[int]:
         """Cumulative byte count after each wire item (for progress from FIFO occupancy)."""
@@ -128,6 +175,25 @@ class Job:
                 f"cut {self.laser_on_length_mm:.1f} mm, rapid {self.rapid_length_mm:.1f} mm, "
                 f"{self.pierces} pierces, {self.process_items} process items "
                 f"(~{self.process_time_s:.2f} s)" + (" [DRY RUN: laser disabled]" if self.dry_run else ""))
+
+
+@dataclass
+class SharedJob:
+    """Picklable hand-off of a :class:`Job` (``Job.to_shared`` / ``Job.from_shared``): the
+    shared-memory handle of the packed wire plus the other fields."""
+    handle: SharedWireHandle
+    meta: dict
+    _shm: Any = field(default=None, repr=False, compare=False)
+
+    def __getstate__(self):
+        return {"handle": self.handle, "meta": self.meta, "_shm": None}
+
+    def release(self) -> None:
+        """Free the shared block (creator side, once every reader has attached or copied)."""
+        shm, self._shm = self._shm, None
+        if shm is not None:
+            shm.close()
+            shm.unlink()
 
 
 # The per-period sample loop and pulse quantisation (MainApp FUN_00462630 / FUN_00473bd0) are
@@ -288,6 +354,12 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     items = list(items)
     prof = active_profile()
     em = prof.sampling.Emitter(m, start, dry_run, carry)
+    builder = None
+    # the port's emitter appends through the list interface: collect straight into packed
+    # arrays; another emitter (e.g. the native kernel, which needs real lists) is packed after
+    if PACK_WIRE and type(em) is Emitter and isinstance(getattr(em, "wire", None), list) and not em.wire:
+        builder = WireBuilder()              # packed numpy storage, same items (nc/packed.py)
+        em.wire, em.starts = builder, builder.starts()  # type: ignore[assignment]
     job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run)
     period = m.period_ms
     rapid_len = 0.0
@@ -438,8 +510,19 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     if block:
         job.cut_blocks.append((block[0], len(em.wire), block[1]))
 
-    job.wire = em.wire
-    job._groups = (job.wire, len(job.wire), tuple(em.starts))
+    if builder is not None:
+        job.wire, plain_starts = builder.finish()
+        job._groups = (job.wire, len(job.wire), "packed" if plain_starts is None else tuple(plain_starts))
+    elif PACK_WIRE and isinstance(em.wire, list):
+        try:
+            job.wire = PackedWire.from_items(em.wire, em.starts)
+            job._groups = (job.wire, len(job.wire), "packed")
+        except (TypeError, OverflowError):
+            job.wire = em.wire
+            job._groups = (job.wire, len(job.wire), tuple(em.starts))
+    else:
+        job.wire = em.wire
+        job._groups = (job.wire, len(job.wire), tuple(em.starts))
     job.steps = em.steps
     job.duration_s = em.steps * m.period_ms * 1e-3
     job.process_time_s = enc.process_ms * 1e-3

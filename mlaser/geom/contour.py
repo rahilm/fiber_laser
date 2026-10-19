@@ -9,7 +9,7 @@ from __future__ import annotations
 import math
 
 from ..model import Arc, Contour, Line, Point, Segment
-from .curves import reverse_contour, signed_area  # re-export
+from .curves import flatten_cached, flatten_points, reverse_contour, signed_area  # re-export
 
 __all__ = ["seg_point", "seg_tangent", "split_seg", "sub_seg", "locate", "point_at",
            "tangent_at", "rotate_start", "sub_path", "is_ccw", "signed_area",
@@ -155,7 +155,8 @@ def is_ccw(c: Contour) -> bool:
 
 
 def polyline(c: Contour, tol: float = 0.02) -> list[Point]:
-    return list(c.points(tol))
+    """``list(c.points(tol))`` (bit for bit; cached per contour, see ``flatten_cached``)."""
+    return list(flatten_cached(c, tol))
 
 
 def contour_bbox(c: Contour):

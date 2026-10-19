@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (
 from . import image_ops as ops
 from .raster import (
     GCODE_NAME, MODES, EditSession, RasterParams, aspect_height, aspect_width,
-    gcode_from_bitmap, write_gcode, write_status_ini,
+    gcode_from_bitmap, raster_from_bitmap, write_gcode, write_status_ini,
 )
 
 #: next_cut.Luaguage.LanguaLibrary[28, 2] (O, 0x06000073).
@@ -101,6 +101,13 @@ class BitmapDialog(QDialog):
     """Raster-engraving dialog.  After "Generate GCode", ``gcode_path`` holds the written
     ``newGcode.nc`` and the dialog is accepted.
 
+    The engraving itself is also handed over as one object: ``raster`` (a
+    :class:`mlaser.cam.raster_engraving.RasterEngraving`, the burn runs of the G-code in numpy
+    arrays) and ``raster_part`` (one Part carrying it, None when nothing burns);
+    :meth:`result_document` gives a Document with that part, or with today's per-segment Parts
+    (``per_segment=True`` or ``self.per_segment_output``; the parts ``parse_gcode`` makes of
+    ``newGcode.nc``).
+
     ``out_dir``: where ``newGcode.nc`` / ``status.ini`` go (the original uses its own exe
     directory, ``<install>\\Bitmap``).  When given, ``status.ini`` is reset to ``0`` at
     construction like the original start-up does; without it a temp directory is used at
@@ -114,6 +121,9 @@ class BitmapDialog(QDialog):
         self.out_dir: Optional[Path] = Path(out_dir) if out_dir else None
         self.gcode_path: Optional[Path] = None
         self.gcode_text: Optional[str] = None
+        self.raster = None              # RasterEngraving of the last generation
+        self.raster_part = None         # Part carrying it (None: no burn runs)
+        self.per_segment_output = False  # result_document default: one Part per burn run
         self.session = EditSession()
         self.image_path: Optional[str] = None
         self._sync = False
@@ -442,7 +452,11 @@ class BitmapDialog(QDialog):
             self._message(20)
             return None
         self._message(23)
-        text = gcode_from_bitmap(self.engraving_bitmap(), p.rho, p.power)
+        bmp = self.engraving_bitmap()
+        text = gcode_from_bitmap(bmp, p.rho, p.power)
+        from mlaser.cam.raster_engraving import make_raster_part
+        self.raster = raster_from_bitmap(bmp, p.rho, p.power, p)
+        self.raster_part = make_raster_part(self.raster, name="bitmap") if len(self.raster) else None
         out = self.out_dir or Path(tempfile.gettempdir()) / "mlaser" / "Bitmap"
         out.mkdir(parents=True, exist_ok=True)
         path = write_gcode(out / GCODE_NAME, text)
@@ -452,3 +466,16 @@ class BitmapDialog(QDialog):
         self._message(22)
         self.accept()
         return path
+
+    def result_document(self, per_segment: Optional[bool] = None):
+        """The last generated engraving as a Document: one raster part (default), or today's
+        per-segment Parts (``per_segment``, default ``self.per_segment_output``).  None before
+        a generation or when nothing burns."""
+        from mlaser.cam.raster_engraving import expand_document
+        from mlaser.model import Document
+        if self.raster_part is None:
+            return None
+        import copy
+        doc = Document(parts=[copy.deepcopy(self.raster_part)])
+        seg = self.per_segment_output if per_segment is None else per_segment
+        return expand_document(doc) if seg else doc

@@ -86,8 +86,14 @@ class WireJob:
             job = job.job                  # a services.jobs.PlannedJob
         m = getattr(job, "machine", None)
         per = float(getattr(m, "period_ms", getattr(job, "period_ms", 1.0)) or 1.0)
-        g = getattr(job, "_groups", None)
-        starts = tuple(g[2]) if g is not None and g[0] is job.wire and g[1] == len(job.wire) else None
+        starts = None
+        groups = getattr(job, "groups", None)           # nc.compiler.Job (list or packed wire)
+        if callable(groups):
+            starts, k = [], 0
+            for grp in groups():
+                starts.append(k)
+                k += len(grp)
+            starts = tuple(starts) if k == len(job.wire) else None
         return cls([list(w) for w in job.wire], per, float(getattr(job, "duration_s", 0.0) or 0.0), starts)
 
     def frames(self, first_seq: int) -> list[list[int]]:

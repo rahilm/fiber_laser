@@ -206,16 +206,20 @@ def _error(e: BaseException) -> dict:
 
 # ----------------------------------------------------------------------------- inputs
 def text_font_fingerprint() -> dict:
-    """Font the DXF TEXT import resolves to on this host, and a hash of a probe outline."""
+    """Font the DXF TEXT import resolves to on this host, and a hash of a probe outline made the
+    way the import makes it (GGO_BEZIER records from the glyf table, else the shaped fallback)."""
     try:
-        from mlaser.cad.text import text_contours
-        from mlaser.io.dxf_import import _text_family
+        from mlaser.io.dxf_import import _text_contours, _text_family, _tt_text_contours
 
         fam = _text_family()
         if fam is None:
             return {"family": None, "probe": None}
+        t = {"text": "Ag8&", "height": 10.0, "insert": (0.0, 0.0), "rotation": 0.0}
+        cs = _tt_text_contours(t, fam)
+        if cs is None:
+            cs = _text_contours(t, fam)
         h = _H()
-        for c in text_contours("Ag8&", fam, 10.0):
+        for c in cs:
             for s in c.segments:
                 h.floats(s.start + s.end)
         return {"family": fam, "probe": h.hex()}

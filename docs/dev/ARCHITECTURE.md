@@ -78,7 +78,6 @@ a comment and has a ROADMAP item that removes it.
 | Import | Why | Removed by (ROADMAP) |
 |---|---|---|
 | `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
-| `cad.text -> PySide6`, `io.dxf_import -> PySide6` | TEXT outlines fall back to Qt's font engine | Wave 2 "fontTools + uharfbuzz text" |
 
 ## 2. Moved modules and compatibility shims
 
@@ -136,6 +135,7 @@ pinned by the Wine parity run (docs/parity.md) and the goldens (tests/golden/). 
 | `mainapp/sampling.py` | MainApp sample loop and pulse quantisation (FUN_00462630 / FUN_00473bd0) | `Emitter`, `emit_samples`, `gap_flags`, `sample_speeds` | `sampling` |
 | `mainapp/layer.py` | the GP.* layer parameter block (`LayerView`, `Stage`) | (module record) | used by the encoder |
 | `ncmodule/manu.py` | NCModule ManuItem -> FIFO items (FUN_10043c20) | `ManuEncoder` | `process` |
+| `cadmodule/ordering_fast.py` | bit-identical drop-ins of `local_optimal_elems`, `containers_last_faithful`, `import_sort` (grid / numpy / STRtree filters, reference decisions; docs/dev/PERFORMANCE.md §2) | `import_sort`, `local_optimal_elems`, `containers_last_faithful` | `ordering` (default) |
 | `cadmodule/ordering.py` | sort dispatcher modes 5/6/7 (FUN_100b57c0, 0x1003d300, 0x1003c480, CRingSort 0x1003f690), start point 0x10071f80 | `import_sort`, `local_optimal_elems`, `containers_last_faithful`, `ring_sort`, `choose_start` | `ordering` |
 | `circlefit/fit.py` | CircleFitDLL CCircleFit::mainFit | `fit_arcs` | `arcfit` |
 | `dxfparse/rules.py` | DxfParse parser rules, CADModule entity -> glyph handlers, chaining, placement | `collect`, `entity_glyphs`, `chain_glyphs`, `contour_of_chain` | `dxf` |
@@ -180,6 +180,14 @@ register_profile(fast)
 with use_profile("fast-order"):
     job = compile_job(doc)
 ```
+
+Optional profiles live in `parity_ports/profiles/` (one module each, registered on import;
+`get_profile(name)` imports the package on demand): `original-reference` (the statement-level
+ordering references the default runs as fast drop-ins), `modern-dxf`, `modern-ruckig`
+(`warning=`: logged when activated, not hardware-validated), `modern-ortools` (an extension
+*option*, `ParityProfile.options` / `option()`, for sort mode 20 which has no original),
+`native-sampling` (the optional C kernel in `native/`). They are not ports, so
+tests/test_parity_ports.py does not ask them for `__port__` records.
 
 The active profile is a process-wide global (worker threads see it); `use_profile` switches it
 for a block. The goldens and the parity run always use `"original"`.
