@@ -333,15 +333,29 @@ def plan_path(moves, cfg: MotionConfig, return_geom: bool = False, lead_index: i
     return plan, (geom if geom is not None else _PathGeom(moves))
 
 
-def estimate_time(items, cfg: MotionConfig | None = None) -> dict:
-    """Estimate job time.  Returns {'total','cut','rapid','dwell','cut_length','rapid_length'} (s, mm)."""
+def estimate_chains(items) -> list:
+    """The cut chains :func:`estimate_time` plans, in its order (lists of moves)."""
+    return [obj for kind, obj in _chains(items) if kind == "path"]
+
+
+def estimate_time(items, cfg: MotionConfig | None = None, chain_plans=None) -> dict:
+    """Estimate job time.  Returns {'total','cut','rapid','dwell','cut_length','rapid_length'} (s, mm).
+
+    ``chain_plans``: optional ``(duration, length)`` of every chain of :func:`estimate_chains`,
+    in order, as ``plan_path(chain, cfg)`` gives them (the compiler plans them alongside the
+    job's own chains); the sums are formed in the same order either way."""
     cfg = cfg or MotionConfig()
     res = dict(total=0.0, cut=0.0, rapid=0.0, dwell=0.0, cut_length=0.0, rapid_length=0.0)
+    known = iter(chain_plans) if chain_plans is not None else None
     for kind, obj in _chains(items):
         if kind == "path":
-            p = plan_path(obj, cfg)
-            res["cut"] += p.duration
-            res["cut_length"] += p.length
+            if known is None:
+                p = plan_path(obj, cfg)
+                dur, length = p.duration, p.length
+            else:
+                dur, length = next(known)
+            res["cut"] += dur
+            res["cut_length"] += length
         elif kind == "rapid":
             pr = _rapid_profile(obj, cfg)
             if pr is not None:

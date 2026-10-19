@@ -49,8 +49,10 @@ from ..cam.toolpath import CamParams, build_toolpath
 from ..protocol import frames as F
 from . import process as P
 from ..model import Document, LayerParams
-from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_time,
-                             lead_in_index, plan_path)
+from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_chains,
+                             estimate_time, lead_in_index, plan_path)
+from ..motion import interp as _interp
+from ..parity_ports.cadmodule.smooth import table_memo
 from ..parity_ports import active_profile, dispatch
 from .machine import Machine
 from .packed import PackedWire, SharedWireHandle, WireBuilder
@@ -327,6 +329,122 @@ def _slow_moves(moves: list, up, down) -> list:
     return moves
 
 
+def path_inputs(obj: list, cur_layer: int, doc: Optional[Document], proc: bool):
+    """Planning inputs of one cut chain of :func:`compile_items` (a pure function of the
+    toolpath, the layer table and the process switch; the emitter state plays no part):
+    ``(moves, lead_index, layer view, slow start, slow end)``.  ``moves`` is ``obj`` split for
+    the slow start / end (``obj`` itself when there is none)."""
+    moves = obj
+    layer = int(getattr(moves[0], "layer", cur_layer))
+    lv = P.LayerView(_layer(doc, layer)) if proc else None
+    up = down = None
+    # line lead-in joint (moves tagged .lead == "in" by build_toolpath): the original
+    # blends it with lead_tol (type-4 marker, parity JC-08); the slow-start split below
+    # may cut the lead into several moves, so the joint is found again by its length
+    li = lead_in_index(moves)
+    lead_len = sum(_move_len(mv) for mv in moves[:li]) if li else None
+    if proc:
+        up, down = P.slow_start_end(lv)  # type: ignore[arg-type]
+        moves = _slow_moves(moves, up, down)
+    if li:
+        li = lead_in_index(moves, 1, lead_len)
+    return moves, li, lv, up, down
+
+
+def plan_cut_chain(moves: list, cfg, lead_index: Optional[int], period: float):
+    """Velocity plan and samples of one cut chain: ``(plan, ss, pts, total, gaps)`` with the
+    cumulative arc length ``ss`` of every servo period, the sampled points ``pts`` (a
+    sequence of (x, y), or a flat ``array('d')`` x0, y0, x1, ... from a native geometry),
+    the path length ``total`` and the micro-joint gap intervals.  A pure function of its
+    arguments (the per-chain unit of the parallel compile)."""
+    plan, geom = plan_path(moves, cfg, return_geom=True, lead_index=lead_index)
+    total = geom.cum[-1]
+    ss = plan.sample(period)
+    batch = getattr(geom, "points", None)
+    pts = batch(ss) if batch is not None else [geom.at(s)[0] for s in ss]
+    return plan, ss, pts, total, gap_intervals(moves, geom)
+
+
+class _EstimatePlans:
+    """``Job.estimate`` without planning every chain a second time from scratch.
+
+    :func:`~mlaser.motion.interp.estimate_time` plans the chains of
+    :func:`~mlaser.motion.interp.estimate_chains` with ``plan_path(chain, cfg)``: no lead-in
+    joint, no slow start / end split.  Every one of them is a run of whole compile chains (it
+    only breaks at rapids, dwells and pierces, which break a compile chain too), so it is
+    planned right after its last compile chain: when it is exactly one compile chain planned
+    with the same inputs (same move objects, no lead-in joint), that plan's duration and
+    length are reused; otherwise it is planned here inside the same blend-table memo
+    (smooth.table_memo), so only the tables that differ (the lead-in joint's blend) are built
+    again.  The values are those of ``plan_path(chain, cfg)`` by construction, summed by
+    ``estimate_time(chain_plans=...)`` in its own order: bit for bit the old estimate."""
+
+    def __init__(self, items: list, cfg) -> None:
+        self.cfg = cfg
+        self.chains = estimate_chains(items)
+        self.vals: list = []
+        self.k = 0                  # current estimate chain
+        self.used = 0               # moves of it covered by compile chains so far
+        self.parts: list = []       # (moves, lead_index, plan) of its compile chains
+        self.ok = True
+        self.memo: Any = None
+
+    def begin(self) -> None:
+        """Before a compile chain is planned: the memo of the current estimate chain."""
+        if self.memo is None and self.ok:
+            self.memo = table_memo()
+            self.memo.__enter__()
+
+    def done(self, obj: list, moves: list, li, plan) -> None:
+        """After compile chain ``obj`` (planned as ``moves`` / ``li``)."""
+        if not self.ok:
+            return
+        if self.k >= len(self.chains):
+            self.ok = False
+            return
+        est = self.chains[self.k]
+        n = len(obj)
+        if any(a is not b for a, b in zip(obj, est[self.used:self.used + n])):
+            self.ok = False          # not the expected moves: estimate_time from scratch
+            self.close()
+            return
+        self.parts.append((moves, li, plan))
+        self.used += n
+        if self.used < len(est):
+            return
+        try:
+            if (len(self.parts) == 1 and self.parts[0][1] is None and len(moves) == len(est)
+                    and all(a is b for a, b in zip(moves, est))):
+                dur, length = plan.duration, plan.length
+            else:
+                p = _interp.plan_path(est, self.cfg)    # as estimate_time plans it
+                dur, length = p.duration, p.length
+            self.vals.append((dur, length))
+        except Exception:   # noqa: BLE001 - as estimate_time raising: no estimate
+            self.vals = None  # type: ignore[assignment]
+            self.ok = False
+        self.close()
+        self.k += 1
+        self.used = 0
+        self.parts = []
+
+    def close(self) -> None:
+        if self.memo is not None:
+            self.memo.__exit__(None, None, None)
+            self.memo = None
+
+    def result(self, items: list) -> dict:
+        self.close()
+        try:
+            if self.ok and self.vals is not None and self.k == len(self.chains):
+                return estimate_time(items, self.cfg, chain_plans=self.vals)
+            if self.vals is None:
+                return {}
+            return estimate_time(items, self.cfg)
+        except Exception:   # noqa: BLE001 - the estimate is informative only
+            return {}
+
+
 def laser_on_sequence(seq: "P.ProcessSequencer", layer: int, laser: bool = True) -> list:
     """ManuItems of a LaserOn (cut element start) as the job loop leaves them: it pushes laser
     sync on (FUN_004590a0(1), 0x0045a101) into the vector [ebp-0x194] and then calls the start
@@ -408,105 +526,94 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
         em.dwell(m.jump_add_time_ms * 1e-3, False)
 
     n_items, n_done = max(1, len(items)), 0
-    for kind, obj in _chains(items):
-        if progress is not None:
-            n_done += len(obj) if kind == "path" else 1
-            progress(min(1.0, n_done / n_items))
-        if kind == "path":
-            moves = obj
-            if math.dist(em.pos, moves[0].start) > 1e-6:
-                rapid_to(moves[0].start)     # cut run not preceded by a rapid: reposition
-            layer = int(getattr(moves[0], "layer", cur_layer))
-            lv = P.LayerView(_layer(doc, layer)) if proc else None
-            up = down = None
-            # line lead-in joint (moves tagged .lead == "in" by build_toolpath): the original
-            # blends it with lead_tol (type-4 marker, parity JC-08); the slow-start split below
-            # may cut the lead into several moves, so the joint is found again by its length
-            li = lead_in_index(moves)
-            lead_len = sum(_move_len(m) for m in moves[:li]) if li else None
-            if proc:
-                up, down = P.slow_start_end(lv)  # type: ignore[arg-type]
-                moves = _slow_moves(moves, up, down)
-            if li:
-                li = lead_in_index(moves, 1, lead_len)
-            plan, geom = plan_path(moves, cfg, return_geom=True, lead_index=li)
-            total = geom.cum[-1]
-            ss = plan.sample(period)
-            pts = [geom.at(s)[0] for s in ss]
-            gaps = gap_intervals(moves, geom)
-            if proc:
-                dcurve, fcurve = P.layer_curves(lv)  # type: ignore[arg-type]
-                micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0
-                emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve,
-                             up=up, down=down, micro_pct=micro)
-            else:
-                emit_samples(em, pts, ss, total=total, gaps=gaps)
-            # no step to the exact end (the last sample is the last tick t <= T, docs/re/motion.md
-            # §4): the next element is measured from the run's nominal end, as the job loop
-            # starts the next jump at the element end point (FUN_0045f5b0 local_a0 = start * 1e4)
-            end = moves[-1].end
-            em.pos = (float(end[0]), float(end[1]))
-            continue
-        it = obj
-        if isinstance(it, I.Marker):
-            if it.kind == "contour":
-                job.markers.append((len(em.wire), it.part, it.contour))
-        elif isinstance(it, I.Rapid):
-            if proc:
-                nx = ahead.get(id(it))
-                if nx is not None:
-                    manu(seq.pre_jump(nx[0]))
-            rapid_to(tuple(it.end))  # type: ignore[arg-type]
-        elif isinstance(it, I.LayerChange):
-            cur_layer = int(it.layer)
-            lp = _layer(doc, it.layer)
-            em.duty = max(1, min(100, int(round(lp.duty_pct))))
-            em.freq = max(1, min(0xFFFF, int(round(lp.frequency_hz))))
-            if m.emit_layer_commands and not dry_run:
-                da = max(0, min(0xFFFF, int(round(lp.power_pct * m.power_scale))))
-                em.raw(F.sys_item(F.SYS_DA, 0, max(50, min(10000, da))))
-                em.raw(F.sys_item(F.SYS_PWM, int(lp.frequency_hz), int(round(lp.duty_pct))))
-        elif isinstance(it, I.LaserOn):
-            cur_layer = int(it.layer)
-            if proc:
-                manu(laser_on_sequence(seq, cur_layer))
-            block = [len(em.wire), cur_layer]     # the cut block starts after the start cut
-            em.laser = True
-        elif isinstance(it, I.LaserOff):
-            if proc:
-                nx = ahead.get(id(it))
-                hop = math.dist(em.pos, nx[1]) if nx is not None and nx[1] is not None else math.inf
-                manu(seq.laser_sync(False) + seq.end_cut(cur_layer, nx[0] if nx else None, hop))
-            em.laser = False
-            if block:
-                job.cut_blocks.append((block[0], len(em.wire), block[1]))
-                block = []
-        elif isinstance(it, I.Pierce):
-            pierces += 1
-            staged = seq.pierce(int(it.layer)) if proc else []
-            if staged:
-                manu(staged)
+    est = _EstimatePlans(items, cfg)
+    try:
+        for kind, obj in _chains(items):
+            if progress is not None:
+                n_done += len(obj) if kind == "path" else 1
+                progress(min(1.0, n_done / n_items))
+            if kind == "path":
+                if math.dist(em.pos, obj[0].start) > 1e-6:
+                    rapid_to(obj[0].start)     # cut run not preceded by a rapid: reposition
+                moves, li, lv, up, down = path_inputs(obj, cur_layer, doc, proc)
+                est.begin()
+                plan, ss, pts, total, gaps = plan_cut_chain(moves, cfg, li, period)
+                est.done(obj, moves, li, plan)
+                if proc:
+                    dcurve, fcurve = P.layer_curves(lv)
+                    micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0
+                    emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve,
+                                 up=up, down=down, micro_pct=micro)
+                else:
+                    emit_samples(em, pts, ss, total=total, gaps=gaps)
+                # no step to the exact end (the last sample is the last tick t <= T, docs/re/motion.md
+                # §4): the next element is measured from the run's nominal end, as the job loop
+                # starts the next jump at the element end point (FUN_0045f5b0 local_a0 = start * 1e4)
+                end = moves[-1].end
+                em.pos = (float(end[0]), float(end[1]))
                 continue
-            t = float(it.time_s or 0.0)
-            if t <= 0 and it.stages:
-                t = sum(float(s.get("time_s", 0.0) or 0.0) for s in it.stages if isinstance(s, dict))
-            if proc:
-                if t > 0 and not dry_run:      # timed pierce without stages: gas, then beam-on dwell
-                    lv = P.LayerView(_layer(doc, it.layer))
-                    manu(seq.gas_select(lv.i("CutGasType"), lv.f("CutAirPressure", 5.0))
-                         + seq.gas_delay(lv.i("CutGasType")))
-            elif m.gas_output is not None and not dry_run:
-                em.raw(_io_item(m.gas_output, True))
-            em.dwell(t, True)          # beam on while piercing (rebuild choice, I)
-        elif isinstance(it, I.Delay):
-            em.dwell(float(it.seconds), em.laser)
-        elif isinstance(it, I.IO):
-            em.raw(_io_item(int(it.port), bool(it.value)))
-        elif isinstance(it, I.Follow):
-            if not proc and not it.enable and m.gas_output is not None and not dry_run:
-                em.raw(_io_item(m.gas_output, False))
-        elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
-            em.raw(it)
+            it = obj
+            if isinstance(it, I.Marker):
+                if it.kind == "contour":
+                    job.markers.append((len(em.wire), it.part, it.contour))
+            elif isinstance(it, I.Rapid):
+                if proc:
+                    nx = ahead.get(id(it))
+                    if nx is not None:
+                        manu(seq.pre_jump(nx[0]))
+                rapid_to(tuple(it.end))  # type: ignore[arg-type]
+            elif isinstance(it, I.LayerChange):
+                cur_layer = int(it.layer)
+                lp = _layer(doc, it.layer)
+                em.duty = max(1, min(100, int(round(lp.duty_pct))))
+                em.freq = max(1, min(0xFFFF, int(round(lp.frequency_hz))))
+                if m.emit_layer_commands and not dry_run:
+                    da = max(0, min(0xFFFF, int(round(lp.power_pct * m.power_scale))))
+                    em.raw(F.sys_item(F.SYS_DA, 0, max(50, min(10000, da))))
+                    em.raw(F.sys_item(F.SYS_PWM, int(lp.frequency_hz), int(round(lp.duty_pct))))
+            elif isinstance(it, I.LaserOn):
+                cur_layer = int(it.layer)
+                if proc:
+                    manu(laser_on_sequence(seq, cur_layer))
+                block = [len(em.wire), cur_layer]     # the cut block starts after the start cut
+                em.laser = True
+            elif isinstance(it, I.LaserOff):
+                if proc:
+                    nx = ahead.get(id(it))
+                    hop = math.dist(em.pos, nx[1]) if nx is not None and nx[1] is not None else math.inf
+                    manu(seq.laser_sync(False) + seq.end_cut(cur_layer, nx[0] if nx else None, hop))
+                em.laser = False
+                if block:
+                    job.cut_blocks.append((block[0], len(em.wire), block[1]))
+                    block = []
+            elif isinstance(it, I.Pierce):
+                pierces += 1
+                staged = seq.pierce(int(it.layer)) if proc else []
+                if staged:
+                    manu(staged)
+                    continue
+                t = float(it.time_s or 0.0)
+                if t <= 0 and it.stages:
+                    t = sum(float(s.get("time_s", 0.0) or 0.0) for s in it.stages if isinstance(s, dict))
+                if proc:
+                    if t > 0 and not dry_run:      # timed pierce without stages: gas, then beam-on dwell
+                        lv = P.LayerView(_layer(doc, it.layer))
+                        manu(seq.gas_select(lv.i("CutGasType"), lv.f("CutAirPressure", 5.0))
+                             + seq.gas_delay(lv.i("CutGasType")))
+                elif m.gas_output is not None and not dry_run:
+                    em.raw(_io_item(m.gas_output, True))
+                em.dwell(t, True)          # beam on while piercing (rebuild choice, I)
+            elif isinstance(it, I.Delay):
+                em.dwell(float(it.seconds), em.laser)
+            elif isinstance(it, I.IO):
+                em.raw(_io_item(int(it.port), bool(it.value)))
+            elif isinstance(it, I.Follow):
+                if not proc and not it.enable and m.gas_output is not None and not dry_run:
+                    em.raw(_io_item(m.gas_output, False))
+            elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
+                em.raw(it)
+    finally:
+        est.close()   # the blend-table memo ends with the compile (also on cancel)
     if block:
         job.cut_blocks.append((block[0], len(em.wire), block[1]))
 
@@ -534,10 +641,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     job.end_pulses = (em.cur[0], em.cur[1])
     job.end_mm = em.pos
     job.pulse_carry = (em.carry[0], em.carry[1])
-    try:
-        job.estimate = estimate_time(items, cfg)
-    except Exception:   # noqa: BLE001 - the estimate is informative only
-        job.estimate = {}
+    job.estimate = est.result(items)
     return job
 
 
