@@ -317,6 +317,7 @@ def test_idle_host_stall_is_not_a_lost_link(make_ctl):
     'link lost (idle)' while a MainWindow was being built).  A dead link still faults
     (test_link_loss_latches_a_fault_and_bounds_the_motion, idle link loss below)."""
     ctl = make_ctl(process=False, arm=False)
+    ctl.sim.inject(latency_ms=40)            # a poll is usually in flight when the stall begins
     time.sleep(0.2)
     old = sys.getswitchinterval()
     sys.setswitchinterval(5.0)               # this thread keeps the GIL while it computes
@@ -329,6 +330,7 @@ def test_idle_host_stall_is_not_a_lost_link(make_ctl):
         sys.setswitchinterval(old)
     time.sleep(0.3)                          # the monitor and the poller run again
     assert not ctl.fsm.faulted, ctl.safety().fault
+    ctl.sim.clear_faults()
     ctl.sim.link_down(True)                  # and a dead link while idle still faults
     assert wait_until(lambda: ctl.fsm.faulted, 4.0) is not None
     assert "link lost" in ctl.fsm.fault

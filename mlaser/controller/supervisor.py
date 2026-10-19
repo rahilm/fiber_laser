@@ -44,6 +44,8 @@ from .client import ControllerError, MotionController, TransportConfig
 log = logging.getLogger(__name__)
 
 REFUSED_CODE = 9101
+# a monitor wake-up later than this means the host stalled (timer jitter is well below it)
+HOST_STALL_S = 0.3
 
 
 class CommandRefused(ControllerError):
@@ -409,9 +411,14 @@ class SafetySupervisor:
                     while 0.0 < self._hb_next - now <= slack + 0.002 and not self._mon_stop.is_set():
                         time.sleep(min(0.002, self._hb_next - now))
                         now = time.monotonic()
+                # this thread itself woke far too late: the whole host stalled (another thread
+                # held the interpreter), and the poller may not have read a reply that came
+                # meanwhile; while idle the link is judged one tick later, not on this one
+                stalled = now - t0 - req > HOST_STALL_S
                 if now >= next_tick:
                     next_tick = now + self.monitor_s
-                    self._tick_link()
+                    if not (stalled and not self.streaming):
+                        self._tick_link()
                     now = time.monotonic()
                     if self._retry is not None and now >= next_retry:
                         next_retry = now + self.halt_retry_s
