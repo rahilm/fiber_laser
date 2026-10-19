@@ -673,8 +673,10 @@ class MainWindow(QMainWindow):
         controller; a compile, when one is needed, runs in the worker, never here."""
         ctl = self.ctl
         doc = self.document
-        if mode == "process" and ctl.breakpoint is not None and not ctl.job_active():
-            ctl.resume()
+        from .resume import moving, resume
+        # job_active() also counts a pending breakpoint (Safety core): "not streaming" is the test
+        if mode == "process" and ctl.breakpoint is not None and not moving(ctl):
+            resume(ctl, "exact", doc)
             return
         if not doc.parts or (selected_only and not any(p.selected for p in doc.parts)):
             self.log_panel.log("mp78: graphic data is empty, cannot go frame" if mode == "frame"
@@ -809,6 +811,11 @@ class MainWindow(QMainWindow):
     FILTER = ("Supported (*.mlz *.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;mlaser project (*.mlz);;"
               "DXF (*.dxf);;CHF (*.chf);;All (*)")
     SAVE_FILTER = "mlaser project (*.mlz);;CHF (*.chf)"
+
+    def document_locked(self, what: str) -> bool:
+        """True (with the reason shown) while the document must not be replaced: a job runs or
+        a breakpoint is pending (PluginContext.replace_document asks this)."""
+        return self._job_locked(what)
 
     def _job_locked(self, what: str) -> bool:
         """Safety (docs/SAFETY.md): no file open / new document while a job runs."""

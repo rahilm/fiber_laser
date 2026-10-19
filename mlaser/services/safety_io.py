@@ -13,7 +13,7 @@ off (review 2, P0-4).  This module is the one place that turns the typed ``safet
   heartbeat stays off (:func:`effective`), the interlocks always apply;
 * :func:`notices` lists what is not configured, for the Run screen, the pre-flight dialog and
   the commissioning checklist;
-* :func:`apply` hands a configuration to a controller: at start-up (``ui/__main__.py`` passes it
+* :func:`apply` hands a configuration to a controller (``ctl.configure_safety``): at start-up (``ui/__main__.py`` passes it
   to the constructor) and after a change, but a change is applied only while the machine is
   disarmed and no job runs (otherwise it stays pending and :func:`apply` is retried).
 
@@ -25,7 +25,7 @@ Qt-free.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from typing import Any, Optional
 
 from mlaser.controller.interlocks import InterlockConfig
@@ -63,7 +63,7 @@ class SafetyIO:
         return self.input_of(source) > 0
 
     def kwargs(self) -> dict:
-        """Constructor keywords of ``UiController`` (and of ``apply_safety_config``)."""
+        """Constructor keywords of ``UiController`` (and of ``configure_safety``)."""
         return {"interlocks": replace(self.interlocks), "heartbeat_output": int(self.heartbeat_output),
                 "heartbeat_hz": float(self.heartbeat_hz)}
 
@@ -168,11 +168,27 @@ def preflight_issues(sio: SafetyIO, action: str, emits: bool) -> list:
 def controller_supports(ctl: Any) -> bool:
     """Does ``ctl`` have interlocks / a heartbeat to configure (the real controller; the
     protocol-free demo controller has none)?"""
-    return callable(getattr(ctl, "apply_safety_config", None)) or hasattr(getattr(ctl, "interlocks", None), "cfg")
+    return callable(getattr(ctl, "configure_safety", None)) or hasattr(getattr(ctl, "interlocks", None), "cfg")
+
+
+def _interlock_config(v: Any) -> Optional[InterlockConfig]:
+    if isinstance(v, InterlockConfig):
+        return replace(v)
+    if isinstance(v, dict):
+        names = {f.name for f in fields(InterlockConfig)}
+        return InterlockConfig(**{k: x for k, x in v.items() if k in names})
+    return None
 
 
 def current(ctl: Any) -> Optional[SafetyIO]:
-    """The configuration the controller runs with now (None: nothing to configure)."""
+    """The configuration the controller runs with now (None: nothing to configure).  Reads
+    ``ctl.safety_config()`` (Safety-core API) when the controller has it."""
+    get = getattr(ctl, "safety_config", None)
+    if callable(get):
+        d = get() or {}
+        ilk = _interlock_config(d.get("interlocks"))
+        if ilk is not None:
+            return SafetyIO(ilk, int(d.get("heartbeat_output") or 0), float(d.get("heartbeat_hz") or 5.0))
     mon: Any = getattr(ctl, "interlocks", None)
     if not hasattr(mon, "cfg"):
         return None
@@ -210,12 +226,14 @@ def same(a: Optional[SafetyIO], b: SafetyIO) -> bool:
 
 def apply(ctl: Any, sio: SafetyIO) -> str:
     """Hand ``sio`` to the controller.  Returns ``"applied"``, ``"unchanged"``, ``"pending"``
-    (a job runs or the machine is armed: retry later) or ``"unsupported"`` (no interlocks to
-    configure).  A heartbeat :func:`heartbeat_problems` refuses is applied as off.
+    (a job runs or the machine is armed: retried later, the controller is not even asked),
+    ``"refused"`` (the controller said no while idle; not retried until the next change) or
+    ``"unsupported"`` (no interlocks to configure).  A heartbeat :func:`heartbeat_problems`
+    refuses is applied as off.
 
-    Uses ``ctl.apply_safety_config(interlocks=, heartbeat_output=, heartbeat_hz=)`` when the
-    controller has it (the Safety-core API); otherwise sets the monitor's configuration and the
-    supervisor's heartbeat directly (switching the old heartbeat output off first)."""
+    Uses ``ctl.configure_safety(interlocks=, heartbeat_output=, heartbeat_hz=,
+    source="operator") -> bool`` (the Safety-core API: refused while a job is active, audited).
+    A controller without it gets :func:`_apply_direct` (temporary shim, see there)."""
     if not controller_supports(ctl):
         return "unsupported"
     omap = output_map(ctl)
@@ -227,19 +245,20 @@ def apply(ctl: Any, sio: SafetyIO) -> str:
         return "unchanged"
     if busy(ctl):
         return "pending"
-    fn = getattr(ctl, "apply_safety_config", None)
+    fn = getattr(ctl, "configure_safety", None)
     if callable(fn):
-        res = fn(**sio.kwargs())
-        if res is False:
-            return "pending"
-    else:
-        _apply_direct(ctl, sio)
+        if not fn(**sio.kwargs(), source="operator"):
+            return "pending" if busy(ctl) else "refused"
+        return "applied"                 # configure_safety audits itself
+    _apply_direct(ctl, sio)
     _audit(sio)
     return "applied"
 
 
 def _apply_direct(ctl: Any, sio: SafetyIO) -> None:
-    """Fallback until the controller has ``apply_safety_config`` (merge note: Safety core)."""
+    """TEMPORARY SHIM, remove when r2-safety-core is merged (``configure_safety`` then exists on
+    every controller and ``ctl.sup`` becomes private): sets the monitor's configuration and the
+    supervisor's heartbeat directly, switching the old heartbeat output off first."""
     ctl.interlocks.cfg = replace(sio.interlocks)
     ctl.heartbeat_output = int(sio.heartbeat_output)
     ctl.heartbeat_hz = float(sio.heartbeat_hz)

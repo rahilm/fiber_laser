@@ -19,6 +19,8 @@ The nest engine (raster / sparrow) is a field of the nest-parameter dialog (ext_
 
 from __future__ import annotations
 
+from typing import Optional
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
@@ -126,9 +128,10 @@ PLUGIN_WARNING = (
 class PluginsDialog(QDialog):
     """The installed third-party plugins and the allowlist (see the module docstring)."""
 
-    COLUMNS = ("enabled", "name", "target", "package", "status")
+    COLUMNS = ("enabled", "authority", "name", "target", "package", "status")
 
-    def __init__(self, window, catalog: list, allowlist: dict, editable: bool = True) -> None:
+    def __init__(self, window, catalog: list, allowlist: dict, editable: bool = True,
+                 authority: Optional[list] = None) -> None:
         super().__init__(window)
         self.w = window
         self.setObjectName("plugins_dialog")
@@ -141,6 +144,7 @@ class PluginsDialog(QDialog):
         lay.addWidget(warn)
         self.catalog = [(info, st) for info, st in catalog]
         self.allow = dict(allowlist or {})
+        self.authority0 = set(authority or ())
         self.table = QTableWidget(len(self.catalog), len(self.COLUMNS))
         self.table.setObjectName("plugins_table")
         self.table.setHorizontalHeaderLabels([_t(window, f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
@@ -153,7 +157,13 @@ class PluginsDialog(QDialog):
             chk.setFlags(flags)
             chk.setCheckState(Qt.Checked if self.allow.get(info.name) == info.target else Qt.Unchecked)
             self.table.setItem(r, 0, chk)
-            for c, text in enumerate((info.name, info.target, info.dist, st), 1):
+            # machine authority: the plugin may arm, reset faults, hold the heartbeat or change the
+            # safety configuration (the controller's plugin policy; refused otherwise)
+            auth = QTableWidgetItem()
+            auth.setFlags(flags)
+            auth.setCheckState(Qt.Checked if info.name in self.authority0 else Qt.Unchecked)
+            self.table.setItem(r, 1, auth)
+            for c, text in enumerate((info.name, info.target, info.dist, st), 2):
                 it = QTableWidgetItem(text)
                 it.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
                 self.table.setItem(r, c, it)
@@ -173,11 +183,17 @@ class PluginsDialog(QDialog):
                 out[info.name] = info.target
         return out
 
+    def authority(self) -> list[str]:
+        """Names granted machine authority (only enabled plugins can hold it)."""
+        on = self.checked()
+        return sorted(info.name for r, (info, _st) in enumerate(self.catalog)
+                      if self.table.item(r, 1).checkState() == Qt.Checked and info.name in on)
+
     def new_ones(self) -> list[str]:
         return [n for n, t in self.checked().items() if self.allow.get(n) != t]
 
     def _save(self) -> None:
-        new = self.new_ones()
+        new = self.new_ones() + [n for n in self.authority() if n not in self.authority0]
         if new and not getattr(self.w, "_test_no_dialogs", False):
             ok = QMessageBox.question(
                 self, _t(self.w, "plugins.title", "Plugins"),
@@ -262,18 +278,20 @@ class OptionsExtension:
 
     def plugins(self) -> "PluginsDialog":
         """The Plugins dialog; Save stores the allowlist (persisted at once, used at the next start)."""
-        from mlaser.services.plugins import ALLOWLIST_KEY
+        from mlaser.services.plugins import ALLOWLIST_KEY, AUTHORITY_KEY
         cfg = self.ctx.config
-        d = PluginsDialog(self.w, list(getattr(self.w, "plugin_catalog", []) or []), cfg.get(ALLOWLIST_KEY, {}))
+        d = PluginsDialog(self.w, list(getattr(self.w, "plugin_catalog", []) or []), cfg.get(ALLOWLIST_KEY, {}),
+                          authority=list(cfg.get(AUTHORITY_KEY, []) or []))
         if d.exec():
-            self.save_allowlist(d.checked())
+            self.save_allowlist(d.checked(), d.authority())
         return d
 
-    def save_allowlist(self, allow: dict) -> None:
-        from mlaser.services.plugins import ALLOWLIST_KEY
+    def save_allowlist(self, allow: dict, authority: Optional[list] = None) -> None:
+        from mlaser.services.plugins import ALLOWLIST_KEY, AUTHORITY_KEY
         cfg = self.ctx.config
         old = dict(cfg.get(ALLOWLIST_KEY, {}) or {})
         cfg.set(ALLOWLIST_KEY, dict(allow))
+        cfg.set(AUTHORITY_KEY, sorted(n for n in (authority or []) if n in allow))
         try:
             cfg.save()
         except OSError as exc:
@@ -281,7 +299,8 @@ class OptionsExtension:
             return
         try:
             from mlaser.machine.audit import audit
-            audit("plugin_allowlist", enabled=sorted(allow), before=sorted(old))
+            audit("plugin_allowlist", enabled=sorted(allow), before=sorted(old),
+                  authority=list(cfg.get(AUTHORITY_KEY, [])))
         except Exception:  # noqa: BLE001
             pass
         self.ctx.log("plugins enabled: " + (", ".join(sorted(allow)) or "none") + " (at the next start)")
@@ -299,5 +318,10 @@ def register(ctx) -> OptionsExtension:
     ctx.add_ribbon_tab("Options+", ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
                                     "app.plugins"])
     ctx.provide("dxf.mode", ext.dxf_mode)
+    # the controller's plugin policy (Safety core): plugins arm / reset / reconfigure safety only
+    # with the machine authority granted here; re-installed on every controller swap
+    from mlaser.services.plugins import install_policy
+    install_policy(ctx.window.ctl, ctx.config)
+    ctx.on_controller_changed(lambda ctl: install_policy(ctl, ctx.config))
     ext.apply()
     return ext

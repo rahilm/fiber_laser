@@ -74,7 +74,12 @@ def job_locked(window, what: str = "") -> bool:
     """True (and a message) when a job runs: the document must not be replaced while it cuts."""
     if not job_running(window):
         return False
-    msg = f"{what or 'this action'}: not available while a job is running (stop or finish it first)"
+    ctl = _ctl(window)
+    if ctl is not None and ctl.breakpoint is not None and ctl.state().mode not in JOB_MODES:
+        msg = (f"{what or 'this action'}: not available while a job is paused at a breakpoint "
+               "(resume it, or stop it to discard the breakpoint first)")
+    else:
+        msg = f"{what or 'this action'}: not available while a job is running (stop or finish it first)"
     panel = getattr(window, "log_panel", None)
     if panel is not None:
         panel.log(msg)
@@ -634,7 +639,8 @@ class SafetyUI(QObject):
         ctl, doc = self.w.ctl, self.w.document
         ms = ctl.state()
         if ms.mode == "pause" or ctl.breakpoint is not None:
-            ctl.resume()
+            from .resume import resume
+            resume(ctl, "exact", doc)           # a breakpoint of another document is refused
             self._after("Resume")
             return
         st = _safety(ctl)
@@ -654,7 +660,8 @@ class SafetyUI(QObject):
     def hold(self) -> None:
         ctl = self.w.ctl
         if ctl.state().mode == "pause":
-            ctl.resume()
+            from .resume import resume
+            resume(ctl, "exact", self.w.document)
         else:
             ctl.pause()
 

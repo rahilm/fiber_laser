@@ -174,7 +174,7 @@ only when you would run its author's program on the machine's PC.
 | Load order | Enabled plugins load after the safety UI (state banner, run bar, Stop / Hold keys, pre-flight dialog) exists; every load is audited (`plugin_loaded`). | A plugin can still change the window afterwards. |
 | Reserved commands | A plugin that is not built in cannot register `run.*`, `shell.*` or `workspace.*` command ids (`ReservedCommandError`): it can neither take over Stop / Hold / Arm nor make start-up fail by pre-claiming them.  A failing plugin is rolled back and logged. | Other commands are first come, first served (a duplicate raises). |
 | The safety guard | Every request to the card goes through the supervisor's command policy (docs/SAFETY.md §3): emission while disarmed is refused, halts always pass, the interlocks and the watchdog work as for the core. | It prevents **accidents** (a plugin that forgets to arm, a bug that writes a laser word while disarmed); it does not stop a **hostile** plugin, which can reach the transport or the guard's configuration through Python. |
-| `plugin_policy` | When the controller defines `plugin_policy(plugin, origin)`, `ctx.controller` is what that hook returns (the Safety-core track: a view without the guard's internals and with audited arming); otherwise it is the controller itself. | Same limit: a view narrows the documented API, it is not a security boundary. |
+| Plugin view and policy | A third-party plugin's `ctx.controller` is `mlaser.controller.plugin_view.plugin_view(ctl, name)` (no guard internals; its `arm` is audited as `source="plugin:<name>"`).  The controller asks its plugin policy before a plugin arms, resets a fault, holds the heartbeat or changes the safety configuration; the application's policy (`services.plugins.plugin_policy`) refuses unless the plugin is enabled **and** the service engineer granted it **machine authority** in Options+ > Plugins (`plugins.authority`). | A view narrows the documented API; it is not a security boundary. |
 | User modes | Commands declare a minimum mode (Operator / Engineer / Service). | A user mode is not a safety interlock and not an access control for code. |
 
 **Rules for plugin authors** (they keep a well-meaning plugin inside the safety design):
@@ -183,6 +183,8 @@ only when you would run its author's program on the machine's PC.
   and run cuts only through `window.run_job(mode)` (pre-flight, the planned job, arming);
 * never arm on the operator's behalf, never clear a fault or the halt latch, never change a
   `safety.*` value, the guard, the supervisor or its tunables (deadlines, buffer, heartbeat);
+* never replace the document while a job runs or a breakpoint is pending (`ctx.replace_document`
+  raises `DocumentLockedError` and the operator sees why);
 * never register a command in `run.*`, `shell.*`, `workspace.*`; keep your settings under
   `ctx.settings_schema` (`plugin.<name>.*`);
 * treat files and network data as untrusted input (sizes, depth, expansion; see

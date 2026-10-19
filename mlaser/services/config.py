@@ -231,6 +231,7 @@ SAFETY_SETTINGS: tuple[Setting, ...] = tuple(_safety_settings())
 #: service engineer enabled, name -> entry-point target; docs/dev/PLUGINS.md §6)
 APP_SETTINGS: tuple[Setting, ...] = (
     Setting("plugins.allowlist", "json", {}, label="plugins.allowlist", section="plugins", source="app"),
+    Setting("plugins.authority", "json", [], label="plugins.authority", section="plugins", source="app"),
 )
 
 

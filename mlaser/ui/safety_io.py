@@ -57,11 +57,20 @@ class SafetyIOBinding:
         ctl = getattr(self.w, "ctl", None)
         res = S.apply(ctl, self.config()) if ctl is not None else "unsupported"
         self.pending = res == "pending"
-        if res != self.last and res in ("applied", "pending"):
+        if res != self.last and res in ("applied", "pending", "refused"):
             log = getattr(self.w, "log", None)
             if callable(log):
-                log("safety I/O applied to the controller" if res == "applied" else
-                    "safety I/O change pending: it applies when the machine is disarmed and idle")
+                log({"applied": "safety I/O applied to the controller",
+                     "pending": "safety I/O change pending: it applies when the machine is disarmed and idle",
+                     "refused": "safety I/O change refused by the controller (see the log); "
+                                "the previous configuration stays active"}[res])
+            if res == "refused" and not getattr(self.w, "_test_no_dialogs", False):
+                from PySide6.QtCore import QTimer
+                from PySide6.QtWidgets import QMessageBox
+                QTimer.singleShot(0, lambda: QMessageBox.warning(
+                    self.w, tr(self.w, "safety.io.title", "Safety I/O"),
+                    tr(self.w, "safety.io.refused", "The controller refused the new safety I/O "
+                       "configuration; the previous one stays active.")))
         self.last = res
         return res
 
@@ -90,6 +99,8 @@ class SafetyIOBinding:
             parts.append(tr(self.w, n.key, "{name}: not configured", name=name))
         if self.pending:
             parts.append(tr(self.w, "safety.notice.pending", "safety I/O change pending (applies when disarmed)"))
+        elif self.last == "refused":
+            parts.append(tr(self.w, "safety.notice.refused", "the last change was refused by the controller"))
         if not parts:
             return ""
         return tr(self.w, "safety.notice.prefix", "Safety I/O:") + " " + " · ".join(parts)

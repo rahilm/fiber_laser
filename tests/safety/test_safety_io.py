@@ -176,30 +176,60 @@ def test_configured_door_interlock_refuses_arming(sim_ctl, cfg):
     ctl.disarm("test")
 
 
-def test_controller_api_is_used_when_present(cfg):
-    """The Safety-core API (``apply_safety_config``) takes precedence over the fallback."""
-    calls = []
+class _CoreCtl:
+    """The Safety-core API (``configure_safety`` / ``safety_config``), refusing while a job runs."""
 
-    class Ctl:
-        output_map = {"laser": 1}
+    output_map = {"laser": 1}
 
-        def apply_safety_config(self, **kw):
-            calls.append(kw)
-            return True
+    def __init__(self):
+        from mlaser.controller.interlocks import InterlockConfig
+        self.calls = []
+        self.job = False
+        self.cfg = {"interlocks": InterlockConfig(), "heartbeat_output": 0, "heartbeat_hz": 5.0}
 
-        def job_active(self):
+    def configure_safety(self, interlocks=None, heartbeat_output=None, heartbeat_hz=None, source="operator", **kw):
+        self.calls.append(dict(interlocks=interlocks, heartbeat_output=heartbeat_output, source=source))
+        if self.job:
             return False
+        self.cfg.update(interlocks=interlocks, heartbeat_output=heartbeat_output, heartbeat_hz=heartbeat_hz)
+        return True
 
-        def safety(self):
-            class St:
-                armed = False
-            return St()
+    def safety_config(self):
+        return dict(self.cfg)
 
+    def job_active(self):
+        return self.job
+
+    def safety(self):
+        class St:
+            armed = False
+        return St()
+
+
+def test_controller_api_is_used_when_present(cfg):
+    """The Safety-core API (``configure_safety``) takes precedence over the shim."""
+    ctl = _CoreCtl()
     cfg.set("safety.door_input", 2)
     cfg.set("safety.heartbeat_output", 1)            # the laser output: refused, kept off
-    assert S.apply(Ctl(), S.from_config(cfg)) == "applied"
-    assert calls and calls[0]["interlocks"].door_input == 2 and calls[0]["heartbeat_output"] == 0
+    assert S.apply(ctl, S.from_config(cfg)) == "applied"
+    c = ctl.calls[0]
+    assert c["interlocks"].door_input == 2 and c["heartbeat_output"] == 0 and c["source"] == "operator"
+    assert S.current(ctl).interlocks.door_input == 2
+    assert S.apply(ctl, S.from_config(cfg)) == "unchanged" and len(ctl.calls) == 1
+    # a job runs: not even asked (no refusal audit every tick), pending
+    ctl.job = True
+    cfg.set("safety.door_input", 3)
+    assert S.apply(ctl, S.from_config(cfg)) == "pending" and len(ctl.calls) == 1
+    ctl.job = False
+    assert S.apply(ctl, S.from_config(cfg)) == "applied"
     assert S.apply(object(), S.from_config(cfg)) == "unsupported"
+
+
+def test_controller_refusal_is_reported(cfg):
+    ctl = _CoreCtl()
+    ctl.configure_safety = lambda **kw: False         # refused although idle
+    cfg.set("safety.door_input", 2)
+    assert S.apply(ctl, S.from_config(cfg)) == "refused"
 
 
 # ---------------------------------------------------------------------------- commissioning

@@ -38,9 +38,12 @@ module enforces:
 * they load **after** the safety UI exists (``MainWindow``), and cannot register commands in the
   core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
   so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
-* ``ctx.controller`` goes through the controller's ``plugin_policy(name, origin)`` when the
-  controller provides one (:func:`controller_for`; the Safety-core track defines what a plugin may
-  reach), else it is the controller itself.
+* ``ctx.controller`` of a third-party plugin is ``mlaser.controller.plugin_view.plugin_view(ctl,
+  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), and
+  :func:`plugin_policy` decides the safety actions a plugin asks for (arm, reset a fault, hold
+  the heartbeat, reconfigure safety): refused unless the service engineer granted that plugin
+  machine authority (``plugins.authority``).  Installed with ``ctl.set_plugin_policy``
+  (:func:`install_policy`).
 
 This module is Qt-free; the host (``mlaser.ui.mainwindow.MainWindow``) implements the UI calls.
 See docs/dev/PLUGINS.md.
@@ -73,10 +76,17 @@ WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar
 RESERVED_PREFIXES = ("run.", "shell.", "workspace.")
 #: the ConfigService key of the entry-point allowlist ({name: "module:attr"})
 ALLOWLIST_KEY = "plugins.allowlist"
+#: plugin names the service engineer granted machine authority (arm, reset faults, hold the
+#: heartbeat, reconfigure safety through the controller's plugin policy)
+AUTHORITY_KEY = "plugins.authority"
 
 
 class DuplicateProviderError(KeyError):
     pass
+
+
+class DocumentLockedError(RuntimeError):
+    """``replace_document`` while a job runs or a breakpoint is pending."""
 
 
 class ReservedCommandError(PermissionError):
@@ -84,13 +94,48 @@ class ReservedCommandError(PermissionError):
 
 
 def controller_for(ctl: Any, plugin: str, origin: str) -> Any:
-    """What ``ctx.controller`` returns: ``ctl.plugin_policy(plugin, origin)`` when the controller
-    defines that hook (Safety core: a view without the guard's internals, audited arming), else
-    ``ctl`` itself (full authority: see the trust model)."""
-    policy = getattr(ctl, "plugin_policy", None)
-    if callable(policy):
-        return policy(plugin, origin)
-    return ctl
+    """What ``ctx.controller`` returns: the controller itself for a built-in plugin, the
+    Safety-core ``plugin_view(ctl, plugin)`` for any other.
+
+    TEMPORARY SHIM (remove the ImportError branch when r2-safety-core is merged): without
+    ``mlaser.controller.plugin_view`` a third-party plugin gets the controller, as before."""
+    if origin == "builtin" or ctl is None:
+        return ctl
+    try:
+        from mlaser.controller.plugin_view import plugin_view
+    except ImportError:
+        return ctl
+    return plugin_view(ctl, plugin)
+
+
+def plugin_policy(config: Any) -> Callable[[str, str, str], Optional[str]]:
+    """The controller's plugin policy (``fn(source, action, reason) -> None | refusal``): a
+    plugin (``source="plugin:<name>"``) may perform a safety action only when it is enabled
+    (allowlist) and the service engineer granted it machine authority; everything else is
+    refused with the reason shown to the operator.  Other sources are not judged here."""
+
+    def policy(source: str, action: str, reason: str = "") -> Optional[str]:
+        if not str(source).startswith("plugin:"):
+            return None
+        name = str(source).split(":", 1)[1]
+        allow = config.get(ALLOWLIST_KEY, {}) or {}
+        granted = config.get(AUTHORITY_KEY, []) or []
+        if name in allow and name in granted:
+            return None
+        return (f"plugin {name!r} may not {action}: it has no machine authority "
+                "(Options+ > Plugins, Service mode)")
+
+    return policy
+
+
+def install_policy(ctl: Any, config: Any) -> bool:
+    """Give the controller :func:`plugin_policy` (``ctl.set_plugin_policy``, Safety core);
+    False for a controller without that API (feature check until the merge)."""
+    fn = getattr(ctl, "set_plugin_policy", None)
+    if not callable(fn):
+        return False
+    fn(plugin_policy(config))
+    return True
 
 
 class Host(Protocol):
@@ -211,7 +256,7 @@ class PluginContext:
 
     @property
     def controller(self):
-        """The machine controller, through its ``plugin_policy`` when it has one
+        """The machine controller (built-in plugins), or the Safety-core plugin view of it
         (:func:`controller_for`)."""
         return controller_for(self.host.ctl, self.name, self.origin)
 
@@ -264,7 +309,12 @@ class PluginContext:
         return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts)
 
     def replace_document(self, doc: Any, label: str = "", path: Optional[str] = None) -> None:
-        """Make ``doc`` the open document (undoable)."""
+        """Make ``doc`` the open document (undoable).  Refused (:class:`DocumentLockedError`, the
+        reason shown to the operator) while a job runs or a breakpoint is pending: the cut must
+        not continue on another drawing (review 2, P1-5)."""
+        locked = getattr(self.host, "document_locked", None)
+        if callable(locked) and locked(f"{self.name}: replace the document"):
+            raise DocumentLockedError("the document is locked while a job runs or a breakpoint is pending")
         self.host.docs.replace(doc, path, label or f"{self.name}: replace")
 
     # ------------------------------------------------------------------ hooks

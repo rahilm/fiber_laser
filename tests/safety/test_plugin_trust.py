@@ -100,7 +100,11 @@ def test_enabled_plugin_loads_after_the_safety_ui(app, fake_eps, monkeypatch, tm
         assert _status(w) == {"hello": "loaded"}
         seen = sys.modules[mod].SEEN
         assert seen["safety_ui"] is True                        # the safety UI existed already
-        assert seen["controller"] is w.ctl                      # no plugin_policy: the controller
+        # the Safety-core plugin view once it is merged; the controller until then
+        try:
+            import mlaser.controller.plugin_view  # noqa: F401
+        except ImportError:
+            assert seen["controller"] is w.ctl
         assert w.commands.get("hello.hello") is not None
         assert w.plugin_contexts["hello"].origin == "entry-point"
     finally:
@@ -165,24 +169,70 @@ def test_allowlist_rules():
     assert P.allowed(P.PluginInfo("b", "mlaser.ui.ext_cam"), {})              # built-ins always load
 
 
-def test_plugin_policy_hook_is_used_when_the_controller_has_it():
-    class View:
-        pass
-
-    class Ctl:
-        def __init__(self):
-            self.calls = []
-
-        def plugin_policy(self, plugin, origin):
-            self.calls.append((plugin, origin))
-            return View()
+def test_third_party_plugins_get_the_plugin_view(monkeypatch):
+    """Safety-core contract: ``ctx.controller`` of a third-party plugin is
+    ``mlaser.controller.plugin_view.plugin_view(ctl, name)``; built-ins keep the controller."""
+    import types
 
     class Host:
-        ctl = Ctl()
+        ctl = object()
 
-    ctx = P.PluginContext(Host(), "third", "entry-point")
-    assert isinstance(ctx.controller, View) and Host.ctl.calls == [("third", "entry-point")]
-    assert P.controller_for(object, "x", "builtin") is object                   # no hook: the controller
+    calls = []
+    fake = types.ModuleType("mlaser.controller.plugin_view")
+    fake.plugin_view = lambda ctl, name: calls.append((ctl, name)) or ("view", name)
+    monkeypatch.setitem(sys.modules, "mlaser.controller.plugin_view", fake)
+    assert P.PluginContext(Host(), "third", "entry-point").controller == ("view", "third")
+    assert calls == [(Host.ctl, "third")]
+    assert P.PluginContext(Host(), "ext_card").controller is Host.ctl          # built in
+    monkeypatch.setitem(sys.modules, "mlaser.controller.plugin_view", None)    # not merged yet
+    assert P.PluginContext(Host(), "third", "entry-point").controller is Host.ctl
+
+
+def test_plugin_policy_needs_machine_authority(tmp_path):
+    from mlaser.services.config import ConfigService
+    cfg = ConfigService(tmp_path / "c.json")
+    pol = P.plugin_policy(cfg)
+    assert pol("operator", "arm", "") is None                                 # not a plugin: not judged
+    why = pol("plugin:hello", "arm", "test")
+    assert why and "machine authority" in why
+    cfg.set(P.AUTHORITY_KEY, ["hello"])
+    assert pol("plugin:hello", "arm", "") is not None                         # granted but not enabled
+    cfg.set(P.ALLOWLIST_KEY, {"hello": "mod"})
+    assert pol("plugin:hello", "arm", "") is None and pol("plugin:other", "arm", "") is not None
+
+    class Ctl:
+        policy = None
+
+        def set_plugin_policy(self, fn):
+            self.policy = fn
+
+    c = Ctl()
+    assert P.install_policy(c, cfg) and c.policy("plugin:hello", "reset_fault", "") is None
+    assert P.install_policy(object(), cfg) is False                           # feature check
+
+
+def test_replace_document_refused_while_locked():
+    class Docs:
+        replaced = []
+
+        def replace(self, *a):
+            self.replaced.append(a)
+
+    class Host:
+        docs = Docs()
+        locked = True
+
+        def document_locked(self, what):
+            return self.locked
+
+    h = Host()
+    ctx = P.PluginContext(h, "third", "entry-point")
+    with pytest.raises(P.DocumentLockedError):
+        ctx.replace_document(object())
+    assert Docs.replaced == []
+    h.locked = False
+    ctx.replace_document(object())
+    assert len(Docs.replaced) == 1
 
 
 def test_plugins_dialog_saves_the_allowlist(app, fake_eps, monkeypatch, tmp_path):
@@ -198,8 +248,11 @@ def test_plugins_dialog_saves_the_allowlist(app, fake_eps, monkeypatch, tmp_path
         assert d.table.rowCount() == 1 and d.checked() == {}
         d.table.item(0, 0).setCheckState(Qt.Checked)
         assert d.checked() == {"hello": mod} and d.new_ones() == ["hello"]
-        w.extension("ext_options").save_allowlist(d.checked())
+        d.table.item(0, 1).setCheckState(Qt.Checked)                             # machine authority
+        assert d.authority() == ["hello"]
+        w.extension("ext_options").save_allowlist(d.checked(), d.authority())
         assert ConfigService().get(P.ALLOWLIST_KEY) == {"hello": mod}            # persisted
+        assert ConfigService().get(P.AUTHORITY_KEY) == ["hello"]
         ro = PluginsDialog(w, w.plugin_catalog, {}, editable=False)
         assert not (ro.table.item(0, 0).flags() & Qt.ItemIsEnabled)
         d.deleteLater()

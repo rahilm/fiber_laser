@@ -99,7 +99,8 @@ class CardExtension:
     def break_resume(self) -> None:
         ctl = self.w.ctl
         if ctl.breakpoint is not None:
-            ctl.resume()
+            from .resume import resume
+            resume(ctl, "exact", self.w.document)
         elif not ctl.resume_saved(self.w.document):
             self.w.log_panel.log("mp64: no breakpoint to continue from")
 

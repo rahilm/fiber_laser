@@ -595,14 +595,15 @@ class OperatorScreen(QWidget):
         fires the laser."""
         w = self.ws.window
         ctl = w.ctl
-        if ctl.breakpoint is None or ctl.job_active() and ctl.state().mode != "pause":
+        from ..resume import moving, resume
+        if ctl.breakpoint is None or moving(ctl):
             return
         st = ctl.safety()
         ui = getattr(w, "safety_ui", None)
         if ctl.laser_enabled and not st.armed and ctl.breakpoint.mode == "process":
             if ui is None or not ui.arm():
                 return
-        ctl.resume(mode)
+        resume(ctl, mode, w.document)        # a breakpoint of another document is refused
         if ui is not None:
             ui._after(tr(w, "run.resume", "Resume from the breakpoint"))
         self.refresh()
