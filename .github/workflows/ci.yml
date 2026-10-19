@@ -88,7 +88,7 @@ jobs:
           sysctl -n hw.ncpu machdep.cpu.brand_string || true
 
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
-        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
+        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v --capture=sys' || '-q' }} --durations=15
 
       - name: "DEBUG (temporary): macOS crash report"
         if: failure() && runner.os == 'macOS'
