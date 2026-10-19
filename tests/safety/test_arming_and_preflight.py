@@ -40,11 +40,12 @@ def _emitted(sim) -> list:
 
 def test_laser_commands_are_refused_while_disarmed(make_ctl):
     ctl = make_ctl(arm=False)
+    ctl.output_map["shutter"] = 2              # a configured shutter / gate output (DO2)
     sim = ctl.sim
     assert ctl.safety().state == SafetyState.DISARMED and not ctl.safety().armed
     card = ctl.card()
     for words in ([9999, 3, 5000, 50, 1], [9999, 17, 5000, 50, 1], [9999, 4, 0, 3000], [9999, 18, 1000],
-                  [9999, 2, 1, 1]):                     # output 1 = gas valve (guarded)
+                  [9999, 2, 2, 2]):                     # output 2 = shutter (guarded)
         with pytest.raises(CommandRefused):
             card.command(words)
     with pytest.raises(CommandRefused):
@@ -54,7 +55,6 @@ def test_laser_commands_are_refused_while_disarmed(make_ctl):
     # a raw FIFO frame with a laser duty, written behind the controller's back
     with pytest.raises(CommandRefused):
         card.fifo_write_frame([sim.state.fifo_seq + 1] + F.encode_step(1, 0, 5000, 60, 100))
-    ctl.set_output("gas", True)
     ctl.set_output("shutter", True)
     ctl.laser_press()
     ctl.laser_release()
@@ -63,7 +63,11 @@ def test_laser_commands_are_refused_while_disarmed(make_ctl):
     ctl.start(rect_doc())                                # a cut needs arming (pre-flight error)
     time.sleep(0.2)
     assert "not_armed" in ctl.last_preflight.codes()
-    assert _emitted(sim) == [] and not sim.state.outputs & 0b11 and not sim.state.fifo
+    assert _emitted(sim) == [] and not sim.state.outputs & 0b10 and not sim.state.fifo
+    # manual gas (and other non-laser outputs) is allowed disarmed: operators test the valves
+    ctl.set_output("gas", True)
+    assert sim.state.outputs & 0b1
+    ctl.set_output("gas", False)
     # the laser source (devices.laser) is guarded too
     sim_l = L.LaserSimulator("ipg")
     with pytest.raises(L.LaserError):
@@ -234,3 +238,37 @@ def test_heartbeat_output_toggles_and_stops_on_fault(make_ctl):
     n = ctl.sup.heartbeat_toggles
     time.sleep(0.3)
     assert ctl.sup.heartbeat_toggles == n             # stopped: the watchdog relay drops out
+
+
+OFF_COMMANDS = [
+    [9999, 3, 5000, 0, 0], [9999, 17, 5000, 0, 0],         # PWM duty 0
+    [9999, 4, 0, 0], [9999, 4, 1, 0],                      # DA 0
+    [9999, 2, 0xFFFF, 0], [9999, 2, 2, 0], [9999, 13, 0xFFFF, 0],   # outputs (shutter) to 0
+    [9999, 18, 0],                                         # laser sync off
+    [1, 0x1F, 2, 4000, 200000], [1, 0x1F], [118, 5, 0], [118, 4, 0, 0], [101], [9999, 5, 0, 0],
+]
+
+
+@pytest.mark.parametrize("state", ["disarmed", "fault"])
+def test_off_commands_always_pass(make_ctl, state):
+    """Anything that turns something OFF is never blocked by the guard, in any state."""
+    ctl = make_ctl(arm=False)
+    if state == "fault":
+        ctl.raise_fault("test: latched fault")
+        assert ctl.fsm.state == SafetyState.FAULT
+    card = ctl.card()
+    for w in OFF_COMMANDS:
+        card.command(w)                                   # must not raise
+        assert w in ctl.sim.state.commands
+    card.fifo_stop()
+    card.fifo_clear()
+    card.set_pwm(5000, 0)
+    card.set_da(1, 0)
+    card.set_output(2, False)
+    n = len(ctl.sim.state.commands)
+    ctl.laser_press()                                     # refused (not armed) ...
+    ctl.laser_release()                                   # ... but the release sends the laser-off
+    f = ctl.machine.pt_laser_freq
+    assert ctl.sim.state.commands[n:] == [[9999, 3, f, 0, 0], [9999, 17, f, 0, 0]]
+    sim_l = L.LaserSimulator("ipg")
+    L.IpgLaser(sim_l.loopback()).emission(False)          # emission off always goes out

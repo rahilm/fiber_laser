@@ -112,11 +112,9 @@ def test_controller_monitor_ui(app, tmp_path, monkeypatch):
         mon._set_do(2, True)
         assert not (sim.state.outputs >> 1) & 1
         mon.ro_mode.setChecked(True)
-        mon._set_do(2, True)                 # DO2 = shutter: a guarded output needs arming
-        assert not (sim.state.outputs >> 1) & 1
-        assert w.ctl.arm()
-        mon._set_do(2, True)
+        mon._set_do(2, True)                 # DO2 = a gas valve: allowed disarmed (manual gas)
         assert (sim.state.outputs >> 1) & 1
+        assert w.ctl.arm()                   # the DA / PWM test below fires: needs arming
         mon.da1.setValue(5000)
         mon.pwm_f.setValue(2000)
         mon.pwm_d.setValue(40)

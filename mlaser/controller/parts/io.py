@@ -23,10 +23,13 @@ class IOPart:
         return bool(port and 1 <= port <= 32 and self.sup.guarded_outputs >> (port - 1) & 1)
 
     def _guarded_outputs_mask(self) -> int:
-        """Outputs that need arming to switch on: the process outputs (gas valves, laser DO), the
-        shutter/gate and the laser/gate DOs of the laser parameters (never the heartbeat)."""
-        m = self._process_outputs_mask()
-        ports = {self.output_map.get("shutter"), self.output_map.get("gas")}
+        """Outputs that need arming to switch on: the laser outputs only - the shutter/gate and
+        the laser/gate DOs of the laser parameters (``ProcessConfig.do_laser`` too).  Gas
+        valves, red light, follower, dust extraction, lube are not a laser hazard: operators test
+        them by hand while disarmed.  Never the heartbeat output."""
+        m = 0
+        pc = getattr(self.machine, "process", None)
+        ports = {self.output_map.get("shutter"), getattr(pc, "do_laser", 0) if pc is not None else 0}
         mp = self.machine
         for k in ("LGP.DOLaserGate", "LGP.DOLaser", "LGP.CO2DOLaserGate", "LGP.CO2DOLaser"):
             try:
@@ -144,13 +147,13 @@ class IOPart:
         LGP.CO2DOLaser on, same timing rule.  Needs the machine armed."""
         if not self._ok() or self._busy() or self._laser_on:
             return
+        self._laser_on = True        # held: the release always sends the laser-off (FUN_005b0630)
         if not self._armed_for("laser"):
             return
         m = self.machine
         lt = self._laser_type()
         freq, power = int(m.pt_laser_freq), m.iparam("MC.LaserPointPower", 50)
         t_ms = m.iparam("MC.PtLaserTime_ms", 0)
-        self._laser_on = True
         if not self._gate_open:
             return
         if lt == 1:

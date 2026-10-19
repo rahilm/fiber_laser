@@ -206,7 +206,7 @@ class DemoController(_api.ControllerFacade):
     def set_output(self, name: str, on: bool) -> None:
         if name not in self._s.outputs:
             raise KeyError(name)
-        if on and name in ("laser", "gas", "shutter") and not self.fsm.armed:
+        if on and name in ("laser", "shutter") and not self.fsm.armed:
             self._log(f"output {name} refused: not armed")
             return
         self._s.outputs[name] = bool(on)

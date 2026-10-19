@@ -147,6 +147,7 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, Controller
         self._power_dirty = False
         self._jogging: Optional[str] = None  # continuous jog in progress (dead-man)
         self._jog_alive = 0.0
+        self._jog_active = False             # a continuous jog was sent and not yet stopped
         self._zf_words: Optional[list] = None
         self._zf_read_t = 0.0
         self.laser_type: Optional[int] = None  # SP.m_iEnableLaserType override (MachineOps)
