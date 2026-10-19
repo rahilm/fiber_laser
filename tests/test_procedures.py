@@ -456,7 +456,9 @@ def test_commissioning_scaling_mismatch(tmp_path):
 def test_commissioning_relay_answer_no_fails(tmp_path):
     ctl = simrig.simulator_controller("card", heartbeat_output=5)
     try:
-        p = CM.CommissioningProcedure(ctl, report_dir=tmp_path, netcheck_fn=_netcheck_ok, relay_window_s=0.6)
+        # the default 1 s measuring window (0.6 s left 6 edges to count, and on the macOS VMs
+        # one late edge put the rate under the 60 % the check requires)
+        p = CM.CommissioningProcedure(ctl, report_dir=tmp_path, netcheck_fn=_netcheck_ok)
         run_all(p, stop_at="heartbeat_relay")
         p.heartbeat_hold(True)
         # an edge already being written when the hold came, and the one "off" write after it,
