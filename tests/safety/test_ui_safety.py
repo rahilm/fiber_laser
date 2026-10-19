@@ -196,3 +196,19 @@ def test_jog_keepalive_and_focus_loss(win, app):
         assert wait_until(lambda: not sim.state.axes[0].busy, 1.5) is not None
     finally:
         ctl.disconnect()
+
+
+def test_state_banner_background_paints_in_the_light_theme(win, app):
+    """The SIMULATOR/ARMED/FAULT banner text is white on a coloured background: the background
+    must actually paint (WA_StyledBackground), or the text is invisible on a light window."""
+    from PySide6.QtCore import Qt
+    su = win.safety_ui
+    for b in (su.banner, su.alarm):
+        assert b.testAttribute(Qt.WA_StyledBackground)
+    su.banner.show()
+    app.processEvents()
+    img = su.banner.grab().toImage()
+    if img.width() > 4 and img.height() > 4:
+        c = img.pixelColor(2, img.height() // 2)
+        window_bg = win.palette().window().color()
+        assert c != window_bg, "banner background not painted"

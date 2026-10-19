@@ -141,13 +141,6 @@ class Shell:
             self._track_action(act)
         prev = w.ribbon.on_new_action
         w.ribbon.on_new_action = lambda act, prev=prev: (prev(act) if prev else None, self._track_action(act))
-        # Safety's banners colour themselves with a style sheet on a plain QWidget, which Qt only
-        # paints with WA_StyledBackground: without it the white "SIMULATOR - disarmed" text sat
-        # on the window colour (invisible in the light theme)
-        su = getattr(w, "safety_ui", None)
-        for b in (getattr(su, "banner", None), getattr(su, "alarm", None)):
-            if b is not None:
-                b.setAttribute(Qt.WA_StyledBackground, True)
         w.docs.subscribe(self._document_changed)
         w._timer.timeout.connect(self._poll)
         w.hooks.add("close", self._on_close, "shell")

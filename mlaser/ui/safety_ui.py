@@ -168,6 +168,9 @@ class PreflightDialog(QDialog):
 class StateBanner(QWidget):
     def __init__(self, ui: "SafetyUI"):
         super().__init__()
+        # the style-sheet background only paints on a plain QWidget with WA_StyledBackground;
+        # without it the white banner text sat on the window colour (invisible in light themes)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.ui = ui
         h = QHBoxLayout(self)
         h.setContentsMargins(8, 2, 8, 2)
@@ -222,6 +225,9 @@ class StateBanner(QWidget):
 class AlarmBanner(QWidget):
     def __init__(self, ui: "SafetyUI"):
         super().__init__()
+        # the style-sheet background only paints on a plain QWidget with WA_StyledBackground;
+        # without it the white banner text sat on the window colour (invisible in light themes)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.ui = ui
         h = QHBoxLayout(self)
         h.setContentsMargins(8, 4, 8, 4)
