@@ -73,7 +73,7 @@ from __future__ import annotations
 
 import bisect
 import math
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Iterable, Optional, Sequence
 
 from ...model import Arc, Line, Point
@@ -1135,15 +1135,62 @@ def _fit_polyline(pts: list[Point], tol: float) -> Optional[_Geom]:
     u = _np.concatenate([[0.0], _np.cumsum(d) / d.sum()])
     n, p = len(P) - 1, 3
     knots = [0.0] * (p + 1) + [float(u[j:j + p].mean()) for j in range(1, n - p + 1)] + [1.0] * (p + 1)
-    N = _np.zeros((n + 1, n + 1))
-    for k in range(n + 1):
-        for i in range(n + 1):
-            N[k, i] = _basis(i, p, float(u[k]), knots, n)
-    try:
-        C = _np.linalg.solve(N, P)
-    except Exception:
+    N = [[_basis(i, p, float(u[k]), knots, n) for i in range(n + 1)] for k in range(n + 1)]
+    C = _solve(N, [(float(x), float(y)) for x, y in P])
+    if C is None:
         return None
-    return _SplineG([tuple(c) for c in C], knots, 3)
+    return _SplineG(C, knots, 3)
+
+
+def _solve(A: list[list[float]], B: list[tuple[float, float]]) -> Optional[list[tuple[float, float]]]:
+    """``A X = B`` for the two columns of ``B`` (Gaussian elimination, partial pivoting), in
+    Python floats with a fixed operation order, so every platform gets the same bits.
+
+    It replaces ``numpy.linalg.solve``, whose LAPACK differs per platform: numpy's macOS arm64
+    wheels use Apple's Accelerate, the Linux / Windows ones OpenBLAS, and the solutions differed
+    in the last bits (17 golden records on macOS, ``tools/golden_libm.py``).  ``A`` is a B-spline
+    collocation matrix (at most ``p + 1`` non-zeros per row), so only the non-zero span of each
+    row is eliminated.  None when ``A`` is singular (a zero pivot)."""
+    n = len(A)
+    a = [list(r) for r in A]
+    b = [list(r) for r in B]
+    hi = [max((j for j, v in enumerate(r) if v != 0.0), default=-1) for r in a]   # last non-zero
+    for k in range(n):
+        piv = k
+        for i in range(k + 1, n):
+            if abs(a[i][k]) > abs(a[piv][k]):
+                piv = i
+        if a[piv][k] == 0.0 or a[piv][k] != a[piv][k]:
+            return None
+        if piv != k:
+            a[k], a[piv] = a[piv], a[k]
+            b[k], b[piv] = b[piv], b[k]
+            hi[k], hi[piv] = hi[piv], hi[k]
+        ak, bk, d = a[k], b[k], a[k][k]
+        for i in range(k + 1, n):
+            ai = a[i]
+            if ai[k] == 0.0:
+                continue
+            f = ai[k] / d
+            ai[k] = 0.0
+            for j in range(k + 1, hi[k] + 1):
+                ai[j] = ai[j] - f * ak[j]
+            hi[i] = max(hi[i], hi[k])
+            bi = b[i]
+            bi[0] = bi[0] - f * bk[0]
+            bi[1] = bi[1] - f * bk[1]
+    x = [(0.0, 0.0)] * n
+    for k in range(n - 1, -1, -1):
+        ak = a[k]
+        sx, sy = b[k]
+        for j in range(k + 1, hi[k] + 1):
+            if ak[j] != 0.0:
+                sx = sx - ak[j] * x[j][0]
+                sy = sy - ak[j] * x[j][1]
+        x[k] = (sx / ak[k], sy / ak[k])
+    if not all(math.isfinite(v) for xy in x for v in xy):
+        return None
+    return x
 
 
 def _basis(i, p, u, t, n):
