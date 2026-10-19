@@ -59,8 +59,393 @@ typedef struct {
     long long cur0, cur1, steps, overspeed;
 } State;
 
+/* ------------------------------------------------------------------------------------------
+ * Block: a malloc'ed byte buffer exported through the buffer protocol (numpy.frombuffer views
+ * it without a copy); Sink: the packed wire storage of mlaser.nc.packed.WireBuilder in C.
+ *
+ * The Sink holds exactly what WireBuilder holds (nc/packed.py): the item words concatenated,
+ * the word offset of every run (woff, starting with 0), the run counts (cnt) and the group
+ * start flag of every run (flag); consecutive equal items with the same flag are one run.
+ * Words are stored as uint32 while every word lies in 0 .. 2^32 - 1 and as int64 after the
+ * first one that does not (WireBuilder keeps int64 and narrows to uint32 at the end: same
+ * arrays).  The kernel appends its step items here directly: no Python list per step.
+ * ------------------------------------------------------------------------------------------ */
+typedef struct {
+    PyObject_HEAD
+    char *buf;
+    Py_ssize_t len;
+    Py_ssize_t exports;
+} Block;
+
+static void block_dealloc(Block *b)
+{
+    PyMem_Free(b->buf);
+    Py_TYPE(b)->tp_free((PyObject *)b);
+}
+
+static int block_getbuffer(Block *b, Py_buffer *view, int flags)
+{
+    if (PyBuffer_FillInfo(view, (PyObject *)b, b->buf ? b->buf : (char *)"", b->len, 0, flags) < 0)
+        return -1;
+    b->exports++;
+    return 0;
+}
+
+static void block_releasebuffer(Block *b, Py_buffer *view)
+{
+    b->exports--;
+}
+
+static Py_ssize_t block_len(Block *b)
+{
+    return b->len;
+}
+
+static PyBufferProcs block_as_buffer = {(getbufferproc)block_getbuffer, (releasebufferproc)block_releasebuffer};
+static PySequenceMethods block_as_seq = {(lenfunc)block_len};
+
+static PyTypeObject BlockType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "mlaser._native._emitter.Block",
+    .tp_basicsize = sizeof(Block),
+    .tp_dealloc = (destructor)block_dealloc,
+    .tp_as_buffer = &block_as_buffer,
+    .tp_as_sequence = &block_as_seq,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "read-only byte block of a packed wire array (buffer protocol)",
+};
+
+/* a growable array of fixed-size elements */
+typedef struct {
+    char *buf;
+    Py_ssize_t n, cap;      /* in elements */
+    Py_ssize_t esize;
+} Vec;
+
+static int vec_reserve(Vec *v, Py_ssize_t need)
+{
+    if (need <= v->cap)
+        return 0;
+    Py_ssize_t cap = v->cap < 16 ? 16 : v->cap;
+    while (cap < need)
+        cap = cap + (cap >> 1);
+    if (cap > PY_SSIZE_T_MAX / v->esize) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    char *nb = PyMem_Realloc(v->buf, (size_t)(cap * v->esize));
+    if (!nb) {
+        PyErr_NoMemory();
+        return -1;
+    }
+    v->buf = nb;
+    v->cap = cap;
+    return 0;
+}
+
+/* the vector's buffer as a Block of exactly its length (the vector is emptied) */
+static PyObject *vec_to_block(Vec *v)
+{
+    Block *b = PyObject_New(Block, &BlockType);
+    if (!b)
+        return NULL;
+    Py_ssize_t len = v->n * v->esize;
+    char *buf = v->buf;
+    if (buf && len < v->cap * v->esize) {
+        char *shrunk = PyMem_Realloc(buf, len ? (size_t)len : 1);
+        if (shrunk)
+            buf = shrunk;
+    }
+    b->buf = buf;
+    b->len = len;
+    b->exports = 0;
+    v->buf = NULL;
+    v->n = v->cap = 0;
+    return (PyObject *)b;
+}
+
+typedef struct {
+    PyObject_HEAD
+    Vec words;              /* uint32 (wide == 0) or int64 (wide == 1) */
+    Vec woff;               /* int64, woff[0] = 0 */
+    Vec cnt;                /* int64 */
+    Vec flag;               /* uint8 */
+    Py_ssize_t n;           /* items */
+    int wide, pending, finished;
+} Sink;
+
+typedef struct {
+    Py_ssize_t nwords, nruns, n;
+    long long lastcnt;
+    int pending;
+} SinkMark;
+
+#define SINK_RUNS(k) ((k)->cnt.n)
+#define SINK_W32(k) ((unsigned int *)(k)->words.buf)
+#define SINK_W64(k) ((long long *)(k)->words.buf)
+#define SINK_WOFF(k) ((long long *)(k)->woff.buf)
+#define SINK_CNT(k) ((long long *)(k)->cnt.buf)
+
+static int sink_widen(Sink *k)
+{
+    Py_ssize_t n = k->words.n;
+    Vec w = {NULL, 0, 0, 8};
+    if (vec_reserve(&w, n + 16) < 0)
+        return -1;
+    unsigned int *src = SINK_W32(k);
+    long long *dst = (long long *)w.buf;
+    for (Py_ssize_t i = 0; i < n; i++)
+        dst[i] = (long long)src[i];
+    w.n = n;
+    PyMem_Free(k->words.buf);
+    k->words = w;
+    k->wide = 1;
+    return 0;
+}
+
+static long long sink_word(Sink *k, Py_ssize_t i)
+{
+    return k->wide ? SINK_W64(k)[i] : (long long)SINK_W32(k)[i];
+}
+
+/* append one item of m words (WireBuilder.append): merged into the last run when equal */
+static int sink_put(Sink *k, const long long *w, Py_ssize_t m)
+{
+    int flag = k->pending;
+    k->pending = 0;
+    Py_ssize_t r = SINK_RUNS(k);
+    if (r > 0 && ((unsigned char *)k->flag.buf)[r - 1] == (unsigned char)flag) {
+        long long a = SINK_WOFF(k)[r - 1], b = SINK_WOFF(k)[r];
+        if (b - a == m) {
+            Py_ssize_t j = 0;
+            while (j < m && sink_word(k, (Py_ssize_t)a + j) == w[j])
+                j++;
+            if (j == m) {
+                SINK_CNT(k)[r - 1] += 1;
+                k->n += 1;
+                return 0;
+            }
+        }
+    }
+    if (!k->wide) {
+        for (Py_ssize_t j = 0; j < m; j++)
+            if (w[j] < 0 || w[j] > 0xFFFFFFFFLL) {
+                if (sink_widen(k) < 0)
+                    return -1;
+                break;
+            }
+    }
+    if (vec_reserve(&k->words, k->words.n + m) < 0 || vec_reserve(&k->woff, k->woff.n + 1) < 0
+        || vec_reserve(&k->cnt, k->cnt.n + 1) < 0 || vec_reserve(&k->flag, k->flag.n + 1) < 0)
+        return -1;
+    if (k->wide) {
+        long long *d = SINK_W64(k) + k->words.n;
+        for (Py_ssize_t j = 0; j < m; j++)
+            d[j] = w[j];
+    } else {
+        unsigned int *d = SINK_W32(k) + k->words.n;
+        for (Py_ssize_t j = 0; j < m; j++)
+            d[j] = (unsigned int)w[j];
+    }
+    k->words.n += m;
+    SINK_WOFF(k)[k->woff.n++] = (long long)k->words.n;
+    SINK_CNT(k)[k->cnt.n++] = 1;
+    ((unsigned char *)k->flag.buf)[k->flag.n++] = (unsigned char)flag;
+    k->n += 1;
+    return 0;
+}
+
+static void sink_mark(Sink *k, SinkMark *mk)
+{
+    mk->nwords = k->words.n;
+    mk->nruns = SINK_RUNS(k);
+    mk->n = k->n;
+    mk->pending = k->pending;
+    mk->lastcnt = mk->nruns ? SINK_CNT(k)[mk->nruns - 1] : 0;
+}
+
+static void sink_restore(Sink *k, const SinkMark *mk)
+{
+    k->words.n = mk->nwords;
+    k->cnt.n = mk->nruns;
+    k->flag.n = mk->nruns;
+    k->woff.n = mk->nruns + 1;
+    k->n = mk->n;
+    k->pending = mk->pending;
+    if (mk->nruns)
+        SINK_CNT(k)[mk->nruns - 1] = mk->lastcnt;
+}
+
+static int sink_init(Sink *k, PyObject *args, PyObject *kw)
+{
+    static char *kwlist[] = {NULL};
+    if (!PyArg_ParseTupleAndKeywords(args, kw, "", kwlist))
+        return -1;
+    PyMem_Free(k->words.buf);
+    PyMem_Free(k->woff.buf);
+    PyMem_Free(k->cnt.buf);
+    PyMem_Free(k->flag.buf);
+    k->words = (Vec){NULL, 0, 0, 4};
+    k->woff = (Vec){NULL, 0, 0, 8};
+    k->cnt = (Vec){NULL, 0, 0, 8};
+    k->flag = (Vec){NULL, 0, 0, 1};
+    k->n = 0;
+    k->wide = k->pending = k->finished = 0;
+    if (vec_reserve(&k->woff, 16) < 0)
+        return -1;
+    SINK_WOFF(k)[0] = 0;
+    k->woff.n = 1;
+    return 0;
+}
+
+static void sink_dealloc(Sink *k)
+{
+    PyMem_Free(k->words.buf);
+    PyMem_Free(k->woff.buf);
+    PyMem_Free(k->cnt.buf);
+    PyMem_Free(k->flag.buf);
+    Py_TYPE(k)->tp_free((PyObject *)k);
+}
+
+static int sink_open(Sink *k)
+{
+    if (k->finished || !k->woff.buf) {
+        PyErr_SetString(PyExc_RuntimeError, "the wire sink is finished");
+        return -1;
+    }
+    return 0;
+}
+
+static PyObject *sink_append(Sink *k, PyObject *item)
+{
+    if (sink_open(k) < 0)
+        return NULL;
+    PyObject *f = PySequence_Fast(item, "a wire item must be a sequence of ints");
+    if (!f)
+        return NULL;
+    Py_ssize_t m = PySequence_Fast_GET_SIZE(f);
+    long long stackw[8];
+    long long *w = m <= 8 ? stackw : PyMem_Malloc(sizeof(long long) * (size_t)m);
+    if (!w) {
+        Py_DECREF(f);
+        return PyErr_NoMemory();
+    }
+    PyObject **it = PySequence_Fast_ITEMS(f);
+    for (Py_ssize_t j = 0; j < m; j++) {
+        /* array('q').extend: an int (or __index__) of 64 bits, else TypeError / OverflowError */
+        PyObject *o = it[j];
+        if (PyFloat_Check(o) || !PyIndex_Check(o)) {
+            PyErr_SetString(PyExc_TypeError, "a wire word must be an int");
+            goto bad;
+        }
+        long long v = PyLong_AsLongLong(o);
+        if (v == -1 && PyErr_Occurred())
+            goto bad;
+        w[j] = v;
+    }
+    if (sink_put(k, w, m) < 0)
+        goto bad;
+    if (w != stackw)
+        PyMem_Free(w);
+    Py_DECREF(f);
+    Py_RETURN_NONE;
+bad:
+    if (w != stackw)
+        PyMem_Free(w);
+    Py_DECREF(f);
+    return NULL;
+}
+
+static PyObject *sink_mark_start(Sink *k, PyObject *arg)
+{
+    Py_ssize_t i = PyNumber_AsSsize_t(arg, PyExc_OverflowError);
+    if (i == -1 && PyErr_Occurred())
+        return NULL;
+    if (i == k->n)
+        k->pending = 1;
+    Py_RETURN_NONE;
+}
+
+/* finish() -> (words, wide, woff, cnt, flag) Blocks; the sink is then closed.  An int64
+ * word vector whose words all fit in uint32 is narrowed (as WireBuilder narrows). */
+static PyObject *sink_finish(Sink *k, PyObject *unused)
+{
+    if (sink_open(k) < 0)
+        return NULL;
+    if (k->wide) {
+        int fits = 1;
+        for (Py_ssize_t i = 0; i < k->words.n && fits; i++) {
+            long long v = SINK_W64(k)[i];
+            fits = v >= 0 && v <= 0xFFFFFFFFLL;
+        }
+        if (fits) {
+            Vec w = {NULL, 0, 0, 4};
+            if (vec_reserve(&w, k->words.n + 1) < 0)
+                return NULL;
+            for (Py_ssize_t i = 0; i < k->words.n; i++)
+                ((unsigned int *)w.buf)[i] = (unsigned int)SINK_W64(k)[i];
+            w.n = k->words.n;
+            PyMem_Free(k->words.buf);
+            k->words = w;
+            k->wide = 0;
+        }
+    }
+    PyObject *a = vec_to_block(&k->words), *b = vec_to_block(&k->woff), *c = vec_to_block(&k->cnt),
+             *d = vec_to_block(&k->flag);
+    k->finished = 1;
+    if (!a || !b || !c || !d) {
+        Py_XDECREF(a);
+        Py_XDECREF(b);
+        Py_XDECREF(c);
+        Py_XDECREF(d);
+        return NULL;
+    }
+    return Py_BuildValue("(NiNNN)", a, k->wide, b, c, d);
+}
+
+static Py_ssize_t sink_len(Sink *k)
+{
+    return k->n;
+}
+
+static PyObject *sink_get_pending(Sink *k, void *c)
+{
+    return PyBool_FromLong(k->pending);
+}
+
+static PyMethodDef sink_methods[] = {
+    {"append", (PyCFunction)sink_append, METH_O, "append one wire item (a sequence of ints)"},
+    {"mark_start", (PyCFunction)sink_mark_start, METH_O, "the next item starts a group when index == len"},
+    {"finish", (PyCFunction)sink_finish, METH_NOARGS, "(words, wide, woff, cnt, flag) blocks; closes the sink"},
+    {NULL, NULL, 0, NULL},
+};
+
+static PyGetSetDef sink_getset[] = {
+    {"pending", (getter)sink_get_pending, NULL, "a group start is pending", NULL},
+    {NULL, NULL, NULL, NULL, NULL},
+};
+
+static PySequenceMethods sink_as_seq = {(lenfunc)sink_len};
+
+static PyTypeObject SinkType = {
+    PyVarObject_HEAD_INIT(NULL, 0)
+    .tp_name = "mlaser._native._emitter.Sink",
+    .tp_basicsize = sizeof(Sink),
+    .tp_dealloc = (destructor)sink_dealloc,
+    .tp_as_sequence = &sink_as_seq,
+    .tp_flags = Py_TPFLAGS_DEFAULT,
+    .tp_doc = "packed wire storage (nc/packed.py WireBuilder) written by the kernel directly",
+    .tp_methods = sink_methods,
+    .tp_getset = sink_getset,
+    .tp_init = (initproc)sink_init,
+    .tp_new = PyType_GenericNew,
+};
+
 typedef struct {
     PyObject *wire, *starts, *header;   /* borrowed */
+    Sink *sink;                           /* wire is a Sink (starts unused), else NULL */
+    long long header_v;
+    SinkMark mark;
     double *hcache;                       /* 255 x 255, NaN = not computed */
     PyObject *hyp;                        /* callable (dx, dy) -> float, borrowed */
     long long power;
@@ -125,6 +510,29 @@ static int as_ll(PyObject *o, long long *out)
     return 0;
 }
 
+/* a C-contiguous buffer of doubles (array('d'), numpy float64); lists and tuples are not
+ * buffers.  0 and the view filled, or -1 (no error set) */
+static int dbuf(PyObject *o, Py_buffer *view)
+{
+    view->obj = NULL;
+    if (PyList_Check(o) || PyTuple_Check(o) || !PyObject_CheckBuffer(o))
+        return -1;
+    if (PyObject_GetBuffer(o, view, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0) {
+        PyErr_Clear();
+        view->obj = NULL;
+        return -1;
+    }
+    const char *f = view->format ? view->format : "B";
+    if (*f == '<' || *f == '=' || *f == '@')
+        f++;
+    if (view->itemsize != 8 || strcmp(f, "d") != 0) {
+        PyBuffer_Release(view);
+        view->obj = NULL;
+        return -1;
+    }
+    return 0;
+}
+
 /* Direct-mapped cache of the int objects of the item words: a run repeats few (w1, w2)
  * values, so most steps reuse an existing int instead of allocating one (ints are immutable,
  * sharing them between wire items is invisible to Python code). */
@@ -171,6 +579,14 @@ static int do_step(Out *o, State *s, long long dx, long long dy, int on, long lo
     unsigned long long w2 = ((unsigned long long)(duty ? (pw & 0xFFFF) : 0) << 16)
                             | (unsigned long long)(fe >> 8);
 
+    if (o->sink) {
+        /* starts.append(len(wire)) + wire.append([header, w1, w2]) of the packed builder */
+        long long it[3] = {o->header_v, (long long)w1, (long long)w2};
+        o->sink->pending = 1;
+        if (sink_put(o->sink, it, 3) < 0)
+            return -1;
+        goto counted;
+    }
     PyObject *idx = PyLong_FromSsize_t(PyList_GET_SIZE(o->wire));
     if (!idx)
         return -1;
@@ -201,6 +617,7 @@ static int do_step(Out *o, State *s, long long dx, long long dy, int on, long lo
     Py_DECREF(item);
     if (rc < 0)
         return -1;
+counted:
     s->steps += 1;
     s->cur0 += dx;
     s->cur1 += dy;
@@ -393,8 +810,16 @@ static PyObject *build_state(State *s)
 static int parse_out(Out *o, PyObject *wire, PyObject *starts, PyObject *header, PyObject *power,
                      int dry, Py_buffer *hbuf, PyObject *hyp)
 {
-    if (!PyList_CheckExact(wire) || !PyList_CheckExact(starts))
+    if (Py_IS_TYPE(wire, &SinkType)) {
+        o->sink = (Sink *)wire;
+        if (o->sink->finished || !o->sink->woff.buf)
+            return -1;
+        if (as_ll(header, &o->header_v) < 0)
+            return -1;
+        sink_mark(o->sink, &o->mark);
+    } else if (!PyList_CheckExact(wire) || !PyList_CheckExact(starts)) {
         return -1;
+    }
     if (hbuf->len != (Py_ssize_t)(255 * 255 * sizeof(double)) || hbuf->readonly)
         return -1;
     o->wire = wire;
@@ -416,6 +841,11 @@ static PyObject *fail(Out *o, Py_ssize_t nw, Py_ssize_t ns)
     Py_XDECREF(et);
     Py_XDECREF(ev);
     Py_XDECREF(tb);
+    if (o->sink) {
+        sink_restore(o->sink, &o->mark);
+        PyErr_Clear();
+        Py_RETURN_NONE;
+    }
     if (o->wire && PyList_GET_SIZE(o->wire) > nw)
         PyList_SetSlice(o->wire, nw, PyList_GET_SIZE(o->wire), NULL);
     if (o->starts && PyList_GET_SIZE(o->starts) > ns)
@@ -453,6 +883,8 @@ static PyObject *k_emit(PyObject *self, PyObject *args)
     Py_ssize_t nw = PyList_Check(wire) ? PyList_GET_SIZE(wire) : 0;
     Py_ssize_t ns = PyList_Check(starts) ? PyList_GET_SIZE(starts) : 0;
     Curve dc, fc;
+    Py_buffer pbuf, sbuf;
+    pbuf.obj = sbuf.obj = NULL;
     memset(&dc, 0, sizeof(dc));
     memset(&fc, 0, sizeof(fc));
     PyObject *fp = NULL, *fs = NULL, *res = NULL;
@@ -478,18 +910,36 @@ static PyObject *k_emit(PyObject *self, PyObject *args)
             || as_ll(PyTuple_GET_ITEM(down, 1), &dn_d) < 0 || as_ll(PyTuple_GET_ITEM(down, 2), &dn_f) < 0)
             goto bad;
     }
-    fp = PySequence_Fast(pts, "pts");
-    if (!fp)
-        goto bad;
-    Py_ssize_t n = PySequence_Fast_GET_SIZE(fp);
-    PyObject **pv = PySequence_Fast_ITEMS(fp);
+    /* pts: a sequence of (x, y) tuples, or a flat buffer of doubles x0, y0, x1, y1, ...
+     * (array('d') from a native geometry); ss: a sequence of floats or a buffer of doubles */
+    Py_ssize_t n;
+    PyObject **pv = NULL;
+    const double *pd = NULL, *sd = NULL;
+    if (dbuf(pts, &pbuf) == 0) {
+        if (pbuf.len % 16)
+            goto bad;
+        n = pbuf.len / 16;
+        pd = (const double *)pbuf.buf;
+    } else {
+        fp = PySequence_Fast(pts, "pts");
+        if (!fp)
+            goto bad;
+        n = PySequence_Fast_GET_SIZE(fp);
+        pv = PySequence_Fast_ITEMS(fp);
+    }
     PyObject **sv = NULL;
     int need_ss = dco != Py_None || has_up || has_dn;
     if (need_ss) {
-        fs = PySequence_Fast(ss, "ss");
-        if (!fs || PySequence_Fast_GET_SIZE(fs) != n)
-            goto bad;
-        sv = PySequence_Fast_ITEMS(fs);
+        if (dbuf(ss, &sbuf) == 0) {
+            if (sbuf.len != n * 8)
+                goto bad;
+            sd = (const double *)sbuf.buf;
+        } else {
+            fs = PySequence_Fast(ss, "ss");
+            if (!fs || PySequence_Fast_GET_SIZE(fs) != n)
+                goto bad;
+            sv = PySequence_Fast_ITEMS(fs);
+        }
     }
     if (gap != Py_None && (!PyList_CheckExact(gap) || PyList_GET_SIZE(gap) != n))
         goto bad;
@@ -497,15 +947,23 @@ static PyObject *k_emit(PyObject *self, PyObject *args)
     for (Py_ssize_t i = 0; i < n; i++) {
         double si = 0.0;
         long long duty = duty0, freq = freq0;
-        if (need_ss && as_double(sv[i], &si) < 0)
-            goto bad;
+        if (need_ss) {
+            if (sd)
+                si = sd[i];
+            else if (as_double(sv[i], &si) < 0)
+                goto bad;
+        }
         if (dco != Py_None) {
             /* sample_speeds: sp[i] = (ss[i] - ss[i-1]) * k, sp[0] = sp[1] */
             double sp = 0.0, a, b;
             if (n > 1) {
                 Py_ssize_t j = i == 0 ? 1 : i;
-                if (as_double(sv[j], &b) < 0 || as_double(sv[j - 1], &a) < 0)
+                if (sd) {
+                    b = sd[j];
+                    a = sd[j - 1];
+                } else if (as_double(sv[j], &b) < 0 || as_double(sv[j - 1], &a) < 0) {
                     goto bad;
+                }
                 sp = (b - a) * kspd;
             }
             if (curve_eval(&dc, sp, &duty) < 0 || curve_eval(&fc, sp, &freq) < 0)
@@ -534,17 +992,26 @@ static PyObject *k_emit(PyObject *self, PyObject *args)
                 }
             }
         }
-        PyObject *p = pv[i];
         double x, y;
-        if (!PyTuple_Check(p) || PyTuple_GET_SIZE(p) != 2 || as_double(PyTuple_GET_ITEM(p, 0), &x) < 0
-            || as_double(PyTuple_GET_ITEM(p, 1), &y) < 0)
-            goto bad;
+        if (pd) {
+            x = pd[2 * i];
+            y = pd[2 * i + 1];
+        } else {
+            PyObject *p = pv[i];
+            if (!PyTuple_Check(p) || PyTuple_GET_SIZE(p) != 2 || as_double(PyTuple_GET_ITEM(p, 0), &x) < 0
+                || as_double(PyTuple_GET_ITEM(p, 1), &y) < 0)
+                goto bad;
+        }
         if (do_to(&o, &s, x, y, ppu0, ppu1, max_step, on, duty, freq, fclamp) < 0)
             goto bad;
     }
     res = build_state(&s);
     if (!res)
         goto bad;
+    if (pbuf.obj)
+        PyBuffer_Release(&pbuf);
+    if (sbuf.obj)
+        PyBuffer_Release(&sbuf);
     Py_XDECREF(fp);
     Py_XDECREF(fs);
     curve_free(&dc);
@@ -552,6 +1019,10 @@ static PyObject *k_emit(PyObject *self, PyObject *args)
     PyBuffer_Release(&hbuf);
     return res;
 bad:
+    if (pbuf.obj)
+        PyBuffer_Release(&pbuf);
+    if (sbuf.obj)
+        PyBuffer_Release(&sbuf);
     Py_XDECREF(fp);
     Py_XDECREF(fs);
     curve_free(&dc);
@@ -615,7 +1086,25 @@ static PyMethodDef methods[] = {
 
 /* the word cache is process-global: no per-interpreter-GIL subinterpreters, and the GIL is
  * required (no Py_mod_gil slot: a free-threaded build re-enables the GIL on import) */
+static int module_exec(PyObject *m)
+{
+    if (PyType_Ready(&BlockType) < 0 || PyType_Ready(&SinkType) < 0)
+        return -1;
+    Py_INCREF(&SinkType);
+    if (PyModule_AddObject(m, "Sink", (PyObject *)&SinkType) < 0) {
+        Py_DECREF(&SinkType);
+        return -1;
+    }
+    Py_INCREF(&BlockType);
+    if (PyModule_AddObject(m, "Block", (PyObject *)&BlockType) < 0) {
+        Py_DECREF(&BlockType);
+        return -1;
+    }
+    return 0;
+}
+
 static PyModuleDef_Slot slots[] = {
+    {Py_mod_exec, (void *)module_exec},
     {0, NULL},
 };
 

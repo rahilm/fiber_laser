@@ -473,11 +473,18 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     prof = active_profile()
     em = prof.sampling.Emitter(m, start, dry_run, carry)
     builder = None
-    # the port's emitter appends through the list interface: collect straight into packed
-    # arrays; another emitter (e.g. the native kernel, which needs real lists) is packed after
-    if PACK_WIRE and type(em) is Emitter and isinstance(getattr(em, "wire", None), list) and not em.wire:
-        builder = WireBuilder()              # packed numpy storage, same items (nc/packed.py)
-        em.wire, em.starts = builder, builder.starts()  # type: ignore[assignment]
+    # collect straight into packed arrays (nc/packed.py, the same items): the port's emitter
+    # appends through the list interface, the native kernel's writes its steps into the C sink
+    # of the builder; any other emitter is packed after
+    if PACK_WIRE and isinstance(getattr(em, "wire", None), list) and not em.wire:
+        if type(em) is Emitter:
+            builder = WireBuilder()
+        elif getattr(em, "PACKED_SINK", False):
+            builder = WireBuilder(native=True)
+            if builder.native_sink is None:          # an old kernel without the sink: lists
+                builder = None
+        if builder is not None:
+            em.wire, em.starts = builder, builder.starts()
     job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run)
     period = m.period_ms
     rapid_len = 0.0
@@ -519,8 +526,13 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
             # NaN, which used to abort the compile.  Guard outside the bit-exact port: jump in
             # one step (the move is below one pulse).  Only jobs that crashed before change.
             us = [1.0]
-        for u in us[1:] if len(us) > 1 else us:
-            em.to(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u, False)
+        pts = [(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u) for u in (us[1:] if len(us) > 1 else us)]
+        to_path = getattr(em, "to_path", None)
+        if to_path is not None:
+            to_path(pts, False)          # the native kernel: the whole rapid in one call
+        else:
+            for x, y in pts:
+                em.to(x, y, False)
         em.pos = (float(p[0]), float(p[1]))
         rapid_len += L
         em.dwell(m.jump_add_time_ms * 1e-3, False)

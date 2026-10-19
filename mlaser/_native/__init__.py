@@ -14,7 +14,7 @@ from types import ModuleType
 from typing import Optional
 
 #: bumped whenever the C entry points or their argument tuples change
-KERNEL_VERSION = 1
+KERNEL_VERSION = 2
 
 _emitter: Optional[ModuleType]
 #: why the extension could not be imported ("" when it was)

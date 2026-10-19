@@ -31,13 +31,28 @@ import numpy as np
 _FIELDS = ("words", "woff", "cnt", "flag")
 
 
+def _native_sink() -> Any:
+    """A new ``mlaser._native._emitter.Sink`` (the same storage in C), or None."""
+    from .. import _native
+    k = _native._emitter
+    sink_cls = getattr(k, "Sink", None) if k is not None else None
+    return sink_cls() if sink_cls is not None else None
+
+
 class WireBuilder:
     """Append-only collector with the ``list`` interface the sample emitter uses
     (``append(item)``, ``len()``); :meth:`starts` is the matching recorder for the emitter's
     ``starts`` list.  :meth:`finish` returns the :class:`PackedWire` (or the plain list, if an
-    item held something that is not a 64-bit int)."""
+    item held something that is not a 64-bit int).
 
-    def __init__(self) -> None:
+    ``native=True``: the arrays live in a C ``Sink`` of the native kernel
+    (``mlaser._native._emitter``), which the kernel's emitter writes its steps into directly
+    (no Python list per step, docs/dev/NATIVE_KERNEL.md); the items, runs, flags and the
+    finished :class:`PackedWire` are the same.  Without the kernel it is the Python storage
+    (:attr:`native_sink` is None)."""
+
+    def __init__(self, native: bool = False) -> None:
+        self._sink = _native_sink() if native else None
         self._words = array("q")
         self._woff = array("q", [0])
         self._cnt = array("q")
@@ -48,10 +63,17 @@ class WireBuilder:
         self._pending = False
         self._plain: Optional[list] = None      # fallback storage
 
+    @property
+    def native_sink(self) -> Any:
+        """The C sink the native kernel appends to (None: Python storage or plain list)."""
+        return self._sink if self._plain is None else None
+
     # the emitter's ``starts.append(len(wire))`` right before the item that starts a group
     def mark_start(self, index: int) -> None:
         if self._plain is not None:
             self._plain_starts.append(index)
+        elif self._sink is not None:
+            self._sink.mark_start(index)
         elif index == self._n:
             self._pending = True
 
@@ -59,11 +81,19 @@ class WireBuilder:
         return _StartRecorder(self)
 
     def __len__(self) -> int:
-        return self._n if self._plain is None else len(self._plain)
+        if self._plain is not None:
+            return len(self._plain)
+        return len(self._sink) if self._sink is not None else self._n
 
     def append(self, item) -> None:
         if self._plain is not None:
             self._plain.append(item)
+            return
+        if self._sink is not None:
+            try:
+                self._sink.append(item)
+            except (TypeError, OverflowError):
+                self._to_plain(item, self._sink.pending)
             return
         flag = self._pending
         self._pending = False
@@ -95,6 +125,12 @@ class WireBuilder:
         self._plain.append(item)
 
     def _pack(self) -> "PackedWire":
+        if self._sink is not None:
+            wb, wide, woff, cnt, flag = self._sink.finish()
+            self._sink = None
+            return PackedWire(np.frombuffer(wb, dtype=np.int64 if wide else np.uint32),
+                              np.frombuffer(woff, dtype=np.int64), np.frombuffer(cnt, dtype=np.int64),
+                              np.frombuffer(flag, dtype=np.uint8).astype(bool))
         words = np.frombuffer(self._words, dtype=np.int64) if len(self._words) else np.zeros(0, np.int64)
         if words.size and words.min() >= 0 and words.max() <= 0xFFFFFFFF:
             words = words.astype(np.uint32)
@@ -119,6 +155,10 @@ class _StartRecorder:
 
     def __init__(self, builder: WireBuilder) -> None:
         self._b = builder
+
+    @property
+    def builder(self) -> WireBuilder:
+        return self._b
 
     def append(self, index: int) -> None:
         self._b.mark_start(index)

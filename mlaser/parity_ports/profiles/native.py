@@ -62,7 +62,8 @@ _SPEEDCURVES = {("mlaser.nc.process", "SpeedCurve"), (__name__, "_KatCurve")}
 #: calls handled by the kernel / handed to the port, per entry point ("emit", "to", "dwell"):
 #: what tools/native_parity.py reports as kernel coverage
 STATS: dict[str, int] = {"emit": 0, "emit_port": 0, "emit_curves": 0, "emit_gaps": 0,
-                         "emit_updown": 0, "to": 0, "to_port": 0, "dwell": 0, "dwell_port": 0}
+                         "emit_updown": 0, "to": 0, "to_port": 0, "to_path": 0, "dwell": 0,
+                         "dwell_port": 0}
 
 
 class NativeKernelMissing(ImportError):
@@ -144,11 +145,22 @@ class NativeEmitter(S.Emitter):
         self.overspeed = st[7]
         self.on_len = st[8]
 
+    #: compile_items may hand this emitter a packed builder backed by the kernel's C sink
+    #: (mlaser.nc.packed.WireBuilder(native=True)): the steps are written into it directly
+    PACKED_SINK = True
+
     def _common(self) -> Optional[tuple]:
-        if (type(self.carry) is not list or type(self.cur) is not list or type(self.wire) is not list
-                or type(self.starts) is not list or _small_int(self.power) is None):
+        if type(self.carry) is not list or type(self.cur) is not list or _small_int(self.power) is None:
             return None
-        return (self.wire, self.starts, _STEP_HEADER, self.power, bool(self.dry), self._hcache, self._hyp)
+        wire: Any = self.wire
+        starts: Any = self.starts
+        if type(wire) is not list or type(starts) is not list:
+            # a packed builder whose steps go to its C sink: ``starts`` must be its own recorder
+            sink = getattr(wire, "native_sink", None)
+            if sink is None or getattr(starts, "builder", None) is not wire:
+                return None
+            wire, starts = sink, None
+        return (wire, starts, _STEP_HEADER, self.power, bool(self.dry), self._hcache, self._hyp)
 
     def _emit(self, pts: Sequence[S.Point], ss: Any, kspd: float, total: float, gap: Any, dc: Any,
               fc: Any, up: Any, down: Any, micro_pos: bool, micro_int: int, laser: bool, duty0: int,
@@ -185,6 +197,17 @@ class NativeEmitter(S.Emitter):
         STATS["to_port"] += 1
         super().to(x, y, laser, duty, freq, power)
 
+    def to_path(self, pts: Sequence[S.Point], laser: bool) -> None:
+        """``for x, y in pts: self.to(x, y, laser)`` in one kernel call (a rapid's samples)."""
+        if pts:
+            d, f = _small_int(self.duty), _small_int(self.freq)
+            if d is not None and f is not None and self._emit(
+                    pts, None, 0.0, 0.0, None, None, None, None, None, False, 0, bool(laser), d, f, False):
+                STATS["to_path"] += 1
+                return
+        for x, y in pts:
+            self.to(x, y, laser)
+
     def dwell(self, seconds: float, laser: bool) -> None:
         n = int(round(seconds * 1000.0 / self.m.period_ms))
         if n <= 0:
@@ -207,11 +230,13 @@ def emit_samples(em: S.Emitter, pts: Sequence[S.Point], ss: Sequence[float], *, 
                  micro_pct: int = 0, period_ms: Optional[float] = None) -> None:
     """:func:`mlaser.parity_ports.mainapp.sampling.emit_samples` in one kernel call (same
     signature, same result); on a plain :class:`Emitter` or an input outside the kernel's exact
-    domain it runs the port."""
+    domain it runs the port.  ``pts`` may also be a flat ``array('d')`` x0, y0, x1, y1, ...
+    (a native geometry's samples)."""
     n = len(ss)
     if n == 0:
         return
-    if isinstance(em, NativeEmitter) and len(pts) == n:
+    flat = type(pts) is array
+    if isinstance(em, NativeEmitter) and len(pts) == (2 * n if flat else n):
         try:
             tot = ss[-1] if total is None else total
             kspd = 1000.0 / (em.m.period_ms if period_ms is None else period_ms)
@@ -240,8 +265,15 @@ def emit_samples(em: S.Emitter, pts: Sequence[S.Point], ss: Sequence[float], *, 
             STATS["emit_updown"] += upk is not None or dnk is not None
             return
     STATS["emit_port"] += 1
+    if flat:
+        pts = tuple_points(pts)  # type: ignore[arg-type]
     S.emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve, up=up,
                    down=down, micro_pct=micro_pct, period_ms=period_ms)
+
+
+def tuple_points(flat: Sequence[float]) -> list[S.Point]:
+    """A flat x0, y0, x1, y1, ... sequence as the list of (x, y) tuples the port takes."""
+    return list(zip(flat[0::2], flat[1::2]))
 
 
 # the same original function as the port's emit_samples (the kernel is a port of it in C); a
@@ -465,14 +497,71 @@ def _kat_run(em: S.Emitter, emit: Any) -> None:
     em.laser = False
     for i in range(40):
         em.to(x0 + 9.0 * next(r) - 4.5, y0 + 9.0 * next(r) - 4.5, False)
+    # a rapid's samples in one call (compile_items' rapid_to on the native emitter)
+    rp = [(x0 + 3.3 * next(r) - 1.6, y0 - 2.2 * next(r) + 1.0) for _ in range(30)]
+    if isinstance(em, NativeEmitter):
+        em.to_path(rp, False)
+    else:
+        for x, y in rp:
+            em.to(x, y, False)
     for d, f in ((300, 70000), (-5, -1), (128, 0), (255, 65535)):
         em.to(em.pos[0] + 0.0371, em.pos[1] - 0.0517, True, duty=d, freq=f)
     em.dwell(0.0105, True)
     em.dwell(0.003, False)
 
 
-def _kat_fingerprint(em: S.Emitter) -> tuple:
-    return ([list(w) for w in em.wire], list(em.starts), em.pos[0].hex(), em.pos[1].hex(),
+class _SinkWire:
+    """The interface of ``mlaser.nc.packed.WireBuilder(native=True)`` that the emitter and the
+    kernel use (parity_ports cannot import nc): a wire whose steps go into a C ``Sink``."""
+
+    def __init__(self, sink: Any) -> None:
+        self.native_sink = sink
+
+    def __len__(self) -> int:
+        return len(self.native_sink)
+
+    def append(self, item: Any) -> None:
+        self.native_sink.append(item)
+
+
+class _SinkStarts:
+    def __init__(self, wire: _SinkWire) -> None:
+        self.builder = wire
+
+    def append(self, index: int) -> None:
+        self.builder.native_sink.mark_start(index)
+
+
+def _pack_reference(wire: Sequence, starts: Sequence[int]) -> tuple:
+    """The run-length packing of nc/packed.py (WireBuilder), in plain Python."""
+    st = set(starts)
+    words: list = []
+    woff, cnt, flag = [0], [], []  # type: ignore[var-annotated]
+    last, lastflag = None, False
+    for i, it in enumerate(wire):
+        f = i in st
+        if cnt and f == lastflag and last is not None and list(it) == last:
+            cnt[-1] += 1
+            continue
+        words += list(it)
+        woff.append(len(words))
+        cnt.append(1)
+        flag.append(f)
+        last, lastflag = list(it), f
+    wide = any(not 0 <= w <= 0xFFFFFFFF for w in words)
+    return words, wide, woff, cnt, flag
+
+
+def _sink_contents(sink: Any) -> tuple:
+    wb, wide, woff, cnt, flag = sink.finish()
+    words = memoryview(wb).cast("q" if wide else "I").tolist()
+    return (words, bool(wide), memoryview(woff).cast("q").tolist(), memoryview(cnt).cast("q").tolist(),
+            [bool(b) for b in bytes(flag)])
+
+
+def _kat_fingerprint(em: S.Emitter, wire: bool = True) -> tuple:
+    return (([list(w) for w in em.wire], list(em.starts)) if wire else ()) + (
+            em.pos[0].hex(), em.pos[1].hex(),
             float(em.carry[0]).hex(), float(em.carry[1]).hex(), tuple(em.cur), em.steps,
             em.overspeed, float(em.on_len).hex())
 
@@ -512,6 +601,23 @@ def selfcheck() -> str:
                 return f"output differs from the Python port in {', '.join(diff)} (ppm {ppx:g})"
             if not a[0]:
                 return "the vector produced no steps"
+            # the same vector with the steps written into the packed C sink
+            sink_cls = getattr(_K, "Sink", None)
+            if sink_cls is None:
+                return "kernel has no packed sink"
+            for k in STATS:
+                STATS[k] = 0
+            pk = NativeEmitter(m, start, dry, carry)
+            w = _SinkWire(sink_cls())
+            pk.wire, pk.starts = w, _SinkStarts(w)  # type: ignore[assignment]
+            _kat_run(pk, emit_samples)
+            handed = {k: v for k, v in STATS.items() if k.endswith("_port") and v}
+            if handed:
+                return f"kernel declined calls of the vector with the packed sink {handed}"
+            if _sink_contents(w.native_sink) != _pack_reference(ref.wire, ref.starts):
+                return f"packed sink differs from the Python port's packed wire (ppm {ppx:g})"
+            if _kat_fingerprint(pk, wire=False) != a[2:]:
+                return f"emitter state with the packed sink differs from the Python port (ppm {ppx:g})"
     finally:
         STATS.clear()
         STATS.update(saved)

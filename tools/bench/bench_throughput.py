@@ -98,6 +98,30 @@ def fingerprint(job) -> str:
     return h.hexdigest()[:16]
 
 
+def raster(w: int) -> None:
+    import numpy as np
+    from mlaser.cam import raster_engraving as R
+    from mlaser.engrave.raster import RasterParams, process_image, raster_from_bitmap
+    from mlaser.nc import compile_job
+    h = w * 3 // 4
+    img = (np.indices((h, w)).sum(0) % 255).astype(np.uint8)
+    p = RasterParams(mode="dither", width_mm=100 * w / 800, rho=10)
+    r = raster_from_bitmap(process_image(img, p), p.rho, p.power, p)
+    doc = Document(parts=[R.make_raster_part(r)])
+    gc.collect()
+    r0 = rss_mb()
+    t, c = time.perf_counter(), time.process_time()
+    job = compile_job(doc, CamParams(), Machine())
+    t, c = time.perf_counter() - t, time.process_time() - c
+    gc.collect()
+    r1 = rss_mb()
+    import resource
+    print(f"raster {w}x{h}: {len(r)} runs, {job.steps} steps, compile_job {t:.1f} s wall / {c:.1f} s CPU, "
+          f"RSS +{r1 - r0:.0f} MB (+{(r1 - r0) / job.steps * 1e6:.0f} MB per million steps), "
+          f"maxrss {resource.getrusage(resource.RUSAGE_SELF).ru_maxrss / 1024:.0f} MB, "
+          f"wire {job.wire!r}", flush=True)
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--parts", type=int, default=200)
@@ -106,7 +130,13 @@ def main() -> None:
     ap.add_argument("--profile", action="store_true", help="cProfile of one compile_items")
     ap.add_argument("--no-smooth", action="store_true", help="Machine(smooth=False)")
     ap.add_argument("--no-fingerprint", action="store_true")
+    ap.add_argument("--raster", type=int, default=0, metavar="W",
+                    help="instead: compile_job of a W x 3/4 W px dither engraving (the review's "
+                         "800 x 600 case: 54.6 M steps); prints the RSS growth")
     a = ap.parse_args()
+    if a.raster:
+        raster(a.raster)
+        return
 
     from mlaser.parity_ports import kernel_status
     doc = make_doc(a.parts)
