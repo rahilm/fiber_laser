@@ -122,6 +122,8 @@ class HelpBrowser(QDialog):
         self.results = QListWidget()
         self.results.setAccessibleName(self.t("help.results", "Search results"))
         self.results.setWordWrap(True)
+        self.results.setSpacing(3)
+        self.results.setAlternatingRowColors(True)
         self.results.itemActivated.connect(self._open_hit)
         self.results.itemClicked.connect(self._open_hit)
         self.results.installEventFilter(self)
@@ -151,13 +153,19 @@ class HelpBrowser(QDialog):
         for sec, key, default in H.SECTIONS:
             if any(tp.section == sec for tp in self.topics):
                 g = QTreeWidgetItem([self.t(key, default)])
-                g.setData(0, ROLE_REL, "")
-                g.setFlags(Qt.ItemIsEnabled)
+                index_rel = f"{sec}/README.md"           # the section's index page, if any
+                g.setData(0, ROLE_REL, index_rel if index_rel in self.by_rel else "")
+                if index_rel in self.by_rel:
+                    self.items[index_rel] = g
+                else:
+                    g.setFlags(Qt.ItemIsEnabled)
                 f = g.font(0)
                 f.setBold(True)
                 g.setFont(0, f)
                 groups[sec] = g
         for tp in self.topics:
+            if tp.rel in self.items:
+                continue
             it = QTreeWidgetItem([tp.title])
             it.setData(0, ROLE_REL, tp.rel)
             it.setToolTip(0, tp.rel)

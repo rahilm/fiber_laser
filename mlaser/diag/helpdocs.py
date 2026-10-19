@@ -327,7 +327,9 @@ class HelpIndex:
 
 
 def _snippet(line: str, word: str, width: int = 140) -> str:
-    t = re.sub(r"\s+", " ", line.strip())
+    t = _plain(line.strip())
+    t = re.sub(r"^(?:[-*+>]|\d+\.)\s+", "", t).replace("|", " ")
+    t = re.sub(r"\s+", " ", t).strip()
     k = t.lower().find(word)
     if len(t) <= width or k < 0:
         return t[:width]

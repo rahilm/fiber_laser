@@ -119,5 +119,7 @@ def test_browser_sections_and_about(browser):
     b = browser
     tops = [b.tree.topLevelItem(i).text(0) for i in range(b.tree.topLevelItemCount())]
     assert tops == ["Docs", "User guide", "Developer", "Reverse engineering", "About"]
+    b.tree.setCurrentItem(b.tree.topLevelItem(1))          # a section opens its index page
+    assert b.current == "user/README.md" and b.tree.topLevelItem(1).childCount() == 2
     b.tree.setCurrentItem(b.tree.topLevelItem(4))
     assert "omitted" in b.view.toPlainText()
