@@ -61,32 +61,6 @@ jobs:
       - name: C kernel check
         run: uv run --locked python tools/build_native.py --check
 
-      - name: "DEBUG (temporary): macOS kernel build command and FMA sites"
-        if: failure() && runner.os == 'macOS'
-        run: |
-          set -x
-          uv run --locked python -c "import sys; print(sys.executable, sys.version)"
-          PYINC=$(uv run --locked python -c "import sysconfig;print(sysconfig.get_paths()['include'])")
-          SRC=mlaser/_native/_emitter.c
-          BASE="-fno-strict-overflow -Wsign-compare -Wunreachable-code -fno-common -dynamic -DNDEBUG -g -O3 -Wall"
-          clang -### $BASE -arch arm64 -I"$PYINC" -c $SRC -o /tmp/x.o -O2 -ffp-contract=off -fno-fast-math 2>&1 | tr ' ' '\n' | grep -iE 'contract|fast|math|fp-|^"-O' || true
-          try() { clang $BASE -I"$PYINC" -c $SRC -o /tmp/x.o "$@" 2>/dev/null && echo "fmadd=$(objdump -d /tmp/x.o | grep -c fmadd) :: $*"; }
-          try -arch arm64 -arch x86_64 -O2 -ffp-contract=off -fno-fast-math
-          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math
-          try -arch arm64 -O2 -fno-fast-math -ffp-contract=off
-          try -arch arm64 -O2 -ffp-contract=off
-          try -arch arm64 -O2
-          try -arch arm64 -O0
-          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -ffp-model=strict
-          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -Xclang -ffp-contract=off
-          try -arch arm64 -O2 -ffp-contract=off -fno-fast-math -fno-slp-vectorize -fno-vectorize
-          clang $BASE -arch arm64 -I"$PYINC" -S $SRC -o /tmp/x.s -O2 -ffp-contract=off -fno-fast-math
-          grep -nE 'fmadd|\.loc[[:space:]]+[0-9]+[[:space:]]+[0-9]+' /tmp/x.s | grep -B3 fmadd | head -40
-          clang $BASE -arch arm64 -I"$PYINC" -S -emit-llvm $SRC -o /tmp/x.ll -O2 -ffp-contract=off -fno-fast-math
-          grep -nE 'fmuladd|llvm.fma|contract' /tmp/x.ll | head -20
-          clang $BASE -arch arm64 -I"$PYINC" -S -emit-llvm $SRC -o /tmp/x0.ll -O0 -Xclang -disable-O0-optnone -ffp-contract=off -fno-fast-math
-          grep -nE 'fmuladd|llvm.fma|contract' /tmp/x0.ll | head -20
-
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         run: uv run --locked pytest -q --durations=15
 
@@ -113,6 +87,21 @@ jobs:
         env:
           MLASER_NATIVE: "0"
         run: uv run --locked pytest -q -m golden
+
+      # Where do this platform's golden differences come from?  Every libm / LAPACK result the
+      # golden computations use, and this platform's golden records, for
+      # `tools/golden_libm.py replay` on the reference platform (docs/dev/TESTING.md)
+      - name: Golden libm recording (Windows, macOS)
+        if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        continue-on-error: true
+        run: uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
+      - uses: actions/upload-artifact@v4
+        if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        continue-on-error: true
+        with:
+          name: golden-libm-${{ runner.os }}
+          path: golden-libm-${{ runner.os }}.json.gz
+          retention-days: 7
 
       # 3.13 keeps 3.12's compensated sum() and matched bit for bit locally (2026-10-18); the
       # reference stays 3.12, so a difference here is reported, not fatal.
