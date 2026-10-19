@@ -478,7 +478,15 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
             self_halt(e.kind, e.detail)
         put(("error", str(e), FAULT_CODE, js.exec_index, e.kind))
     except Exception as e:  # noqa: BLE001
-        if fault:
+        from .supervisor import CommandRefused
+        if isinstance(e, CommandRefused) and flags["cancel"].value and not fault:
+            # the parent's cancel reached the guard between the streamer's cancel check and its
+            # next FIFO write: that is the cancel, not an error (as the in-thread job worker treats
+            # a refusal after its own cancel); the parent halts the card as on any cancel
+            b = asdict(js.buf)
+            b.pop("samples", None)
+            put(("done", asdict(js.stats), b, js.exec_index, True))
+        elif fault:
             put(("error", f"{fault['kind']}: {fault['why']}", FAULT_CODE, js.exec_index, fault["kind"]))
         else:
             self_halt("error", f"{type(e).__name__}: {e}")

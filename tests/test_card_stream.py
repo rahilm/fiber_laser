@@ -132,6 +132,41 @@ def test_process_streamer_cancel():
         sim.stop()
 
 
+def test_child_treats_a_refusal_after_the_cancel_as_the_cancel(monkeypatch):
+    """The parent's cancel flag can reach the child's guard between the streamer's own cancel
+    check and its next FIFO write: the refused write is the cancel, reported as a cancelled
+    "done", not as an error (macOS runner: test_process_streamer_cancel raised code 9101)."""
+    import multiprocessing as mp
+    import queue
+    from dataclasses import asdict
+
+    from mlaser.controller import stream as S
+    from mlaser.controller.supervisor import CommandRefused
+    from mlaser.machine.safety import Cmd
+
+    flags = {"hold": mp.Value("b", 0), "cancel": mp.Value("b", 0), "hb": mp.Value("q", 0),
+             "halted": mp.Value("b", 0)}
+
+    def run_job(self, job, *a, **kw):
+        flags["cancel"].value = 1                  # the cancel arrives ...
+        raise CommandRefused("the job was cancelled or halted", Cmd.MOTION)   # ... at the write
+
+    monkeypatch.setattr(S.JobStreamer, "run_job", run_job)
+    sim = CardSimulator(time_scale=1.0).start()
+    try:
+        cfg = TransportConfig(host="127.0.0.1", port=sim.port)
+        evt_q = queue.Queue()
+        S._child_main(asdict(cfg), 1000.0, _job(10), {}, queue.Queue(), evt_q, flags,
+                      {**ARMED, "parent_timeout_s": 60.0})
+        events = []
+        while not evt_q.empty():
+            events.append(evt_q.get())
+        assert events and events[-1][0] == "done" and events[-1][4] is True, events
+        assert not any(e[0] in ("error", "fault") for e in events), events
+    finally:
+        sim.stop()
+
+
 def test_simulator_wait_and_follower_model():
     import time
     sim = CardSimulator(time_scale=1.0).start()
