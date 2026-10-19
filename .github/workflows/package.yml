@@ -35,8 +35,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # one runner per architecture, so every wheel is tested natively
-        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest, macos-15-intel]
+        # one runner per architecture, so every wheel is tested natively. macOS: Apple silicon
+        # only (arm64, [tool.cibuildwheel.macos]); no Intel macOS build.
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -45,6 +46,28 @@ jobs:
       - uses: pypa/cibuildwheel@v3.4.1
         with:
           output-dir: wheelhouse
+      # Linux: the wheels are built in the manylinux_2_28 container (the kernel needs only
+      # glibc 2.17), but PySide6 6.12 ships manylinux_2_34 x86_64 / manylinux_2_39 aarch64
+      # wheels only, so they cannot be installed in that container (cibuildwheel's own test is
+      # skipped on Linux, [tool.cibuildwheel.linux]).  The same test runs here on the runner
+      # (Ubuntu 24.04, glibc 2.39): each wheel with its dependencies in a clean venv.
+      - name: Test the wheels (Linux, on the runner)
+        if: runner.os == 'Linux'
+        env:
+          MLASER_NO_FIRSTRUN: "1"
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP"
+          for whl in "$GITHUB_WORKSPACE"/wheelhouse/*.whl; do
+            tag=$(basename "$whl" | cut -d- -f3)            # cp312 / cp313
+            py="3.${tag#cp3}"
+            echo "::group::$(basename "$whl") on Python $py"
+            rm -rf venv
+            uv venv -q --python "$py" venv
+            uv pip install -q --python venv/bin/python "$whl"
+            venv/bin/python -m mlaser._native --require
+            echo "::endgroup::"
+          done
       - uses: actions/upload-artifact@v4
         with:
           name: wheels-${{ matrix.os }}

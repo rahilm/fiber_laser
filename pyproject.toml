@@ -68,7 +68,7 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "setup.py" }, { file = "mlas
 
 # ---------------------------------------------------------------------------- cibuildwheel
 # Wheels with the C emitter kernel (.github/workflows/package.yml, job "wheels"): CPython 3.12 /
-# 3.13 on Linux x86_64 + aarch64 (manylinux), Windows AMD64, macOS arm64 + x86_64.  The kernel
+# 3.13 on Linux x86_64 + aarch64 (manylinux), Windows AMD64, macOS arm64 (Apple silicon only).  The kernel
 # is required in a wheel (MLASER_BUILD_NATIVE=1); each wheel is installed in a clean
 # environment and must select the kernel after its self-check (python -m mlaser._native).
 # No 32-bit builds (x87 excess precision, docs/dev/NATIVE_KERNEL.md), no musllinux (no PySide6).
@@ -78,6 +78,13 @@ skip = ["*-musllinux_*", "*-manylinux_i686", "*-win32", "*-win_arm64"]
 build-frontend = "build[uv]"
 environment = { MLASER_BUILD_NATIVE = "1" }
 test-command = "python -m mlaser._native --require"
+# PySide6 6.12 has manylinux_2_34 (x86_64) / manylinux_2_39 (aarch64) wheels only: it cannot be
+# installed inside the manylinux_2_28 build container, so the same test runs on the runner after
+# the build (package.yml, "Test the wheels (Linux, on the runner)")
+test-skip = "*-manylinux_*"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]   # Apple silicon only; no Intel macOS build
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
