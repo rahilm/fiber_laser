@@ -119,6 +119,12 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
   (`CardSimulator(pessimistic=True)`, `tests/safety/safety_helpers.py`).
 * Randomised equivalence tests (hypothesis) compare a new implementation with the reference one
   before the reference is retired.
+* Qt object lifetimes: give every widget handed to a Qt setter a Qt parent (PySide does not
+  always transfer ownership; `QMessageBox.setCheckBox` does not, and the freed checkbox crashed
+  the next re-layout of the box), and delete dialogs after use instead of leaving them as
+  children of the window. A crash only on one OS is usually such a lifetime bug: CI's macOS jobs
+  print faulthandler's stacks and the command trace of the coverage test after a crash, and
+  `lldb` on the runner (SIP is disabled there) gives the native backtrace.
 * Screenshots of new screens: offscreen, at 1280×800 and at 150 % of 1920×1080, light and dark.
 
 

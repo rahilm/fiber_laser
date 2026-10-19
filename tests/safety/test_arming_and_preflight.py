@@ -270,11 +270,15 @@ def test_pendant_read_error_stops_the_jog():
 
 
 def test_heartbeat_output_toggles_and_stops_on_fault(make_ctl):
-    ctl = make_ctl(heartbeat_output=8, heartbeat_hz=10.0)
+    # the default 5 Hz over 1.2 s (12 edges due; >= 8 required, the same two thirds as the
+    # earlier 10 Hz / 0.6 s): at 10 Hz the macOS runner VMs' timer and loopback latency (tens of
+    # ms per wake-up and per reply of the in-process simulator) were a large part of the 50 ms
+    # between edges.  test_heartbeat_keeps_its_rate_with_late_timers covers late wake-ups.
+    ctl = make_ctl(heartbeat_output=8, heartbeat_hz=5.0)
     sim = ctl.sim
     seen = set()
     t0 = time.monotonic()
-    t_end = t0 + 0.6
+    t_end = t0 + 1.2
     while time.monotonic() < t_end:
         seen.add(bool(sim.state.outputs >> 7 & 1))
         time.sleep(0.01)

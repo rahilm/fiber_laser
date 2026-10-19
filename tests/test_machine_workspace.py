@@ -204,8 +204,10 @@ def test_jogpad_dead_man(app, win):
     pad = JogPad(win, lambda: c)
     pad.show()
     pad.buttons["X+"].pressed.emit()
-    pump(app, 0.35)
-    assert calls[0] == ("start", "X", 1) and ("alive",) in calls
+    # the keep-alive is a 100 ms QTimer: wait for its first tick instead of a fixed 0.35 s (a
+    # loaded macOS runner delivered none within 0.35 s); its timing is not what is tested here
+    assert wait(app, lambda: ("alive",) in calls, 5.0)
+    assert calls[0] == ("start", "X", 1)
     pad.hide()                                               # hidden while held: stops at once
     assert calls[-1] == ("stop", "X")
     pad.step_buttons[2].setChecked(True)
