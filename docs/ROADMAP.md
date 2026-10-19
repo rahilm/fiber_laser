@@ -145,13 +145,17 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   factory values
 - ☐ properties panel instead of modal dialogs; units; live previews
 - ☐ preview with a scrubber, plus a time and cost card
-- ☐ touch-first Run screen; Operator, Engineer and Service modes
-- ☐ graphical nest workspace; job queue; production reports; remnant stock
+- ◐ touch-first Run screen; Operator, Engineer and Service modes (☑ Run screen:
+  `ui/workspaces/run.py`, docs/user/run.md; ☐ the modes)
+- ☑ graphical nest workspace; job queue; production reports; remnant stock
+  (`ui/workspaces/{nest,run,report}.py`, `services/{queue,remnants,nesting,operator}.py`,
+  `report/ledger.py`, docs/user/{run,nest,report}.md; job lifecycle from the EventBus)
 - ☐ guided edge-seek and calibration procedures
 - ☐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
   files
 - ☐ dark and high-contrast themes, SVG icons, accessibility
-- ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
+- ☑ LAN monitor (phone/tablet, read-only by default, no vendor cloud) (`mlaser/web`, stdlib,
+  token, GET only, off by default; docs/user/lan_monitor.md)
 - ☐ typed model and versioned native project format; `.chf` kept as interchange (byte-exact)
 - ☐ docs split into user / dev / re; packaged help
 

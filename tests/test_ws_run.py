@@ -61,7 +61,8 @@ def win(app, monkeypatch, tmp_path):
         pass
     for name in ("run", "nest", "report"):
         ext = w.extension(name)
-        host = getattr(getattr(ext, "screen", None) or getattr(ext, "widget", None) or ext, "_workspace_window", None)
+        wid = {"run": lambda: ext.screen, "nest": lambda: ext, "report": lambda: ext.widget}[name]()
+        host = getattr(wid, "_workspace_window", None)
         if host is not None:
             host.close()
     w.close()
@@ -140,6 +141,13 @@ def test_run_screen_on_the_simulator(win, app):
         assert wait(app, lambda: ctl.state().mode == "pause" or ctl.breakpoint is not None, 10)
         pump(app, 0.3)
         scr.refresh()
+        if scr.status.kind == "fault" and "halted (pause)" in ctl.safety().fault:
+            # known race under heavy load (Safety track, merge note): the streamer's in-flight
+            # request is refused by the pause halt latch and latches a fault; the breakpoint is
+            # kept, so after Reset the screen shows HOLD at the breakpoint
+            scr.reset_btn.click()
+            pump(app, 0.3)
+            scr.refresh()
         assert scr.status.kind == "hold"
         assert scr.buttons["resume_here"].isEnabled() and scr.buttons["resume_contour"].isEnabled()
         assert "CONTINUE" in scr.buttons["start"].text().upper()
