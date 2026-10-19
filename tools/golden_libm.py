@@ -11,7 +11,8 @@ tells whether **only** the platform's math library is responsible (docs/dev/TEST
 
 ``record`` wraps the functions whose result comes from the platform's libm or LAPACK and that
 the golden computations call (``math.sin cos tan asin acos atan atan2 exp log log10 log2 pow
-fmod``, ``numpy.hypot``, ``numpy.linalg.solve``), runs every golden group with the default
+fmod``, ``numpy.hypot``, ``numpy.linalg.solve``, and shapely's ``buffer``, whose round joins GEOS
+computes with the platform's sin / cos), runs every golden group with the default
 profile, and writes every distinct call (arguments and result as ``float.hex``) plus the
 recomputed golden records of this platform.
 
@@ -96,6 +97,13 @@ def _arr_in(rec):
     return np.frombuffer(bytes.fromhex(hx), dtype=float).reshape(shape).copy()
 
 
+def _where() -> str:
+    """The innermost mlaser frames of the current call (where a replay first diverged)."""
+    import traceback
+    fr = [f for f in traceback.extract_stack()[:-2] if "/mlaser/" in f.filename.replace("\\", "/")]
+    return " <- ".join(f"{Path(f.filename).name}:{f.lineno}" for f in reversed(fr[-3:]))
+
+
 class Hooks:
     """Wraps the library functions; ``table`` is None to record, a trace to replay."""
 
@@ -103,6 +111,7 @@ class Hooks:
         self.table = table
         self.calls: dict[str, dict[str, str]] = {f: {} for f in MATH_FUNCS}
         self.arrays: dict[str, dict[str, list]] = {"np.hypot": {}, "np.linalg.solve": {}}
+        self.geoms: dict[str, dict[str, str]] = {"shapely.buffer": {}}
         self.hits = self.misses = 0
         self.missed: list[str] = []
         self._saved: list = []
@@ -116,6 +125,9 @@ class Hooks:
         np.hypot = self._array("np.hypot", np.hypot)
         self._saved.append((np.linalg, "solve", np.linalg.solve))
         np.linalg.solve = self._array("np.linalg.solve", np.linalg.solve)
+        from shapely.geometry.base import BaseGeometry
+        self._saved.append((BaseGeometry, "buffer", BaseGeometry.buffer))
+        BaseGeometry.buffer = self._geom("shapely.buffer", BaseGeometry.buffer)
 
     def remove(self) -> None:
         for mod, name, fn in reversed(self._saved):
@@ -140,7 +152,7 @@ class Hooks:
                     return float.fromhex(hx)
                 self.misses += 1
                 if len(self.missed) < 50:
-                    self.missed.append(f"math.{name}({k})")
+                    self.missed.append(f"math.{name}({k}) at {_where()}")
             try:
                 r = fn(*args)
             except (ValueError, OverflowError, ZeroDivisionError) as e:
@@ -169,13 +181,37 @@ class Hooks:
                     return out if out.shape else out[()]          # numpy scalar, as the original
                 self.misses += 1
                 if len(self.missed) < 50:
-                    self.missed.append(f"{name}(shapes {[getattr(x, 'shape', ()) for x in args]})")
+                    self.missed.append(f"{name}(shapes {[getattr(x, 'shape', ()) for x in args]}) at {_where()}")
             try:
                 r = fn(*args)
             except Exception as e:  # noqa: BLE001 - recorded, then raised as before
                 rec[k] = f"raise {type(e).__name__}"
                 raise
             rec[k] = _arr_out(r)
+            return r
+        return wrapped
+
+
+    def _geom(self, name, fn):
+        """GEOS buffer (round joins and caps: GEOS's own sin / cos, from the platform libm)."""
+        rec = self.geoms[name]
+        table = None if self.table is None else self.table.get("geoms", {}).get(name, {})
+
+        def wrapped(geom, *args, **kw):
+            import shapely
+            h = hashlib.sha256(shapely.to_wkb(geom, hex=False, include_srid=False))
+            h.update(repr((args, sorted(kw.items()))).encode())
+            k = h.hexdigest()
+            if table is not None:
+                hx = table.get(k)
+                if hx is not None:
+                    self.hits += 1
+                    return shapely.from_wkb(bytes.fromhex(hx))
+                self.misses += 1
+                if len(self.missed) < 50:
+                    self.missed.append(f"{name}({geom.geom_type}) at {_where()}")
+            r = fn(geom, *args, **kw)
+            rec[k] = shapely.to_wkb(r, hex=True, include_srid=False)
             return r
         return wrapped
 
@@ -200,10 +236,10 @@ def record(out: Path, groups) -> int:
     finally:
         h.remove()
     data = {"env": _env(), "groups": list(groups), "calls": h.calls, "arrays": h.arrays,
-            "cases": cases}
+            "geoms": h.geoms, "cases": cases}
     with gzip.open(out, "wt", encoding="utf-8") as f:
         json.dump(data, f)
-    n = sum(len(v) for v in h.calls.values()) + sum(len(v) for v in h.arrays.values())
+    n = sum(len(v) for d in (h.calls, h.arrays, h.geoms) for v in d.values())
     print(f"{out}: {n} distinct library calls, groups {', '.join(groups)} ({data['env']})")
     return 0
 
@@ -245,7 +281,7 @@ def replay(path: Path, show: int) -> int:
                   + (f" (ulps: {ul[:8]})" if diffs else ""))
             for args, theirs, mine in diffs[:show]:
                 print(f"      {name}({', '.join(repr(a) for a in args)}) = {theirs} there, {mine} here")
-    for name, calls in data["arrays"].items():
+    for name, calls in {**data["arrays"], **data.get("geoms", {})}.items():
         if calls:
             print(f"  {name}: {len(calls)} distinct calls (inputs hashed: their effect shows in step 2)")
 
