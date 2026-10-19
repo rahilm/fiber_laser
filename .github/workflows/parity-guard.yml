@@ -1,0 +1,36 @@
+name: Parity guard
+
+# A pull request that changes the goldens (tests/golden/) or the parity fence
+# (mlaser/parity_ports/) fails here unless it has the label `parity-change` or one of its
+# commits carries a `Parity-Change: <reason>` trailer (CONTRIBUTING.md, "Parity and bit-exact
+# rules"; the logic is tools/parity_guard.py, tested in tests/test_parity_guard.py).
+# Re-runs when a label is added or removed. Make it a required check in the branch protection
+# of main (docs/dev/RELEASE.md, "Branch protection").
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: parity-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  parity-guard:
+    name: parity guard (goldens, parity fence)
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0          # the PR's commits (trailers) and the merge base
+      - name: Check the goldens and the parity fence
+        env:
+          # labels and SHAs through the environment, never interpolated into the script
+          PARITY_GUARD_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: python3 tools/parity_guard.py --base "$BASE_SHA" --head "$HEAD_SHA"

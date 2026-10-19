@@ -1,0 +1,28 @@
+# Code owners (https://docs.github.com/articles/about-code-owners).
+# A pull request touching these paths asks the owner for review; with "Require review from
+# Code Owners" in the branch protection of main (docs/dev/RELEASE.md, "Branch protection") it
+# cannot merge without it.  CONTRIBUTING.md explains why each area is protected.
+# Later lines take precedence over earlier ones for the same path.
+
+# the bit-exact ports of the original and their frozen output (parity and bit-exact rules)
+/mlaser/parity_ports/   @rahilm
+/tests/golden/          @rahilm
+/tools/make_goldens.py  @rahilm
+# the C emitter kernel (bit-identical to the Python port), the NC compiler and the card protocol:
+# they decide the bytes on the wire
+/mlaser/_native/        @rahilm
+/mlaser/nc/             @rahilm
+/mlaser/protocol/       @rahilm
+
+# machine safety: the card supervisor, streamer, interlocks, the safety state machine,
+# pre-flight and lifecycle, and their tests and documentation
+/mlaser/controller/     @rahilm
+/mlaser/machine/        @rahilm
+/tests/safety/          @rahilm
+/docs/SAFETY.md         @rahilm
+
+# the guards themselves
+/.github/CODEOWNERS                 @rahilm
+/.github/workflows/parity-guard.yml @rahilm
+/tools/parity_guard.py              @rahilm
+/SECURITY.md                        @rahilm

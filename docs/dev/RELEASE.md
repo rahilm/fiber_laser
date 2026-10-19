@@ -2,8 +2,13 @@
 
 ## Version
 
-The version is `[project] version` in `pyproject.toml`. Tag releases `vX.Y.Z` on the main
-branch after the contract in [Testing](TESTING.md) is green on CI.
+The version is `[project] version` in `pyproject.toml`, a [PEP 440](https://peps.python.org/pep-0440/)
+version: release candidates are `0.1.0rc1`, `0.1.0rc2`, ..., the release `0.1.0` (wheels and
+bundles carry it in their names, e.g. `mlaser-0.1.0rc1-cp312-...whl`). Tag releases on the
+main branch after the contract in [Testing](TESTING.md) is green on CI: `vX.Y.Z` for a
+release, `vX.Y.Z-rcN` for a release candidate (version `X.Y.ZrcN`). Bump the version and move
+the "Unreleased" entries of [CHANGELOG.md](../../CHANGELOG.md) under the new version (Keep a
+Changelog) in the same commit; `uv lock` updates the lock's own entry.
 
 ## Packages
 
@@ -69,7 +74,10 @@ included minutes ran out after a day of CI work. Measured 2026-10-19:
 
 * `ci.yml`, per push: 2 Linux jobs (~5-7 min each), 2 Windows jobs (~8-10 min), 2 macOS arm64
   jobs (~8-10 min; `macos-latest` is an Apple silicon VM whose timers fire late, see
-  [TESTING.md](TESTING.md)), lint and architecture (< 1 min). On a private repository the macOS
+  [TESTING.md](TESTING.md)), lint and architecture (< 1 min). These were serial runs; the
+  test step now runs on pytest-xdist with the safety and sim tests on one worker, which halved
+  the suite locally (320 s -> 160 s, [TESTING.md](TESTING.md#parallel-runs-pytest-xdist)); the
+  CI figures are to be re-measured on the next runs. On a private repository the macOS
   jobs are most of the billed cost (~200 Linux-equivalent minutes per push).
 * `package.yml`: wheels (Linux x86_64 and the `ubuntu-24.04-arm` runner, Windows, macOS
   arm64; ~1-4 min each), sdist (< 1 min), bundles (Linux on ubuntu-22.04, Windows, macOS;
@@ -77,6 +85,19 @@ included minutes ran out after a day of CI work. Measured 2026-10-19:
   workflow_dispatch only.
 * The arm64 Linux runner (`ubuntu-24.04-arm`) builds and tests the aarch64 wheels natively (no
   QEMU). No Intel macOS runner is used.
+
+## Branch protection
+
+The owner sets the branch protection of `main` on GitHub; nothing in the repository changes
+it. Recommended (details in [CONTRIBUTING.md](../../CONTRIBUTING.md#branch-protection-recommended)):
+
+* pull requests only, with code-owner review ([.github/CODEOWNERS](../../.github/CODEOWNERS));
+* required status checks: `ubuntu-latest / Python 3.12`, `import contracts, types, i18n, docs`
+  and `parity guard (goldens, parity fence)` (`.github/workflows/parity-guard.yml`: a change
+  of `tests/golden/` or `mlaser/parity_ports/` needs the `parity-change` label or a
+  `Parity-Change:` commit trailer); Windows, macOS and 3.13 once stable;
+* linear history, no force pushes or deletions, no bypass for administrators;
+* private vulnerability reporting enabled ([SECURITY.md](../../SECURITY.md)).
 
 ## Checklist
 
@@ -87,4 +108,6 @@ included minutes ran out after a day of CI work. Measured 2026-10-19:
    where credentials exist (`sign_windows.ps1`, `sign_macos.sh`); the `wheels` and `sdist`
    jobs green.
 4. Licence notices (`LICENSES/` from `gen_licenses.py`) and [ASSETS.md](../ASSETS.md) up to date.
-5. Release notes: what changed for operators, any new or changed `ParityProfile`.
+5. Release notes: what changed for operators, any new or changed `ParityProfile`, any golden
+   change (`Parity-Change:` trailers since the last tag: `git log --grep '^Parity-Change:'
+   vPREV..`); [CHANGELOG.md](../../CHANGELOG.md) updated.
