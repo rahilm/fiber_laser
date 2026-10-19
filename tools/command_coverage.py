@@ -20,6 +20,10 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 if "MLASER_DATA_DIR" not in os.environ:
     import tempfile
     os.environ["MLASER_DATA_DIR"] = tempfile.mkdtemp(prefix="mlaser-coverage-")
+for _var in ("MLASER_CONFIG_DIR", "MLASER_APP_DIR"):      # no user config / softPara.ini
+    if _var not in os.environ:
+        import tempfile
+        os.environ[_var] = tempfile.mkdtemp(prefix="mlaser-coverage-")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 

@@ -13,6 +13,7 @@ pytest.importorskip("PySide6")
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mlaser.ui import docops, i18n  # noqa: E402
+from mlaser.model import LayerParams  # noqa: E402
 from mlaser.ui.facade import DemoController  # noqa: E402
 
 # screenshot of the main window: MLASER_SHOT_DIR, else the dev box's work/ui folder when it
@@ -116,6 +117,12 @@ def test_demo_controller_motion():
     assert c.state().x == pytest.approx(DemoController.JOG_SLOW)
     c.jog_stop()
     doc = docops.demo_document()
+    c.start(doc)                       # refused: not armed, layers without parameters
+    assert c.state().mode == "ready"
+    assert {"not_armed", "layer_undefined"} <= c.last_preflight.codes()
+    for li in {p.craft.layer for p in doc.parts}:
+        doc.layers[li] = LayerParams(li)
+    assert c.arm()
     c.start(doc)
     assert c.state().mode == "process"
     c.pause()

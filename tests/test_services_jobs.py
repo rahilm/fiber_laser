@@ -187,7 +187,7 @@ def test_streamed_frames_are_job_frames():
     from mlaser.protocol import frames as F
 
     flat = F.build_fifo_frames(plan.wire, 1)
-    sim = CardSimulator(time_scale=50.0).start()
+    sim = CardSimulator(time_scale=5.0).start()        # slow enough that the FIFO never runs dry
     try:
         with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
             seq0 = mc.read_status().fifo_seq + 1
@@ -220,6 +220,7 @@ def test_window_preview_is_the_plan_and_start_streams_it(app):
     try:
         ctl = w.ctl
         ctl.connect()
+        assert ctl.arm()                                          # every connection starts disarmed
         ctl._s.x, ctl._s.y = 420.0, 80.0  # the head is not at the origin
         w.set_document(demo_doc())
         plan = w.jobs.settle(timeout=60)

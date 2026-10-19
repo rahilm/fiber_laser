@@ -278,6 +278,8 @@ class CardScaling:
     axes: list = field(default_factory=lambda: [AxisScaling() for _ in range(F.N_AXES)])
     x_axis: int = 0            # cfg +0xbbd4
     y_axis: int = 1            # cfg +0xbbd8
+    # card soft limits per axis, mm (axis RW words 1/2 / ppm, cfg +0xbc78); missing = not set
+    soft_limits: dict = field(default_factory=dict)
 
     @property
     def period_ms(self) -> float:
@@ -304,6 +306,7 @@ class CardScaling:
         ppm = _s32(sys_words[SYS_W_PPM]) if len(sys_words) > SYS_W_PPM else 0
         per = _s32(sys_words[SYS_W_PERIOD_US]) if len(sys_words) > SYS_W_PERIOD_US else 0
         axes = []
+        soft: dict = {}
         for a in range(F.N_AXES):
             w = list(axis_words[a * F.AXIS_RW_STRIDE:a * F.AXIS_RW_STRIDE + 14]) + [0] * 14
             d = AxisScaling()
@@ -318,15 +321,24 @@ class CardScaling:
             if w[AX_W_ACC]:
                 d.acc = float(_s32(w[AX_W_ACC]))
             axes.append(d)
+            lo, hi = _s32(w[AX_W_SOFT_A]), _s32(w[AX_W_SOFT_B])
+            if ppm > 0 and (lo or hi):
+                lo_mm, hi_mm = sorted((lo / ppm, hi / ppm))
+                if hi_mm > lo_mm:
+                    soft[a] = (lo_mm, hi_mm)
         return cls(period_us=per if per > 0 else 1000, ppm=max(0, ppm), axes=axes,
-                   x_axis=x_axis, y_axis=y_axis)
+                   x_axis=x_axis, y_axis=y_axis, soft_limits=soft)
 
     def summary(self) -> str:
         x, y = self.axes[self.x_axis], self.axes[self.y_axis]
+        lim = "; card soft limits " + ", ".join(
+            f"axis {a} {lo:g}..{hi:g} mm" for a, (lo, hi) in sorted(self.soft_limits.items())
+        ) if self.soft_limits else "; no card soft limits"
         return (f"period {self.period_us} µs, position {self.position_ppm:g} counts/mm, "
                 f"X {x.ppr} p/rev / {x.lead_mm:g} mm = {x.step_ppm:g} p/mm, "
                 f"Y {y.ppr} p/rev / {y.lead_mm:g} mm = {y.step_ppm:g} p/mm, "
-                f"step speed cap {min(self.max_speed(self.x_axis), self.max_speed(self.y_axis)):.0f} mm/s")
+                f"step speed cap {min(self.max_speed(self.x_axis), self.max_speed(self.y_axis)):.0f} mm/s"
+                + lim)
 
 
 # Homing modes (cfg +0xbba8, set by MainApp before CNCModule +0x5c = FUN_10032da0)
@@ -370,6 +382,12 @@ class MotionController:
         self.sys_rw: list[int] = []
         self.axis_rw: list[list[int]] = []
         self.fifo_capacity: Optional[int] = None
+        # Safety hooks (controller.supervisor.SafetySupervisor): ``guard(req)`` is called for
+        # every outgoing request before it is sent and raises to refuse it; ``last_ok`` is the
+        # time.monotonic() of the last successful reply (link watchdog).
+        self.guard = None
+        self.last_ok = 0.0
+        self.requests = 0
 
     # ------------------------------------------------------------------ socket
     def open(self) -> "MotionController":
@@ -453,9 +471,13 @@ class MotionController:
 
     def transact(self, req: F.Request) -> F.Response:
         """Send one request and wait for its reply with the original retry policy."""
+        g = self.guard
+        if g is not None:
+            g(req)                 # raises (CommandRefused) when the safety policy refuses
         with self._lock:
             if self._sock is None:
                 self.open()
+            self.requests += 1
             req.tid = self._tid
             self._tid = (self._tid + 1) & 0xFFFF
             frame = F.encode_request(req)
@@ -483,6 +505,7 @@ class MotionController:
                         raise ControllerError("DecodeRecvData", last) from e
                     rc = F.check_reply(req, resp)
                     if rc == F.ERR_OK:
+                        self.last_ok = time.monotonic()
                         return resp
                     raise ControllerError("RecvDataErr", rc)
                 time.sleep(self.cfg.send_interval_ms / 1000)

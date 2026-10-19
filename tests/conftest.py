@@ -47,6 +47,11 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     if "MLASER_CONFIG_DIR" not in os.environ or os.environ.get("_MLASER_CONFIG_AUTO"):
         monkeypatch.setenv("MLASER_CONFIG_DIR", str(tmp_path_factory.mktemp("config")))
         monkeypatch.setenv("_MLASER_CONFIG_AUTO", "1")
+    # the machine plugin keeps softPara.ini (NormalExit) in the app directory: one per test, so a
+    # window that was never closed cleanly does not raise the recovery dialog in the next one
+    if "MLASER_APP_DIR" not in os.environ or os.environ.get("_MLASER_APP_AUTO"):
+        monkeypatch.setenv("MLASER_APP_DIR", str(tmp_path_factory.mktemp("app")))
+        monkeypatch.setenv("_MLASER_APP_AUTO", "1")
 
 
 def pytest_collection_modifyitems(config, items):
@@ -54,8 +59,10 @@ def pytest_collection_modifyitems(config, items):
         path = item.path
         parts = path.parts
         marks = set()
+        # directories below tests/ only (a checkout may itself live in a directory named "safety")
+        below = parts[len(parts) - 1 - parts[::-1].index("tests") + 1:-1] if "tests" in parts else ()
         for d, m in _DIR_MARKS.items():
-            if d in parts[:-1] and "tests" in parts:
+            if d in below:
                 marks.add(m)
         if path.stem in UI_MODULES:
             marks.add("ui")

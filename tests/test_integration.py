@@ -87,8 +87,10 @@ def test_ui_runs_job_on_simulator(dxf_path):
         assert win.toolpath and any(type(m).__name__ == "Rapid" for m in win.toolpath)
         for lp in win.document.layers.values():
             lp.speed = 150.0
+            lp.extra.pop("placeholder", None)        # set by the operator: the layer is defined
         assert win.connect_simulator(time_scale=4.0)
         ctl = win.ctl
+        assert ctl.arm()
         app.processEvents()
         win.run("machine.home")                        # UNKNOWN protocol -> logged, no crash
         ctl.start(win.document)
@@ -107,7 +109,7 @@ def test_ui_runs_job_on_simulator(dxf_path):
         ctl.pause()
         assert ctl.state().mode == "pause"
         ctl.resume()
-        ctl.stop()
+        assert ctl.stop().wait(10)                      # the stop is asynchronous
         assert not ctl._busy()
         log = win.log_panel.text.toPlainText()
         assert "homing is not supported" in log or "Go Origin" in log

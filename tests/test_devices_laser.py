@@ -3,7 +3,29 @@ import pytest
 
 from mlaser.devices.laser import (IpgCommands, IpgLaser, LaserError, LaserSimulator, RaycusCommands,
                                   RaycusLaser, raycus_status_ok)
+from mlaser.devices import laser as L
 from mlaser.devices.transport import NetTransport
+
+
+@pytest.fixture(autouse=True)
+def armed_guard():
+    """Emission on needs an armed safety supervisor; these protocol tests stand in for one."""
+    prev = L.emission_guard()
+    L.set_emission_guard(lambda on: None)
+    yield
+    L.set_emission_guard(prev)
+
+
+def test_emission_refused_without_an_armed_supervisor():
+    sim = LaserSimulator("ipg")
+    las = IpgLaser(sim.loopback())
+    L.set_emission_guard(None)
+    with pytest.raises(LaserError):
+        las.emission(True)
+    with pytest.raises(LaserError):
+        las.query("EMON")
+    assert not sim.emission
+    las.emission(False)                   # off always goes out
 
 
 def test_ipg_command_bytes():

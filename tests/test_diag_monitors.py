@@ -112,6 +112,9 @@ def test_controller_monitor_ui(app, tmp_path, monkeypatch):
         mon._set_do(2, True)
         assert not (sim.state.outputs >> 1) & 1
         mon.ro_mode.setChecked(True)
+        mon._set_do(2, True)                 # DO2 = shutter: a guarded output needs arming
+        assert not (sim.state.outputs >> 1) & 1
+        assert w.ctl.arm()
         mon._set_do(2, True)
         assert (sim.state.outputs >> 1) & 1
         mon.da1.setValue(5000)
@@ -146,7 +149,7 @@ def test_follower_monitor_with_card(app, tmp_path, monkeypatch):
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,
                                                  fifo_time_ms=600, max_recv=2)).open()
     try:
-        win = SimpleNamespace(ctl=SimpleNamespace(mc=mc, state=lambda: None), log_panel=None, tr_=None)
+        win = SimpleNamespace(ctl=SimpleNamespace(card=lambda: mc, state=lambda: None), log_panel=None, tr_=None)
         ext = SimpleNamespace(w=win, settings={}, device_settings=None)
         m = X.DeviceMonitor(ext, "zf")
         m.refresh()

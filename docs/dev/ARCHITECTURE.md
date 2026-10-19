@@ -49,8 +49,8 @@ other. Lazy (function-level) imports count like top-level ones.
 | `cam` | toolpath building, leads, kerf, micro-joints, cleanup, the rebuild's own ordering modes and the containment tree |
 | `io`, `nest` | DXF/SVG/G-code import and export; nesting |
 | `nc` | `compiler` (document -> FIFO job), `process` (ProcessConfig, ProcessSequencer), `machine`, `offline`, `resume` |
-| `machine`, `devices` | `machine.api` (the controller interface the UI uses); peripheral device clients |
-| `controller` | card client, simulator (+ `follower_sim`), `stream` (JobStreamer / ProcessStreamer), alarms, startup, UI adapter |
+| `machine`, `devices` | `machine.api` (`MachineAPI`, `ControllerFacade`), `events` (event bus), `safety` (FSM, command policy), `preflight`, `demo`, `audit`/`logsetup`/`lifecycle`; peripheral device clients |
+| `controller` | card client, simulator (+ `follower_sim`), `supervisor` (SafetySupervisor), `stream` (JobStreamer / ProcessStreamer), `interlocks`, alarms, startup, UI adapter (`ui_adapter` + `parts/`) |
 | `diag`, `report`, `engrave` | diagnostics tools, production report window, bitmap engraving (they may use Qt) |
 | `services` | the application services, Qt-free (§7): `document` (DocumentService, undo), `undo`, `commands`, `plugins` (PluginContext), `config` (ConfigService), `jobs` (PlannedJob, JobService), `production` |
 | `ops` | Qt-free document operations the UI, services and diag share (`document`, `craft`, `cam`) |
@@ -65,9 +65,10 @@ other. Lazy (function-level) imports count like top-level ones.
 3. **`parity_ports` imports only `geom`, `protocol` and `model`** (plus the standard library,
    numpy and ezdxf).
 
-Not yet enforced: "the app imports only services, never machine internals" (the UI still
-talks to the controller object for jog/IO; the typed MachineAPI of the Safety track is the step
-before that contract) and "only the SafetySupervisor holds a transport".
+Not yet enforced by import-linter: "the app imports only services, never machine internals"
+(the UI still talks to the controller object for jog/IO).  "Only the SafetySupervisor holds a
+transport" is checked by `tests/safety/test_policy.py` (no `MotionController(` outside the
+supervisor and the streamer, no `ctl.mc` in ui/diag/devices); see docs/SAFETY.md.
 
 ### Explicit ignores
 
@@ -78,7 +79,6 @@ a comment and has a ROADMAP item that removes it.
 |---|---|---|
 | `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
 | `cad.text -> PySide6`, `io.dxf_import -> PySide6` | TEXT outlines fall back to Qt's font engine | Wave 2 "fontTools + uharfbuzz text" |
-| `controller.ui_adapter -> PySide6` | the UI adapter emits Qt signals to the GUI thread | Wave 2 "typed MachineAPI plus an event bus" |
 
 ## 2. Moved modules and compatibility shims
 

@@ -5,7 +5,7 @@
 to the pendant dialog.  The pendant's state lives on the :class:`DevicesExtension`, not on the
 window.
 Everything talks to devices through :mod:`mlaser.devices`; the motion card connection is taken
-from ``window.ctl.mc`` when the UI controller is connected (otherwise the follower dialogs work
+from ``window.ctl.card()`` (the supervised card handle) when the UI controller is connected (otherwise the follower dialogs work
 on files only).  Evidence for every command: docs/devices.md.
 """
 from __future__ import annotations
@@ -27,8 +27,9 @@ from mlaser.devices.transport import DeviceSettings
 
 
 def _mc(window):
+    """The supervised card handle, None without a card."""
     ctl = getattr(window, "ctl", None)
-    return getattr(ctl, "mc", None)
+    return ctl.card() if ctl is not None else None
 
 
 def _as_parent(window):
@@ -410,6 +411,7 @@ def start_pendant(window) -> bool:
     }
     mapper = P.PendantJogMapper(ctl, actions, busy=lambda: ctl.state().mode in ("process", "frame", "dry_run"),
                                 leds=pend.set_leds, dev_id=lambda: pend.status.dev_id)
+    mapper.attach(pend)              # dead-man: HID error stops the jog, keep-alive while held
     ext.pendant_events = []
 
     def pump():

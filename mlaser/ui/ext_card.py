@@ -1,8 +1,9 @@
 """Card-control UI: alarms, Clear Alarm, breakpoint resume, card parameters, streaming mode.
 
 ``register(ctx)`` (a :class:`mlaser.services.plugins.PluginContext`) binds these commands and
-re-attaches to the controller's signals on every controller change (``ctx.on_controller_changed``)
-when it is a :class:`mlaser.controller.ui_adapter.UiController`:
+subscribes to the controller's alarm events (``ctl.events``, :mod:`mlaser.machine.events`;
+delivered on the GUI thread by ``ui.qtbridge``) again on every controller change
+(``ctx.on_controller_changed``):
 
 * ``card.alarms``      (mf123 "Alarm")          dialog of the active card alarms
 * ``card.clear_alarms`` (gp90 "Clear Alarm")    ``[9999, 5, 0, 0]``
@@ -32,8 +33,6 @@ def _tr(window, key: str, default: str) -> str:
     return s if s and s != key else default
 
 
-def _is_card(ctl) -> bool:
-    return hasattr(ctl, "active_alarms") and hasattr(ctl, "breakpoint")
 
 
 class AlarmListDialog(QDialog):
@@ -64,16 +63,20 @@ class CardExtension:
     def __init__(self, window):
         self.w = window
         self._connected_to = None
+        self._unsub: list = []
+        self._last: set = set()
 
-    # ------------------------------------------------------------------ controller signals
+    # ------------------------------------------------------------------ controller events
     def attach(self) -> None:
+        from mlaser.machine import events as EV
         ctl = self.w.ctl
-        if ctl is self._connected_to or not _is_card(ctl):
+        if ctl is self._connected_to:
             return
+        for un in self._unsub:
+            un()
         self._connected_to = ctl
-        sig = getattr(ctl, "signals", None)
-        if sig is not None:
-            sig.alarmsChanged.connect(self._alarms_changed)
+        self._unsub = [ctl.events.subscribe(EV.AlarmRaised, lambda e: self._alarms_changed(list(e.active))),
+                       ctl.events.subscribe(EV.AlarmCleared, lambda e: self._alarms_changed(list(e.active)))]
         self._last = set()
 
     def _alarms_changed(self, alarms: list) -> None:
@@ -88,23 +91,20 @@ class CardExtension:
     # ------------------------------------------------------------------ commands
     def alarms(self) -> None:
         self.attach()
-        AlarmListDialog(self.w, list(getattr(self.w.ctl, "active_alarms", []))).exec()
+        AlarmListDialog(self.w, list(self.w.ctl.active_alarms)).exec()
 
     def clear_alarms(self) -> None:
         self.w.ctl.clear_alarms()
 
     def break_resume(self) -> None:
         ctl = self.w.ctl
-        if getattr(ctl, "breakpoint", None) is not None:
+        if ctl.breakpoint is not None:
             ctl.resume()
-        elif hasattr(ctl, "resume_saved"):
-            if not ctl.resume_saved(self.w.document):
-                self.w.log_panel.log("mp64: no breakpoint to continue from")
-        else:
-            self.w.log_panel.log("mp64: breakpoint resume needs the card controller")
+        elif not ctl.resume_saved(self.w.document):
+            self.w.log_panel.log("mp64: no breakpoint to continue from")
 
     def params(self) -> None:
-        sc = getattr(self.w.ctl, "scaling", None)
+        sc = self.w.ctl.scaling
         m = getattr(self.w, "machine", None)
         txt = sc.summary() if sc is not None else "card parameters not read (not connected)"
         if m is not None:
@@ -113,9 +113,8 @@ class CardExtension:
         self.w.log_panel.log(txt)
 
     def stream_process(self, on: bool) -> None:
-        if hasattr(self.w.ctl, "stream_process"):
-            self.w.ctl.stream_process = bool(on)
-            self.w.log_panel.log(f"streaming in a separate process: {'on' if on else 'off'}")
+        self.w.ctl.stream_process = bool(on)
+        self.w.log_panel.log(f"streaming in a separate process: {'on' if on else 'off'}")
 
 
 def register(ctx) -> CardExtension:

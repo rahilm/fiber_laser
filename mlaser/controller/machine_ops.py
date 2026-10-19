@@ -2,7 +2,7 @@
 systems, edge seek, restart, upgrade, backup, recovery), independent of Qt.
 
 ``MachineOps(ctl, machine_params=None, app_dir=None)`` works with the card controller
-(:class:`~mlaser.controller.ui_adapter.UiController`, attribute ``mc``) and degrades to logging
+(:class:`~mlaser.controller.ui_adapter.UiController`, its supervised ``card()`` handle) and degrades to logging
 for controllers without a card (the UI's DemoController).  Evidence is in the modules it uses
 (edgeseek, coords, upgrade, nettest, formats.backup, nc.offline) and docs/protocol.md §16-§21.
 """
@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 from ..protocol import frames as F
 from .coords import CoordSystems, MANUAL
-from .edgeseek import EdgeSeekError, EdgeSeekParams, EdgeSeeker, EdgeSeekResult
+from .edgeseek import EdgeSeekParams, EdgeSeeker, EdgeSeekResult
 
 FIBER, CO2, BLUE = 0, 1, 2
 LASER_TYPE_KEYS = {FIBER: "A241024_0", CO2: "A241024_1", BLUE: "A241024_2"}
@@ -63,7 +63,9 @@ class MachineOps:
 
     @property
     def mc(self):
-        return getattr(self.ctl, "mc", None)
+        """The supervised card handle of the controller (None without a card)."""
+        fn = getattr(self.ctl, "card", None)
+        return fn() if callable(fn) else None
 
     def connected(self) -> bool:
         st = self.ctl.state() if hasattr(self.ctl, "state") else None

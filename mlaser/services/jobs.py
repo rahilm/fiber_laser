@@ -26,7 +26,6 @@ import copy
 import hashlib
 import io
 import logging
-import math
 import pickle
 import threading
 import time
@@ -36,6 +35,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
 
 from mlaser.model import Arc, Contour, Document, Part
+from mlaser.toolpath.points import path_points  # noqa: F401 - re-exported
 
 log = logging.getLogger("mlaser.jobs")
 
@@ -662,14 +662,18 @@ class ControllerSubmitter:
         run = getattr(ctl, "_run_job", None)
         if not callable(run):
             raise TypeError(f"{type(ctl).__name__} cannot run a planned job")
-        ok = getattr(ctl, "_ok", lambda: True)
+        motion_ok = getattr(ctl, "_motion_ok", None)
         busy = getattr(ctl, "_busy", lambda: False)
-        if not ok():
+        if callable(motion_ok) and not motion_ok("frame" if plan.mode == "frame" else "start"):
             return
         if busy():
             ctl._log("a job is already running")
             return
+        refuse = getattr(ctl, "_refuse", lambda rep: False)
+        preflight = getattr(ctl, "preflight", None)
         if plan.mode == "frame":
+            if callable(preflight) and refuse(preflight("frame", job=plan.job, emits=False)):
+                return
             x0, y0, x1, y1 = plan.document.bbox()
             run(plan.job, "frame", f"frame {x1 - x0:.1f} x {y1 - y0:.1f} mm", track=False)
             return
@@ -686,30 +690,18 @@ class ControllerSubmitter:
         if not plan.job.wire:
             ctl._log("mp74: nothing to cut")
             return
+        job_emits = getattr(ctl, "job_emits", None)
+        emits = bool(job_emits(plan.job)) if callable(job_emits) else not plan.job.dry_run
+        # the controller's pre-flight on the planned job (travel, homed, armed, layers, alarms)
+        if callable(preflight) and refuse(preflight("start" if emits else "dry_run", src, plan.selected_only,
+                                                    job=plan.job, emits=emits)):
+            return
         if plan.job.dry_run and plan.mode == "process":
             ctl._log("laser disabled: running the job as a dry run")
-        run(plan.job, plan.mode, plan.job.summary())
-
-
-def path_points(items, arc_step_mm: float = 0.5) -> list[tuple[float, float, bool]]:
-    """(x, y, laser) along a toolpath (Rapid, CutLine, CutArc), for simple path followers."""
-    out: list[tuple[float, float, bool]] = []
-    for m in items:
-        name = type(m).__name__
-        if name == "Rapid":
-            out.append((float(m.end[0]), float(m.end[1]), False))
-        elif name == "CutLine":
-            if not out or math.dist(out[-1][:2], m.start) > 1e-9:
-                out.append((float(m.start[0]), float(m.start[1]), False))
-            out.append((float(m.end[0]), float(m.end[1]), bool(getattr(m, "laser", True))))
-        elif name == "CutArc":
-            a = Arc(tuple(m.start), tuple(m.end), tuple(m.center), bool(m.ccw))
-            n = max(2, min(720, int(a.length() / arc_step_mm)))
-            on = bool(getattr(m, "laser", True))
-            for k in range(1, n + 1):
-                x, y = a.point_at(k / n)
-                out.append((x, y, on))
-    return out
+        try:
+            run(plan.job, plan.mode, plan.job.summary(), emits=emits)
+        except TypeError:                                  # a controller without the emits flag
+            run(plan.job, plan.mode, plan.job.summary())
 
 
 @dataclass

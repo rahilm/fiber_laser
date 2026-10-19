@@ -8,7 +8,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QScrollArea, QTabWidget)
+                               QMessageBox, QScrollArea, QTabWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
@@ -194,6 +194,11 @@ class MainWindow(QMainWindow):
         self._close_watch = _CloseWatch(self)
         self.installEventFilter(self._close_watch)
         self._load_extensions(extensions, entry_points)
+        # --- safety UI (ui/safety_ui.py): event dispatcher, state/alarm banners, run bar,
+        # global Hold/Stop keys, pre-flight dialogs (docs/SAFETY.md)
+        from . import safety_ui
+        safety_ui.install(self)
+        # ---
 
     # ------------------------------------------------------------------ plugins
     def _load_extensions(self, names, entry_points: bool = False) -> dict:
@@ -255,10 +260,24 @@ class MainWindow(QMainWindow):
         QTimer.singleShot(0, self.canvas.zoom_fit)   # fit once the view has its real size
 
     def closeEvent(self, ev) -> None:
+        # --- safety: leave the machine halted (program stop, PWM 0, outputs off, FIFO
+        # stop/clear) before the connection goes; a failure is logged, never swallowed
+        from . import safety_ui
+        if safety_ui.job_running(self) and not getattr(self, "_test_no_dialogs", False):
+            if QMessageBox.question(self, "Job running", "A job is running. Stop it and quit?",
+                                    QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
+                ev.ignore()
+                return
+        import logging
+        try:
+            self.ctl.safe_halt("main window closed")
+        except Exception:  # noqa: BLE001
+            logging.getLogger("mlaser.ui").exception("safe_halt on close failed")
         try:
             self.ctl.disconnect()
         except Exception:  # noqa: BLE001
-            pass
+            logging.getLogger("mlaser.ui").exception("disconnect on close failed")
+        # ---
         super().closeEvent(ev)
 
     # ------------------------------------------------------------------ setup
@@ -467,13 +486,18 @@ class MainWindow(QMainWindow):
 
     def set_document(self, doc: Document, path: Optional[str] = None) -> None:
         """Show ``doc`` (open, new, import).  Recorded for undo only after :meth:`_snapshot`."""
+        if self._job_locked("new document"):      # safety: the document is locked while a job runs
+            return
         self._fill_layers(doc)
         self.docs.adopt(doc, path)
 
     @staticmethod
     def _fill_layers(doc: Document) -> None:
         for li in sorted({p.craft.layer for p in doc.parts}):
-            doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name()))
+            # safety: a layer the file does not define is shown with defaults but marked as a
+            # placeholder; the pre-flight check refuses to cut it until its parameters are set
+            doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name(),
+                                                  extra={"placeholder": True}))
 
     def _document_changed(self, kind: str) -> None:
         """DocumentService listener: refresh the views after an edit, undo/redo or a new
@@ -501,11 +525,10 @@ class MainWindow(QMainWindow):
         if m == self.machine:
             return
         self.machine = m
-        if hasattr(self.ctl, "machine"):
-            try:
-                self.ctl.machine = m
-            except AttributeError:
-                pass
+        try:
+            self.ctl.machine = m                 # the controller's own manual moves
+        except AttributeError:
+            pass
         self._update_toolpath()
 
     # ------------------------------------------------------------------ planned job
@@ -559,11 +582,9 @@ class MainWindow(QMainWindow):
         controller; a compile, when one is needed, runs in the worker, never here."""
         ctl = self.ctl
         doc = self.document
-        if mode == "process" and getattr(ctl, "breakpoint", None) is not None:
-            busy = getattr(ctl, "_busy", lambda: False)
-            if not busy():
-                ctl.resume()
-                return
+        if mode == "process" and ctl.breakpoint is not None and not ctl.job_active():
+            ctl.resume()
+            return
         if not doc.parts or (selected_only and not any(p.selected for p in doc.parts)):
             self.log_panel.log("mp78: graphic data is empty, cannot go frame" if mode == "frame"
                                else "mp74: graphic data is empty, cannot start")
@@ -666,8 +687,10 @@ class MainWindow(QMainWindow):
             self._edit(ops.set_layer, layer, label="layer", scope="selection")
 
     def edit_layer(self, layer: int) -> None:
-        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name()))
+        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
+                                                                extra={"placeholder": True}))
         if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
+            lp.extra.pop("placeholder", None)        # parameters confirmed: the layer is defined
             self.layer_panel.refresh()
 
     def _kerf_width(self) -> float:
@@ -677,11 +700,22 @@ class MainWindow(QMainWindow):
     # ------------------------------------------------------------------ files
     FILTER = "Supported (*.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;DXF (*.dxf);;CHF (*.chf);;All (*)"
 
+    def _job_locked(self, what: str) -> bool:
+        """Safety (docs/SAFETY.md): no file open / new document while a job runs."""
+        if not getattr(self, "safety_ui", None):
+            return False
+        from . import safety_ui
+        return safety_ui.job_locked(self, what)
+
     def file_new(self) -> None:
+        if self._job_locked("File > New"):
+            return
         self._snapshot()
         self.set_document(Document())
 
     def load_path(self, path: str) -> bool:
+        if self._job_locked("open"):
+            return False
         ext = os.path.splitext(path)[1].lower()
         loader = None
         if ext == ".chf":
@@ -706,11 +740,15 @@ class MainWindow(QMainWindow):
         return True
 
     def file_open(self) -> None:
+        if self._job_locked("File > Open"):
+            return
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf150"), "", self.FILTER)
         if path:
             self.load_path(path)
 
     def file_import(self) -> None:
+        if self._job_locked("File > Import"):
+            return
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf13"), "", self.FILTER)
         if not path:
             return

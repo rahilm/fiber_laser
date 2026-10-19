@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox,
                                QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QC
 from mlaser.model import LayerParams
 
 from .canvas import LAYER_COLORS, layer_color
-from ..machine.api import ControllerFacade
+from ..machine.api import MachineAPI
 from .i18n import Translator
 from .params import GAS_KEYS
 from .icons import command_icon
@@ -103,7 +103,9 @@ class LayerPanel(QWidget):
             for li in used:
                 lp = doc.layers.get(li)
                 if lp is None:
-                    lp = doc.layers[li] = LayerParams(index=li, color=layer_color(li).name())
+                    # shown with defaults, but "undefined" for the pre-flight check until edited
+                    lp = doc.layers[li] = LayerParams(index=li, color=layer_color(li).name(),
+                                                      extra={"placeholder": True})
                 r = self.table.rowCount()
                 self.table.insertRow(r)
                 head = QTableWidgetItem(_swatch(layer_color(li)), f"{self.tr_.tr('gp83')} {li}")
@@ -126,7 +128,9 @@ class LayerPanel(QWidget):
         li = self._row_layer(it.row())
         attr = self.COLS[it.column()][1]
         try:
-            setattr(self.document.layers[li], attr, float(it.text()))
+            lp = self.document.layers[li]
+            setattr(lp, attr, float(it.text()))
+            lp.extra.pop("placeholder", None)        # the operator set it: the layer is defined
             self.changed.emit()
         except (ValueError, KeyError):
             pass
@@ -200,15 +204,21 @@ class ControlPanel(QWidget):
     simulateRequested = Signal()
     log = Signal(str)
 
+    JOG_KEEPALIVE_MS = 100       # hold-to-jog: keep-alive while a jog button is held
     STEP_KEYS = ["mp90", "mp91", "mp92", "mp93", "mp94", "mp95", "mp96", "mp97", "mp98", "mp99"]
 
-    def __init__(self, tr: Translator, controller: ControllerFacade,
+    def __init__(self, tr: Translator, controller: MachineAPI,
                  get_document: Callable[[], object], parent=None):
         super().__init__(parent)
         self.tr_ = tr
         self.ctl = controller
         self.get_document = get_document
         self.buttons: dict[str, QAbstractButton] = {}
+        self.run_hooks = None            # ui.safety_ui.SafetyUI: Start/Hold/Stop with pre-flight
+        self._held: set[str] = set()     # axes of held continuous-jog buttons
+        self._keepalive = QTimer(self)
+        self._keepalive.setInterval(self.JOG_KEEPALIVE_MS)
+        self._keepalive.timeout.connect(self._jog_keepalive)
         v = QVBoxLayout(self)
         v.setContentsMargins(4, 4, 4, 4)
 
@@ -296,12 +306,12 @@ class ControlPanel(QWidget):
         gp = QGridLayout(proc)
         start = self._icon_button("mp54", "run.start", self._start)
         pause = self._icon_button("mp55", "run.pause", self._pause)
-        stop = self._icon_button("mp56", "run.stop", self.ctl.stop)
+        stop = self._icon_button("mp56", "run.stop", self._stop)
         gp.addWidget(start, 0, 0)
         gp.addWidget(pause, 0, 1)
         gp.addWidget(stop, 0, 2)
-        gp.addWidget(self._text_button("mp57", lambda: self._with_doc(self.ctl.dry_run)), 1, 0)
-        gp.addWidget(self._text_button("mp58", lambda: self._with_doc(self.ctl.frame)), 1, 1)
+        gp.addWidget(self._text_button("mp57", self._dry_run), 1, 0)
+        gp.addWidget(self._text_button("mp58", self._frame), 1, 1)
         gp.addWidget(self._text_button("mp59", self.simulateRequested.emit), 1, 2)
         self.bf_len = QDoubleSpinBox()
         self.bf_len.setRange(0.1, 10000)
@@ -343,20 +353,28 @@ class ControlPanel(QWidget):
     machine_ops = None       # controller.machine_ops.MachineOps, set by ui.ext_machine.register
     confirm_fn: Optional[Callable[[str], bool]] = None   # tests / scripting: answers the prompts
 
+    DONT_ASK_KEYS = ("mp119",)        # start-up go-origin prompt: "don't ask again" offered
+    settings: Optional[dict] = None   # where "don't ask again" answers persist (window.settings)
+    _confirmed_at: tuple = ("", 0.0)
+
     def confirm(self, key: str) -> bool:
-        """OK/Cancel prompt with the text of lang key ``key`` (BCGPMessageBox 0x1001)."""
+        """OK/Cancel prompt with the text of lang key ``key`` (BCGPMessageBox 0x1001), as a real
+        dialog.  The original asks twice at start-up (mp119 then mf156, both "go origin?"): a
+        yes to mp119 answers the mf156 that follows at once."""
         if self.confirm_fn is not None:
             return bool(self.confirm_fn(key))
-        from PySide6.QtWidgets import QMessageBox
-        r = QMessageBox.question(self, "", self.tr_.tr(key), QMessageBox.Ok | QMessageBox.Cancel)
-        return r == QMessageBox.Ok
+        last, t = self._confirmed_at
+        if key == "mf156" and last == "mp119" and time.monotonic() - t < 2.0:
+            self._confirmed_at = ("", 0.0)
+            return True
+        from .safety_ui import ask
+        ok = ask(self, key, self.tr_.tr(key), dont_ask=key in self.DONT_ASK_KEYS, settings=self.settings)
+        if ok:
+            self._confirmed_at = (key, time.monotonic())
+        return ok
 
     def _return_zero(self) -> None:
-        fn = getattr(self.ctl, "return_zero", None)
-        if callable(fn):
-            fn(confirm=self.confirm)
-        else:
-            self.ctl.go_origin_point()
+        self.ctl.return_zero(confirm=self.confirm)
 
     def _sys_home(self) -> None:
         if self.confirm("mf156"):
@@ -406,6 +424,9 @@ class ControlPanel(QWidget):
             fn(doc)
 
     def _start(self) -> None:
+        if self.run_hooks is not None:
+            self.run_hooks.start()
+            return
         st = self.ctl.state()
         if st.mode == "pause":
             self.ctl.resume()
@@ -415,10 +436,52 @@ class ControlPanel(QWidget):
             self.ctl.start(doc, selected_only=self.selected_only.isChecked())
 
     def _pause(self) -> None:
+        if self.run_hooks is not None:
+            self.run_hooks.hold()
+            return
         if self.ctl.state().mode == "pause":
             self.ctl.resume()
         else:
             self.ctl.pause()
+
+    def _stop(self) -> None:
+        self.release_jogs("stop")
+        if self.run_hooks is not None:
+            self.run_hooks.stop()
+        else:
+            self.ctl.stop()
+
+    def _frame(self) -> None:
+        if self.run_hooks is not None:
+            self.run_hooks.frame()
+        else:
+            self._with_doc(self.ctl.frame)
+
+    def _dry_run(self) -> None:
+        if self.run_hooks is not None:
+            self.run_hooks.dry_run()
+        else:
+            self._with_doc(self.ctl.dry_run)
+
+    # -- safety state of the panel
+    def safety_refresh(self, st, ms) -> None:
+        """Called by the safety UI timer: the laser fire button only when armed, the output
+        buttons show what the card reports (a refused output does not stay "on")."""
+        armed = bool(getattr(st, "armed", False))
+        b = self.buttons.get("out_laser")
+        if b is not None:
+            b.setEnabled(armed)
+            b.setStyleSheet("QPushButton{background:#c62828;color:white;font-weight:bold;}" if armed else "")
+            b.setToolTip("Fires the laser while held" if armed else "Arm the machine to fire the laser")
+        if ms is not None:
+            for name in ("gas", "shutter", "red_light", "follow"):
+                bt = self.buttons.get(f"out_{name}")
+                if bt is not None and bt.isCheckable():
+                    on = bool(ms.outputs.get(name, False))
+                    if bt.isChecked() != on:
+                        bt.blockSignals(True)
+                        bt.setChecked(on)
+                        bt.blockSignals(False)
 
     def _jog_press(self, axis: str, d: int) -> None:
         if self.mode_step.isChecked():
@@ -426,21 +489,41 @@ class ControlPanel(QWidget):
                 step = float(self.tr_.tr(self.STEP_KEYS[self.step.currentIndex()]))
             except ValueError:
                 step = 1.0
-            import inspect
-            try:
-                takes_fast = "fast" in inspect.signature(self.ctl.jog_step).parameters
-            except (TypeError, ValueError):
-                takes_fast = False
-            if takes_fast:       # the step jog uses the fast/slow speed too (FUN_005bdae0)
-                self.ctl.jog_step(axis, d, step, fast=self.mode_fast.isChecked())
-            else:
-                self.ctl.jog_step(axis, d, step)
+            # the step jog uses the fast/slow speed too (FUN_005bdae0)
+            self.ctl.jog_step(axis, d, step, fast=self.mode_fast.isChecked())
         else:
+            self._held.add(axis)
             self.ctl.jog_start(axis, d, fast=self.mode_fast.isChecked())
+            self._keepalive.start()
+
+    def _jog_keepalive(self) -> None:
+        if not self._held:
+            self._keepalive.stop()
+            return
+        self.ctl.jog_keepalive()
 
     def _jog_release(self, axis: str) -> None:
-        if not self.mode_step.isChecked():
+        was = axis in self._held
+        self._held.discard(axis)
+        if not self._held:
+            self._keepalive.stop()
+        if was or not self.mode_step.isChecked():
             self.ctl.jog_stop(axis)
+
+    def release_jogs(self, reason: str = "") -> None:
+        """Dead-man: stop every held jog (focus loss, Stop, window hidden)."""
+        if not self._held:
+            return
+        held, self._held = set(self._held), set()
+        self._keepalive.stop()
+        for axis in held:
+            self.ctl.jog_stop(axis)
+        if reason:
+            self.log.emit(f"jog stopped ({reason})")
+
+    def hideEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        self.release_jogs("panel hidden")
+        super().hideEvent(ev)
 
 
 # --------------------------------------------------------------------------- log

@@ -52,13 +52,17 @@ class LightTest:
             self.log("gp0: hardware is not connected")
             return False
         power = float(self.p["LT.ltPower"])
-        mc = getattr(self.ctl, "mc", None)
+        st = self.ctl.safety()
+        if not st.armed:
+            self.log("light test refused: the machine is not armed")
+            return False
+        mc = self.ctl.card()
         if mc is not None:
             try:
                 mc.set_pwm(int(self.p["LT.ltFreq"]), int(self.p["LT.ltDutyfactor"]))
             except Exception as e:  # noqa: BLE001
                 self.log(f"light test PWM: {e}")
-        if self.timed and hasattr(self.ctl, "laser_test"):
+        if self.timed:
             dur = float(self.p["LT.ltLaserTime"])
             self.ctl.laser_test(dur, power)
         else:
