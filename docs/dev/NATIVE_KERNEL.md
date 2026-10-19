@@ -229,9 +229,13 @@ The extension is part of the mlaser distribution (root `setup.py`, `optional=Tru
   skips the extension, unset / `auto` = optional.
 * **Wheels:** cibuildwheel (`[tool.cibuildwheel]` in pyproject.toml, job `wheels` of
   package.yml): CPython 3.12 and 3.13 for manylinux x86_64 and aarch64, Windows AMD64, macOS
-  arm64 and x86_64, one native runner per architecture.  Each wheel is installed in a clean
-  environment and `python -m mlaser._native --require` must report the kernel active after its
-  self-check.  No 32-bit builds (x87, below), no musllinux (no PySide6 wheels).
+  arm64 (Apple silicon only: no Intel macOS build), one native runner per architecture.  Each
+  wheel is installed in a clean environment, `python -m mlaser._native --require` must report
+  the kernel active after its self-check, and `tools/build_native.py --check --installed`
+  disassembles the installed module and refuses any FMA.  The Linux wheels are built in the
+  manylinux_2_28 container but tested on the Ubuntu 24.04 runner afterwards: PySide6 6.12 only
+  has manylinux_2_34 (x86_64) / manylinux_2_39 (aarch64) wheels, which the build container
+  cannot install.  No 32-bit builds (x87, below), no musllinux (no PySide6 wheels).
 * **sdist:** carries `setup.py` and `_emitter.c` (MANIFEST.in), never a built module; the wheel
   carries the module, not the C source.
 * **PyInstaller:** `collect_submodules("mlaser")` picks up `mlaser._native._emitter` like any

@@ -196,6 +196,7 @@ class SafetySupervisor:
         self._hb_state = False
         self._hb_next = 0.0
         self.heartbeat_toggles = 0
+        self.heartbeat_errors = 0             # heartbeat writes that failed (no reply in time)
         self.heartbeat_held = False           # commissioning test: output off, no toggling
         self.fifo_frames = 0
         self.fifo_emitting = 0
@@ -450,7 +451,7 @@ class SafetySupervisor:
             self._hb_state = on
             self.heartbeat_toggles += 1
         except (ControllerError, OSError, ValueError):
-            pass
+            self.heartbeat_errors += 1
 
 
 __all__ = ["SafetySupervisor", "CardHandle", "CommandRefused", "HaltParams", "HaltResult",
