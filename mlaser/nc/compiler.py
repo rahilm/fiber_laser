@@ -352,9 +352,11 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     prof = active_profile()
     em = prof.sampling.Emitter(m, start, dry_run, carry)
     builder = None
-    if PACK_WIRE and isinstance(getattr(em, "wire", None), list) and not em.wire:
+    # the port's emitter appends through the list interface: collect straight into packed
+    # arrays; another emitter (e.g. the native kernel, which needs real lists) is packed after
+    if PACK_WIRE and type(em) is Emitter and isinstance(getattr(em, "wire", None), list) and not em.wire:
         builder = WireBuilder()              # packed numpy storage, same items (nc/packed.py)
-        em.wire, em.starts = builder, builder.starts()
+        em.wire, em.starts = builder, builder.starts()  # type: ignore[assignment]
     job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run)
     period = m.period_ms
     rapid_len = 0.0
@@ -498,6 +500,13 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     if builder is not None:
         job.wire, plain_starts = builder.finish()
         job._groups = (job.wire, len(job.wire), "packed" if plain_starts is None else tuple(plain_starts))
+    elif PACK_WIRE and isinstance(em.wire, list):
+        try:
+            job.wire = PackedWire.from_items(em.wire, em.starts)
+            job._groups = (job.wire, len(job.wire), "packed")
+        except (TypeError, OverflowError):
+            job.wire = em.wire
+            job._groups = (job.wire, len(job.wire), tuple(em.starts))
     else:
         job.wire = em.wire
         job._groups = (job.wire, len(job.wire), tuple(em.starts))
