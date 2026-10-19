@@ -11,8 +11,9 @@ tells whether **only** the platform's math library is responsible (docs/dev/TEST
 
 ``record`` wraps the functions whose result comes from the platform's libm or LAPACK and that
 the golden computations call (``math.sin cos tan asin acos atan atan2 exp log log10 log2 pow
-fmod``, ``numpy.hypot``, ``numpy.linalg.solve``, and shapely's ``buffer``, whose round joins GEOS
-computes with the platform's sin / cos), runs every golden group with the default
+fmod``, ``numpy.hypot``, ``numpy.linalg.solve``, shapely's ``buffer``, whose round joins GEOS
+computes with the platform's sin / cos, and every ``a ** b`` in mlaser, which is libm ``pow``:
+the modules are compiled with the operator rewritten to a wrapped call), runs every golden group with the default
 profile, and writes every distinct call (arguments and result as ``float.hex``) plus the
 recomputed golden records of this platform.
 
@@ -29,8 +30,7 @@ recomputed golden records of this platform.
 Exit status of ``replay``: 0 when the recorded platform's records are reproduced exactly and
 nothing was missed, 1 otherwise.  CPython's own ``math.hypot`` / ``math.dist`` / ``math.fsum``
 and ``sqrt`` are not libm-dependent (correctly rounded / CPython's own code) and are not
-wrapped; ``float ** float`` calls libm ``pow`` directly and cannot be wrapped (a difference
-there would show up as an unexplained case in step 2).
+wrapped.
 """
 from __future__ import annotations
 
@@ -97,6 +97,50 @@ def _arr_in(rec):
     return np.frombuffer(bytes.fromhex(hx), dtype=float).reshape(shape).copy()
 
 
+def _pow_op(a, b):
+    return a ** b
+
+
+def install_pow_hook() -> None:
+    """``float ** float`` calls the C library's ``pow`` and cannot be wrapped like a module
+    function: mlaser's modules are compiled with every ``a ** b`` rewritten to
+    ``__golden_pow__(a, b)`` (a builtin that computes ``a ** b``, wrapped by :class:`Hooks`).
+    Must run before mlaser is imported; nothing is written to ``__pycache__``."""
+    import ast
+    import builtins
+    import importlib.abc
+    import importlib.machinery
+
+    builtins.__golden_pow__ = _pow_op     # type: ignore[attr-defined]
+    sys.dont_write_bytecode = True
+
+    class Rewrite(ast.NodeTransformer):
+        def visit_BinOp(self, node):
+            self.generic_visit(node)
+            if isinstance(node.op, ast.Pow):
+                return ast.copy_location(ast.Call(ast.Name("__golden_pow__", ast.Load()),
+                                                  [node.left, node.right], []), node)
+            return node
+
+    class Loader(importlib.machinery.SourceFileLoader):
+        def get_code(self, fullname):
+            src = self.get_source(fullname)
+            tree = ast.fix_missing_locations(Rewrite().visit(ast.parse(src, self.path)))
+            return compile(tree, self.path, "exec", dont_inherit=True)
+
+    class Finder(importlib.abc.MetaPathFinder):
+        def find_spec(self, name, path=None, target=None):
+            if name != "mlaser" and not name.startswith("mlaser."):
+                return None
+            spec = importlib.machinery.PathFinder.find_spec(name, path)
+            if spec is not None and isinstance(spec.loader, importlib.machinery.SourceFileLoader):
+                spec.loader = Loader(spec.loader.name, spec.loader.path)
+            return spec
+
+    assert "mlaser" not in sys.modules, "install_pow_hook() must run before mlaser is imported"
+    sys.meta_path.insert(0, Finder())
+
+
 def _where() -> str:
     """The innermost mlaser frames of the current call (where a replay first diverged)."""
     import traceback
@@ -109,7 +153,7 @@ class Hooks:
 
     def __init__(self, table: dict | None = None):
         self.table = table
-        self.calls: dict[str, dict[str, str]] = {f: {} for f in MATH_FUNCS}
+        self.calls: dict[str, dict[str, str]] = {f: {} for f in (*MATH_FUNCS, "**")}
         self.arrays: dict[str, dict[str, list]] = {"np.hypot": {}, "np.linalg.solve": {}}
         self.geoms: dict[str, dict[str, str]] = {"shapely.buffer": {}}
         self.hits = self.misses = 0
@@ -128,6 +172,10 @@ class Hooks:
         np.hypot = self._array("np.hypot", np.hypot)
         self._saved.append((np.linalg, "solve", np.linalg.solve))
         np.linalg.solve = self._array("np.linalg.solve", np.linalg.solve)
+        import builtins
+        if hasattr(builtins, "__golden_pow__"):
+            self._saved.append((builtins, "__golden_pow__", _pow_op))
+            builtins.__golden_pow__ = self._scalar("**", _pow_op)
         from shapely.geometry.base import BaseGeometry
         self._saved.append((BaseGeometry, "buffer", BaseGeometry.buffer))
         BaseGeometry.buffer = self._geom("shapely.buffer", BaseGeometry.buffer)
@@ -163,7 +211,8 @@ class Hooks:
             except (ValueError, OverflowError, ZeroDivisionError) as e:
                 rec[k] = f"raise {type(e).__name__}"
                 raise
-            rec[k] = float(r).hex()
+            if type(r) is float:                # (int ** int, a complex power: not libm)
+                rec[k] = r.hex()
             return r
         return wrapped
 
@@ -290,7 +339,7 @@ def replay(path: Path, show: int) -> int:
     # 1. the library results that differ
     print("\n1. library results that differ from this platform's")
     for name, calls in data["calls"].items():
-        fn = getattr(math, name)
+        fn = _pow_op if name == "**" else getattr(math, name)
         diffs = []
         for k, hx in calls.items():
             args = _args(k)
@@ -303,7 +352,8 @@ def replay(path: Path, show: int) -> int:
         if calls:
             ul = sorted({_ulps(float.fromhex(t), float.fromhex(m)) for _a, t, m in diffs
                          if not t.startswith("raise") and not m.startswith("raise")})
-            print(f"  math.{name}: {len(calls)} distinct calls, {len(diffs)} differ"
+            label = "float ** (libm pow)" if name == "**" else f"math.{name}"
+            print(f"  {label}: {len(calls)} distinct calls, {len(diffs)} differ"
                   + (f" (ulps: {ul[:8]})" if diffs else ""))
             for args, theirs, mine in diffs[:show]:
                 print(f"      {name}({', '.join(repr(a) for a in args)}) = {theirs} there, {mine} here")
@@ -372,6 +422,7 @@ def main(argv=None) -> int:
     p.add_argument("trace", type=Path)
     p.add_argument("--show", type=int, default=20, help="examples to print per item")
     a = ap.parse_args(argv)
+    install_pow_hook()
     if a.cmd == "record":
         import make_goldens as G
         return record(a.out, a.only or list(G.GROUPS), a.trace)

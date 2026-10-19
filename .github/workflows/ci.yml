@@ -87,28 +87,30 @@ jobs:
           uv run --locked python "$RUNNER_TEMP/lat.py"
           sysctl -n hw.ncpu machdep.cpu.brand_string || true
 
-      - name: "DEBUG (temporary): command coverage on macOS, crash report"
-        if: runner.os == 'macOS'
-        continue-on-error: true
+      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
+        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
+
+      - name: "DEBUG (temporary): macOS crash report"
+        if: failure() && runner.os == 'macOS'
         run: |
-          MLASER_COVERAGE_TRACE=1 uv run --locked python -X faulthandler tools/command_coverage.py 2>&1 | tail -25 || true
-          sleep 5
+          ls -lt ~/Library/Logs/DiagnosticReports/ | head -5 || true
           f=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
           if [ -n "$f" ]; then echo "== $f"; uv run --locked python - "$f" <<'PY'
           import json, sys
           raw = open(sys.argv[1]).read().split("\n", 1)
           rep = json.loads(raw[1])
           print(rep.get("exception"), rep.get("termination", {}).get("indicator"))
-          th = rep["threads"][rep.get("faultingThread", 0)]
           imgs = rep["usedImages"]
-          for fr in th["frames"][:30]:
-              im = imgs[fr["imageIndex"]]
-              print(f"  {im.get('name', '?')}  {fr.get('symbol', '?')}+{fr.get('symbolLocation', 0)}")
+          ft = rep.get("faultingThread", 0)
+          for i, th in enumerate(rep["threads"]):
+              if i != ft and i != 0:
+                  continue
+              print(f"thread {i} {th.get('name', '')} {th.get('queue', '')}" + (" (faulting)" if i == ft else ""))
+              for fr in th["frames"][:40]:
+                  im = imgs[fr["imageIndex"]]
+                  print(f"  {im.get('name', '?')}  {fr.get('symbol', '?')}+{fr.get('symbolLocation', 0)}")
           PY
           fi
-
-      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
-        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
       # C kernel vs Python port on THIS platform, every golden job + the 300 random jobs, bit for
       # bit (float.hex for the carry and the cut length): catches a platform-specific C build
