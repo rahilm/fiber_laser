@@ -50,7 +50,7 @@ ignored with a log line.
 | `ctx.on_document_changed(fn)` | `fn(kind)` after an edit, undo, redo or a new document |
 | `ctx.on_plan(fn)` | `fn(planned_job)` when a new PlannedJob is ready (preview = what Start cuts) |
 | `ctx.on_close(fn)` | before the window closes (save state, close devices) |
-| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises |
+| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises.  Used today: `dxf.mode` (ext_options), `machine.monitor_host` (ext_machine: `fn(key, factory)` shows a device monitor as a panel of the Machine workspace); read when present: `user_mode` (`fn() -> "operator" / "engineer" / "service"`), `workspace.show` (`fn(name)`, the shell's switcher) |
 | `ctx.add_dock(widget, title, area="right")` | a dock widget (`left` / `right` / `bottom` / `top`) |
 | `ctx.add_ribbon_tab(title, command_ids)` | a ribbon tab with one button per command |
 | `ctx.add_workspace(name, widget, title)` | registers a task workspace (Wave 3 workspaces; kept in `window.workspaces`) |

@@ -28,8 +28,7 @@ from mlaser.devices.transport import DeviceSettings
 
 def _mc(window):
     """The supervised card handle, None without a card."""
-    ctl = getattr(window, "ctl", None)
-    return ctl.card() if ctl is not None else None
+    return window.ctl.card()                 # MachineAPI: None without a card
 
 
 def _as_parent(window):
@@ -71,7 +70,7 @@ class CurvePlot(QWidget):
         sx = w / max(1, x1 - x0)
         sy = h / max(1, y1 - y0)
         poly = QPolygonF([QPointF(m + (x - x0) * sx, m + h - (y - y0) * sy) for x, y in self.points])
-        p.setPen(QPen(Qt.blue, 2))
+        p.setPen(QPen(self.palette().highlight().color(), 2))     # palette: dark theme safe
         p.drawPolyline(poly)
         p.setPen(QPen(self.palette().text().color(), 1))
         p.drawText(2, m + 10, str(y1))
@@ -409,7 +408,7 @@ def start_pendant(window) -> bool:
         "home": lambda: ctl.home("XY"), "stop": ctl.stop, "pause_resume": ctl.pause,
         "start": lambda: run("process"), "frame": lambda: run("frame"),
     }
-    mapper = P.PendantJogMapper(ctl, actions, busy=lambda: ctl.state().mode in ("process", "frame", "dry_run"),
+    mapper = P.PendantJogMapper(ctl, actions, busy=lambda: ctl.job_active() or ctl.state().mode in ("process", "frame", "dry_run"),
                                 leds=pend.set_leds, dev_id=lambda: pend.status.dev_id)
     mapper.attach(pend)              # dead-man: HID error stops the jog, keep-alive while held
     ext.pendant_events = []

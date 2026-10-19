@@ -74,12 +74,12 @@ supervisor and the streamer, no `ctl.mc` in ui/diag/devices); see docs/SAFETY.md
 
 ### Explicit ignores
 
-Edges that could not be removed by moving code in Wave 1. Each is listed in pyproject.toml with
-a comment and has a ROADMAP item that removes it.
-
-| Import | Why | Removed by (ROADMAP) |
-|---|---|---|
-| `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
+None are left.  The last one, `parity_ports.mainapp.layer -> formats.params` (LayerView read the
+layer defaults from the parameter registry), went in Wave 3: the defaults are injected through
+`parity_ports.mainapp.layer.set_layer_defaults(provider)`.  `ConfigService` installs
+`ConfigService.layer_defaults` when it is created; `nc.process` installs the plain registry
+reader (`formats.params.layer_default_values`) when nothing else has.  Both give the registry
+defaults exactly, so the goldens are bit-identical (`tests/test_layer_defaults_injection.py`).
 
 ## 2. Moved modules and compatibility shims
 
@@ -135,7 +135,7 @@ pinned by the Wine parity run (docs/re/parity.md) and the goldens (tests/golden/
 | `crtmath.py` | msvcr100 (Wine) acos / atan / atan2 / hypot | (module record) | used by the smoother |
 | `cadmodule/spline.py` | exact spline glyphs in the cutting pipeline (FUN_10093390, parity JC-07) | `SplineCurve`, `CurveRef` | `spline` |
 | `mainapp/sampling.py` | MainApp sample loop and pulse quantisation (FUN_00462630 / FUN_00473bd0) | `Emitter`, `emit_samples`, `gap_flags`, `sample_speeds` | `sampling` |
-| `mainapp/layer.py` | the GP.* layer parameter block (`LayerView`, `Stage`) | (module record) | used by the encoder |
+| `mainapp/layer.py` | the GP.* layer parameter block (`LayerView`, `Stage`); defaults injected (`set_layer_defaults`) | (module record) | used by the encoder |
 | `ncmodule/manu.py` | NCModule ManuItem -> FIFO items (FUN_10043c20) | `ManuEncoder` | `process` |
 | `cadmodule/ordering_fast.py` | bit-identical drop-ins of `local_optimal_elems`, `containers_last_faithful`, `import_sort` (grid / numpy / STRtree filters, reference decisions; docs/dev/PERFORMANCE.md §2) | `import_sort`, `local_optimal_elems`, `containers_last_faithful` | `ordering` (default) |
 | `cadmodule/ordering.py` | sort dispatcher modes 5/6/7 (FUN_100b57c0, 0x1003d300, 0x1003c480, CRingSort 0x1003f690), start point 0x10071f80 | `import_sort`, `local_optimal_elems`, `containers_last_faithful`, `ring_sort`, `choose_start` | `ordering` |
@@ -239,6 +239,9 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
 | `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+| procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
+| `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
+| `AlarmHistory` (`alarm_history.py`) | alarms and faults with raise / clear times, persisted | the alarm tab's log lines |
 
 ### Undo
 

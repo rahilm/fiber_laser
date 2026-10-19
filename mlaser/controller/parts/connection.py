@@ -179,6 +179,24 @@ class ConnectionPart:
         """The supervised card handle (None while disconnected)."""
         return self.sup.card if self.sup.connected else None
 
+    def endpoint(self) -> Optional[tuple[str, int]]:
+        return (str(self.cfg.host), int(self.cfg.port))
+
+    def operator_action(self, what: str = "") -> None:
+        """A new operator action (wizard step): clears the halt latch, nothing else (a latched
+        FAULT still refuses motion in the guard)."""
+        self.sup.clear_latch(what or "operator action")
+
+    def heartbeat_status(self) -> dict:
+        s = self.sup
+        return {"output": int(s.heartbeat_output or 0), "hz": float(s.heartbeat_hz),
+                "toggles": int(s.heartbeat_toggles), "hold": bool(s.heartbeat_held),
+                "active": bool(s.heartbeat_output) and s.connected and not s.heartbeat_held}
+
+    def heartbeat_hold(self, hold: bool) -> None:
+        self.sup.heartbeat_held = bool(hold)
+        audit("heartbeat_hold", hold=bool(hold))
+
     # ------------------------------------------------------------------ link events
     def _on_link_lost(self, why: str) -> None:
         with self._slock:

@@ -2,14 +2,16 @@
 typed view, and its pierce stages (layer + 0x158 + 0x58 * s).  Moved from
 ``mlaser.controller.process`` (Wave 1).
 
-Defaults come from the parameter registry (``formats/data/mlaser_params.json``, read lazily
-through :mod:`mlaser.formats.params`): the one import outside the fence, recorded as an
-import-linter ignore until the ConfigService (docs/ROADMAP.md Wave 2) hands the defaults in.
+The defaults (the registry's ``GP.*`` descriptor defaults, ``formats/data/mlaser_params.json``)
+are *injected*: :func:`set_layer_defaults` installs a provider, called once on first use.  The
+ConfigService (``mlaser.services.config``) installs ``ConfigService.layer_defaults``; the NC
+layer (``mlaser.nc.process``) installs the plain registry reader when nothing else has, so the
+fence imports nothing outside geom/protocol/model (the last import-linter ignore is gone).
 """
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any, Callable, Mapping, Optional
 
 __port__ = {
     "source": "MainApp",
@@ -25,13 +27,33 @@ MANU_DIRECT, MANU_FIX_HEIGHT, MANU_ADV_FIX_HEIGHT = 0, 1, 5
 
 # --------------------------------------------------------------------------- layer view
 _LAYER_DEFAULTS: Optional[dict] = None
+_DEFAULTS_PROVIDER: Optional[Callable[[], Mapping[str, Any]]] = None
+
+
+def set_layer_defaults(provider: Optional[Callable[[], Mapping[str, Any]]],
+                       replace_existing: bool = True) -> bool:
+    """Install the provider of the ``GP.*`` defaults (``{"GP.CutSpeed": 100.0, ...}``).  With
+    ``replace_existing=False`` an already installed provider is kept.  Returns True when
+    ``provider`` was installed.  The cached defaults are dropped, the next view asks again."""
+    global _DEFAULTS_PROVIDER, _LAYER_DEFAULTS
+    if _DEFAULTS_PROVIDER is not None and not replace_existing:
+        return False
+    _DEFAULTS_PROVIDER = provider
+    _LAYER_DEFAULTS = None
+    return True
+
+
+def layer_defaults_installed() -> bool:
+    return _DEFAULTS_PROVIDER is not None
 
 
 def _layer_defaults() -> dict:
     global _LAYER_DEFAULTS
     if _LAYER_DEFAULTS is None:
-        from ...formats.params import layer_defs
-        _LAYER_DEFAULTS = {d.key: d.default_value for d in layer_defs() if "." in d.key}
+        if _DEFAULTS_PROVIDER is None:
+            raise RuntimeError("layer defaults not injected: import mlaser.nc.process or create "
+                               "a ConfigService (parity_ports.mainapp.layer.set_layer_defaults)")
+        _LAYER_DEFAULTS = dict(_DEFAULTS_PROVIDER())
     return _LAYER_DEFAULTS
 
 

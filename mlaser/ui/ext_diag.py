@@ -83,8 +83,7 @@ def _log(window, msg: str) -> None:
 def _mc(window):
     """The supervised card handle (None without a card): every command is checked by the safety
     supervisor (arming for DA/PWM/laser outputs, no motion while a fault is latched)."""
-    ctl = getattr(window, "ctl", None)
-    return ctl.card() if ctl is not None else None
+    return window.ctl.card()                 # MachineAPI: None without a card
 
 
 def _lang(window) -> str:
@@ -401,6 +400,16 @@ class ControllerMonitor(QDialog):
         self._timer.stop()
         super().closeEvent(ev)
 
+    # as a panel of the Machine workspace: poll only while visible
+    def showEvent(self, ev) -> None:
+        if not self._timer.isActive():
+            self._timer.start(500)
+        super().showEvent(ev)
+
+    def hideEvent(self, ev) -> None:
+        self._timer.stop()
+        super().hideEvent(ev)
+
 
 class DeviceMonitor(QDialog):
     """FTC (zf), auto-focus (af) and extension card (ec) monitors."""
@@ -590,6 +599,15 @@ class DeviceMonitor(QDialog):
             rows.append(("", "calibration", _tr(self.ext.w, grade, fs.calibration_grade) if grade
                          else fs.calibration_grade))
         _fill(self.table, rows)
+
+    def showEvent(self, ev) -> None:
+        if not self._timer.isActive():
+            self._timer.start(500)
+        super().showEvent(ev)
+
+    def hideEvent(self, ev) -> None:
+        self._timer.stop()
+        super().hideEvent(ev)
 
     def closeEvent(self, ev) -> None:
         self._timer.stop()
@@ -1374,6 +1392,10 @@ class DiagExtension:
 
     # ------------------------------------------------------------------ commands
     def _show(self, key: str, factory: Callable[[], QWidget]) -> QWidget:
+        if key in self.MONITOR_KEYS and self.ctx is not None:
+            host = self.ctx.host.hooks.provider("machine.monitor_host")   # Machine workspace
+            if host is not None:
+                return host(key, factory)
         win = self.windows.get(key)
         if win is None or not _alive(win):
             win = factory()
@@ -1381,6 +1403,14 @@ class DiagExtension:
         win.show()
         _raise(win)
         return win
+
+    MONITOR_KEYS = ("controller", "zf", "af", "ec")
+
+    def show_monitor(self, key: str) -> QWidget:
+        """The monitor ``key`` (controller / zf / af / ec): a panel of the Machine workspace when
+        it is there, else its own window."""
+        return {"controller": self.mon_controller, "zf": self.mon_ftc, "af": self.mon_af,
+                "ec": self.mon_ext}[key]()
 
     def mon_controller(self):
         return self._show("controller", lambda: ControllerMonitor(self))

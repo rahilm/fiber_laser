@@ -42,7 +42,9 @@ def test_all_commands_rebound(win):
         QApplication.processEvents()
     assert missing == []
     assert ext.interferometer_dock is not None and not ext.interferometer_dock.isHidden()
-    assert "help" in ext.windows and "controller" in ext.windows and "report" in ext.windows
+    assert "help" in ext.windows and "report" in ext.windows
+    # the device monitors are panels of the Machine workspace (Wave 3), not floating windows
+    assert "controller" in w.extension("ext_machine").workspace.monitors
     w.run("aux.interferometer")
     assert ext.interferometer_dock.isHidden()
 

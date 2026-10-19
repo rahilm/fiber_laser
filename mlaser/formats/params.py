@@ -157,6 +157,11 @@ def layer_defs(co2: bool = False) -> list[ParamDef]:
     return defs_for("co2layer" if co2 else "layer")
 
 
+def layer_default_values(co2: bool = False) -> dict[str, Any]:
+    """``{GP.key: default}`` of every layer descriptor (what ``LayerView`` starts from)."""
+    return {d.key: d.default_value for d in layer_defs(co2) if "." in d.key}
+
+
 def layer_category(i: int, co2: bool = False) -> str:
     """0-based layer index -> XML category (``FUN_006354c0``)."""
     return ("CO2LayerParam%d" if co2 else "LayerParam%d") % (i + 1)

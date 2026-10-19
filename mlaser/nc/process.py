@@ -213,7 +213,11 @@ class ProcessConfig:
 # --------------------------------------------------------------------------- layer view
 # the GP.* layer block view is part of the parity fence: mlaser.parity_ports.mainapp.layer
 from ..parity_ports.mainapp.layer import (_STAGE_ALIASES, LayerView, Stage,  # noqa: E402,F401
-                                          _layer_defaults)
+                                          _layer_defaults, set_layer_defaults)
+from ..formats.params import layer_default_values as _registry_layer_defaults  # noqa: E402
+
+# the registry defaults, unless the ConfigService installed its provider first
+set_layer_defaults(_registry_layer_defaults, replace_existing=False)
 
 
 # --------------------------------------------------------------------------- power curve

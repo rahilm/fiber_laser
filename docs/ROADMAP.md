@@ -84,11 +84,11 @@ Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of th
   and Start streams exactly it; the streamer uses `Job.frames()` (`mlaser.services.jobs`; the
   run bar, run controls, pendant and batch runner hand the plan to `start_job`, which runs the
   pre-flight on it; tests/test_services_jobs.py)
-- ◐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
-  the machine profile feeds `Machine` (done: `mlaser.services.config`, typed Options dialogs,
-  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); still open: it
-  hands the layer defaults to `parity_ports.mainapp.layer` (the import-linter ignore
-  `parity_ports.mainapp.layer -> formats.params` stays)
+- ☑ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
+  the machine profile feeds `Machine` (`mlaser.services.config`, typed Options dialogs,
+  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); it hands the
+  layer defaults to `parity_ports.mainapp.layer` by injection (Wave 3 Machine track; the last
+  import-linter ignore `parity_ports.mainapp.layer -> formats.params` is gone, goldens identical)
 - ☑ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
   (`mlaser.services.undo`; bounded by count and bytes; byte-exact .chf through edit/undo/redo)
 - ☑ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
@@ -139,15 +139,20 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   validation
 
 ## Wave 3: modern workflow (Stage 3, built on the services)
-- ☐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
-  a Ctrl+K command palette, and an optional classic ribbon
+- ◐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
+  a Ctrl+K command palette, and an optional classic ribbon (☑ Machine workspace:
+  `ui/workspaces/machine.py`, monitors as panels, typed hardware settings, alarm history)
 - ☐ material/technology database: material × thickness × gas × nozzle; versioned; diff against
   factory values
 - ☐ properties panel instead of modal dialogs; units; live previews
 - ☐ preview with a scrubber, plus a time and cost card
 - ☐ touch-first Run screen; Operator, Engineer and Service modes
 - ☐ graphical nest workspace; job queue; production reports; remnant stock
-- ☐ guided edge-seek and calibration procedures
+- ☑ guided edge-seek and calibration procedures (Machine track: `services.procedures` step
+  machines with abort = `safe_halt` and a simulator dry run; edge seek 3/4-point, disc and
+  two-point with outline review and undoable apply; follower calibration with the curve; focus
+  homing; laser power test with arming; first-connection commissioning checklist; settings import
+  from an original install; docs/user/machine.md)
 - ◐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
   files. Done: readable ids, the importer, Qt Linguist `.ts`/`.qm` round trip, `tools/i18n_check.py` in
   CI, the bundled cutting-text font (docs/dev/i18n.md); open: cleaned-up translations (none ship yet)
