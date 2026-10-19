@@ -51,6 +51,7 @@ SETTINGS = [
 ]
 LAYOUT_VERSION = 3
 NARROW = 1400          # logical px: below this the side docks share one tabbed column
+CANVAS_MIN = 480       # logical px: the canvas width fit_docks keeps (tests/test_shell.py)
 
 
 class _WindowWatch(QObject):
@@ -535,7 +536,7 @@ class Shell:
         if left is None or right is None:
             return
         if W < NARROW:
-            if w.dockWidgetArea(left) != Qt.RightDockWidgetArea:
+            if w.dockWidgetArea(left) != Qt.RightDockWidgetArea or left not in w.tabifiedDockWidgets(right):
                 w.addDockWidget(Qt.RightDockWidgetArea, left)
                 w.tabifyDockWidget(right, left)
             right.raise_()
@@ -545,6 +546,16 @@ class Shell:
                 w.addDockWidget(Qt.LeftDockWidgetArea, left)
             w.resizeDocks([left, right], [max(240, min(320, int(W * 0.2))), max(300, min(380, int(W * 0.24)))],
                           Qt.Horizontal)
+        # the docks' minimum widths follow the platform's font metrics (macOS: a few px wider):
+        # give the canvas its CANVAS_MIN back from the right dock
+        lay = w.layout()
+        central = w.centralWidget()
+        if lay is not None and central is not None:
+            lay.activate()
+            short = CANVAS_MIN - central.width()
+            if short > 0 and right.width() > 300:
+                w.resizeDocks([right], [max(300, right.width() - short)], Qt.Horizontal)
+                lay.activate()
         if log is not None:
             w.resizeDocks([log], [110 if H < 900 else 150], Qt.Vertical)
 

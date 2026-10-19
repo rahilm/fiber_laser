@@ -279,7 +279,8 @@ def test_keys_and_shortcut_sheet(win, app):
                                                                for k in keymap.sequences(key)], cmd
         assert a[cmd] in win.actions()
     assert a["run.start"].shortcut() == QKeySequence("F5") and a["run.stop"].shortcut() == QKeySequence("F12")
-    assert "(Ctrl+S)" in a["file.save"].toolTip()
+    # the tooltip shows the platform's native key text: "Ctrl+S" on Windows / Linux, "⌘S" on macOS
+    assert f"({QKeySequence('Ctrl+S').toString(QKeySequence.NativeText)})" in a["file.save"].toolTip()
     rows = win.shell.shortcut_rows()
     keys = {r[2] for r in rows}
     assert "Ctrl+K" in keys and "F1" in keys and "F5" in keys and "Space" in keys
