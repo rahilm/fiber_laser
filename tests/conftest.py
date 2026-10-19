@@ -27,7 +27,7 @@ UI_MODULES = {
     "test_camx_ui", "test_card_ui", "test_craft_ui", "test_devices_ui", "test_diag_monitors",
     "test_diag_ui", "test_draw_geometry", "test_draw_tools", "test_engrave_dialog",
     "test_integration", "test_lead_hooks", "test_machine_ops", "test_nest_ui_project",
-    "test_report_window", "test_ui", "test_ui_lead", "test_ws_run",
+    "test_report_window", "test_ui", "test_ui_lead", "test_ws_run", "test_partlist_cache",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
