@@ -191,7 +191,16 @@ def test_project_layout_and_manifest():
     assert {"document.json", "sections/technology.json", "sections/queue.json", "nest/job.json",
             "fonts/Custom.ttf"} <= set(names)
     assert any(n.endswith(".npy") for n in names)
-    assert dumps_project(_rich_project()) != b   # times differ, the content does not
+    # a second save of the same content: the same members, the same bytes except the save times
+    # (manifest) and the nest's measured run time.  (It used to assert that the two archives
+    # differ: with Windows' coarse clock before Python 3.13 they can be identical.)
+    import re
+    z2 = zipfile.ZipFile(io.BytesIO(dumps_project(_rich_project())))
+    assert z2.namelist() == names
+
+    def norm(n, data):
+        return re.sub(rb'"elapsed_s":[0-9.e-]+', b"", data) if n == "nest/job.json" else data
+    assert all(norm(n, z2.read(n)) == norm(n, z.read(n)) for n in names if n != "manifest.json")
     from mlaser.project.schema import DOCUMENT_SCHEMA, validate
     assert validate(json.loads(z.read("document.json")), DOCUMENT_SCHEMA) == []
 

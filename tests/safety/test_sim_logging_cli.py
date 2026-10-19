@@ -38,7 +38,10 @@ def test_pessimistic_simulator_keeps_running_and_holds_the_beam():
 def test_fault_injection_api():
     sim = CardSimulator().start()
     try:
-        cfg = TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=30, fifo_time_ms=60, max_recv=1)
+        # a 200 ms reply timeout: the 20 ms latency injected below must not exceed it on a host
+        # whose sleeps run long (macOS runner VMs: a 20 ms sleep takes 30-40 ms; with 30 ms the
+        # delayed reply timed out, "no reply")
+        cfg = TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200, fifo_time_ms=400, max_recv=1)
         with MotionController(config=cfg) as mc:
             mc.read_status()
             sim.inject(link_down=True)
