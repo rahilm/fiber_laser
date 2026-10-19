@@ -127,7 +127,7 @@ class ProductionRecorder:
                 active.append(("FAULT", st.fault, "fault", remedy(st.fault, trn)))
         except Exception:  # noqa: BLE001
             pass
-        for a in list(getattr(ctl, "active_alarms", None) or []):
+        for a in list(ctl.active_alarms or []):            # MachineAPI.active_alarms
             text = a.text(trn) if hasattr(a, "text") else str(a)
             active.append((str(getattr(a, "code", text)), text, getattr(a, "kind", "card"), remedy(a, trn)))
         job = os.path.basename(getattr(w, "path", None) or "") if self.watcher.running else ""

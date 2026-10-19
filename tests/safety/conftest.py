@@ -11,7 +11,7 @@ def make_ctl():
     def make(process: bool = False, arm: bool = True, time_scale: float = 1.0, **kw):
         from mlaser.controller.ui_adapter import UiController
         sim_kw = {k: kw.pop(k) for k in list(kw) if k in ("fifo_capacity", "halt_lag_ms", "card_soft_limits",
-                                                          "pessimistic", "homed")}
+                                                          "pessimistic", "homed", "link_deadline_ms")}
         sim_kw.setdefault("pessimistic", True)
         ctl = UiController(poll_s=0.02, stream_process=process, **kw)
         made.append(ctl)

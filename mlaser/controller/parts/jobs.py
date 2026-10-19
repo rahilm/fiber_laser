@@ -250,7 +250,7 @@ class JobRunnerPart:
                         self.breakpoint = None
             except CommandRefused as e:
                 reason = f"refused: {e.reason}"
-                if not self._cancel.is_set():
+                if not self._cancel.is_set() and not self._pausing:
                     self.raise_fault(f"{mode}: a command was refused ({e.reason})")
             except ControllerError as e:            # StreamFault, link errors, timeouts
                 reason = f"fault: {e}"
@@ -405,11 +405,14 @@ class JobRunnerPart:
             return
         bp_job, offset = self._bp_job, self._run_offset
         self._pausing = True
-        self.sup.safe_halt("pause", pause=True)
         self._stop_reason = "paused"
+        # cancel the stream BEFORE latching the halt: a request already in flight is otherwise
+        # refused by the latch while _cancel is still clear, which the worker took for a fault
+        # (Hold sometimes latched FAULT under load; Wave 3 Run-track finding)
         self._cancel.set()
         if st is not None and hasattr(st, "set_cancel"):
             st.set_cancel()
+        self.sup.safe_halt("pause", pause=True)
 
         def finish():
             if self._worker is not None:

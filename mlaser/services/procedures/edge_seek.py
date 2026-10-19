@@ -1,7 +1,7 @@
 """Guided edge seek: capacitive 3 / 4 points, disc centre, manual two points.
 
 The measuring sequences are the original's (:class:`mlaser.controller.edgeseek.EdgeSeeker`,
-docs/protocol.md §16); this module wraps them in a step machine with a check, a review of the
+docs/re/protocol.md §16); this module wraps them in a step machine with a check, a review of the
 measured sheet (outline and angle, :func:`sheet_outline`) and an explicit, undoable apply
 (:func:`apply_to_docs`, one ``DocumentService.edit``).
 """

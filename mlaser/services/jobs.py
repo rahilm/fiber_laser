@@ -34,7 +34,9 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
 
-from mlaser.model import Arc, Contour, Document, Part
+import dataclasses
+
+from mlaser.model import Arc, Contour, Craft, Document, Part
 from mlaser.toolpath.points import path_points  # noqa: F401 - re-exported
 
 log = logging.getLogger("mlaser.jobs")
@@ -129,6 +131,10 @@ class _KeyPickler(pickle.Pickler):
     def __init__(self, f, blob_ids: set[int]) -> None:
         super().__init__(f, protocol=5)
         self._blob_ids = blob_ids
+        # value-based key: no memo, so equal documents hash equal whether or not sub-objects
+        # (a shared Craft, LayerParams ...) are shared; undo restores equal copies, not the same
+        # sharing.  The document graph has no cycles; round-trip blobs go by persistent_id.
+        self.fast = True
 
     def persistent_id(self, obj):
         if id(obj) in self._blob_ids:
@@ -142,7 +148,18 @@ class _KeyPickler(pickle.Pickler):
         if type(obj) is Contour:
             return (Contour, (obj.segments, obj.closed, dict(dict.items(obj.extra)), 0, obj.craft, obj.glyphs,
                               obj.glyph_key))
+        if type(obj) is Craft:
+            # ``extra`` may be a plain dict or the model's LegacyExtra view (after undo or a
+            # .chf load); both must hash alike, so reduce every field with extra as its raw items
+            vals = tuple(dict(dict.items(v)) if f.name == "extra" else v
+                         for f in dataclasses.fields(obj) for v in (getattr(obj, f.name),))
+            return (_craft_from_fields, (vals,))
         return NotImplemented
+
+
+def _craft_from_fields(vals: tuple) -> Craft:
+    """Only used as the reduce target of the hash pickler (never unpickled)."""
+    return Craft(*vals)
 
 
 def _blob_ids(doc: Document) -> set[int]:
