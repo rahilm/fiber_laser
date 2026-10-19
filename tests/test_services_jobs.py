@@ -278,7 +278,8 @@ def test_window_start_on_the_card_controller_streams_the_plan(app):
     w = real_window(UiController())
     w.control.confirm_fn = lambda key: False  # no start-up homing prompt
     try:
-        assert w.connect_simulator(time_scale=20.0)
+        # 4x: the streamed dry run keeps 0.3 s of real time in the card's FIFO (at 20x, 60 ms)
+        assert w.connect_simulator(time_scale=4.0)
         w.set_document(demo_doc())
         for _ in range(20):
             app.processEvents()

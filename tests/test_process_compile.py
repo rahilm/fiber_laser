@@ -168,7 +168,7 @@ def test_simulator_consumes_process_items():
     job = compile_job(doc, {"return_to_origin": False}, m, start=(0.0, 0.0))
     ops = {w[0] & 0xFFFF for w in job.wire}
     assert {F.OP_FOLLOW_TO, F.OP_Z_REL, F.OP_FOLLOW_ON, F.OP_WAIT, F.OP_MARK, F.OP_SYS} <= ops
-    sim = CardSimulator(period_ms=m.period_ms, time_scale=8.0).start()
+    sim = CardSimulator(period_ms=m.period_ms, time_scale=2.0).start()   # 0.6 s of FIFO margin
     try:
         cfg = TransportConfig(host="127.0.0.1", port=sim.port)
         with MotionController(config=cfg, pulses_per_mm=m.pulses_per_mm_x) as mc:
