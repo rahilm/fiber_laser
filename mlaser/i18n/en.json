@@ -1901,6 +1901,16 @@
    "done",
    "total"
   ],
+  "help.not_packaged": [
+   "target"
+  ],
+  "help.search_none": [
+   "query"
+  ],
+  "help.search_results": [
+   "count",
+   "query"
+  ],
   "main.import_language_done": [
    "languages"
   ],
