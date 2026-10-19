@@ -367,7 +367,15 @@ class JobRunnerPart:
                 self._log("fault reset refused: card alarm still active: "
                           + ", ".join(a.text_en for a in left), logging.WARNING)
                 return False
-            self._apply_status(st)
+            # the interlocks as they are now, follower words included (a fresh read): without
+            # them the follower alarm used to drop out of the active set and the reset passed
+            # while it still held (timing-dependent: the evaluation is rate-limited)
+            self._zf_read_t = 0.0
+            zf = self._read_follower(self._mc)
+            self._apply_status(st, zf)
+            self.interlocks.evaluate(st, zf, follower_present=bool(self._zf_type()),
+                                     job_active=self.job_active(), emitting=False,
+                                     armed=self.fsm.armed, force=True)
         why = self.interlocks.blocking_arm()
         if why:
             self._log(f"fault reset refused: interlock active: {why}", logging.WARNING)

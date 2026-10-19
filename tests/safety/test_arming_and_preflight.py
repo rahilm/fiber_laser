@@ -167,6 +167,26 @@ def test_interlock_trips_fault_and_halt(make_ctl, source):
     assert ctl.reset_fault()
 
 
+def test_follower_alarm_holds_through_a_reset(make_ctl):
+    """A reset while the follower alarm still holds is refused, whatever the timing of the
+    interlock evaluation (period 0: every status is evaluated).  Before, a status evaluated
+    without follower words dropped the alarm from the active set and the reset passed
+    (Windows runner, test_interlock_trips_fault_and_halt[follower])."""
+    from mlaser.controller.interlocks import InterlockConfig
+    ctl = make_ctl(interlocks=InterlockConfig(period_s=0.0))
+    ctl.machine.params["ZF.ZFType"] = 1
+    ctl.sim.onboard_zf = True
+    start_and_run(ctl, run_s=0.3)
+    ctl.sim.state.zf_regs[1] = 0x4
+    assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 1.0) is not None
+    assert ctl.wait_job(5)
+    for _ in range(5):
+        assert not ctl.reset_fault()                   # the follower alarm still holds
+        time.sleep(0.05)
+    ctl.sim.state.zf_regs[1] = 0
+    assert wait_until(lambda: ctl.reset_fault(), 2.0) is not None
+
+
 def test_jog_dead_man(make_ctl):
     ctl = make_ctl(arm=False)
     sim = ctl.sim
@@ -227,11 +247,15 @@ def test_heartbeat_output_toggles_and_stops_on_fault(make_ctl):
     ctl = make_ctl(heartbeat_output=8, heartbeat_hz=10.0)
     sim = ctl.sim
     seen = set()
-    t_end = time.monotonic() + 0.6
+    t0 = time.monotonic()
+    t_end = t0 + 0.6
     while time.monotonic() < t_end:
         seen.add(bool(sim.state.outputs >> 7 & 1))
         time.sleep(0.01)
-    assert seen == {True, False} and ctl.sup.heartbeat_toggles >= 8
+    sup = ctl.sup
+    assert seen == {True, False} and sup.heartbeat_toggles >= 8, (
+        f"{sup.heartbeat_toggles} toggles, {sup.heartbeat_errors} failed writes, "
+        f"{time.monotonic() - t0:.2f} s")
     ctl.raise_fault("test fault")
     time.sleep(0.3)
     assert not sim.state.outputs >> 7 & 1

@@ -114,6 +114,11 @@ class InterlockMonitor:
         self._last = now
         cond = self.conditions(st, zf_words, follower_present=follower_present, job_active=job_active,
                                emitting=emitting, armed=armed)
+        if (zf_words is None and follower_present and self.cfg.follower and "follower" in self.active
+                and "follower" not in cond):
+            # no follower words with this status (not read this time): unknown is not clear,
+            # the follower alarm keeps holding until a read shows it gone
+            cond["follower"] = self.active["follower"]
         new: list[Trip] = []
         for src, msg in cond.items():
             if src not in self.tripped and self.gated(src, job_active=job_active, emitting=emitting, armed=armed):

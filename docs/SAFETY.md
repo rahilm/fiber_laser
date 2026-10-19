@@ -149,7 +149,9 @@ long jobs on slow hosts.
 
 * Interlocks (`InterlockConfig`, values `safety.*`): follower status word 1 non-zero (on-board
   FTC), gas-low input during a cut, laser-source alarm input when armed or running, door input
-  during a cut. A trip latches FAULT and halts; an active interlock refuses arming and reset.
+  during a cut. A trip latches FAULT and halts; an active interlock refuses arming and reset
+  (the reset reads the follower words afresh, and a status without them never clears a
+  follower alarm: unknown is not clear).
   The original has no readable laser-source alarm (docs/re/devices.md §4), so the source's alarm
   output must be wired to an input to be monitored.
 * Hold-to-jog: a continuous jog needs a keep-alive (`jog_keepalive()`, sent every 100 ms by the
