@@ -28,6 +28,20 @@ entry point in the group ``mlaser.plugins`` (the MeerK40t pattern)::
     [project.entry-points."mlaser.plugins"]
     hello = "mlaser_hello:plugin"
 
+**Trust model** (docs/dev/PLUGINS.md §6): a plugin is code running in the application's process
+with the user's privileges and the machine's authority; nothing here sandboxes it.  What this
+module enforces:
+
+* entry-point plugins are **opt-in**: :func:`discover` lists them, but the application loads only
+  those in the persisted allowlist (``plugins.allowlist``: name -> entry-point target, edited in
+  Service mode; :func:`allowed`), and a changed target needs enabling again;
+* they load **after** the safety UI exists (``MainWindow``), and cannot register commands in the
+  core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
+  so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
+* ``ctx.controller`` goes through the controller's ``plugin_policy(name, origin)`` when the
+  controller provides one (:func:`controller_for`; the Safety-core track defines what a plugin may
+  reach), else it is the controller itself.
+
 This module is Qt-free; the host (``mlaser.ui.mainwindow.MainWindow``) implements the UI calls.
 See docs/dev/PLUGINS.md.
 """
@@ -54,8 +68,29 @@ WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar
                      "description", "slot")
 
 
+#: command namespaces of the core (safety controls, shell, workspaces): only built-in plugins
+#: may register there
+RESERVED_PREFIXES = ("run.", "shell.", "workspace.")
+#: the ConfigService key of the entry-point allowlist ({name: "module:attr"})
+ALLOWLIST_KEY = "plugins.allowlist"
+
+
 class DuplicateProviderError(KeyError):
     pass
+
+
+class ReservedCommandError(PermissionError):
+    """A plugin that is not built in tried to register a command of the core's namespaces."""
+
+
+def controller_for(ctl: Any, plugin: str, origin: str) -> Any:
+    """What ``ctx.controller`` returns: ``ctl.plugin_policy(plugin, origin)`` when the controller
+    defines that hook (Safety core: a view without the guard's internals, audited arming), else
+    ``ctl`` itself (full authority: see the trust model)."""
+    policy = getattr(ctl, "plugin_policy", None)
+    if callable(policy):
+        return policy(plugin, origin)
+    return ctl
 
 
 class Host(Protocol):
@@ -146,9 +181,10 @@ class PluginSettings:
 class PluginContext:
     """The API object of one plugin (see the module docstring)."""
 
-    def __init__(self, host: Host, name: str) -> None:
+    def __init__(self, host: Host, name: str, origin: str = "builtin") -> None:
         self.host = host
         self.name = name
+        self.origin = origin                # builtin | entry-point
         self.commands_registered: list[str] = []
         self.settings: Optional[PluginSettings] = None
 
@@ -175,7 +211,9 @@ class PluginContext:
 
     @property
     def controller(self):
-        return self.host.ctl
+        """The machine controller, through its ``plugin_policy`` when it has one
+        (:func:`controller_for`)."""
+        return controller_for(self.host.ctl, self.name, self.origin)
 
     @property
     def window(self):
@@ -204,7 +242,12 @@ class PluginContext:
         ``min_mode`` (``"operator"`` / ``"engineer"`` / ``"service"``) is the lowest user mode
         that may run it (default: :func:`mlaser.services.usermodes.default_min_mode`);
         ``workspace`` the workspace it belongs to (palette, shortcut sheet).
-        Raises :class:`DuplicateCommandError` when the id is already bound."""
+        Raises :class:`DuplicateCommandError` when the id is already bound, and
+        :class:`ReservedCommandError` for an id of the core's namespaces (``run.*``, ``shell.*``,
+        ``workspace.*``) from a plugin that is not built in."""
+        if self.origin != "builtin" and cmd_id.startswith(RESERVED_PREFIXES):
+            raise ReservedCommandError(f"command {cmd_id!r} is in a namespace reserved for the core "
+                                       f"({', '.join(RESERVED_PREFIXES)})")
         spec = self.host.commands.register(
             cmd_id, handler, self.name, label or cmd_id, checkable, min_mode=min_mode, workspace=workspace
         )
@@ -319,6 +362,7 @@ class PluginInfo:
     name: str
     target: str  # "module" or "module:attr"
     origin: str = "builtin"  # builtin | entry-point
+    dist: str = ""  # "package 1.2.3" of an entry point (for the Plugins dialog)
 
 
 def discover(
@@ -338,8 +382,27 @@ def discover(
             if ep.name in seen:
                 log.error("plugin entry point %s ignored: the name is taken", ep.name)
                 continue
-            out.append(PluginInfo(ep.name, ep.value, "entry-point"))
+            dist = getattr(ep, "dist", None)
+            label = f"{getattr(dist, 'name', '')} {getattr(dist, 'version', '')}".strip() if dist else ""
+            out.append(PluginInfo(ep.name, ep.value, "entry-point", label))
     return out
+
+
+def allowed(info: PluginInfo, allowlist: Optional[dict]) -> bool:
+    """Is this entry-point plugin enabled?  Only when the allowlist names it **with the same
+    target** (a package that later points the name at other code needs enabling again)."""
+    if info.origin == "builtin":
+        return True
+    return bool(allowlist) and isinstance(allowlist, dict) and allowlist.get(info.name) == info.target
+
+
+def plugin_status(info: PluginInfo, allowlist: Optional[dict]) -> str:
+    """``enabled`` / ``disabled`` / ``changed`` (enabled for another target)."""
+    if allowed(info, allowlist):
+        return "enabled"
+    if isinstance(allowlist, dict) and info.name in allowlist:
+        return "changed"
+    return "disabled"
 
 
 def resolve(target: str) -> Any:
@@ -370,9 +433,12 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         msg = f"plugin {info.name}: needs plugin API {need}, this is {PLUGIN_API}"
         host.log(msg)
         return None, RuntimeError(msg)
-    ctx = PluginContext(host, info.name)
+    ctx = PluginContext(host, info.name, info.origin)
     try:
-        return ctx, reg(ctx)
+        result = reg(ctx)
+        if info.origin != "builtin":
+            _audit_loaded(info)
+        return ctx, result
     except Exception as exc:  # noqa: BLE001 - reported, rolled back
         host.commands.unregister_owner(info.name)
         host.hooks.remove_owner(info.name)
@@ -381,3 +447,12 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         log.error("%s\n%s", msg, traceback.format_exc())
         host.log(msg)
         return None, exc
+
+
+def _audit_loaded(info: PluginInfo) -> None:
+    """A third-party plugin is code with machine authority: its loading is an audit record."""
+    try:
+        from mlaser.machine.audit import audit
+        audit("plugin_loaded", name=info.name, target=info.target, dist=info.dist, origin=info.origin)
+    except Exception:  # noqa: BLE001 - best effort
+        log.warning("plugin loaded: %s (%s)", info.name, info.target)

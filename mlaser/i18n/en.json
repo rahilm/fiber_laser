@@ -1753,6 +1753,16 @@
   "pitch.positive_measured": "Positive Measured",
   "pitch.precision_compensate": "Precision Compensate",
   "pitch.save": "Save",
+  "plugins.allowlist": "Enabled third-party plugins",
+  "plugins.col_enabled": "Enabled",
+  "plugins.col_name": "Name",
+  "plugins.col_package": "Package",
+  "plugins.col_status": "Status",
+  "plugins.col_target": "Entry point",
+  "plugins.confirm": "Enable {names}?\n\n{warning}",
+  "plugins.none": "No third-party plugin is installed.",
+  "plugins.title": "Plugins",
+  "plugins.warning": "A plugin is program code that runs inside mlaser with your user account's rights and the machine's authority: it can read and write your files, use the network and command the motion card. The safety guard stops accidents, not a hostile plugin. Enable only plugins you trust, from a source you trust. Changes take effect at the next start.",
   "register.acceleration": "Acceleration",
   "register.accumulated_pulse_number": "Accumulated pulse number",
   "register.ad_sampling_value": "AD sampling value",
@@ -2973,6 +2983,10 @@
   ],
   "pitch.average_backlash": [
    "backlash"
+  ],
+  "plugins.confirm": [
+   "names",
+   "warning"
   ],
   "status.speed": [
    "unit",

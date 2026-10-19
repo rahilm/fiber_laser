@@ -10,20 +10,27 @@ The optional engines of the performance and libraries track, as typed plugin set
 * ``craft.kerf_clipper`` (checkable): ``CamParams.kerf_fallback = "clipper"`` when the analytic
   kerf offset fails (pyclipper + CircleFit).
 * ``app.netcheck``: the network self-test (``mlaser.netcheck``): the last result, and a run.
+* ``app.plugins``: the installed third-party plugins (``mlaser.plugins`` entry points) and which
+  of them are enabled (the allowlist ``plugins.allowlist``; Service mode; takes effect at the next
+  start).  Plugins run with full user privileges and machine authority (docs/dev/PLUGINS.md §6).
 
 The nest engine (raster / sparrow) is a field of the nest-parameter dialog (ext_nest).
 """
 
 from __future__ import annotations
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
+    QHeaderView,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QTableWidget,
+    QTableWidgetItem,
     QVBoxLayout,
 )
 
@@ -109,6 +116,84 @@ class NetCheckDialog(QDialog):
         self.text.setPlainText(res.text())
 
 
+PLUGIN_WARNING = (
+    "A plugin is program code that runs inside mlaser with your user account's rights and the "
+    "machine's authority: it can read and write your files, use the network and command the "
+    "motion card. The safety guard stops accidents, not a hostile plugin. Enable only plugins "
+    "you trust, from a source you trust. Changes take effect at the next start.")
+
+
+class PluginsDialog(QDialog):
+    """The installed third-party plugins and the allowlist (see the module docstring)."""
+
+    COLUMNS = ("enabled", "name", "target", "package", "status")
+
+    def __init__(self, window, catalog: list, allowlist: dict, editable: bool = True) -> None:
+        super().__init__(window)
+        self.w = window
+        self.setObjectName("plugins_dialog")
+        self.setWindowTitle(_t(window, "plugins.title", "Plugins"))
+        self.resize(760, 380)
+        lay = QVBoxLayout(self)
+        warn = QLabel(_t(window, "plugins.warning", PLUGIN_WARNING))
+        warn.setObjectName("plugins_warning")
+        warn.setWordWrap(True)
+        lay.addWidget(warn)
+        self.catalog = [(info, st) for info, st in catalog]
+        self.allow = dict(allowlist or {})
+        self.table = QTableWidget(len(self.catalog), len(self.COLUMNS))
+        self.table.setObjectName("plugins_table")
+        self.table.setHorizontalHeaderLabels([_t(window, f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        for r, (info, st) in enumerate(self.catalog):
+            chk = QTableWidgetItem()
+            flags = Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
+            if editable:
+                flags |= Qt.ItemIsEnabled
+            chk.setFlags(flags)
+            chk.setCheckState(Qt.Checked if self.allow.get(info.name) == info.target else Qt.Unchecked)
+            self.table.setItem(r, 0, chk)
+            for c, text in enumerate((info.name, info.target, info.dist, st), 1):
+                it = QTableWidgetItem(text)
+                it.setFlags(Qt.ItemIsSelectable | Qt.ItemIsEnabled)
+                self.table.setItem(r, c, it)
+        lay.addWidget(self.table, 1)
+        if not self.catalog:
+            lay.addWidget(QLabel(_t(window, "plugins.none", "No third-party plugin is installed.")))
+        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel if editable else QDialogButtonBox.Close)
+        bb.accepted.connect(self._save)
+        bb.rejected.connect(self.reject)
+        lay.addWidget(bb)
+
+    def checked(self) -> dict:
+        """{name: target} of the rows checked now."""
+        out = {}
+        for r, (info, _st) in enumerate(self.catalog):
+            if self.table.item(r, 0).checkState() == Qt.Checked:
+                out[info.name] = info.target
+        return out
+
+    def new_ones(self) -> list[str]:
+        return [n for n, t in self.checked().items() if self.allow.get(n) != t]
+
+    def _save(self) -> None:
+        new = self.new_ones()
+        if new and not getattr(self.w, "_test_no_dialogs", False):
+            ok = QMessageBox.question(
+                self, _t(self.w, "plugins.title", "Plugins"),
+                _t(self.w, "plugins.confirm", "Enable {names}?\n\n{warning}", names=", ".join(new),
+                   warning=_t(self.w, "plugins.warning", PLUGIN_WARNING)),
+                QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
+            if ok != QMessageBox.Yes:
+                return
+        self.accept()
+
+
+def _t(window, key: str, default: str, **kw) -> str:
+    from .workspaces import tr
+    return tr(window, key, default, **kw)
+
+
 class OptionsExtension:
     def __init__(self, ctx) -> None:
         self.ctx = ctx
@@ -175,6 +260,32 @@ class OptionsExtension:
     def netcheck(self) -> None:
         NetCheckDialog(self.w).exec()
 
+    def plugins(self) -> "PluginsDialog":
+        """The Plugins dialog; Save stores the allowlist (persisted at once, used at the next start)."""
+        from mlaser.services.plugins import ALLOWLIST_KEY
+        cfg = self.ctx.config
+        d = PluginsDialog(self.w, list(getattr(self.w, "plugin_catalog", []) or []), cfg.get(ALLOWLIST_KEY, {}))
+        if d.exec():
+            self.save_allowlist(d.checked())
+        return d
+
+    def save_allowlist(self, allow: dict) -> None:
+        from mlaser.services.plugins import ALLOWLIST_KEY
+        cfg = self.ctx.config
+        old = dict(cfg.get(ALLOWLIST_KEY, {}) or {})
+        cfg.set(ALLOWLIST_KEY, dict(allow))
+        try:
+            cfg.save()
+        except OSError as exc:
+            self.ctx.log(f"plugins: the allowlist could not be saved ({exc})")
+            return
+        try:
+            from mlaser.machine.audit import audit
+            audit("plugin_allowlist", enabled=sorted(allow), before=sorted(old))
+        except Exception:  # noqa: BLE001
+            pass
+        self.ctx.log("plugins enabled: " + (", ".join(sorted(allow)) or "none") + " (at the next start)")
+
 
 def register(ctx) -> OptionsExtension:
     ext = OptionsExtension(ctx)
@@ -184,7 +295,9 @@ def register(ctx) -> OptionsExtension:
         "craft.kerf_clipper", ext.set_kerf_clipper, label="Kerf fallback (pyclipper)", checkable=True
     )
     ctx.register_command("app.netcheck", ext.netcheck, label="Network self-test")
-    ctx.add_ribbon_tab("Options+", ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck"])
+    ctx.register_command("app.plugins", ext.plugins, label="plugins.title", min_mode="service")
+    ctx.add_ribbon_tab("Options+", ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
+                                    "app.plugins"])
     ctx.provide("dxf.mode", ext.dxf_mode)
     ext.apply()
     return ext

@@ -18,7 +18,7 @@ from mlaser.services.commands import CommandRegistry, UnknownCommandError
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
-from mlaser.services.plugins import Hooks, discover, register_plugin
+from mlaser.services.plugins import ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
 from . import dialogs
 from .canvas import CanvasView, layer_color
@@ -204,7 +204,8 @@ class MainWindow(QMainWindow):
         self.set_document(Document())
         self._close_watch = _CloseWatch(self)
         self.installEventFilter(self._close_watch)
-        self._load_extensions(extensions, entry_points)
+        self.plugin_catalog: list = []           # entry-point plugins found (services.plugins)
+        self._load_extensions(extensions)
         # --- safety I/O (ui/safety_io.py): the interlocks and the heartbeat from the ConfigService
         # reach the controller now, after every change and after a controller swap
         from . import safety_io
@@ -213,21 +214,57 @@ class MainWindow(QMainWindow):
         # global Hold/Stop keys, pre-flight dialogs (docs/SAFETY.md)
         from . import safety_ui
         safety_ui.install(self)
+        # --- third-party plugins: opt-in (the allowlist), after the safety UI exists, outside the
+        # core's command namespaces (docs/dev/PLUGINS.md §6)
+        if entry_points:
+            self._load_entry_points()
         # ---
         self.shell.finish()       # commands, keys, palette, theme, user mode, layout
 
     # ------------------------------------------------------------------ plugins
     def _load_extensions(self, names, entry_points: bool = False) -> dict:
-        """Register the built-in plugins ``names`` (modules of this package) and, with
-        ``entry_points``, the ``mlaser.plugins`` entry points (services.plugins).  A failing
-        plugin is logged with its reason and rolled back; the core window still works."""
+        """Register the built-in plugins ``names`` (modules of this package); ``entry_points``
+        loads the enabled ``mlaser.plugins`` entry points right after them (the application
+        itself loads those later, see :meth:`_load_entry_points`).  A failing plugin is logged
+        with its reason and rolled back; the core window still works."""
         mods = list(dict.fromkeys(n if "." in n or ":" in n else f"{__package__}.{n}" for n in names))
-        for info in discover(mods, entry_points=entry_points):
-            ctx, result = register_plugin(self, info)
-            if ctx is not None:
-                self.plugin_contexts[info.name] = ctx
-                self.extensions[info.name] = result
+        for info in discover(mods, entry_points=False):
+            self._register(info)
+        if entry_points:
+            self._load_entry_points()
         return self.extensions
+
+    def _register(self, info) -> bool:
+        ctx, result = register_plugin(self, info)
+        if ctx is None:
+            return False
+        self.plugin_contexts[info.name] = ctx
+        self.extensions[info.name] = result
+        return True
+
+    def _load_entry_points(self) -> list:
+        """The ``mlaser.plugins`` entry points: every one is listed in :attr:`plugin_catalog`
+        (``[info, status]``), only those the allowlist enables (``plugins.allowlist``, Service
+        mode, Options+ > Plugins) are imported.  Status: ``loaded`` / ``failed`` / ``disabled``
+        / ``changed`` (enabled for another target: needs enabling again)."""
+        allow = self.config.get(ALLOWLIST_KEY, {})
+        taken = set(self.extensions)
+        for info in discover((), entry_points=True):
+            st = plugin_status(info, allow)
+            if st == "enabled":
+                if info.name in taken:
+                    st = "failed"
+                    self.log(f"plugin {info.name}: name already taken, not loaded")
+                else:
+                    st = "loaded" if self._register(info) else "failed"
+            elif st == "changed":
+                self.log(f"plugin {info.name}: its entry point changed to {info.target}; "
+                         "not loaded until it is enabled again (Options+ > Plugins, Service mode)")
+            self.plugin_catalog.append([info, st])
+        found = [i.name for i, s in self.plugin_catalog if s in ("disabled", "changed")]
+        if found:
+            self.log(f"plugins installed but not enabled: {', '.join(found)} (Options+ > Plugins)")
+        return self.plugin_catalog
 
     def extension(self, name: str):
         """The object a plugin's register() returned (None when it is not loaded)."""

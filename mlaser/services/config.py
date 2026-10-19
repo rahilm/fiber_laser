@@ -227,6 +227,12 @@ def _safety_settings() -> list[Setting]:
 
 SAFETY_SETTINGS: tuple[Setting, ...] = tuple(_safety_settings())
 
+#: application settings outside the registry (``plugins.allowlist``: entry-point plugins the
+#: service engineer enabled, name -> entry-point target; docs/dev/PLUGINS.md §6)
+APP_SETTINGS: tuple[Setting, ...] = (
+    Setting("plugins.allowlist", "json", {}, label="plugins.allowlist", section="plugins", source="app"),
+)
+
 
 # --------------------------------------------------------------------------- service
 @dataclass
@@ -244,7 +250,7 @@ class ConfigService:
 
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
         self.schema: dict[str, Setting] = dict(registry_settings())
-        self.schema.update({s.key: s for s in SAFETY_SETTINGS})
+        self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS})
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE
