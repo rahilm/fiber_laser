@@ -102,8 +102,8 @@ def test_worker_exception_latches_a_fault_and_halts(make_ctl, monkeypatch):
     assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 10) is not None
     assert "ZeroDivisionError" in ctl.fsm.fault
     assert wait_until(lambda: safe(ctl.sim), 0.5) is not None
-    assert ctl.breakpoint is not None                 # resumable after the reset
     assert ctl.wait_job(5)
+    assert ctl.breakpoint is not None                 # resumable after the reset
 
 
 def test_excepthooks_halt_and_latch(make_ctl):

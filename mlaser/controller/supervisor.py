@@ -199,6 +199,7 @@ class SafetySupervisor:
         self.fifo_frames = 0
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
+        self._halt_lock = threading.RLock()
 
     @property
     def guarded_outputs(self) -> int:
@@ -328,7 +329,8 @@ class SafetySupervisor:
                 p = self.halt_params()
             except Exception:  # noqa: BLE001 - never let a parameter error skip the halt
                 p = HaltParams()
-            res = run_halt(mc, p, reason, pause, "halt" if mc is self._halt else "main")
+            with self._halt_lock:      # whole sequences, never interleaved on the wire
+                res = run_halt(mc, p, reason, pause, "halt" if mc is self._halt else "main")
         self.halts.append(res)
         del self.halts[:-50]
         audit("halt", logging.WARNING, reason=reason, ok=res.ok, pause=pause, channel=res.channel,
