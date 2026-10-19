@@ -142,7 +142,8 @@ first on the document to show the dialog.
 
 While a job streams, no successful reply for `link_deadline_ms` (150 ms) latches FAULT (in the
 process streamer the child detects it; the parent watches the child with 500 ms). While idle the
-deadline is `idle_link_deadline_ms` (1.5 s). The halt is attempted at once and repeated; the card
+deadline is `idle_link_deadline_ms` (1.5 s), counted only while a request is unanswered: a host
+that did not ask (a GUI thread holding the interpreter for seconds) is not a lost link. The halt is attempted at once and repeated; the card
 can only run out what is buffered (≤ 1.2 s). The in-thread streamer prepares the job (wire copy,
 timing, FIFO frames: about 0.1 s for 30 000 items, more on a slow PC) before the streaming
 deadline applies, while the status poller still talks to the card (`JobStreamer.prepare`):

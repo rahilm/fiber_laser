@@ -308,3 +308,28 @@ def test_link_age_after_a_process_job_counts_from_the_childs_relays():
         assert ctl.sup.link_age_s() < 1.0
     finally:
         ctl.disconnect()
+
+
+def test_idle_host_stall_is_not_a_lost_link(make_ctl):
+    """Idle and connected: a host thread that holds the GIL for longer than the idle deadline
+    (1.5 s; building a large window does this on a slow PC) stops the poller too, but every
+    request it had sent was answered: that is not a lost link (the macOS runner latched
+    'link lost (idle)' while a MainWindow was being built).  A dead link still faults
+    (test_link_loss_latches_a_fault_and_bounds_the_motion, idle link loss below)."""
+    ctl = make_ctl(process=False, arm=False)
+    time.sleep(0.2)
+    old = sys.getswitchinterval()
+    sys.setswitchinterval(5.0)               # this thread keeps the GIL while it computes
+    try:
+        t0 = time.perf_counter()
+        x = 0
+        while time.perf_counter() - t0 < 2.0:
+            x += 1
+    finally:
+        sys.setswitchinterval(old)
+    time.sleep(0.3)                          # the monitor and the poller run again
+    assert not ctl.fsm.faulted, ctl.safety().fault
+    ctl.sim.link_down(True)                  # and a dead link while idle still faults
+    assert wait_until(lambda: ctl.fsm.faulted, 4.0) is not None
+    assert "link lost" in ctl.fsm.fault
+    ctl.sim.link_down(False)

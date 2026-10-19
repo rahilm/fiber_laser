@@ -368,6 +368,12 @@ class SafetySupervisor:
         mc = self._mc
         if mc is None or not mc.last_ok:
             return 0.0
+        if not self.streaming and getattr(mc, "last_sent", 0.0) <= mc.last_ok:
+            # idle, and every request sent so far was answered: silence since the last reply is
+            # this host not asking (a GUI thread holding the GIL for seconds, e.g. while a large
+            # window is built), not the card or the link failing to answer.  A dead link shows
+            # as requests sent after the last reply (the poller keeps asking).
+            return 0.0
         return now - mc.last_ok
 
     def deadline_s(self) -> float:

@@ -22,9 +22,12 @@ import socket
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 
 from ..protocol import frames as F
+
+if TYPE_CHECKING:  # annotations only (startup imports this module)
+    from .startup import CardParameters
 
 log = logging.getLogger(__name__)
 
@@ -387,6 +390,7 @@ class MotionController:
         # time.monotonic() of the last successful reply (link watchdog).
         self.guard = None
         self.last_ok = 0.0
+        self.last_sent = 0.0         # time.monotonic() of the last request sent
         self.requests = 0
 
     # ------------------------------------------------------------------ socket
@@ -486,6 +490,7 @@ class MotionController:
             last = F.ERR_TIMEOUT
             self._drain()
             for s_try in range(sends):
+                self.last_sent = time.monotonic()
                 self._send(frame)
                 for r_try in range(recvs):
                     data = self._recv(tmo)
