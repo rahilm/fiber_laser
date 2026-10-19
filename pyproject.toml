@@ -51,6 +51,12 @@ include = ["mlaser*"]
 "mlaser.i18n" = ["*.json"]
 "mlaser.formats" = ["data/*"]
 "mlaser.cad" = ["fontdata/*"]   # bundled Noto Sans SC / Arabic subsets + OFL (tools/build_bundled_fonts.py)
+# the help documents (docs/user, dev, re): copied into the wheel as mlaser/help/docs by the build_py
+# hook below (an editable install reads the checkout's docs/); mlaser.diag.helpdocs.docs_root
+"mlaser" = ["help/docs/*.md", "help/docs/**/*"]
+
+[tool.setuptools.cmdclass]
+build_py = "tools.help_build.BuildPy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
