@@ -138,10 +138,7 @@ layers = [
     "mlaser.geom | mlaser.protocol | mlaser.toolpath | mlaser.i18n",
     "mlaser.model",
 ]
-ignore_imports = [
-    # LayerView's lazy registry defaults (see the parity_ports contract below)
-    "mlaser.parity_ports.mainapp.layer -> mlaser.formats.params",
-]
+# no ignores left: the layer defaults are injected (ConfigService.layer_defaults, Wave 3)
 
 [[tool.importlinter.contracts]]
 name = "Domain packages import no Qt"
@@ -167,8 +164,4 @@ forbidden_modules = [
     "mlaser.controller", "mlaser.diag", "mlaser.report", "mlaser.engrave", "mlaser.ui",
     "mlaser.parity", "mlaser._compat",
 ]
-ignore_imports = [
-    # LayerView reads the layer defaults from the parameter registry (mlaser_params.json) lazily;
-    # ROADMAP Wave 2 "ConfigService" hands them in instead
-    "mlaser.parity_ports.mainapp.layer -> mlaser.formats.params",
-]
+# no ignores left: LayerView's defaults are injected (parity_ports.mainapp.layer.set_layer_defaults)

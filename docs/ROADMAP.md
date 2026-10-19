@@ -84,11 +84,11 @@ Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of th
   and Start streams exactly it; the streamer uses `Job.frames()` (`mlaser.services.jobs`; the
   run bar, run controls, pendant and batch runner hand the plan to `start_job`, which runs the
   pre-flight on it; tests/test_services_jobs.py)
-- ◐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
-  the machine profile feeds `Machine` (done: `mlaser.services.config`, typed Options dialogs,
-  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); still open: it
-  hands the layer defaults to `parity_ports.mainapp.layer` (the import-linter ignore
-  `parity_ports.mainapp.layer -> formats.params` stays)
+- ☑ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
+  the machine profile feeds `Machine` (`mlaser.services.config`, typed Options dialogs,
+  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); it hands the
+  layer defaults to `parity_ports.mainapp.layer` by injection (Wave 3 Machine track; the last
+  import-linter ignore `parity_ports.mainapp.layer -> formats.params` is gone, goldens identical)
 - ☑ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
   (`mlaser.services.undo`; bounded by count and bytes; byte-exact .chf through edit/undo/redo)
 - ☑ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
