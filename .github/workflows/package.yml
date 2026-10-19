@@ -1,7 +1,8 @@
 name: Package
 
-# PyInstaller one-folder builds (packaging/README.md): build, sign when the secrets exist,
-# smoke-test the frozen app offscreen, upload the archive.
+# Wheels with the C emitter kernel (cibuildwheel), the sdist, and the PyInstaller one-folder
+# bundles (packaging/README.md): build, sign when the secrets exist, smoke-test the frozen app
+# offscreen, upload everything as artifacts. docs/dev/RELEASE.md.
 on:
   push:
     tags: ["v*"]
@@ -10,6 +11,10 @@ on:
       - "packaging/**"
       - "mlaser/__main__.py"
       - "mlaser/netcheck.py"
+      - "mlaser/_native/**"
+      - "mlaser/parity_ports/profiles/native.py"
+      - "setup.py"
+      - "MANIFEST.in"
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/package.yml"
@@ -19,9 +24,65 @@ concurrency:
   group: package-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
-  package:
-    name: package / ${{ matrix.os }}
+  wheels:
+    name: wheels / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        # one runner per architecture, so every wheel is tested natively
+        os: [ubuntu-latest, ubuntu-24.04-arm, windows-latest, macos-latest, macos-15-intel]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      # configuration: [tool.cibuildwheel] in pyproject.toml (cp312 / cp313, kernel required,
+      # each wheel installed in a clean environment and `python -m mlaser._native --require`)
+      - uses: pypa/cibuildwheel@v3.4.1
+        with:
+          output-dir: wheelhouse
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.os }}
+          path: wheelhouse/*.whl
+          if-no-files-found: error
+          retention-days: 14
+
+  sdist:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Build the sdist
+        run: uv build --sdist -o dist
+      # without a C compiler the sdist still installs: the extension is optional (setup.py) and
+      # the default profile then runs the Python port
+      - name: Install the sdist without a C compiler (pure-Python fallback)
+        env:
+          CC: /bin/false
+          MLASER_NO_FIRSTRUN: "1"
+        run: |
+          uv venv /tmp/nocc
+          uv pip install --python /tmp/nocc dist/mlaser-*.tar.gz
+          cd /tmp
+          /tmp/nocc/bin/python -m mlaser._native --json
+          /tmp/nocc/bin/python -m mlaser._native | grep "Python port"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  bundle:
+    name: bundle / ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 45
     strategy:
@@ -32,6 +93,7 @@ jobs:
     env:
       PYTHONUTF8: "1"
       MLASER_NO_FIRSTRUN: "1"
+      MLASER_BUILD_NATIVE: "1"         # the bundle ships the C kernel: a compile error fails
       # "true"/"false": whether the signing secrets are configured (secrets are not allowed in `if:`)
       HAVE_WIN_SIGNING: ${{ secrets.AZURE_CLIENT_ID != '' && secrets.TRUSTED_SIGNING_ACCOUNT != '' }}
       HAVE_MAC_SIGNING: ${{ secrets.MACOS_SIGN_IDENTITY != '' }}
@@ -51,11 +113,20 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+            setup.py
 
       # all extras: the optional modern options (OR-Tools ~70 MB unpacked, spyrrow, Ruckig) and the
       # device libraries are bundled; `python packaging/build.py --slim` leaves the modern ones out
-      - name: Install (locked)
+      - name: Install (locked, builds the C kernel)
         run: uv sync --locked --group packaging --all-extras
+
+      - name: C kernel check
+        env:
+          MLASER_NATIVE: "1"
+        run: uv run --locked python tools/build_native.py --check
 
       - name: Build (PyInstaller onedir)
         run: uv run --locked python packaging/build.py
@@ -83,11 +154,13 @@ jobs:
           NOTARY_KEY_P8_BASE64: ${{ secrets.NOTARY_KEY_P8_BASE64 }}
         run: ./packaging/sign_macos.sh packaging/build/dist/mlaser.app
 
-      # frozen app: bundle check (imports + package data + a DXF import), the GUI with --demo for
-      # 5 s offscreen, and the network self-test (informative); then pack the archive
+      # frozen app, MLASER_NATIVE=1: bundle check (imports + package data + the C kernel's
+      # self-check + a DXF import), the GUI with --demo for 5 s offscreen, and the self-test
+      # (kernel line + network, informative); then pack the archive
       - name: Smoke test and archive
         env:
           QT_QPA_PLATFORM: offscreen
+          MLASER_NATIVE: "1"
         run: uv run --locked python packaging/build.py --skip-build --smoke --archive
 
       - uses: actions/upload-artifact@v4

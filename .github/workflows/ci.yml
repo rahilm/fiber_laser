@@ -9,11 +9,14 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    timeout-minutes: 40
     strategy:
       fail-fast: false
       matrix:
@@ -22,7 +25,12 @@ jobs:
     env:
       QT_QPA_PLATFORM: offscreen       # headless Qt everywhere
       MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
+      MLASER_NO_FIRSTRUN: "1"
       PYTHONUTF8: "1"
+      # the C emitter kernel (setup.py): a compile error fails the install instead of silently
+      # leaving the Python port; and the default profile must select it (docs/dev/NATIVE_KERNEL.md)
+      MLASER_BUILD_NATIVE: "1"
+      MLASER_NATIVE: "1"
     steps:
       - uses: actions/checkout@v4
 
@@ -38,33 +46,62 @@ jobs:
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+            setup.py
 
-      # all extras: the optional modern options (OR-Tools, spyrrow, Ruckig) are tested too
-      - name: Install (locked)
+      # all extras: the optional modern options (OR-Tools, spyrrow, Ruckig) are tested too.
+      # The editable install compiles mlaser._native._emitter (gcc / clang / MSVC, setup.py flags).
+      - name: Install (locked, builds the C kernel)
         run: uv sync --locked --all-extras
 
-      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected)"
+      # the module imports, has no FMA instruction (objdump / llvm-objdump; skipped on Windows
+      # without dumpbin), passes its self-check, is selected by default, smoke parity run
+      - name: C kernel check
+        run: uv run --locked python tools/build_native.py --check
+
+      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         run: uv run --locked pytest -q --durations=15
 
+      # C kernel vs Python port on THIS platform, every golden job + the 300 random jobs, bit for
+      # bit (float.hex for the carry and the cut length): catches a platform-specific C build
+      # (compiler, flags, libm) independently of the frozen golden files. Fatal everywhere.
+      - name: Native parity (C kernel = Python port, all golden jobs)
+        run: uv run --locked python tools/native_parity.py
+
       # The goldens are bit-exact on CPython 3.12 (tests/golden/test_goldens.py skips on other
-      # minor versions). Windows and macOS libm may differ from Linux in the last bit; until a
-      # first green run proves they don't, a golden difference there is reported, not fatal.
-      - name: Golden check
+      # minor versions), checked with the C kernel forced on and forced off. Windows and macOS
+      # libm may differ from Linux in the last bit (in the Python port too); until a first green
+      # run proves they don't, a golden difference there is reported, not fatal.
+      - name: Golden check (C kernel, MLASER_NATIVE=1)
         if: matrix.python == '3.12'
         continue-on-error: ${{ runner.os != 'Linux' }}
+        env:
+          MLASER_NATIVE: "1"
+        run: uv run --locked pytest -q -m golden
+
+      - name: Golden check (Python port, MLASER_NATIVE=0)
+        if: matrix.python == '3.12'
+        continue-on-error: ${{ runner.os != 'Linux' }}
+        env:
+          MLASER_NATIVE: "0"
         run: uv run --locked pytest -q -m golden
 
       # 3.13 keeps 3.12's compensated sum() and matched bit for bit locally (2026-10-18); the
       # reference stays 3.12, so a difference here is reported, not fatal.
-      - name: Golden check (informative, 3.13)
+      - name: Golden check (informative, 3.13, both kernels)
         if: matrix.python == '3.13' && runner.os == 'Linux'
         continue-on-error: true
         env:
           MLASER_GOLDEN_ANY_PYTHON: "1"
-        run: uv run --locked pytest -q -m golden
+        run: |
+          MLASER_NATIVE=1 uv run --locked pytest -q -m golden
+          MLASER_NATIVE=0 uv run --locked pytest -q -m golden
 
   lint:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -74,14 +111,28 @@ jobs:
         run: uvx ruff@0.17.1 check --output-format=github .
 
   architecture:
-    name: import contracts and types
+    name: import contracts, types, i18n, docs
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      QT_QPA_PLATFORM: offscreen
+      PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Qt runtime libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
+            libglib2.0-0 fonts-dejavu-core
       - uses: astral-sh/setup-uv@v6
         with:
           python-version: "3.12"
           enable-cache: true
+          cache-dependency-glob: |
+            uv.lock
+            pyproject.toml
+            setup.py
       - name: Install (locked)
         run: uv sync --locked
       # layering rules of docs/dev/ARCHITECTURE.md ([tool.importlinter] in pyproject.toml)
@@ -92,6 +143,9 @@ jobs:
         run: uv run --locked mypy
       # string catalogues: keys the code uses are in en.json, placeholders match in every
       # translation (.json / Qt Linguist .ts); the import-based scan of the original's keys runs
-      # in the test job (tests/test_i18n_check.py), which has the Qt runtime libraries
+      # in the test job (tests/test_i18n_check.py)
       - name: i18n check
         run: uv run --locked python tools/i18n_check.py --no-legacy-scan
+      # every relative Markdown link and anchor in docs/ and README.md, docs paths named in code
+      - name: docs link check
+        run: uv run --locked pytest -q tests/test_docs_links.py

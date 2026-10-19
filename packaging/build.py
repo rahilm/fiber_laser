@@ -8,7 +8,8 @@ Steps:
    executables (``Contents/Resources/LICENSES`` in the .app);
 3. LGPL check: fails when a GPL-only Qt module or a onefile build slipped in;
 4. size report (``<out>/build-info.json``);
-5. ``--smoke``: run the console executable with ``--bundle-check tests/data/dxf/gear.dxf``,
+5. ``--smoke``: run the console executable (with ``MLASER_NATIVE=1``: the C emitter kernel
+   must be bundled and pass its self-check) with ``--bundle-check tests/data/dxf/gear.dxf``,
    ``QT_QPA_PLATFORM=offscreen --demo --smoke-test 5`` and ``--selftest`` (informative);
 6. ``--archive``: ``<out>/mlaser-<version>-<os>-<arch>.zip|tar.gz`` (keeps symlinks and
    executable bits, unlike uploading the folder).
@@ -107,7 +108,10 @@ def size_report(lay: dict, top: int = 15) -> dict:
 
 def smoke(lay: dict, out: Path, seconds: float = 5.0) -> list[dict]:
     exe = lay["console"]
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", MLASER_CONFIG_DIR=str(out / "cfg"))
+    # the C emitter kernel must be in the bundle and pass its self-check (bundle check FAIL
+    # otherwise); MLASER_NATIVE=auto in the environment accepts a bundle without it
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", MLASER_CONFIG_DIR=str(out / "cfg"),
+               MLASER_NATIVE=os.environ.get("MLASER_NATIVE", "1"))
     results = []
     sample = ROOT / "tests" / "data" / "dxf" / "gear.dxf"
     check = ["--bundle-check"] + ([str(sample)] if sample.is_file() else [])
