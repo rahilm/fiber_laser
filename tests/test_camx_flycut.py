@@ -1,15 +1,15 @@
 """Fly cut (mlaser.cam.flycut): geometric checks of the scan paths and laser switching."""
 import math
-import os
+from pathlib import Path
 
 import pytest
+from vendor_samples import requires, vendor_file
 
 from mlaser.cam import flycut as F
 from mlaser.toolpath.items import CutArc, CutLine, LaserOff, LaserOn, Pierce, Rapid
 from mlaser.model import Arc, Contour, Document, Line, Part
 
-SAMPLE = ("/home/dev/scratch/mlaser/extracted/Mlaser-v0.0.1.51_SP1/Mlaser-v0.0.1.51_SP1/"
-          "File/autosave.chf")
+SAMPLE = Path(__file__).parent / "data" / "chf" / "sample_v9.chf"      # tools/make_test_chf.py
 
 
 def circle(x, y, r):
@@ -236,10 +236,22 @@ def test_apply_fly_cut_and_chf_roundtrip(tmp_path):
     assert sum(b - a for a, b in sp[0].on_intervals()) == pytest.approx(3 * 2 * math.pi * 2, abs=1e-3)
 
 
-@pytest.mark.skipif(not os.path.exists(SAMPLE), reason="sample not available")
-def test_sample_engraving_scan_parity():
+def test_sample_engraving_scan():
     from mlaser.formats import chf
     doc = chf.load_chf(SAMPLE)
+    part = doc.parts[0]
+    sp = F.scan_paths_of_part(part)
+    assert len(sp) == 1 and sp[0].kind == F.SCAN_ENGRAVE and not sp[0].initial_on
+    iv = sp[0].on_intervals()
+    # beam on exactly on the elements, one interval per element (switch fractions have 6 decimals)
+    assert len(iv) == len(part.contours)
+    assert all(abs((b - a) - c.length()) < 0.01 for (a, b), c in zip(iv, part.contours))
+
+
+@requires("File/autosave.chf")
+def test_vendor_sample_engraving_scan_parity():
+    from mlaser.formats import chf
+    doc = chf.load_chf(vendor_file("File/autosave.chf"))
     part = doc.parts[0]
     sp = F.scan_paths_of_part(part)
     assert len(sp) == 1 and sp[0].kind == F.SCAN_ENGRAVE and not sp[0].initial_on
@@ -247,4 +259,5 @@ def test_sample_engraving_scan_parity():
     src = sum(c.length() for c in part.contours)
     assert on == pytest.approx(src, abs=0.1)                 # beam on exactly on the 839 elements
     assert len(sp[0].on_intervals()) == len(part.contours) - 1 or \
+        len(sp[0].on_intervals()) == len(part.contours) - 1 or \
         len(sp[0].on_intervals()) == len(part.contours)

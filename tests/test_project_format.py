@@ -44,7 +44,7 @@ def test_sample_documents_roundtrip(name, doc, host):
     assert dumps_chf(back, version=back.version) == dumps_chf(doc, version=doc.version)
 
 
-@pytest.mark.parametrize("path", sorted(DATA.glob("*.chf")), ids=lambda p: p.name)
+@pytest.mark.parametrize("path", sorted((DATA / "chf").glob("*.chf")), ids=lambda p: p.name)
 def test_chf_to_mlz_to_chf_is_byte_exact(path, tmp_path):
     src = path.read_bytes()
     save_project(tmp_path / "p.mlz", load_chf(str(path)))
@@ -69,7 +69,7 @@ def test_300_random_documents_roundtrip():
 def test_edited_chf_exports_the_same_after_a_project_roundtrip():
     from mlaser.cam.manual import contour_craft, set_start_at
 
-    doc = load_chf(str(DATA / "autosave.chf"))
+    doc = load_chf(str(DATA / "chf" / "sample_v9.chf"))
     part = doc.parts[0]
     c = part.contours[3]
     part.contours[3] = Contour([Line((s.start[0] + 1, s.start[1]), (s.end[0] + 1, s.end[1]))
@@ -80,7 +80,7 @@ def test_edited_chf_exports_the_same_after_a_project_roundtrip():
     cr.lead_in = LeadParams(kind=2, length=4.0, radius=1.5)
     set_start_at(part, 5, 3.0)
     before = export_chf(doc)
-    assert before != (DATA / "autosave.chf").read_bytes()
+    assert before != (DATA / "chf" / "sample_v9.chf").read_bytes()
     back = _roundtrip(doc).document
     assert back.parts[0].contours[5].craft.lead_in.length == 4.0
     assert export_chf(back) == before
@@ -244,7 +244,7 @@ def _zip(members: dict[str, bytes]) -> bytes:
 
 
 def test_corrupted_files_give_clear_errors(tmp_path):
-    good = dumps_project(load_chf(str(DATA / "tempGraph.chf")))
+    good = dumps_project(load_chf(str(DATA / "chf" / "sample_v5.chf")))
     cases = {
         "truncated": (good[: len(good) // 2], r"broken\.mlz: the file is damaged"),
         "not a zip": (b"#!chf 9\nhello", r"not an mlaser project \(\.mlz\) file"),
@@ -291,7 +291,7 @@ def test_save_is_atomic(tmp_path, monkeypatch):
 def test_autosave_writes_both_and_recovers(tmp_path):
     a = Autosave(tmp_path / "File")
     assert a.recover() is None
-    doc = load_chf(str(DATA / "tempGraph.chf"))
+    doc = load_chf(str(DATA / "chf" / "sample_v5.chf"))
     doc.parts[0].craft.cool_points = [3.0]          # only the project keeps it
     written = a.save(Project(document=doc, queue=[{"name": "x"}]))
     assert [w.name for w in written] == ["autosave.mlz", "autosave.chf"]
@@ -312,10 +312,10 @@ def test_autosave_writes_both_and_recovers(tmp_path):
 
 
 def test_open_document_reads_both_formats(tmp_path):
-    doc = load_chf(str(DATA / "tempGraph.chf"))
+    doc = load_chf(str(DATA / "chf" / "sample_v5.chf"))
     save_project(tmp_path / "a.mlz", doc)
     assert open_document(tmp_path / "a.mlz").parts == doc.parts
-    assert open_document(DATA / "tempGraph.chf").parts == doc.parts
+    assert open_document(DATA / "chf" / "sample_v5.chf").parts == doc.parts
 
 
 def test_deep_copies_of_loaded_projects_are_independent():
@@ -328,10 +328,11 @@ def test_deep_copies_of_loaded_projects_are_independent():
 def test_command_line_convert_info_and_schema(tmp_path, capsys):
     from mlaser.project.__main__ import main
 
-    assert main(["convert", str(DATA / "autosave.chf"), str(tmp_path / "a.mlz")]) == 0
+    src = DATA / "chf" / "sample_v9.chf"
+    assert main(["convert", str(src), str(tmp_path / "a.mlz")]) == 0
     assert main(["convert", str(tmp_path / "a.mlz"), str(tmp_path / "a.chf")]) == 0
-    assert (tmp_path / "a.chf").read_bytes() == (DATA / "autosave.chf").read_bytes()
-    assert main(["info", str(tmp_path / "a.mlz")]) == 0 and "parts 1" in capsys.readouterr().out
+    assert (tmp_path / "a.chf").read_bytes() == src.read_bytes()
+    assert main(["info", str(tmp_path / "a.mlz")]) == 0 and "parts 7" in capsys.readouterr().out
     assert main(["schema"]) == 0 and '"document"' in capsys.readouterr().out
     (tmp_path / "bad.mlz").write_bytes(b"nope")
     assert main(["info", str(tmp_path / "bad.mlz")]) == 1

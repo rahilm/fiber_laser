@@ -62,8 +62,8 @@ def test_translated_labels(card, tmp_path):
     from pathlib import Path
     from mlaser.ui.i18n import Translator
     _sim, mc = card
-    # Chinese comes from an original install; tests/data/Lang is a synthetic one
-    tr = Translator(lang_dir=str(Path(__file__).parent / "data" / "Lang"), language="zh",
+    # Chinese comes from an original install; tests/data/lang_fixture is a synthetic one
+    tr = Translator(lang_dir=str(Path(__file__).parent / "data" / "lang_fixture"), language="zh",
                     import_dir=str(tmp_path))
     rows = R.table_rows(R.read_snapshot(mc, params=False), tr)["RO"]
     assert rows[4][1] == "输入状态"

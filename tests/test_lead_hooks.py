@@ -167,7 +167,7 @@ def test_sim_estimate_message_is_formatted():
 
 def test_smoothed_compile_is_not_quadratic():
     """ContourSmoother._locate used to rebuild a list of all pieces per 1 ms sample, making
-    compile O(samples x pieces): 36 s for the shipped autosave.chf. Guard the per-sample cost."""
+    compile O(samples x pieces): 36 s for a 839-element scan drawing. Guard the per-sample cost."""
     import time
     from mlaser.motion.smooth import ContourSmoother
     n = 400                                        # a 400-gon: many pieces, many samples

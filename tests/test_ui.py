@@ -29,7 +29,7 @@ def app():
     return QApplication.instance() or QApplication([])
 
 
-ORIG_LANG = os.path.join(os.path.dirname(__file__), "data", "Lang")   # synthetic original-format files
+ORIG_LANG = os.path.join(os.path.dirname(__file__), "data", "lang_fixture")   # synthetic original-format files
 
 
 def test_lang_catalogue(tmp_path):

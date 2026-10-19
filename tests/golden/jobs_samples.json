@@ -1,128 +1,128 @@
 {
  "cases": {
-  "chf/autosave#bands_nosmooth_ppm1000": {
+  "chf/sample_v5#bands_nosmooth_ppm1000": {
    "approx": {
-    "estimate_total_s": 236.60334099137282,
-    "laser_on_length_mm": 2997.1999999983695,
-    "process_time_s": 0.4166666666666667,
+    "estimate_total_s": 10.09324918885212,
+    "laser_on_length_mm": 588.9865340798287,
+    "process_time_s": 1.4666666666666668,
     "pulse_carry": [
-     0.002215925599024615,
-     8.924416761146858e-12
+     -0.999760100758273,
+     -0.999245510709482
     ],
-    "rapid_length_mm": 730.2502955485165
+    "rapid_length_mm": 502.38315548095005
    },
-   "cut_blocks": "4572f43700f1445551828354b10633136bacc4e8c5054c8126e07f048560c6ab",
-   "end_pulses": [
-    0,
-    0
-   ],
-   "frames": "24faabc6adca86dd34743863ffdfb59bea8bcdc4959d22e996f4e27dc4bdc9bc",
-   "host_dependent": false,
-   "items": 239516,
-   "markers": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-   "n_frames": 2420,
-   "overspeed_periods": 2898,
-   "pierces": 0,
-   "process_items": 15,
-   "start_pulses": [
-    0,
-    0
-   ],
-   "steps": 239501,
-   "wire": "7b4dde9aa7200ae795337c5363210b0813211c7e8bb50df20a28639b48ea9ac7"
-  },
-  "chf/autosave#default": {
-   "approx": {
-    "estimate_total_s": 237.16555454288337,
-    "laser_on_length_mm": 2997.999999998369,
-    "process_time_s": 0.4166666666666667,
-    "pulse_carry": [
-     -0.29999822813581783,
-     0.8999999999990818
-    ],
-    "rapid_length_mm": 372.1932488506475
-   },
-   "cut_blocks": "4d1a9cf57a919ebb08cb7125a1325fd1a3aef04f942254ad6a7118fa6b473938",
-   "end_pulses": [
-    -25689,
-    -24943
-   ],
-   "frames": "f1ad761afc9487344c64c2434399a92b047352723d9aa281aff8683ffbe2ab4a",
-   "host_dependent": false,
-   "items": 237181,
-   "markers": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-   "n_frames": 2396,
-   "overspeed_periods": 0,
-   "pierces": 0,
-   "process_items": 15,
-   "start_pulses": [
-    0,
-    0
-   ],
-   "steps": 237166,
-   "wire": "4470f2806b46148e0b4a54aa5b897997bf34619c8e6c9e03cc461eee2028ddc3"
-  },
-  "chf/tempGraph#bands_nosmooth_ppm1000": {
-   "approx": {
-    "estimate_total_s": 4.237564744475522,
-    "laser_on_length_mm": 297.9698496215249,
-    "process_time_s": 0.4166666666666667,
-    "pulse_carry": [
-     -0.9999999999996412,
-     -0.00010503515356496962
-    ],
-    "rapid_length_mm": 212.13030021407735
-   },
-   "cut_blocks": "e2ea77a10c2651f8f874100e18554a48533920a22b4c5f6cfc49a5e844d7d36a",
+   "cut_blocks": "165c7e0368cc4cf75d9e65cb64a36ed47c53624201739802d4ba57b981c8c268",
    "end_pulses": [
     1,
-    0
+    1
    ],
-   "frames": "830cd68e0e98c3b2ad4c9a22aa9e5dcdd2180b010ecfb98784cda9d65fbdd094",
+   "frames": "b0a0e123eeb6de7cdf4b1097f8a8c01195d435c593706d19f0b6e1e26ccbb83e",
    "host_dependent": false,
-   "items": 5439,
-   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
-   "n_frames": 55,
-   "overspeed_periods": 1186,
-   "pierces": 1,
-   "process_items": 15,
+   "items": 12995,
+   "markers": "60968902f2b254b535806ac69f9231a0906074ed1293cdeb6e6c47ca53bfd9ce",
+   "n_frames": 132,
+   "overspeed_periods": 2842,
+   "pierces": 4,
+   "process_items": 60,
    "start_pulses": [
     0,
     0
    ],
-   "steps": 5424,
-   "wire": "a3dbc06bc52b2777fa7ed96060977bb25572d3b58b057f6f589c70bee673e656"
+   "steps": 12935,
+   "wire": "d09e56c700645b574dcc24a9b773d3012b5bb0c195ef7a59be9cdee3fec9f32e"
   },
-  "chf/tempGraph#default": {
+  "chf/sample_v5#default": {
    "approx": {
-    "estimate_total_s": 3.675434444261445,
-    "laser_on_length_mm": 298.22821106786944,
-    "process_time_s": 0.4166666666666667,
+    "estimate_total_s": 9.438278528941463,
+    "laser_on_length_mm": 589.3322212226161,
+    "process_time_s": 1.4666666666666668,
     "pulse_carry": [
-     0.3954000000004562,
-     0.09768949648430736
+     -0.9999422702936899,
+     -0.00022770047072606658
     ],
-    "rapid_length_mm": 106.06515010703868
+    "rapid_length_mm": 301.38564305853225
    },
-   "cut_blocks": "01b9f71f2a2c47b2c057152596b78c7183ec8458308c08f6affb622d52e95d4f",
+   "cut_blocks": "2f24c268ae31a0c0a28e74217a717cfec39be589f7d971d37f32a6bbd49f3947",
    "end_pulses": [
-    9486,
-    4744
+    20001,
+    2000
    ],
-   "frames": "4143ae225976c62e1acf766bb1bb03b12c96ccc5b5ea1c9282a570b9525824df",
+   "frames": "0eea6a44046822b0ba3f9263025e68deece929dce37b349c927f0293683001ff",
    "host_dependent": false,
-   "items": 3691,
-   "markers": "898d8af81ecf99eb26a0c523f19e65adad6dba00eba600bb74e106f6874326e9",
-   "n_frames": 38,
+   "items": 9526,
+   "markers": "987c63a976ecbae8b81400fa68c9cb7a9efa6cfcac2f29bf9fa309e39afc9c52",
+   "n_frames": 97,
    "overspeed_periods": 0,
-   "pierces": 1,
-   "process_items": 15,
+   "pierces": 4,
+   "process_items": 60,
    "start_pulses": [
     0,
     0
    ],
-   "steps": 3676,
-   "wire": "0e7ec4ad566024e732360aec32c8f6385492ddceabb6590f170167f6033ec1ea"
+   "steps": 9466,
+   "wire": "2d0469bf6f976e55147e662df67684120c330c737f48799b8eada73e774042ec"
+  },
+  "chf/sample_v9#bands_nosmooth_ppm1000": {
+   "approx": {
+    "estimate_total_s": 140.39085653497148,
+    "laser_on_length_mm": 7826.061422735388,
+    "process_time_s": 5.866666666666667,
+    "pulse_carry": [
+     -0.0015896149479228683,
+     -0.9943313401835212
+    ],
+    "rapid_length_mm": 811.8746794665499
+   },
+   "cut_blocks": "7752f99efaf39c2e1d162964019f07352bdbd7a5abcef1fc930b914faaea18cf",
+   "end_pulses": [
+    0,
+    1
+   ],
+   "frames": "5fe776363100f35e250b25f46c7784c2ae380ceff6d641af27e63a5bce57feed",
+   "host_dependent": false,
+   "items": 146719,
+   "markers": "c5b4ef70a4094d00be359fad63a144bcd783a3f73d4b78d0499f85e69dd7aef0",
+   "n_frames": 1483,
+   "overspeed_periods": 4033,
+   "pierces": 19,
+   "process_items": 276,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 146443,
+   "wire": "16fb074cb1d9f5fabb0151038819705282ec864e1672854e4b0903d11b93ba66"
+  },
+  "chf/sample_v9#default": {
+   "approx": {
+    "estimate_total_s": 146.56482753456515,
+    "laser_on_length_mm": 7821.394133727048,
+    "process_time_s": 5.666666666666667,
+    "pulse_carry": [
+     0.7001423957520775,
+     0.0001696355331243815
+    ],
+    "rapid_length_mm": 890.7087676034695
+   },
+   "cut_blocks": "b6833ffea12e3c05b69e144b15891d5e41412bb49f4715d3ef1f2e6e860c79d4",
+   "end_pulses": [
+    3392,
+    5475
+   ],
+   "frames": "18e45f1741f5ca4b6745e01b04880c7fd7de940aecdd93bfa2d04d68e7faf0e0",
+   "host_dependent": false,
+   "items": 148891,
+   "markers": "a7ff63353bd7f204c429526ba0e58d931bb2a83593712724fd8f6e2fd8561aec",
+   "n_frames": 1505,
+   "overspeed_periods": 0,
+   "pierces": 19,
+   "process_items": 272,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 148619,
+   "wire": "794ba3b029e140fbd2c59b3e48357209a37a55f260aad062f3156780446e1b72"
   },
   "dxf/basic_r2000#bands_nosmooth_ppm1000": {
    "approx": {

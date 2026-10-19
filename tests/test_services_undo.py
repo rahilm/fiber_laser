@@ -14,7 +14,7 @@ from mlaser.model import Contour, Document, Line, Part, ensure_unique_ids
 from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.undo import UndoStack
 
-SAMPLE = pathlib.Path(__file__).parent / "data" / "autosave.chf"
+SAMPLE = pathlib.Path(__file__).parent / "data" / "chf" / "sample_v9.chf"   # tools/make_test_chf.py
 
 
 def rect(x, y, w=10.0, h=10.0):

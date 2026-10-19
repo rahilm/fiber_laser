@@ -15,7 +15,11 @@ Implementations:
 | `mlaser/formats/params.py` + `data/mlaser_params.json` | machine and process parameter XML files and descriptor table; `LayerParams` |
 | `mlaser/i18n/langfile.py` | `Translator` for `Lang/*.txt` and `lang.ini` |
 
-Tests: `tests/test_formats.py`. Both `.chf` samples and all the small files round-trip byte for byte.
+Tests: `tests/test_formats.py`. The test drawings `tests/data/chf/sample_v9.chf` / `sample_v5.chf`
+(written by `tools/make_test_chf.py`) and the state files in `tests/data/appdir/` round-trip byte
+for byte. The original's own samples quoted below (`autosave.chf`, `tempGraph.chf`, the `File/`
+state files) are not in the repository; the same tests check them byte for byte when a local
+copy of the install is given in `MLASER_VENDOR_SAMPLES` (docs/dev/TESTING.md).
 
 ---------------------------------------------------------------------------------------------
 
