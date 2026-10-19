@@ -1,10 +1,13 @@
 """ProductionService: job statistics, device counters, the planned-quantity interlock and the
 maintenance reminders (Qt-free; moved out of ``mlaser.ui.ext_diag`` in Wave 2).
 
-Inputs are the controller's log lines (:meth:`feed_log`) and its state (:meth:`poll`), as
-:class:`mlaser.diag.jobwatch.JobWatcher` needs today; ``docs/ROADMAP.md`` "typed MachineAPI plus
-an event bus" (Safety track) replaces the log parsing with job events, and this service is the
-one place to switch over.  Outputs go through callables, so the UI decides how to show them:
+Input: the controller's typed job events (:meth:`attach` with ``ctl.events``,
+:mod:`mlaser.machine.events`: ``JobStarted`` / ``JobFinished`` of tracked jobs, through
+:class:`mlaser.diag.jobwatch.JobWatcher`).  Both controllers (the card adapter and the
+``DemoController``) publish them.  Without a bus (old scripts) the watcher falls back to the log
+lines (:meth:`feed_log`) and the state (:meth:`poll`); once attached those two are no-ops for the
+job detection (:meth:`poll` still runs the use timer and the maintenance check).  Outputs go
+through callables, so the UI decides how to show them:
 
 * ``stop()``: stop the running job (the interlock);
 * ``notify(kind, text)``: ``kind`` is ``"log"``, ``"popup"``, ``"alarm"`` or ``"plan_reached"``
@@ -52,6 +55,7 @@ class ProductionService:
         notify: Callable[[str, str], None] = lambda kind, text: None,
         stats: Any = None,
         flush: Callable[[], None] = lambda: None,
+        bus: Any = None,
     ) -> None:
         """``stats``: the job-statistics recorder (:class:`mlaser.report.recorder.StatsRecorder`,
         which draws thumbnails with Qt, so the application passes it in); None records none."""
@@ -74,6 +78,18 @@ class ProductionService:
         self.job_done_listeners: list[Callable[[bool], None]] = []  # batch runner
         self._last_maint = 0.0
         self._announced: set = set()
+        if bus is not None:
+            self.attach(bus)
+
+    # ------------------------------------------------------------------ events
+    def attach(self, bus: Any) -> None:
+        """Follow ``bus`` (a controller's ``events``) for the job lifecycle; call again after
+        the controller was replaced.  Replaces the log parsing."""
+        self.watcher.subscribe(bus)
+
+    @property
+    def event_driven(self) -> bool:
+        return self.watcher.bus is not None
 
     # ------------------------------------------------------------------ inputs
     def feed_log(self, msg: str) -> None:

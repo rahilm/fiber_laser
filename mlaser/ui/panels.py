@@ -138,7 +138,14 @@ class LayerPanel(QWidget):
 
 # --------------------------------------------------------------------------- parts
 class PartListPanel(QTreeWidget):
-    """Part list (np_Part / np_PartName): index, name, layer, contour count, size, closed."""
+    """Part list (np_Part / np_PartName): index, name, layer, contour count, size, closed.
+
+    The size column needs every part's bounding box, which flattens every contour (the bulk of
+    a refresh: ~250 ms of ~300 ms at 2,000 parts).  The boxes are cached by part ``uid`` and
+    validated by the identity of the part's segment objects (edits replace segment lists and
+    segment objects, never mutate them in place: ``ops.document.transform_parts``,
+    ``cad.edit``), so an edit re-measures only the parts it changed.  The tree items are reused
+    and only changed texts are set."""
     selectionToCanvas = Signal(list)
 
     def __init__(self, tr: Translator, parent=None):
@@ -147,8 +154,12 @@ class PartListPanel(QTreeWidget):
         self.document = None
         self.setColumnCount(5)
         self.setRootIsDecorated(False)
+        self.setUniformRowHeights(True)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self._sync = False
+        self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
+        self._swatches: dict[int, QIcon] = {}
+        self.bbox_hits = self.bbox_misses = 0
         self.itemSelectionChanged.connect(self._sel_changed)
         tr.bind(self, "np_Part", lambda _t: self._headers())
 
@@ -160,21 +171,68 @@ class PartListPanel(QTreeWidget):
         self.document = doc
         self.refresh()
 
+    def part_bbox(self, p) -> tuple:
+        """``p.bbox()``, cached by uid while the part's segment objects are the same."""
+        segs = tuple(s for c in p.contours for s in c.segments)
+        hit = self._bbox_cache.get(p.uid)
+        if hit is not None and len(hit[0]) == len(segs) and all(a is b for a, b in zip(hit[0], segs)):
+            self.bbox_hits += 1
+            return hit[1]
+        self.bbox_misses += 1
+        bb = p.bbox()
+        self._bbox_cache[p.uid] = (segs, bb)
+        return bb
+
+    def _swatch(self, layer: int) -> QIcon:
+        ic = self._swatches.get(layer)
+        if ic is None:
+            ic = self._swatches[layer] = _swatch(layer_color(layer))
+        return ic
+
     def refresh(self) -> None:
         self._sync = True
-        self.clear()
         doc = self.document
-        if doc is not None:
-            for i, p in enumerate(doc.parts):
-                x0, y0, x1, y1 = p.bbox()
-                it = QTreeWidgetItem([str(i + 1), p.name or f"{self.tr_.tr('np_Part')}{i + 1}",
-                                      str(p.craft.layer), str(len(p.contours)), f"{x1 - x0:.2f}×{y1 - y0:.2f}"])
-                it.setIcon(2, _swatch(layer_color(p.craft.layer)))
-                if any(not c.closed for c in p.contours):
-                    it.setForeground(1, QColor("#d00000"))
+        parts = list(doc.parts) if doc is not None else []
+        n_items = self.topLevelItemCount()
+        if n_items > len(parts):
+            for i in range(n_items - 1, len(parts) - 1, -1):
+                self.takeTopLevelItem(i)
+        part_word = self.tr_.tr("np_Part")
+        red = QColor("#d00000")
+        live = set()
+        new_items = []
+        for i, p in enumerate(parts):
+            live.add(p.uid)
+            x0, y0, x1, y1 = self.part_bbox(p)
+            vals = (str(i + 1), p.name or f"{part_word}{i + 1}", str(p.craft.layer), str(len(p.contours)),
+                    f"{x1 - x0:.2f}×{y1 - y0:.2f}")
+            is_open = any(not c.closed for c in p.contours)
+            if i < n_items:
+                it = self.topLevelItem(i)
+                for col, v in enumerate(vals):
+                    if it.text(col) != v:
+                        it.setText(col, v)
+            else:
+                it = QTreeWidgetItem(list(vals))
                 it.setData(0, Qt.UserRole, i)
-                self.addTopLevelItem(it)
+                new_items.append(it)
+            if it.data(2, Qt.UserRole) != p.craft.layer:
+                it.setIcon(2, self._swatch(p.craft.layer))
+                it.setData(2, Qt.UserRole, p.craft.layer)
+            if bool(it.data(1, Qt.UserRole)) != is_open:
+                it.setData(1, Qt.UserRole, is_open)
+                if is_open:
+                    it.setForeground(1, red)
+                else:
+                    it.setData(1, Qt.ForegroundRole, None)
+        if new_items:
+            self.addTopLevelItems(new_items)
+        for i, p in enumerate(parts):
+            it = self.topLevelItem(i)
+            if it.isSelected() != p.selected:
                 it.setSelected(p.selected)
+        if len(self._bbox_cache) > 2 * max(len(live), 64):
+            self._bbox_cache = {u: v for u, v in self._bbox_cache.items() if u in live}
         self._sync = False
 
     def sync_selection(self) -> None:

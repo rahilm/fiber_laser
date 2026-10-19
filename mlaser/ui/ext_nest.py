@@ -648,4 +648,7 @@ def register(ctx) -> tuple[NestExtension, SortExtension]:
             act = window.ribbon.actions.get(cmd)
             if act is not None and act not in have:
                 menu.addAction(act)
+    # Wave 3 workspaces (Run / Nest / Report) while mainwindow.EXTENSIONS does not list them
+    from .workspaces import bootstrap
+    bootstrap(ctx)
     return nx, sx

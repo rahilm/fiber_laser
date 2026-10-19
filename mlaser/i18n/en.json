@@ -2253,7 +2253,239 @@
   "ws.machine.start_procedure": "Start",
   "ws.machine.status_box": "Status",
   "ws.machine.step_cont": "Hold",
-  "ws.machine.title": "Machine"
+  "ws.machine.title": "Machine",
+  "nestws.btn.add_drawing": "+ From drawing",
+  "nestws.btn.add_sheet": "Add sheet",
+  "nestws.btn.cancel": "Cancel",
+  "nestws.btn.import": "Import file...",
+  "nestws.btn.nest": "Nest ▶",
+  "nestws.btn.queue": "Send to queue",
+  "nestws.btn.remove": "Remove",
+  "nestws.btn.to_drawing": "Copy sheet to drawing",
+  "nestws.col.engine": "Engine",
+  "nestws.col.max": "Max",
+  "nestws.col.part": "Part",
+  "nestws.col.priority": "Priority",
+  "nestws.col.qty": "Qty",
+  "nestws.col.run": "Run",
+  "nestws.col.sheets": "Sheets",
+  "nestws.col.unplaced": "Unplaced",
+  "nestws.col.util": "Util.",
+  "nestws.compare": "COMPARE RUNS",
+  "nestws.empty": "Add parts and a sheet, then press Nest",
+  "nestws.engine": "Engine",
+  "nestws.engine.missing": "needs the optional package spyrrow",
+  "nestws.engine.raster": "Raster (built-in)",
+  "nestws.engine.spyrrow": "Sparrow (spyrrow)",
+  "nestws.leftover": "  → leftover {w:.0f} × {h:.0f}",
+  "nestws.margin": "Edge",
+  "nestws.material": "Material",
+  "nestws.msg.done": "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
+  "nestws.msg.failed": "Nesting failed: {err}",
+  "nestws.msg.no_parts": "Add parts first (from the drawing or a file).",
+  "nestws.msg.queued": "{n} sheet jobs added to the queue",
+  "nestws.msg.running": "Nesting...",
+  "nestws.no_result": "No result yet",
+  "nestws.parts": "PARTS",
+  "nestws.remnant_item": "◩ remnant {label}",
+  "nestws.result_item": "Sheet {n}  {util:.0f} %  ·  {parts} parts\n{sheet}",
+  "nestws.results": "RESULTS",
+  "nestws.rot.none": "no rotation",
+  "nestws.rotation": "Rotation",
+  "nestws.sheet_item": "▭ {name} {w:.0f} × {h:.0f} mm × {n}",
+  "nestws.sheet_title": "Sheet {n} / {total}   {w:.0f} × {h:.0f} mm   {util:.1f} %",
+  "nestws.spacing": "Spacing",
+  "nestws.stock": "SHEETS / REMNANTS",
+  "nestws.time": "Time limit",
+  "nestws.total": "Total {sheets} sheets · {util:.1f} % · {placed} placed · {unplaced} unplaced",
+  "nestws.undo.to_drawing": "nest result",
+  "queue.btn.add": "Add job...",
+  "queue.btn.clear": "Clear finished",
+  "queue.btn.down": "Move down",
+  "queue.btn.remove": "Remove",
+  "queue.btn.reset": "Run again",
+  "queue.btn.skip": "Skip / unskip",
+  "queue.btn.up": "Move up",
+  "queue.cmd.add_current": "Add document to queue",
+  "queue.col.actual": "Actual",
+  "queue.col.done": "Done",
+  "queue.col.est": "Est. / sheet",
+  "queue.col.material": "Material",
+  "queue.col.name": "Job",
+  "queue.col.note": "Note",
+  "queue.col.order": "#",
+  "queue.col.qty": "Qty",
+  "queue.col.sheet": "Sheet",
+  "queue.col.status": "Status",
+  "queue.msg.empty": "The queue has no job left to run.",
+  "queue.msg.finished": "Queue finished.",
+  "queue.msg.load_sheet": "Load the next sheet, then confirm.",
+  "queue.msg.sheet_stopped": "The sheet was stopped: confirm to run it again, or skip it in the queue.",
+  "queue.msg.start_refused": "The sheet did not start (pre-flight or arming): check, then confirm again.",
+  "queue.note.busy": "a job is running",
+  "queue.note.missing": "file not found: {path}",
+  "queue.note.save_first": "Save the document first: the queue runs files",
+  "queue.note.unreadable": "cannot read {path}",
+  "queue.qty": "Quantity (sheets)",
+  "queue.status.done": "done",
+  "queue.status.interrupted": "interrupted",
+  "queue.status.running": "running",
+  "queue.status.skipped": "skipped",
+  "queue.status.stopped": "stopped",
+  "queue.status.waiting": "waiting",
+  "queue.totals": "{entries} jobs · {done}/{sheets} sheets · {left} left",
+  "queue.undo.load": "queue: load sheet",
+  "remnant.saved": "Remnant {label} saved",
+  "report.btn.csv": "Export CSV...",
+  "report.btn.legacy": "Job report pages...",
+  "report.btn.pdf": "Export PDF...",
+  "report.btn.refresh": "Refresh",
+  "report.chart": "Cutting time per day (h)",
+  "report.col.alarm_time": "Alarm time",
+  "report.col.alarms": "Alarms",
+  "report.col.code": "Code",
+  "report.col.cost": "Cost",
+  "report.col.cut": "Cut (m)",
+  "report.col.day": "Day",
+  "report.col.duration": "Duration",
+  "report.col.est": "Estimated",
+  "report.col.job": "Job",
+  "report.col.jobs": "Jobs",
+  "report.col.material": "Material",
+  "report.col.name": "Job",
+  "report.col.ok": "Done",
+  "report.col.pierces": "Pierces",
+  "report.col.remedy": "Remedy",
+  "report.col.result": "Result",
+  "report.col.run": "Cutting time",
+  "report.col.sheets": "Sheets",
+  "report.col.start": "Start",
+  "report.col.stopped": "Stopped",
+  "report.col.text": "Alarm",
+  "report.col.time": "Time",
+  "report.col.util": "Util. %",
+  "report.msg.csv": "Production CSV written: {path}",
+  "report.msg.pdf": "Production report written: {path}",
+  "report.no_data": "No production recorded yet",
+  "report.note": "Records: {path}",
+  "report.pdf.summary": "Summary",
+  "report.pdf.title": "Production report",
+  "report.period": "Period",
+  "report.period.all": "All",
+  "report.period.month": "Last 30 days",
+  "report.period.today": "Today",
+  "report.period.week": "Last 7 days",
+  "report.result.ok": "done",
+  "report.result.stopped": "stopped",
+  "report.set.currency": "Currency",
+  "report.set.gas_per_h": "Gas cost (per hour)",
+  "report.set.machine_per_h": "Machine rate (per hour)",
+  "report.set.material_per_m2": "Material (per m²)",
+  "report.set.per_cut_m": "Wear cost (per metre cut)",
+  "report.set.per_pierce": "Cost per pierce",
+  "report.set.power_per_h": "Power cost (per hour)",
+  "report.tab.alarms": "Alarm history",
+  "report.tab.days": "Per day",
+  "report.tab.jobs": "Jobs",
+  "report.tab.per_job": "Per job",
+  "report.tile.alarms": "Alarms",
+  "report.tile.cost": "Cost",
+  "report.tile.cut": "Cut length",
+  "report.tile.est": "Actual / estimated",
+  "report.tile.jobs": "Jobs",
+  "report.tile.pierces": "Pierces",
+  "report.tile.run": "Cutting time",
+  "report.tile.util": "Utilisation",
+  "run.alarm.alarm": "ALARM",
+  "run.alarm.fault": "FAULT",
+  "run.alarm.remedy": "Remedy",
+  "run.alarm.title": "⚠ {n} active alarm(s)",
+  "run.btn.arm": "Arm laser",
+  "run.btn.confirm_sheet": "Sheet loaded: start",
+  "run.btn.continue": "CONTINUE",
+  "run.btn.details": "Details",
+  "run.btn.disarm": "Disarm laser",
+  "run.btn.dry_run": "Dry run",
+  "run.btn.frame": "Frame",
+  "run.btn.hold": "HOLD",
+  "run.btn.queue_leave": "Leave queue",
+  "run.btn.queue_run": "Run queue",
+  "run.btn.reset": "Reset alarm",
+  "run.btn.resume_contour": "Contour start",
+  "run.btn.resume_here": "Here",
+  "run.btn.start": "START",
+  "run.btn.stop": "STOP",
+  "run.canvas.empty": "No job loaded",
+  "run.count.contour": "contour {n}/{total}",
+  "run.count.part": "part {n}/{total}",
+  "run.count.sheet": "Sheet {n}/{total}",
+  "run.monitor_on": "LAN monitor ON {host}:{port}",
+  "run.queue.next": "Next: {name} (sheet {n}/{total}{sheet})",
+  "run.queue.title": "Queue: {n} jobs, {left} sheets left",
+  "run.reason.alarm": "Alarm {code}: {text}",
+  "run.reason.armed": "Ready: ARMED, the laser fires on Start",
+  "run.reason.breakpoint": "Held at a breakpoint (X {x:.1f}, Y {y:.1f} mm): resume here or from the contour start",
+  "run.reason.cutting": "Cutting",
+  "run.reason.disarmed": "Ready: disarmed, the laser cannot fire",
+  "run.reason.dry_run": "Dry run: laser off",
+  "run.reason.fault": "Fault latched: {fault}",
+  "run.reason.frame": "Framing the job outline: laser off",
+  "run.reason.hold": "Held: press Continue to go on",
+  "run.reason.laser_off": "Ready: laser output disabled (dry-run mode)",
+  "run.reason.offline": "No machine connected",
+  "run.resume": "Resume from the breakpoint",
+  "run.set.monitor_enabled": "LAN monitor enabled",
+  "run.set.monitor_host": "LAN monitor interface address",
+  "run.set.monitor_port": "LAN monitor port",
+  "run.set.monitor_token": "LAN monitor access token",
+  "run.set.remnant_auto": "Save the leftover of a nested sheet as a remnant",
+  "run.set.remnant_min_area": "Smallest remnant area",
+  "run.set.remnant_min_width": "Smallest remnant width",
+  "run.state.alarm": "ALARM",
+  "run.state.fault": "FAULT",
+  "run.state.hold": "HOLD",
+  "run.state.offline": "OFFLINE",
+  "run.state.ready": "READY",
+  "run.state.running": "RUNNING",
+  "run.tab.live": "Live view",
+  "run.tab.queue": "Queue",
+  "run.times": "elapsed {elapsed}   ETA {eta}",
+  "run.tip.hold": "Hold / continue (Space)",
+  "run.tip.start": "Start or continue (F5): pre-flight check first",
+  "run.tip.stop": "Stop the job (Esc or F12)",
+  "run.untitled": "(untitled)",
+  "run.val.gas": "Gas {v}",
+  "run.val.height": "Height {v} mm",
+  "run.val.position": "X {x}  Y {y}  Z {z} mm",
+  "run.val.power": "Power {v} %",
+  "run.val.speed": "Speed {v} mm/s",
+  "web.alarms": "Alarms",
+  "web.cmd.toggle": "LAN monitor (read-only)",
+  "web.elapsed": "elapsed",
+  "web.eta": "ETA",
+  "web.job": "Job",
+  "web.log.failed": "LAN monitor could not start on {host}:{port}: {err}",
+  "web.log.started": "LAN monitor ON (read-only): {url}",
+  "web.log.stopped": "LAN monitor stopped",
+  "web.no_alarms": "No active alarms",
+  "web.offline": "No connection to the machine PC",
+  "web.position": "Position",
+  "web.power": "Power",
+  "web.progress": "Progress",
+  "web.queue": "Queue",
+  "web.readonly": "read-only",
+  "web.remedy": "Remedy",
+  "web.sheet": "Sheet",
+  "web.speed": "Speed",
+  "web.stale": "stale",
+  "web.state": "State",
+  "web.title": "mlaser monitor",
+  "web.updated": "Updated",
+  "web.warn.text": "The LAN monitor serves a read-only status page (state, progress, alarms, the current sheet) on {host}:{port} to anyone on the network who has the link with its access token. It cannot control the machine. Share the link only with people who may see production data, and keep it off on untrusted networks.\n\nEnable it?",
+  "web.warn.title": "Enable the LAN monitor",
+  "ws.nest": "Nest",
+  "ws.report": "Report",
+  "ws.run": "Run"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -2511,6 +2743,149 @@
   ],
   "ws.machine.origins": [
    "tools"
+  ],
+  "nestws.leftover": [
+   "w",
+   "h"
+  ],
+  "nestws.msg.done": [
+   "n",
+   "placed",
+   "sheets",
+   "util",
+   "unplaced",
+   "t"
+  ],
+  "nestws.msg.failed": [
+   "err"
+  ],
+  "nestws.msg.queued": [
+   "n"
+  ],
+  "nestws.remnant_item": [
+   "label"
+  ],
+  "nestws.result_item": [
+   "n",
+   "util",
+   "parts",
+   "sheet"
+  ],
+  "nestws.sheet_item": [
+   "name",
+   "w",
+   "h",
+   "n"
+  ],
+  "nestws.sheet_title": [
+   "n",
+   "total",
+   "w",
+   "h",
+   "util"
+  ],
+  "nestws.total": [
+   "sheets",
+   "util",
+   "placed",
+   "unplaced"
+  ],
+  "queue.note.missing": [
+   "path"
+  ],
+  "queue.note.unreadable": [
+   "path"
+  ],
+  "queue.totals": [
+   "entries",
+   "done",
+   "sheets",
+   "left"
+  ],
+  "remnant.saved": [
+   "label"
+  ],
+  "report.msg.csv": [
+   "path"
+  ],
+  "report.msg.pdf": [
+   "path"
+  ],
+  "report.note": [
+   "path"
+  ],
+  "run.alarm.title": [
+   "n"
+  ],
+  "run.count.contour": [
+   "n",
+   "total"
+  ],
+  "run.count.part": [
+   "n",
+   "total"
+  ],
+  "run.count.sheet": [
+   "n",
+   "total"
+  ],
+  "run.monitor_on": [
+   "host",
+   "port"
+  ],
+  "run.queue.next": [
+   "name",
+   "n",
+   "total",
+   "sheet"
+  ],
+  "run.queue.title": [
+   "n",
+   "left"
+  ],
+  "run.reason.alarm": [
+   "code",
+   "text"
+  ],
+  "run.reason.breakpoint": [
+   "x",
+   "y"
+  ],
+  "run.reason.fault": [
+   "fault"
+  ],
+  "run.times": [
+   "elapsed",
+   "eta"
+  ],
+  "run.val.gas": [
+   "v"
+  ],
+  "run.val.height": [
+   "v"
+  ],
+  "run.val.position": [
+   "x",
+   "y",
+   "z"
+  ],
+  "run.val.power": [
+   "v"
+  ],
+  "run.val.speed": [
+   "v"
+  ],
+  "web.log.failed": [
+   "host",
+   "port",
+   "err"
+  ],
+  "web.log.started": [
+   "url"
+  ],
+  "web.warn.text": [
+   "host",
+   "port"
   ]
  },
  "legacy": {

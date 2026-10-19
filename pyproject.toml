@@ -112,7 +112,7 @@ ignore = ["E702", "E731", "E741"]
 [tool.mypy]
 python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/nc", "mlaser/services",
-         "mlaser/ops", "mlaser/project"]
+         "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py"]
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -134,7 +134,7 @@ type = "layers"
 layers = [
     "mlaser.ui | mlaser.parity",
     "mlaser.services",
-    "mlaser.diag | mlaser.report | mlaser.engrave",
+    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web",
     "mlaser.controller",
     "mlaser.devices | mlaser.machine",
     "mlaser.ops",
@@ -157,7 +157,7 @@ source_modules = [
     "mlaser.parity_ports",
     "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
     "mlaser.nc", "mlaser.ops", "mlaser.machine", "mlaser.devices", "mlaser.controller",
-    "mlaser.services", "mlaser.project",
+    "mlaser.services", "mlaser.project", "mlaser.web",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 # no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt

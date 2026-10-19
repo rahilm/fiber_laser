@@ -146,8 +146,11 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   factory values
 - ☐ properties panel instead of modal dialogs; units; live previews
 - ☐ preview with a scrubber, plus a time and cost card
-- ☐ touch-first Run screen; Operator, Engineer and Service modes
-- ☐ graphical nest workspace; job queue; production reports; remnant stock
+- ◐ touch-first Run screen; Operator, Engineer and Service modes (☑ Run screen:
+  `ui/workspaces/run.py`, docs/user/run.md; ☐ the modes)
+- ☑ graphical nest workspace; job queue; production reports; remnant stock
+  (`ui/workspaces/{nest,run,report}.py`, `services/{queue,remnants,nesting,operator}.py`,
+  `report/ledger.py`, docs/user/{run,nest,report}.md; job lifecycle from the EventBus)
 - ☑ guided edge-seek and calibration procedures (Machine track: `services.procedures` step
   machines with abort = `safe_halt` and a simulator dry run; edge seek 3/4-point, disc and
   two-point with outline review and undoable apply; follower calibration with the curve; focus
@@ -157,7 +160,8 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   files. Done: readable ids, the importer, Qt Linguist `.ts`/`.qm` round trip, `tools/i18n_check.py` in
   CI, the bundled cutting-text font (docs/dev/i18n.md); open: cleaned-up translations (none ship yet)
 - ☐ dark and high-contrast themes, SVG icons, accessibility
-- ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
+- ☑ LAN monitor (phone/tablet, read-only by default, no vendor cloud) (`mlaser/web`, stdlib,
+  token, GET only, off by default; docs/user/lan_monitor.md)
 - ☑ typed model and versioned native project format; `.chf` kept as interchange (byte-exact):
   typed contour craft / micro-joints / cooling points / source glyphs / raster parts with
   `LegacyExtra` shims, `.mlz` with schema, migrations, atomic save, autosave and recovery
