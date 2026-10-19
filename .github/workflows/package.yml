@@ -66,6 +66,7 @@ jobs:
             uv venv -q --python "$py" venv
             uv pip install -q --python venv/bin/python "$whl"
             venv/bin/python -m mlaser._native --require
+            venv/bin/python "$GITHUB_WORKSPACE/tools/build_native.py" --check --installed
             echo "::endgroup::"
           done
       - uses: actions/upload-artifact@v4

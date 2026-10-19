@@ -67,14 +67,18 @@ typedef struct {
     int dry;
 } Out;
 
-/* round-half-even of a double, as Python's round(x) for |x| < 2^52 */
+/* round-half-even of a double, as Python's round(x) for |x| < 2^52.
+ * The parity of r is an integer test, not fmod(r, 2.0): LLVM 20+ (Apple clang 21) lowers fmod
+ * by a constant power of two to x - trunc(x / 2) * 2 with an fmadd/fmsub even under
+ * -ffp-contract=off (exact, but it is a fused multiply-add the FMA check must refuse).
+ * diff == 0.5 means q is not an integer, so |r| < 2^52 and (long long)r is exact. */
 static double round_half_even(double q)
 {
     double r = floor(q);
     double diff = q - r;        /* exact */
     if (diff > 0.5)
         r += 1.0;
-    else if (diff == 0.5 && fmod(r, 2.0) != 0.0)
+    else if (diff == 0.5 && ((long long)r & 1LL) != 0)
         r += 1.0;
     return r;
 }

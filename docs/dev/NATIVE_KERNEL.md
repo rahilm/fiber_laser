@@ -149,9 +149,21 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
   and `test_no_fma_in_the_kernel` disassemble the module and refuse any FMA mnemonic (x86
   FMA3/FMA4, AArch64 `fmadd`/`fmsub`/`fmla`, ...).  On x86-64 the baseline ISA has no FMA anyway;
   the check matters for arm64 wheels and for anyone adding `-march=native`.
+* **A compiler-made FMA that no flag turns off.**  LLVM 20+ (Apple clang 21 / Xcode 26 on the
+  macOS arm64 runners; reproduced with `zig cc` 0.15, LLVM 20, `--target=aarch64-macos`)
+  lowers `fmod(r, 2.0)` (a constant power-of-two divisor) to `r - trunc(r * 0.5) * 2.0` with an
+  `fmadd`, even under `-ffp-contract=off` and `#pragma STDC FP_CONTRACT OFF`: it is an
+  exact rewrite, not a contraction, so neither applies (only `-ffp-model=strict` stops it).
+  The three `fmadd` the check refused on macOS were all that, in `round_half_even` (inlined
+  three times).  The parity test of `round_half_even` is now an integer test,
+  `((long long)r & 1)`, exact because it only runs when `q - floor(q) == 0.5`, i.e. `|r| <
+  2^52`; Linux output unchanged (native parity 326 jobs / 3 045 237 steps, goldens with the
+  kernel on and off, 2026-10-19).  The wheel jobs now run the same FMA disassembly check on
+  every installed wheel (`tools/build_native.py --check --installed`).
 * **x87 excess precision** (32-bit x86 only): would need `-msse2 -mfpmath=sse`; no 32-bit
   build is planned.
-* **`ceil` / `floor` / `fmod`** are exact functions in every libm (no rounding involved).
+* **`ceil` / `floor`** are exact functions in every libm (no rounding involved); the kernel no
+  longer calls `fmod` (see the FMA trap above).
 * **GC**: the port's wire items are tracked lists; the kernel untracks its (3 ints, never
   mutated, no cycle possible).  Visible only through `gc.is_tracked`; the cyclic GC otherwise
   re-scanned the growing wire list and cost 3x the kernel time.  The kernel also shares the int

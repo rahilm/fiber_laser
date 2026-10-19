@@ -8,11 +8,15 @@ the C source changes).  This script is for working on the kernel and for CI::
     python tools/build_native.py              # rebuild in place (required: fail on a compile error), then --check
     python tools/build_native.py --wheel      # build a wheel into dist/ (uv build)
     python tools/build_native.py --check      # only check the importable module
+    python tools/build_native.py --check --installed   # check the installed mlaser (a wheel)
 
 ``--check``: the module imports; its machine code holds no fused multiply-add instruction
 (disassembled with objdump / llvm-objdump, or dumpbin on Windows when it is on PATH; skipped
 with a note otherwise); the built-in self-check passes; the default profile selects it; and a
 short parity run over golden jobs shows no difference.  Exit status 1 on any failure.
+``--installed`` checks the mlaser that the interpreter imports (a wheel in a clean venv, the
+wheel jobs of package.yml) instead of this checkout, without the parity run (it needs the
+golden files of the checkout).
 """
 from __future__ import annotations
 
@@ -82,10 +86,11 @@ def build(wheel: bool) -> None:
     subprocess.run(cmd, check=True, env=env)
 
 
-def check(parity_seeds: range = range(0, 300, 50)) -> int:
+def check(parity_seeds: range = range(0, 300, 50), installed: bool = False) -> int:
     import importlib
     importlib.invalidate_caches()
-    sys.path.insert(0, str(ROOT))
+    if not installed:
+        sys.path.insert(0, str(ROOT))
     from mlaser import _native
     if _native._emitter is None:
         print(f"mlaser._native._emitter is not importable: {_native.IMPORT_ERROR}")
@@ -113,6 +118,9 @@ def check(parity_seeds: range = range(0, 300, 50)) -> int:
     if not st.native:
         print("the default profile did not select the kernel")
         return 1
+    if installed:
+        print("installed package: parity smoke run skipped (needs the checkout's goldens)")
+        return 0
     sys.path.insert(0, str(ROOT / "tools"))
     import native_parity as P
     n, steps, diff = P.compare({"jobs_random"}, parity_seeds)
@@ -124,6 +132,8 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--wheel", action="store_true", help="build a wheel into dist/")
     ap.add_argument("--check", action="store_true", help="only check the importable module")
+    ap.add_argument("--installed", action="store_true",
+                    help="with --check: the installed mlaser (not this checkout), no parity run")
     a = ap.parse_args(argv)
     if not a.check:
         build(a.wheel)
@@ -131,7 +141,7 @@ def main(argv=None) -> int:
             return 0
         # a fresh interpreter: the rebuilt module is loaded at import
         return subprocess.run([sys.executable, __file__, "--check"]).returncode
-    return check()
+    return check(installed=a.installed)
 
 
 if __name__ == "__main__":
