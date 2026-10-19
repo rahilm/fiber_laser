@@ -212,3 +212,34 @@ def test_state_banner_background_paints_in_the_light_theme(win, app):
         c = img.pixelColor(2, img.height() // 2)
         window_bg = win.palette().window().color()
         assert c != window_bg, "banner background not painted"
+
+
+def test_dont_ask_question_leaves_no_dangling_message_box():
+    """safety_ui.ask(dont_ask=True) used to leave its QMessageBox as a child of the window with
+    a checkbox that PySide deleted with its Python wrapper; the next style-sheet change of the
+    window re-laid the box out over the freed checkbox and crashed (macOS CI: SIGSEGV in
+    QMessageBox::changeEvent during a user-mode switch).  Run in a subprocess: a regression
+    is a crash."""
+    import subprocess
+    import sys
+    import textwrap
+    code = textwrap.dedent("""
+        import gc, os
+        os.environ["QT_QPA_PLATFORM"] = "offscreen"
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication, QMessageBox, QWidget
+        app = QApplication([])
+        from mlaser.ui import safety_ui as S
+        w = QWidget()
+        QMessageBox.exec = lambda self, *a: QMessageBox.Ok
+        for i in range(5):
+            S.ask(w, f"k{i}", "Continue?", dont_ask=True, settings={})
+        gc.collect()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+        assert not w.findChildren(QMessageBox), "message boxes left behind"
+        w.setStyleSheet("QWidget{}")
+        w.setStyleSheet("")
+        print("OK")
+    """)
+    p = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0 and "OK" in p.stdout, (p.returncode, p.stdout, p.stderr[-2000:])

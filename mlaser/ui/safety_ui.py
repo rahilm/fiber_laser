@@ -96,19 +96,25 @@ def ask(parent, key: str, text: str, title: str = "", dont_ask: bool = False,
     if dont_ask and k in store:
         return bool(store[k])
     box = QMessageBox(parent)
-    box.setIcon(QMessageBox.Question)
-    box.setWindowTitle(title or "Mlaser")
-    box.setText(text)
-    box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
-    box.setDefaultButton(QMessageBox.Ok if default_yes else QMessageBox.Cancel)
-    cb = None
-    if dont_ask:
-        cb = QCheckBox("Don't ask again")
-        box.setCheckBox(cb)
-    ok = box.exec() == QMessageBox.Ok
-    if cb is not None and cb.isChecked():
-        store[k] = ok
-    return ok
+    try:
+        box.setIcon(QMessageBox.Question)
+        box.setWindowTitle(title or "Mlaser")
+        box.setText(text)
+        box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Ok if default_yes else QMessageBox.Cancel)
+        cb = None
+        if dont_ask:
+            # parented to the box: PySide's setCheckBox() leaves the C++ checkbox owned by its
+            # Python wrapper, which deleted it when ``cb`` was collected, and the box (kept as a
+            # child of ``parent``) crashed on its next re-layout, e.g. a style-sheet change
+            cb = QCheckBox("Don't ask again", box)
+            box.setCheckBox(cb)
+        ok = box.exec() == QMessageBox.Ok
+        if cb is not None and cb.isChecked():
+            store[k] = ok
+        return ok
+    finally:
+        box.deleteLater()               # not a child of ``parent`` forever
 
 
 def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") -> None:
@@ -122,8 +128,12 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
         box.setInformativeText(detail)
     rec = box.addButton("Recover", QMessageBox.AcceptRole)
     box.addButton("Not now", QMessageBox.RejectRole)
-    box.exec()
-    if box.clickedButton() is rec:
+    try:
+        box.exec()
+        recover = box.clickedButton() is rec
+    finally:
+        box.deleteLater()
+    if recover:
         on_recover()
 
 

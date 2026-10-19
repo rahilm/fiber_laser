@@ -64,8 +64,8 @@ jobs:
 
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
         # macOS: -v names the running test, and a native crash leaves its Python stacks and the
-        # last command of the command-coverage test in files shown by the next step (an
-        # intermittent crash in test_command_coverage_for_draw_commands, 2026-10-19)
+        # last command of the command-coverage test in files shown by the next step (how the
+        # QMessageBox / checkbox crash of 2026-10-19 was found, together with lldb)
         env:
           MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
@@ -148,42 +148,6 @@ jobs:
           MLASER_NATIVE=0 uv run --locked pytest -q -m golden
 
 
-  # TEMPORARY: native backtrace of the intermittent macOS crash (test_command_coverage_for_draw_commands,
-  # command shell.mode_engineer); the suite up to that module under lldb
-  macos-crash-debug:
-    runs-on: macos-latest
-    timeout-minutes: 40
-    env:
-      QT_QPA_PLATFORM: offscreen
-      MLASER_PARITY: "0"
-      MLASER_NO_FIRSTRUN: "1"
-      PYTHONUTF8: "1"
-      MLASER_BUILD_NATIVE: "1"
-    steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
-        with:
-          python-version: "3.12"
-      - run: uv sync --locked --all-extras
-      - name: lldb, up to 3 attempts
-        run: |
-          csrutil status || true
-          PY=$(uv run --locked python -c "import sys; print(sys.executable)")
-          echo "python: $PY"; codesign -dv --entitlements - "$PY" 2>&1 | head -20 || true
-          FILES=$(ls tests/test_*.py tests/safety/test_*.py | sort | awk '$0 <= "tests/test_draw_tools.py"' | tr '\n' ' ')
-          for i in 1 2 3; do
-            echo "=== attempt $i"
-            lldb --batch -o "settings set target.process.stop-on-exec false" -o "process handle -p true -s true -n false SIGSEGV SIGBUS" -o run \
-              -k "thread backtrace all -c 40" -k "quit 1" -- "$PY" -m pytest -q -x -p no:cacheprovider $FILES \
-              > lldb.txt 2>&1 || true
-            grep -nE "stop reason|EXC_|signal SIG" lldb.txt | head -5 || true
-            if grep -qE "stop reason = (EXC_BAD|signal SIGSEGV|signal SIGBUS)" lldb.txt; then
-              n=$(grep -nE "stop reason = (EXC_BAD|signal SIG)" lldb.txt | head -1 | cut -d: -f1)
-              sed -n "$((n-5)),$((n+400))p" lldb.txt
-              exit 1
-            fi
-            tail -3 lldb.txt
-          done
 
   lint:
     runs-on: ubuntu-latest
