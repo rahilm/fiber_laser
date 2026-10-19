@@ -160,6 +160,10 @@ class SimSheet:
         return inside
 
 
+# motion slice of the simulator while soft limits are configured (card time, s)
+SOFT_LIMIT_SLICE_S = 0.002
+
+
 class CardSimulator:
     """Threaded UDP/TCP server emulating the card.
 
@@ -808,6 +812,12 @@ class CardSimulator:
             dt = (now - last) * self.time_scale
             last = now
             with self.lock:
+                # with soft limits, in slices of at most 2 ms of card time: the limit is checked
+                # after each slice, and a late wake-up (a loaded host, macOS timer coalescing)
+                # must not carry an axis several mm past it (7.2 mm for a 5 mm limit at 200 mm/s)
+                while self.soft_limits and dt > SOFT_LIMIT_SLICE_S:
+                    self.advance(SOFT_LIMIT_SLICE_S)
+                    dt -= SOFT_LIMIT_SLICE_S
                 self.advance(dt)
 
     def advance(self, dt: float) -> None:
