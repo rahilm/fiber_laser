@@ -1,5 +1,5 @@
 """Peripheral devices of the Mlaser rebuild (one module per device; each has a client and a
-small simulator).  Evidence and addresses: docs/devices.md.
+small simulator).  Evidence and addresses: docs/re/devices.md.
 
 * :mod:`.codecs`      IModbus codec family (RTU slave 1/2, Std, FTC61 tunnel, raw)
 * :mod:`.transport`   UDP/TCP/serial transports with the HAL retry loop, ipAdd.ini settings

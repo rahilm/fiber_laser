@@ -35,6 +35,13 @@ prefers it (see [Classic ribbon](#4-classic-ribbon)).
 * **Language** — switches immediately. Languages other than English come from your own Mlaser
   install (Settings > Import languages).
 
+### Files
+
+File > **Open** (`Ctrl+O`) reads mlaser projects (`.mlz`) and the original's `.chf`, DXF, SVG
+and G-code. File > **Save** (`Ctrl+S`) saves a new drawing as an `.mlz` project (the drawing
+plus the technology, the job queue and the nest); a drawing opened from a `.chf` is saved back
+to that `.chf`. File > **Export CHF** writes the interchange `.chf` for the original program.
+
 ## 2. Workspaces
 
 The rail on the left switches between the tasks. `Ctrl+1` … `Ctrl+6` do the same from anywhere.
@@ -58,7 +65,7 @@ they appear in the rail after Machine (`Ctrl+7` …).
 
 ## 3. Command palette
 
-`Ctrl+K` (or `F1`, or the search box) opens the palette over the window. Type any part of a
+`Ctrl+K` (or the search box) opens the palette over the window. Type any part of a
 command's name: letters may be spread out (`mj` finds *Micro Joint*, `hxyz` *Home XYZ*), the
 workspace name works too (`nest`). Each row shows the command, its workspace and its key.
 
@@ -123,7 +130,8 @@ canvas; generated from the same table). The most used:
 
 | Key | Does |
 |---|---|
-| `Ctrl+K` / `F1` | command palette |
+| `Ctrl+K` | command palette |
+| `F1` | help (the user guide, offline) |
 | `Ctrl+1` … `Ctrl+6` | workspaces |
 | `F5` | Start (pre-flight check first) |
 | `F6` / `Shift+F6` | Frame / Dry run |

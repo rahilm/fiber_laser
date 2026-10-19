@@ -11,14 +11,14 @@ values, so the defaults are a plausible bench setup.  Tags follow the other docs
   follower, gas, laser-DA and delay parameters; :meth:`Machine.from_dat_dir` loads them from
   HardPara.xml / ManuPara.xml.  ``Machine()`` uses ``ProcessConfig.bench()`` (on-board follower,
   gas valves on outputs 1..3, proportional valve on DA 1; INFERRED bench wiring).
-* **observed (agent B, docs/protocol.md §11)**: step pulses/mm = ``WritePluse / SpeedRatio`` =
+* **observed (agent B, docs/re/protocol.md §11)**: step pulses/mm = ``WritePluse / SpeedRatio`` =
   pulses-per-revolution / lead (MainApp FUN_00458b60, config +0xbcb0 / +0xbca8), defaults
   10000 / 100 mm = **100 pulses/mm**, giving a 1270 mm/s step-speed cap at 1 ms.  Position counts
   (``position_ppm``, config +0xbc28) are a separate scale the card reports at connect (system
   word 17); 1000 is INFERRED from softPara.ini.
 * **INFERRED**: ``power_scale`` (layer power % -> the optional layer DA value, 0..10000, only used with
   ``emit_layer_commands``; the step items' power word is always 0xFFFF, parity JB-02),
-  rapid speed/acceleration (MainApp's jump profile parameters are UNKNOWN, docs/motion.md §8).
+  rapid speed/acceleration (MainApp's jump profile parameters are UNKNOWN, docs/re/motion.md §8).
 """
 from __future__ import annotations
 
@@ -45,7 +45,7 @@ class Machine:
     rapid_acc_time: float = 0.1         # s, INFERRED (jerk = f(acc, acc_time) as for cuts)
     jump_add_time_ms: float = 200.0     # observed (JumpAddTime.txt); emitted as a settle dwell
     cut: PlannerParams = field(default_factory=PlannerParams)   # CVelocityPlanning defaults
-    corner_tol: float = 0.05            # INFERRED corner rounding tolerance (docs/motion.md §5)
+    corner_tol: float = 0.05            # INFERRED corner rounding tolerance (docs/re/motion.md §5)
     smooth: bool = True                 # CContoutSmooth corner blending before planning (motion.md §9):
     #                                     always on for contours in the original (FUN_100c6fe0, O)
     power_scale: float = 100.0          # layer DA = power_pct * power_scale with emit_layer_commands (I);

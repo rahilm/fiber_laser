@@ -42,7 +42,9 @@ def test_all_commands_rebound(win):
         QApplication.processEvents()
     assert missing == []
     assert ext.interferometer_dock is not None and not ext.interferometer_dock.isHidden()
-    assert "help" in ext.windows and "controller" in ext.windows and "report" in ext.windows
+    assert "help" in ext.windows and "report" in ext.windows
+    # the device monitors are panels of the Machine workspace (Wave 3), not floating windows
+    assert "controller" in w.extension("ext_machine").workspace.monitors
     w.run("aux.interferometer")
     assert ext.interferometer_dock.isHidden()
 
@@ -159,6 +161,6 @@ def test_dialog_contents(win):
     lv = ext.log_dir_viewer()
     lv.reload()
     hw = ext.help()
-    assert hw.list.count() >= 3
-    hw.list.setCurrentRow(hw.list.count() - 1)
+    assert hw.tree.topLevelItemCount() >= 4 and len(hw.topics) >= 20
+    hw.tree.setCurrentItem(hw.tree.topLevelItem(hw.tree.topLevelItemCount() - 1))   # About
     assert "omitted" in hw.view.toPlainText()

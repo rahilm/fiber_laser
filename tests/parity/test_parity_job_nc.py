@@ -1,7 +1,7 @@
 """Cutting-job pipeline, NCModule half: the original FIFO packer FUN_10043c20 (called by address
 with ManuItems we build, harness/nc_job_harness.c) vs the rebuild's encoders
 (frames.encode_step, process.ManuEncoder, frames.build_fifo_frames = Job.frames).
-Skips without Wine; see docs/parity.md "Cutting-job pipeline"."""
+Skips without Wine; see docs/re/parity.md "Cutting-job pipeline"."""
 from parity_helpers import assert_no_new_discrepancies, run_area
 
 

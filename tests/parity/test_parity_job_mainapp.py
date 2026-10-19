@@ -1,7 +1,7 @@
 """MainApp.exe job builder (FUN_00462630 and the process sequences) vs the rebuild's compiler.
 
 The harness maps MainApp.exe under Wine and calls the job builder's compute functions with
-objects it builds itself (docs/parity.md, "Cutting-job pipeline: MainApp job builder").  Skips
+objects it builds itself (docs/re/parity.md, "Cutting-job pipeline: MainApp job builder").  Skips
 without Wine, the built harness or the copy of the original install.
 """
 import pytest

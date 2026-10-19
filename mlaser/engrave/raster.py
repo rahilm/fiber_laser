@@ -1,6 +1,6 @@
 """Raster G-code generation of "PicConvert(1.06) (BitmapRaster)" (``$ORIG/Bitmap/next_cut.dll``).
 
-Pipeline of the original (MyFrom.button9_Click, token 0x06000020; tags as in docs/engrave.md):
+Pipeline of the original (MyFrom.button9_Click, token 0x06000020; tags as in docs/re/engrave.md):
 
 1. the edited gray image (``g_currentImage``) is resampled with nearest neighbour to
    ``(rho*W) x (rho*H)`` pixels, W/H integer millimetres, rho integer lines per mm (O);

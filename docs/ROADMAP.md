@@ -84,11 +84,11 @@ Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of th
   and Start streams exactly it; the streamer uses `Job.frames()` (`mlaser.services.jobs`; the
   run bar, run controls, pendant and batch runner hand the plan to `start_job`, which runs the
   pre-flight on it; tests/test_services_jobs.py)
-- ◐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
-  the machine profile feeds `Machine` (done: `mlaser.services.config`, typed Options dialogs,
-  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); still open: it
-  hands the layer defaults to `parity_ports.mainapp.layer` (the import-linter ignore
-  `parity_ports.mainapp.layer -> formats.params` stays)
+- ☑ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
+  the machine profile feeds `Machine` (`mlaser.services.config`, typed Options dialogs,
+  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); it hands the
+  layer defaults to `parity_ports.mainapp.layer` by injection (Wave 3 Machine track; the last
+  import-linter ignore `parity_ports.mainapp.layer -> formats.params` is gone, goldens identical)
 - ☑ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
   (`mlaser.services.undo`; bounded by count and bytes; byte-exact .chf through edit/undo/redo)
 - ☑ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
@@ -141,32 +141,50 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 ## Wave 3: modern workflow (Stage 3, built on the services)
 - ◐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
   a Ctrl+K command palette, and an optional classic ribbon: ☑ the shell (`mlaser/ui/shell/`,
-  docs/user/shell.md): rail with the six workspaces (Ctrl+1..6), top bar (file + unsaved
-  marker, command search, safety chips, user mode, language), Safety's run bar in every
-  workspace, `ctx.add_workspace` with slots/options (docs/dev/PLUGINS.md §5), Ctrl+K palette
-  over all commands (recents first), classic ribbon view without elided labels, reset layout,
-  1280×800 and 150 % layouts, first-run welcome sheet; ☐ the Process / Nest / Run / Report /
-  Machine workspaces themselves (other Wave 3 tracks fill the slots)
-- ☐ material/technology database: material × thickness × gas × nozzle; versioned; diff against
-  factory values
-- ☐ properties panel instead of modal dialogs; units; live previews
-- ☐ preview with a scrubber, plus a time and cost card
-- ◐ touch-first Run screen; Operator, Engineer and Service modes: ☑ the modes
-  (`services/usermodes.py`: command `min_mode`, rail and palette filtered, no parameter editing
-  and 48 px targets for Operator, optional PBKDF2 PINs set in Service mode); ☐ the Run screen
-- ☐ graphical nest workspace; job queue; production reports; remnant stock
-- ☐ guided edge-seek and calibration procedures
-- ☐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
-  files
+  docs/user/shell.md): rail with the six workspaces (Ctrl+1..6) hosting the Process, Nest, Run,
+  Report and Machine workspaces of the other tracks, top bar (file + unsaved marker, command
+  search, safety chips, user mode, language), Safety's run bar in every workspace,
+  `ctx.add_workspace` with slots/options (docs/dev/PLUGINS.md §5), Ctrl+K palette over all
+  commands (recents first), classic ribbon view without elided labels, reset layout, 1280×800
+  and 150 % layouts, first-run welcome sheet; ☑ Machine workspace: `ui/workspaces/machine.py`,
+  monitors as panels, typed hardware settings, alarm history
+- ☑ material/technology database: material × thickness × gas × nozzle (× power class); versioned;
+  diff against factory values; JSON and LayerPara.xml import/export; a labelled example set
+  (`services/technology.py`, Process workspace `ui/workspaces/process.py`, docs/user/process.md);
+  applying a technology compiles exactly like typing the values (tests/test_technology.py)
+- ☑ properties panel instead of modal dialogs; units; live previews (`ui/properties/`: transform,
+  layer, leads with a live diagram, kerf, micro-joints, start point, cooling points; every edit
+  one undo step; the dialogs stay reachable)
+- ☑ preview with a scrubber, plus a time and cost card (`services/preview.py` over the PlannedJob
+  Start streams, `services/costing.py`, `ui/preview_scrubber.py`)
+- ◐ touch-first Run screen; Operator, Engineer and Service modes (☑ Run screen:
+  `ui/workspaces/run.py`, docs/user/run.md; ☑ the modes: `services/usermodes.py`, command
+  `min_mode`, rail and palette filtered, no parameter editing and 48 px targets for Operator,
+  optional PBKDF2 PINs set in Service mode)
+- ☑ graphical nest workspace; job queue; production reports; remnant stock
+  (`ui/workspaces/{nest,run,report}.py`, `services/{queue,remnants,nesting,operator}.py`,
+  `report/ledger.py`, docs/user/{run,nest,report}.md; job lifecycle from the EventBus)
+- ☑ guided edge-seek and calibration procedures (Machine track: `services.procedures` step
+  machines with abort = `safe_halt` and a simulator dry run; edge seek 3/4-point, disc and
+  two-point with outline review and undoable apply; follower calibration with the curve; focus
+  homing; laser power test with arming; first-connection commissioning checklist; settings import
+  from an original install; docs/user/machine.md)
+- ◐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
+  files. Done: readable ids, the importer, Qt Linguist `.ts`/`.qm` round trip, `tools/i18n_check.py` in
+  CI, the bundled cutting-text font (docs/dev/i18n.md); open: cleaned-up translations (none ship yet)
 - ☑ dark and high-contrast themes, SVG icons, accessibility (light / dark / high contrast with
   palette + QSS, persisted; canvas colours follow the theme with layer colours ≥ 3:1 and
   distinguishable; accessible names on rail/toolbar/top-bar controls, a fixed focus order,
   keys documented from the registry in docs/user/keyboard.md, banners and chips never colour
   alone)
-- ☐ LAN monitor (phone/tablet, read-only by default, no vendor cloud)
-- ☐ typed model and versioned native project format; `.chf` kept as interchange (byte-exact)
-- ☐ docs split into user / dev / re; packaged help
+- ☑ LAN monitor (phone/tablet, read-only by default, no vendor cloud) (`mlaser/web`, stdlib,
+  token, GET only, off by default; docs/user/lan_monitor.md)
+- ☑ typed model and versioned native project format; `.chf` kept as interchange (byte-exact):
+  typed contour craft / micro-joints / cooling points / source glyphs / raster parts with
+  `LegacyExtra` shims, `.mlz` with schema, migrations, atomic save, autosave and recovery
+  (docs/dev/project-format.md)
+- ☑ docs split into user / dev / re; packaged help (help browser with search, link check in CI)
 
 ## Outside software
 - ☐ a hardware watchdog relay in the laser-enable chain (owner, with the documented wiring)
-- ☐ the first hardware session, following docs/parity.md §8 and protocol.md §8
+- ☐ the first hardware session, following docs/re/parity.md §8 and protocol.md §8

@@ -1,7 +1,7 @@
 """Capacitive height follower ("ZF", 调高器).
 
 Observed (Module/NCModule.dll) - the live path in this build is the **on-board follower inside
-the motion card** (CExtModbus frames, 32-bit registers, see docs/protocol.md):
+the motion card** (CExtModbus frames, 32-bit registers, see docs/re/protocol.md):
 
 * Status: updateZFStatus FUN_1004f3e0 reads 18 registers at **10000** (func 0x30) when the
   follower parameter ``sys+0x4994`` is non-zero, every ``ZFUpdateFactor`` cycles, and stores
@@ -103,7 +103,7 @@ SUB_CALIBRATE = 7
 @dataclass
 class FollowerStatus:
     """The 18 status registers (``getReg(7, i)``).  Field names for indices are documented in
-    docs/devices.md; :attr:`raw` keeps everything."""
+    docs/re/devices.md; :attr:`raw` keeps everything."""
     raw: list[int] = field(default_factory=lambda: [0] * N_STATUS)
 
     def __getitem__(self, i: int) -> int:

@@ -1,6 +1,6 @@
 """Cutting order, containment tree and start-point selection.
 
-Evidence (CADModule.dll; details and tags in docs/cam.md section 8):
+Evidence (CADModule.dll; details and tags in docs/re/cam.md section 8):
 
 * Containment tree CContourTopTree (doc+0x9d20), depth assigned by 0x10022270
   (outermost = 1).
@@ -35,7 +35,7 @@ Evidence (CADModule.dll; details and tags in docs/cam.md section 8):
 
 Statement-level port of mode 5 as the DXF import runs it (FUN_100b57c0, small first):
 :func:`import_sort` / :func:`local_optimal_elems` / :func:`containers_last_faithful`
-(docs/cam.md §1, §8.4); the ribbon sort (:func:`order_nodes` mode 5) keeps its documented
+(docs/re/cam.md §1, §8.4); the ribbon sort (:func:`order_nodes` mode 5) keeps its documented
 simplifications (lead entry/exit points, no open-contour reversal).
 
 Rebuild extensions (not in the original, tagged in docs): mode 20 "shortest path"

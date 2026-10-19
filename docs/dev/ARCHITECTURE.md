@@ -27,6 +27,7 @@ other. Lazy (function-level) imports count like top-level ones.
                devices       machine (api.py: ControllerFacade, MachineState)
  operations    ops           (document operations: transforms, craft, ribbon CAM ops)
  NC            nc            (job compiler, process sequences, machine config, resume)
+               project       (.mlz project files, autosave; sibling of nc)
  import        io            nest
  CAM           cam           (toolpath, leads, kerf, micro-joints, ordering, cleanup)
  motion        motion        (path planning over MotionItems, simulation, time estimate)
@@ -38,7 +39,7 @@ other. Lazy (function-level) imports count like top-level ones.
 
 | Package | Content |
 |---|---|
-| `model` | the document model (Line/Arc, Contour, Part, Craft, layers, glyphs, `GlyphKind`) |
+| `model` | the document model (Line/Arc, Contour, Part, Craft, layers, glyphs, `GlyphKind`); typed fields with `extra` kept for opaque round-trip data ([project-format.md](project-format.md#typed-model)) |
 | `geom` | one geometry library: `curves` (bulge arcs, splines, glyph expansion, chaining, bboxes), `contour` (arc-length points/tangents, sub-paths, start rotation, orientation, point-in-polygon) |
 | `protocol` | the MCC100 wire protocol: `frames` (CExtModbus frame codec, FIFO item encoders, register map), `manu` (MainApp's ManuItem record), `enums` (IntEnum/IntFlag codes) |
 | `toolpath` | `items`: the MotionItem types CAM produces and motion/NC/G-code/UI consume |
@@ -49,6 +50,7 @@ other. Lazy (function-level) imports count like top-level ones.
 | `cam` | toolpath building, leads, kerf, micro-joints, cleanup, the rebuild's own ordering modes and the containment tree |
 | `io`, `nest` | DXF/SVG/G-code import and export; nesting |
 | `nc` | `compiler` (document -> FIFO job), `process` (ProcessConfig, ProcessSequencer), `machine`, `offline`, `resume` |
+| `project` | the native `.mlz` project format: codec, schema, migrations, atomic save, `Autosave` ([project-format.md](project-format.md)) |
 | `machine`, `devices` | `machine.api` (`MachineAPI`, `ControllerFacade`), `events` (event bus), `safety` (FSM, command policy), `preflight`, `demo`, `audit`/`logsetup`/`lifecycle`; peripheral device clients |
 | `controller` | card client, simulator (+ `follower_sim`), `supervisor` (SafetySupervisor), `stream` (JobStreamer / ProcessStreamer), `interlocks`, alarms, startup, UI adapter (`ui_adapter` + `parts/`) |
 | `diag`, `report`, `engrave` | diagnostics tools, production report window, bitmap engraving (they may use Qt) |
@@ -60,7 +62,7 @@ other. Lazy (function-level) imports count like top-level ones.
 
 1. **Dependencies point downward only** (the layers above).
 2. **Domain packages import no Qt**: model, geom, protocol, toolpath, i18n, parity_ports, formats,
-   cad, motion, cam, io, nest, nc, ops, machine, devices, controller and services must not import
+   cad, motion, cam, io, nest, nc, project, ops, machine, devices, controller and services must not import
    PySide6 or shiboken6.
 3. **`parity_ports` imports only `geom`, `protocol` and `model`** (plus the standard library,
    numpy and ezdxf).
@@ -72,12 +74,12 @@ supervisor and the streamer, no `ctl.mc` in ui/diag/devices); see docs/SAFETY.md
 
 ### Explicit ignores
 
-Edges that could not be removed by moving code in Wave 1. Each is listed in pyproject.toml with
-a comment and has a ROADMAP item that removes it.
-
-| Import | Why | Removed by (ROADMAP) |
-|---|---|---|
-| `parity_ports.mainapp.layer -> formats.params` | `LayerView` reads the layer defaults from the parameter registry (lazily) | Wave 2 `ConfigService` |
+None are left.  The last one, `parity_ports.mainapp.layer -> formats.params` (LayerView read the
+layer defaults from the parameter registry), went in Wave 3: the defaults are injected through
+`parity_ports.mainapp.layer.set_layer_defaults(provider)`.  `ConfigService` installs
+`ConfigService.layer_defaults` when it is created; `nc.process` installs the plain registry
+reader (`formats.params.layer_default_values`) when nothing else has.  Both give the registry
+defaults exactly, so the goldens are bit-identical (`tests/test_layer_defaults_injection.py`).
 
 ## 2. Moved modules and compatibility shims
 
@@ -111,7 +113,7 @@ re-export the port (private names too) and their entry points dispatch through t
 ## 3. The parity fence (`mlaser/parity_ports/`)
 
 A *port* reproduces a function of Mlaser v0.0.1.51_SP1 operation by operation. Its output is
-pinned by the Wine parity run (docs/parity.md) and the goldens (tests/golden/). Rules:
+pinned by the Wine parity run (docs/re/parity.md) and the goldens (tests/golden/). Rules:
 
 * a port changes only together with a Wine parity re-run;
 * new behaviour is a new `ParityProfile`, never an edit of a port;
@@ -133,7 +135,7 @@ pinned by the Wine parity run (docs/parity.md) and the goldens (tests/golden/). 
 | `crtmath.py` | msvcr100 (Wine) acos / atan / atan2 / hypot | (module record) | used by the smoother |
 | `cadmodule/spline.py` | exact spline glyphs in the cutting pipeline (FUN_10093390, parity JC-07) | `SplineCurve`, `CurveRef` | `spline` |
 | `mainapp/sampling.py` | MainApp sample loop and pulse quantisation (FUN_00462630 / FUN_00473bd0) | `Emitter`, `emit_samples`, `gap_flags`, `sample_speeds` | `sampling` |
-| `mainapp/layer.py` | the GP.* layer parameter block (`LayerView`, `Stage`) | (module record) | used by the encoder |
+| `mainapp/layer.py` | the GP.* layer parameter block (`LayerView`, `Stage`); defaults injected (`set_layer_defaults`) | (module record) | used by the encoder |
 | `ncmodule/manu.py` | NCModule ManuItem -> FIFO items (FUN_10043c20) | `ManuEncoder` | `process` |
 | `cadmodule/ordering_fast.py` | bit-identical drop-ins of `local_optimal_elems`, `containers_last_faithful`, `import_sort` (grid / numpy / STRtree filters, reference decisions; docs/dev/PERFORMANCE.md §2) | `import_sort`, `local_optimal_elems`, `containers_last_faithful` | `ordering` (default) |
 | `cadmodule/ordering.py` | sort dispatcher modes 5/6/7 (FUN_100b57c0, 0x1003d300, 0x1003c480, CRingSort 0x1003f690), start point 0x10071f80 | `import_sort`, `local_optimal_elems`, `containers_last_faithful`, `ring_sort`, `choose_start` | `ordering` |
@@ -237,6 +239,12 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
 | `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+| procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
+| `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
+| `AlarmHistory` (`alarm_history.py`) | alarms and faults with raise / clear times, persisted | the alarm tab's log lines |
+| `TechnologyStore` (`technology.py`, `technology_examples.py`) | technology records (material × thickness × gas × nozzle × power class → GP.* layer parameters, craft defaults, rules) in SQLite per machine profile; versions, diff against factory values, revert; JSON and LayerPara.xml import/export; `apply_to_layer` fills a layer exactly as the layer dialog does | nothing (Wave 3 Process track; docs/user/process.md) |
+| `Timeline` (`preview.py`) | the preview scrubber's time axis, built from the PlannedJob's wire (step items = servo periods, process items = the encoder's card time): position, laser state and wire index at any time | the canvas simulation over the toolpath |
+| `cost_card` (`costing.py`) | time and cost card of a plan: measured times and lengths, labelled estimates (gas, energy, material, cost) from configurable rates | the estimate log line |
 | `UserModeService` (`usermodes.py`, Wave 3) | Operator / Engineer / Service, the command min-mode policy, PBKDF2 PINs | – (the original's two vendor password levels) |
 | workspaces (`workspaces.py`, Wave 3) | the six workspace slots, `WorkspaceSpec`, the slot rule, command -> workspace | – |
 | command search (`command_search.py`, Wave 3) | fuzzy ranking and recent commands of the Ctrl+K palette | – |

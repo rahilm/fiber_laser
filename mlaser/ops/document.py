@@ -85,7 +85,7 @@ def rotate(doc: Document, degrees: float) -> None:
 
 def scale(doc: Document, factor: float) -> None:
     """mf591 Size presets / mf60 scale: about the selection centre (the original's anchor
-    +0xb400 defaults to 5 = centre, FUN_004b20a0; docs/draw.md)."""
+    +0xb400 defaults to 5 = centre, FUN_004b20a0; docs/re/draw.md)."""
     parts = targets(doc)
     x0, y0, x1, y1 = _bbox(parts)
     cx, cy = (x0 + x1) / 2, (y0 + y1) / 2
@@ -102,6 +102,34 @@ def scale_to(doc: Document, size_mm: float) -> None:
 
 def translate(doc: Document, dx: float, dy: float, parts=None) -> None:
     transform_parts(parts if parts is not None else targets(doc), lambda p: (p[0] + dx, p[1] + dy))
+
+
+def selection_bbox(doc: Document) -> tuple[float, float, float, float]:
+    """Bounding box (x0, y0, x1, y1) of :func:`targets` (properties panel)."""
+    return _bbox(targets(doc))
+
+
+def set_bbox(doc: Document, x: float | None = None, y: float | None = None,
+             width: float | None = None, height: float | None = None) -> None:
+    """Properties-panel transform of :func:`targets`: move the bounding box's lower-left corner
+    to (``x``, ``y``) and/or scale **uniformly** about that corner so the width (or height)
+    becomes the given size (arcs stay arcs, so there is no independent width/height)."""
+    parts = targets(doc)
+    x0, y0, x1, y1 = _bbox(parts)
+    w, h = x1 - x0, y1 - y0
+    f = 1.0
+    if width is not None and w > 1e-9:
+        f = float(width) / w
+    elif height is not None and h > 1e-9:
+        f = float(height) / h
+    if f <= 0:
+        raise ValueError("size must be positive")
+    nx = x0 if x is None else float(x)
+    ny = y0 if y is None else float(y)
+    if abs(f - 1.0) > 1e-15:
+        transform_parts(parts, lambda p: (nx + (p[0] - x0) * f, ny + (p[1] - y0) * f))
+    elif nx != x0 or ny != y0:
+        translate(doc, nx - x0, ny - y0, parts)
 
 
 def align(doc: Document, how: str) -> None:

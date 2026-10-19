@@ -107,6 +107,9 @@ class Shell:
         v.addWidget(window.ribbon)
         window.setMenuWidget(self.chrome)
         self.host.activate("design")
+        # providers for the plugins (Machine, Run, Nest, Report, Process workspaces)
+        window.hooks.provide("workspace.show", self.show_workspace, "shell")
+        window.hooks.provide("user_mode", lambda: self.modes.mode, "shell")
 
     # ------------------------------------------------------------------ helpers
     def action(self, cmd: str) -> Optional[QAction]:
@@ -155,6 +158,7 @@ class Shell:
         self._apply_mode(self.modes.mode)
         self.set_classic(bool(self.config.get("shell.classic_ribbon", False)), persist=False)
         self._update_title()
+        self.host.activate(self.host.current or "design", force=True)   # the plugins' docks too
         self.apply_focus_order()
         self._poll()
 
@@ -318,6 +322,11 @@ class Shell:
 
     # ------------------------------------------------------------------ workspaces
     def show_workspace(self, ws_id: str) -> bool:
+        """Switch to ``ws_id`` (slot, plugin workspace, or contribution id such as
+        ``"ext_machine.machine"``); shows the main window if it is hidden."""
+        ws_id = self.host.resolve(ws_id)
+        if not self.w.isVisible() and ws_id in self.host.visible_ids():
+            self.w.show()
         ok = self.host.activate(ws_id)
         if not ok and ws_id in self.host.specs:
             self.w.statusBar().showMessage(self.tr.format("shell.ws.hidden", workspace=self.ws_title(ws_id)), 4000)
@@ -502,7 +511,7 @@ class Shell:
             st = ctl.safety()
         except Exception:  # noqa: BLE001 - a controller without the safety layer
             st = None
-        alarms = list(getattr(ctl, "active_alarms", None) or [])
+        alarms = list(ctl.active_alarms or [])
         if self.topbar is not None and self.topbar.isVisible():
             self.topbar.refresh_chips(st, alarms)
 
@@ -621,6 +630,7 @@ class Shell:
             return s
 
         sub("shell.menu.file", ["file.new", "file.open", "file.import", "file.save", "file.save_as", "-",
+                                "file.open_project", "file.save_project", "file.export_chf", "-",
                                 "file.bitmap", "file.task_import", "file.task_save", "-", "app.exit"])
         sub("shell.menu.workspaces", [f"workspace.{s}" for s in SLOTS])
         st = sub("shell.menu.settings", ["shell.classic_ribbon", "-", "shell.user_mode", "shell.set_pins", "-",

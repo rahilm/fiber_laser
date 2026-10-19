@@ -106,7 +106,10 @@ def test_lookup_order(tmp_path):
     # an unknown family is not found; resolve_family falls back (installed or bundled)
     assert F.locate("No Such Family 123") is None
     fam = resolve_family("No Such Family 123")
-    assert fam in F.FALLBACK_FAMILIES + (F.BUNDLED_FAMILY,)
+    assert fam == F.BUNDLED_FAMILY                    # default mode: never an installed face
+    with pytest.MonkeyPatch.context() as mp:
+        mp.setenv("MLASER_TEXT_FONT", "system")       # the original's lookup chain
+        assert resolve_family("No Such Family 123") in F.FALLBACK_FAMILIES + (F.BUNDLED_FAMILY,)
     # bundled family by name, also through text_contours
     assert F.locate("noto sans arabic").path == AR.path
     assert "Noto Sans SC" in F.available_families()
@@ -119,7 +122,7 @@ def test_dxf_text_fallback_uses_shaped_outline(tmp_path, monkeypatch):
     d.modelspace().add_text("Ag 中文", dxfattribs={"height": 5.0, "insert": (0, 0)})
     p = str(tmp_path / "t.dxf")
     d.saveas(p)
-    monkeypatch.setattr(dxf_import, "_tt_font", lambda fam: None)     # no glyf file
+    monkeypatch.setattr(dxf_import, "_tt_font", lambda fam, **kw: None)   # no outline file
     doc = dxf_import.import_dxf(p, placement=None)
     grp = [pt for pt in doc.parts if pt.extra.get("dxf_type") == "TEXT"]
     assert len(grp) == 1 and len(grp[0].contours) >= 8

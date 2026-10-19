@@ -1,7 +1,7 @@
 """Apply a nest result back to a Document, plus statistics and job helpers.
 
 The original copies a result sheet to the main (cutting) view with
-``nset_UI_Result2MainView`` (see docs/nest.md); here :func:`apply_result` builds a
+``nset_UI_Result2MainView`` (see docs/re/nest.md); here :func:`apply_result` builds a
 Document whose parts are transformed copies of the nest parts. Each copy carries
 ``Part.extra['nest'] = {part_id, sheet_id, layout, x, y, angle, mirror}``.
 """

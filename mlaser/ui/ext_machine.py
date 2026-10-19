@@ -1,24 +1,27 @@
 """Machine-operation commands (agent H, phase 3): edge seek, laser type, coordinate systems,
 AF home, network test, restart, firmware upgrade, offline job, parameter backup / restore,
-task files and system recovery.
+task files and system recovery; and (Wave 3) the Machine workspace
+(:mod:`mlaser.ui.workspaces.machine`), the guided procedures (:mod:`mlaser.ui.wizards`: edge
+seek in every mode, follower calibration, focus homing, laser test, commissioning) and the
+settings import from an original installation.  Every command declares the lowest user mode
+(:data:`COMMAND_MIN_MODES`).
 
 ``register(ctx)`` (PluginContext) binds the commands and re-attaches on every controller change
 (``ctx.on_controller_changed``).  The logic lives in :mod:`mlaser.controller.machine_ops` and the
 modules it uses; this file is the Qt part.  MachineOps' values are the ConfigService namespace
 ``machine_ops`` (they fall back to the Options the user set, so hardware options reach it).
 Long card operations run in worker threads; results come back through a queued Qt signal.
-Evidence: docs/protocol.md §16-§21.
+Evidence: docs/re/protocol.md §16-§21.
 """
 from __future__ import annotations
 
-import math
+import inspect
 from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFileDialog, QFormLayout, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QVBoxLayout)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLabel, QLineEdit,
+                               QMessageBox, QVBoxLayout, QWidget)
 
 from mlaser.controller import coords as C
 from mlaser.controller import edgeseek as E
@@ -40,93 +43,6 @@ def _tr(window, key: str, default: str) -> str:
 
 class _Bridge(QObject):
     call = Signal(object)          # callable to run in the GUI thread
-
-
-class EdgeSeekDialog(QDialog):
-    """EdgeSeekAuto (FUN_00559210 init): mode 3/4 radio, start point (current / fixed), board
-    size, X/Y offsets; shows the last cross point and angle."""
-
-    def __init__(self, window, p: E.EdgeSeekParams, last: Optional[E.EdgeSeekResult]):
-        super().__init__(window)
-        self.p = p
-        self.setWindowTitle(_tr(window, "A250211_0", "Capacitor seeking"))
-        lay = QVBoxLayout(self)
-        f = QFormLayout()
-        lay.addLayout(f)
-        self.mode = QComboBox()
-        self.mode.addItems(["3 points", "4 points"])
-        self.mode.setCurrentIndex(1 if p.mode == 4 else 0)
-        f.addRow("Mode", self.mode)
-        self.cur = QCheckBox()
-        self.cur.setChecked(p.current_start)
-        f.addRow("Start at current position", self.cur)
-        self.ed: dict[str, QDoubleSpinBox] = {}
-        for attr, label in (("start_x", "Start X"), ("start_y", "Start Y"), ("board_x", "Board size X"),
-                            ("board_y", "Board size Y"), ("x_percent", "X spacing ratio"),
-                            ("y_percent", "Y spacing ratio"), ("offset_x", "X edge offset"),
-                            ("offset_y", "Y edge offset"), ("out_speed", "Edging speed"),
-                            ("follow_height", "Follow height"), ("up_height", "Move-out up height")):
-            w = QDoubleSpinBox()
-            w.setRange(-100000, 100000)
-            w.setDecimals(3)
-            v = p.start[0] if attr == "start_x" else p.start[1] if attr == "start_y" else getattr(p, attr)
-            w.setValue(float(v))
-            f.addRow(label, w)
-            self.ed[attr] = w
-        if last is not None and last.corner:
-            lay.addWidget(QLabel(f"cross point ({last.corner[0]:.3f}, {last.corner[1]:.3f}), "
-                                 f"angle {last.angle_deg:.3f}°"))
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def _ok(self) -> None:
-        p = self.p
-        p.mode = 4 if self.mode.currentIndex() == 1 else 3
-        p.current_start = self.cur.isChecked()
-        for attr, w in self.ed.items():
-            if attr == "start_x":
-                p.start = (w.value(), p.start[1])
-            elif attr == "start_y":
-                p.start = (p.start[0], w.value())
-            else:
-                setattr(p, attr, w.value())
-        self.accept()
-
-
-class TwoPointDialog(QDialog):
-    """CEdgeSeekDlg (FUN_005e17e0): record P1 / P2 with the head (red light) -> angle."""
-
-    def __init__(self, window, ops: MachineOps):
-        super().__init__(window)
-        self.ops = ops
-        self.p1 = self.p2 = None
-        self.angle = 0.0
-        self.setWindowTitle(_tr(window, "A250211_1", "Manual two-point edging"))
-        lay = QVBoxLayout(self)
-        self.l1, self.l2, self.la = QLabel("P1: -"), QLabel("P2: -"), QLabel("angle: 0.000°")
-        b1, b2 = QPushButton("P1"), QPushButton("P2")
-        b1.clicked.connect(lambda: self.mark(1))
-        b2.clicked.connect(lambda: self.mark(2))
-        for w in (b1, self.l1, b2, self.l2, self.la):
-            lay.addWidget(w)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def mark(self, n: int) -> None:
-        pos = self.ops.head()
-        if n == 1:
-            self.p1 = pos
-            self.l1.setText(f"P1: {pos[0]:.2f}, {pos[1]:.2f}")
-        else:
-            self.p2 = pos
-            self.l2.setText(f"P2: {pos[0]:.2f}, {pos[1]:.2f}")
-        if self.p1 and self.p2:
-            self.angle = E.two_point_angle(self.p1, self.p2)
-            self.la.setText(f"angle: {math.degrees(self.angle):.3f}°")
 
 
 class UpgradeConfirmDialog(QDialog):
@@ -163,6 +79,10 @@ class MachineExtension:
         self.bridge.call.connect(lambda fn: fn())
         self.layer_tables: dict[int, dict] = {}
         self._params = None
+        self.workspace = None                 # the Machine workspace (workspaces.machine)
+        self.last_wizard: Optional[QDialog] = None
+        from mlaser.services.alarm_history import default_history
+        self.history = default_history()
 
     # ------------------------------------------------------------------ helpers
     def log(self, msg: str) -> None:
@@ -190,6 +110,7 @@ class MachineExtension:
             ctl.coords = self.ops.coords
         if self.autosave not in ctl.job_start_hooks:
             ctl.job_start_hooks.append(self.autosave)
+        self.history.attach(ctl.events)       # alarm history follows the controller
 
     def params(self):
         """MachineParams of the parameter directory (defaults when none exist yet)."""
@@ -211,38 +132,93 @@ class MachineExtension:
     def _apply_edge(self, res: E.EdgeSeekResult, set_origin: bool = False) -> None:
         """FUN_00557d90 / step 0x2a: cfg+0x4c60 := angle, cfg+0x4bc4 := 1, rotate the drawing
         about the anchor (the job origin)."""
-        centre = res.origin or res.corner or (0.0, 0.0)
+        from mlaser.services.procedures.edge_seek import apply_to_docs
         # an undoable edit of the document's rotation state (it used to rotate without undo)
-        self.ctx.edit(lambda d: E.apply_to_document(d, res.angle, centre), "edge seek", parts=())
+        apply_to_docs(self.ctx, res)
         self.ops.memorised_angle = res.angle
+        self.ops.last_edge = res
+        self.ops.save_values()
         if set_origin and self.ops.coords.can_set_or_return:
             self.ops.set_origin()
         self.log(f"A250211_2: Current memory scouting Angle : {res.angle_deg:.2f}")
 
-    def edge_capacitive(self) -> None:
-        d = EdgeSeekDialog(self.w, self.ops.edge, self.ops.last_edge)
-        if not d.exec():
-            return
-        self.ops.edge_seek_capacitive(apply=lambda r: self.gui(lambda: self._apply_edge(r)))
-
-    def edge_disc(self) -> None:
-        auto = self._ask(_tr(self.w, "newLang27", "Disc Search"),
-                         "Search the disc centre from the current head position?\n"
-                         "(Yes also sets the work origin at the centre)")
-        if not auto:
-            return
-        self.ops.edge_seek_disc(apply=lambda r: self.gui(lambda: self._apply_edge(r, True)))
-
-    def edge_two_point(self) -> None:
-        d = TwoPointDialog(self.w, self.ops)
-        if d.exec() and d.p1 and d.p2:
-            res = E.EdgeSeekResult(mode=0, points=[d.p1, d.p2], angle=d.angle, origin=d.p1)
-            self.ops.last_edge = res
-            self._apply_edge(res)
+    def apply_edge_result(self, res: E.EdgeSeekResult) -> None:
+        """The edge-seek wizard's Apply (GUI thread)."""
+        self._apply_edge(res)
 
     def edge_clear(self) -> None:
         self.ctx.edit(E.clear_document, "clear edge seek", parts=())
         self.log("A250211_3: edge-seek angle cleared")
+
+    # ------------------------------------------------------------------ wizards / workspace
+    def allowed(self, cmd: str) -> bool:
+        """The current user mode may run ``cmd`` (else a message says which mode it needs)."""
+        from mlaser.services.procedures import mode_allows
+
+        from .workspaces.machine import current_mode
+        need = COMMAND_MIN_MODES.get(cmd, "operator")
+        if mode_allows(current_mode(self.ctx), need):
+            return True
+        msg = _tr(self.w, "ws.machine.mode_needed", "needs a higher user mode") + f" ({need})"
+        self.log(msg)
+        if not getattr(self.w, "_test_no_dialogs", False):
+            QMessageBox.information(self.w, _tr(self.w, "ws.machine.title", "Machine"), msg)
+        return False
+
+    def _wizard(self, cmd: str, make: Callable[[], QDialog]) -> Optional[QDialog]:
+        if not self.allowed(cmd):
+            return None
+        d = make()
+        self.last_wizard = d
+        d.exec()
+        return d
+
+    def wizard_edge(self, mode: str) -> Optional[QDialog]:
+        from .wizards.procedures import EdgeSeekWizard
+        cmd = {"cap3": "wizard.edge_seek_cap3", "cap4": "wizard.edge_seek_cap4", "disc": "wizard.edge_seek_disc",
+               "two_point": "wizard.edge_seek_two_point"}[mode]
+        return self._wizard(cmd, lambda: EdgeSeekWizard(self.w, self, mode))
+
+    def edge_capacitive(self) -> Optional[QDialog]:
+        """Ribbon "Capacitor seeking": the guided wizard in the configured 3/4-point mode."""
+        return self.wizard_edge("cap4" if self.ops.edge.mode == 4 else "cap3")
+
+    def wizard_follower(self) -> Optional[QDialog]:
+        from .wizards.procedures import FollowerWizard
+        path = self.ctx.config.get("machine.calib_csv", None)
+        return self._wizard("wizard.follower_calibration", lambda: FollowerWizard(self.w, path))
+
+    def wizard_focus(self) -> Optional[QDialog]:
+        from .wizards.procedures import FocusWizard
+        return self._wizard("wizard.focus_home", lambda: FocusWizard(self.w, self))
+
+    def wizard_laser(self) -> Optional[QDialog]:
+        from .wizards.procedures import LaserWizard
+        return self._wizard("wizard.laser_test", lambda: LaserWizard(self.w))
+
+    def wizard_commissioning(self) -> Optional[QDialog]:
+        from .wizards.procedures import CommissioningWizard
+        return self._wizard("wizard.commissioning", lambda: CommissioningWizard(self.w, self))
+
+    def import_install(self) -> Optional[QDialog]:
+        from .wizards.settings_import import SettingsImportDialog
+        return self._wizard("machine.import_install", lambda: SettingsImportDialog(self.w, self.ctx.config))
+
+    def show_workspace(self, section: str = "") -> Optional[QWidget]:
+        ws = self.workspace
+        if ws is None:
+            return None
+        if section:
+            ws.show_section(section)
+        fn = self.ctx.host.hooks.provider("workspace.show")     # the Shell's switcher, when present
+        if fn is not None:
+            fn(f"{self.ctx.name}.machine")
+        elif ws.parentWidget() is None:
+            if not ws.isVisible():
+                ws.resize(1180, 780)
+            ws.show()
+            ws.raise_()
+        return ws
 
     # ------------------------------------------------------------------ laser type
     def laser_type(self) -> None:
@@ -287,10 +263,9 @@ class MachineExtension:
     # ------------------------------------------------------------------ hardware
     def net_test(self) -> None:
         from mlaser.controller.nettest import network_test
-        cfg = getattr(self.w.ctl, "cfg", None)
-        ip = (getattr(self.w, "settings", {}) or {}).get("ip") or {}
-        card = (getattr(cfg, "host", None) or ip.get("pd445", "10.1.1.168"), getattr(cfg, "port", 502))
-        follower = (ip.get("pd447", "10.1.1.169"), 502)
+        ip = self.ctx.config.get("ip", None) or {}
+        card = self.w.ctl.endpoint() or (ip.get("pd445", "10.1.1.168"), 502)   # MachineAPI
+        follower = (ip.get("pd448", "10.1.1.169"), 502)      # pd448: FTC IP (pd447 is a gateway)
         self.log(f"mf436: testing {card[0]} and {follower[0]} ...")
         self.ops.run_async("net-test", lambda: [self.log(r.summary()) for r in network_test(card, follower)])
 
@@ -463,31 +438,52 @@ class MachineExtension:
         if t.is_break:
             self.w.ctl.resume_saved(doc, str(self.ops.temp_dir))
 
+    def autosave_store(self):
+        """The autosave of the File folder (mlaser.project.Autosave: autosave.mlz + autosave.chf)."""
+        from mlaser.project import Autosave
+        if getattr(self, "_autosave", None) is None or self._autosave.dir != self.ops.file_dir:
+            self._autosave = Autosave(self.ops.file_dir)
+        return self._autosave
+
     def autosave(self, doc) -> None:
-        """FUN_004804a0 / FUN_00457de0: File\\autosave.chf when a job is prepared."""
-        from mlaser.formats.chf import save_chf
+        """FUN_004804a0 / FUN_00457de0: File\\autosave.chf when a job is prepared; the rebuild also
+        writes the whole project as File\\autosave.mlz (docs/dev/project-format.md)."""
+        from mlaser.project import Project
+        cur = self.w.hooks.provider("project.current") if hasattr(self.w, "hooks") else None
         try:
-            self.ops.file_dir.mkdir(parents=True, exist_ok=True)
-            from mlaser.cam.raster_engraving import expand_document
-            save_chf(expand_document(doc), str(self.ops.file_dir / "autosave.chf"))
+            pr = cur() if cur is not None else Project()
+            pr.document = doc                     # the document of the job being prepared
+            self.autosave_store().save(pr)
         except Exception as e:  # noqa: BLE001
-            self.log(f"autosave.chf not written: {e}")
+            self.log(f"autosave not written: {e}")
 
     def recovery(self, confirm: bool = True) -> None:
-        """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.chf and the
-        AutosaveParam breakpoint (FUN_00480860), mf169."""
-        p = self.ops.file_dir / "autosave.chf"
-        if not p.exists():
-            self.log(f"mf138: no {p}")
+        """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.mlz (else
+        File\\autosave.chf) and the AutosaveParam breakpoint (FUN_00480860), mf169."""
+        store = self.autosave_store()
+        p = store.available()
+        if p is None:
+            self.log(f"mf138: no {self.ops.file_dir / 'autosave.chf'}")
             return
         if confirm and not self._ask(_tr(self.w, "mf138", "System Recovery"),
                                      _tr(self.w, "mf167", "Recover the last state?")):
             return
-        from mlaser.formats.chf import load_chf
-        doc = load_chf(str(p))
+        try:
+            rec = store.recover()
+        except Exception as e:  # noqa: BLE001 - the project and the .chf are unreadable
+            self.log(f"mf138: {e}")
+            return
+        if rec is None:
+            return
+        for n in rec.notes:
+            self.log(n)
+        doc = rec.document
         self._set_doc(doc, "system recovery")
+        proj = self.w.extension("ext_project") if hasattr(self.w, "extension") else None
+        if proj is not None:
+            proj.apply(rec.project)
         resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
-        self.log(f"mf169: system recovered from {p.name}" + (" (resuming breakpoint)" if resumed else ""))
+        self.log(f"mf169: system recovered from {rec.path.name}" + (" (resuming breakpoint)" if resumed else ""))
 
     def startup_homing(self, ctl) -> None:
         """After the card connected: FUN_00596320's red light off, go-origin prompt (mp119,
@@ -548,6 +544,37 @@ class MachineExtension:
             pass
 
 
+#: lowest user mode per command (Operator < Engineer < Service; docs/review/ux.md P1-10).  Passed
+#: to ``register_command(min_mode=...)`` when the registry supports it (Shell track), else kept
+#: here and as ``CommandSpec.min_mode``.
+COMMAND_MIN_MODES = {
+    "machine.workspace": "operator", "machine.edge_seek": "operator", "machine.edge_capacitive": "operator",
+    "machine.edge_disc": "operator", "machine.edge_two_point": "operator", "machine.edge_clear": "operator",
+    "machine.home_af": "operator", "wizard.edge_seek_cap3": "operator", "wizard.edge_seek_cap4": "operator",
+    "wizard.edge_seek_disc": "operator", "wizard.edge_seek_two_point": "operator",
+    "wizard.focus_home": "operator", "wizard.follower_calibration": "engineer",
+    "wizard.laser_test": "engineer", "wizard.commissioning": "service", "machine.import_install": "service",
+    "machine.laser_type": "engineer", "machine.laser_fiber": "engineer", "machine.laser_co2": "engineer",
+    "coord.select": "operator", "coord.set_origin": "operator", "coord.return_origin": "operator",
+    "coord.float": "operator", "coord.manual": "operator", "hw.net_test": "operator",
+    "hw.restart": "service", "hw.upgrade": "service", "hw.upgrade_ext": "service", "hw.upgrade_ftc": "service",
+    "job.offline": "engineer", "param.backup": "service", "param.backup_hw": "service",
+    "param.backup_file": "engineer", "param.restore": "service", "param.restore_hw": "service",
+    "param.restore_file": "service", "file.task_import": "operator", "file.task_save": "operator",
+    "app.recovery": "operator",
+}
+COMMAND_MIN_MODES.update({f"coord.tool{i}": "operator" for i in range(1, 7)})
+
+
+def _register(ctx, cmd: str, fn, label: str = "") -> None:
+    mode = COMMAND_MIN_MODES.get(cmd, "operator")
+    if "min_mode" in inspect.signature(ctx.register_command).parameters:
+        ctx.register_command(cmd, fn, label=label, min_mode=mode)
+        return
+    spec = ctx.register_command(cmd, fn, label=label)
+    spec.min_mode = mode                      # read by the Shell's mode filter after the merge
+
+
 def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
     """Bind the machine-operation commands (``ctx``: PluginContext)."""
     if app_dir is None:
@@ -556,7 +583,8 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
     o = ext.ops
     binds = {
         "machine.edge_seek": ext.edge_capacitive, "machine.edge_capacitive": ext.edge_capacitive,
-        "machine.edge_disc": ext.edge_disc, "machine.edge_two_point": ext.edge_two_point,
+        "machine.edge_disc": lambda: ext.wizard_edge("disc"),
+        "machine.edge_two_point": lambda: ext.wizard_edge("two_point"),
         "machine.edge_clear": ext.edge_clear, "machine.home_af": o.home_af,
         "machine.laser_type": ext.laser_type, "machine.laser_fiber": lambda: ext.set_laser(FIBER),
         "machine.laser_co2": lambda: ext.set_laser(CO2),
@@ -574,7 +602,27 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
     }
     for i in range(1, 7):
         binds[f"coord.tool{i}"] = lambda n=i: ext.select_coord(n)
-    ctx.register_commands(binds)
+    ctx.provide("project.autosave", ext.autosave_store)
+    for cmd, fn in binds.items():
+        _register(ctx, cmd, fn)
+    for cmd, fn, label in (
+            ("machine.workspace", ext.show_workspace, "ws.machine.title"),
+            ("wizard.edge_seek_cap4", lambda: ext.wizard_edge("cap4"), "wizard.edge.title_cap4"),
+            ("wizard.edge_seek_cap3", lambda: ext.wizard_edge("cap3"), "wizard.edge.title_cap3"),
+            ("wizard.edge_seek_disc", lambda: ext.wizard_edge("disc"), "wizard.edge.title_disc"),
+            ("wizard.edge_seek_two_point", lambda: ext.wizard_edge("two_point"), "wizard.edge.title_two_point"),
+            ("wizard.follower_calibration", ext.wizard_follower, "wizard.follower.title"),
+            ("wizard.focus_home", ext.wizard_focus, "wizard.focus.title"),
+            ("wizard.laser_test", ext.wizard_laser, "wizard.laser.title"),
+            ("wizard.commissioning", ext.wizard_commissioning, "wizard.comm.title"),
+            ("machine.import_install", ext.import_install, "wizard.import.title")):
+        _register(ctx, cmd, fn, label)
+    from .workspaces.machine import MachineWorkspace
+    ext.workspace = MachineWorkspace(ctx, ext, ext.history)
+    ctx.add_workspace("machine", ext.workspace, _tr(ctx.window, "ws.machine.title", "Machine"))
+    ctx.provide("machine.monitor_host", ext.workspace.embed_monitor)
+    ctx.on_user_mode_changed(lambda _mode: ext.workspace.tick())   # sections / settings follow the mode
+    ctx.on_close(lambda: (ext.history.detach(), ext.workspace.close()))
     ctx.on_controller_changed(lambda _ctl: ext.attach())
     ext.attach()
     ext.startup_check()

@@ -2,7 +2,7 @@
 
 Everything here follows NCModule.dll of Mlaser v0.0.1.51_SP1 (addresses are NCModule virtual
 addresses) and was checked against the frames the ORIGINAL MainApp sent at start-up in the
-parity harness (``parity/out/app_startup/capture/card_frames.jsonl``, docs/parity.md §4):
+parity harness (``parity/out/app_startup/capture/card_frames.jsonl``, docs/re/parity.md §4):
 
 1. VM event 0 (FUN_100571f0 case 0): open the HAL, checkMCStatus (FUN_1004ed60: read
    RO[0..1]) and, when the card answered, ``101 := [9999, 5, 0, 0]``.
@@ -17,7 +17,7 @@ parity harness (``parity/out/app_startup/capture/card_frames.jsonl``, docs/parit
 the original writes four random words to register 59500 and reads 59500 back
 (NCModule FUN_10039390 / FUN_1003d090).  That is a hardware challenge used to decide
 whether the card is authorised ("非授权硬件").  It is a licensing check: it is not
-implemented, not answered and not analysed here (BRIEF ground rules; docs/protocol.md §8).
+implemented, not answered and not analysed here (BRIEF ground rules; docs/re/protocol.md §8).
 
 Only the standard (non-bus) card without on-board follower, rotary axis, AF focus axis or
 precision compensation is covered exactly; the branches for those options are noted where

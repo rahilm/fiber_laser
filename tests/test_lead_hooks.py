@@ -78,7 +78,7 @@ def test_app_window_loads_all_extensions():
     app = QApplication.instance() or QApplication([])
     w = MainWindow(DemoController(), extensions=EXTENSIONS)
     try:
-        missing = [n for n in EXTENSIONS if n not in w.extensions]
+        missing = [n for n in EXTENSIONS if n.rsplit(".", 1)[-1] not in w.extensions]
         assert not missing, missing
         assert not any("extension" in line and "failed" in line for line in w.log_panel.lines()) \
             if hasattr(w.log_panel, "lines") else True

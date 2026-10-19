@@ -143,7 +143,7 @@ can only run out what is buffered (≤ 1.2 s).
 * Interlocks (`InterlockConfig`, values `safety.*`): follower status word 1 non-zero (on-board
   FTC), gas-low input during a cut, laser-source alarm input when armed or running, door input
   during a cut. A trip latches FAULT and halts; an active interlock refuses arming and reset.
-  The original has no readable laser-source alarm (docs/devices.md §4), so the source's alarm
+  The original has no readable laser-source alarm (docs/re/devices.md §4), so the source's alarm
   output must be wired to an input to be monitored.
 * Hold-to-jog: a continuous jog needs a keep-alive (`jog_keepalive()`, sent every 100 ms by the
   run panel and by the pendant reader); without one for `jog_deadman_s` (0.5 s) the jog is
@@ -187,7 +187,7 @@ the laser cannot emit, whatever the card does with its buffered FIFO.
 according to the laser source's interlock documentation and the machine's risk assessment, and
 validate it with the laser physically disabled: pull the network cable mid-job, kill the
 program, power off the PC, and check that the enable chain opens within the timeout. The MCC100's
-own behaviour on link loss is unknown (docs/protocol.md §9) and must be bench-tested too.
+own behaviour on link loss is unknown (docs/re/protocol.md §9) and must be bench-tested too.
 
 ## 12. Measured bounds (simulator, pessimistic mode)
 
@@ -202,3 +202,23 @@ machine (architecture review P0-3 risk: underrun tuning).
   explicitly.
 * Compile still runs on the GUI thread (Services track, `PlannedJob`).
 * Follower status bit layout is unknown: any non-zero alarm word trips.
+
+## 14. Guided procedures (Wave 3)
+
+The wizards of the Machine workspace (`mlaser.services.procedures`, docs/user/machine.md) keep
+these rules:
+
+* **Abort** is enabled in every step and always calls `safe_halt` (also when nothing moves),
+  then the procedure's clean-up (disarm, follower calibration cancel, edge-seek mode cancel).
+  A step that fails halts too; a step that fails *because* of the abort counts as aborted.
+* A step that moves or fires starts only from its button and first calls
+  `MachineAPI.operator_action(what)`: that clears the halt latch (§4) for this new operator
+  action and nothing else (a latched FAULT still refuses motion in the guard).  Workers never
+  clear the latch on their own.
+* The laser power test arms only inside the procedure (with a confirmation before Arm and before
+  Fire), and disarms at the end, on abort and on failure.  It is refused in dry-run mode, with
+  alarms or a fault.
+* `MachineAPI.heartbeat_hold(True)` stops the "PC alive" output (§11) for the commissioning
+  test of the watchdog relay; it can only ever drop the relay.  The checklist releases it when
+  the question is answered, aborted or finished.
+* A dry run uses a private simulator controller; nothing is sent to the real card.

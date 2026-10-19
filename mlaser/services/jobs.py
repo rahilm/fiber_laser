@@ -34,7 +34,7 @@ from concurrent.futures import Executor, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol
 
-from mlaser.model import Arc, Contour, Document, Part
+from mlaser.model import Arc, Contour, Craft, Document, Part
 from mlaser.toolpath.points import path_points  # noqa: F401 - re-exported
 
 log = logging.getLogger("mlaser.jobs")
@@ -136,15 +136,28 @@ class _KeyPickler(pickle.Pickler):
         return None
 
     def reducer_override(self, obj):
+        # the opaque ``extra`` data plus the typed fields (mlaser.model), uid as 0
         if type(obj) is Part:
-            return (Part, (obj.contours, obj.craft, obj.name, False, obj.extra))
+            return (Part, (obj.contours, obj.craft, obj.name, False, dict(dict.items(obj.extra)), 0, obj.raster))
+        if type(obj) is Craft:
+            # the lazily created ``extra`` (mlaser.model) must not change the key: a craft whose
+            # extra was never read pickles like one with an empty dict
+            import dataclasses
+            state = tuple(dict(dict.items(obj.extra)) if f.name == "extra" else getattr(obj, f.name)
+                          for f in dataclasses.fields(obj))
+            return (_craft_from_state, (state,))
         if type(obj) is Contour:
-            return (Contour, (obj.segments, obj.closed, obj.extra))
+            return (Contour, (obj.segments, obj.closed, dict(dict.items(obj.extra)), 0, obj.craft, obj.glyphs,
+                              obj.glyph_key))
         return NotImplemented
 
 
+def _craft_from_state(state: tuple) -> "Craft":   # (key pickles are never loaded)
+    return Craft(*state)
+
+
 def _blob_ids(doc: Document) -> set[int]:
-    from .undo import CONTOUR_BLOB_KEYS, PART_BLOB_KEYS
+    from .undo import PART_BLOB_KEYS, contour_blobs
 
     ids = set()
     for p in doc.parts:
@@ -153,8 +166,7 @@ def _blob_ids(doc: Document) -> set[int]:
             if v is not None:
                 ids.add(id(v))
         for c in p.contours:
-            for k in CONTOUR_BLOB_KEYS:
-                v = c.extra.get(k) if isinstance(c.extra, dict) else None
+            for _k, v in contour_blobs(c):
                 if v is not None:
                     ids.add(id(v))
     if isinstance(doc.extra, dict) and doc.extra.get("chf") is not None:

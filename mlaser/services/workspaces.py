@@ -79,7 +79,8 @@ BUILTIN: dict[str, WorkspaceSpec] = {
                  "draw.line", "draw.rect", "draw.circle", "draw.text", "-", "edit.undo", "edit.redo",
                  "-", "xform.align", "xform.mirror_h", "xform.rot_cw90", "tool.array", "-",
                  "view.zoom_fit"),
-        docks=("lp0", "mf141", "mf124"), description="shell.ws.design.desc", slot=DESIGN),
+        docks=("lp0", "plugin.ext_process.properties", "mf141", "mf124"),
+        description="shell.ws.design.desc", slot=DESIGN),
     PROCESS: WorkspaceSpec(
         PROCESS, "shell.ws.process", None, "adjustments", 20, "Ctrl+2", "engineer", canvas=True,
         toolbar=("craft.lead", "craft.kerf", "craft.microjoint", "craft.reverse", "craft.start_point",
@@ -91,12 +92,12 @@ BUILTIN: dict[str, WorkspaceSpec] = {
         NEST, "shell.ws.nest", None, "layout-board-split", 30, "Ctrl+3", "engineer", canvas=True,
         toolbar=("nest.new", "nest.open", "nest.save", "-", "nest.import_part", "nest.add_part",
                  "nest.import_sheet", "nest.add_sheet", "-", "nest.params", "nest.run", "nest.to_main"),
-        docks=("mf460", "mf124"), description="shell.ws.nest.desc", slot=NEST, placeholder=True),
+        docks=("mf124",), description="shell.ws.nest.desc", slot=NEST, placeholder=True),
     RUN: WorkspaceSpec(
         RUN, "shell.ws.run", None, "player-play", 40, "Ctrl+4", "operator", canvas=True,
         toolbar=("file.open", "file.task_import", "-", "machine.home", "coord.return_origin", "-",
                  "card.break_resume", "card.alarms", "card.clear_alarms", "-", "view.zoom_fit"),
-        docks=("mf141", "mf124"), description="shell.ws.run.desc", slot=RUN, placeholder=True),
+        docks=(), description="shell.ws.run.desc", slot=RUN, placeholder=True),
     REPORT: WorkspaceSpec(
         REPORT, "shell.ws.report", None, "report-analytics", 50, "Ctrl+5", "operator",
         toolbar=(), docks=("mf124",), description="shell.ws.report.desc", slot=REPORT, placeholder=True,
@@ -104,7 +105,7 @@ BUILTIN: dict[str, WorkspaceSpec] = {
                             "card.alarms", "diag.device_report", "diag.measure")}),
     MACHINE: WorkspaceSpec(
         MACHINE, "shell.ws.machine", None, "tool", 60, "Ctrl+6", "operator",
-        toolbar=(), docks=("mf141", "mf124"), description="shell.ws.machine.desc", slot=MACHINE,
+        toolbar=(), docks=("mf124",), description="shell.ws.machine.desc", slot=MACHINE,
         placeholder=True,
         extra={"commands": ("hw.connect_sim", "hw.reconnect", "machine.home", "machine.home_xyz",
                             "coord.return_origin", "machine.edge_seek", "dev.follower", "dev.laser",

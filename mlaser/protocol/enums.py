@@ -7,7 +7,7 @@ so a member can be used anywhere the bare number was (arithmetic, ``struct.pack`
 (``OP_STEP``, ``CLS_PEAK``, ``AX_SERVO``, ...) are these members under their old names.
 
 Evidence and tags (O observed, I inferred, U unknown) are in the comments next to the old names
-and in docs/protocol.md; the addresses are NCModule.dll / MainApp.exe of Mlaser v0.0.1.51_SP1.
+and in docs/re/protocol.md; the addresses are NCModule.dll / MainApp.exe of Mlaser v0.0.1.51_SP1.
 """
 from __future__ import annotations
 

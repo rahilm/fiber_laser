@@ -31,6 +31,8 @@ from .document import (
     scale,
     scale_to,
     select_where,
+    selection_bbox,
+    set_bbox,
     set_layer,
     targets,
     transform_parts,
@@ -40,6 +42,7 @@ from .document import (
 __all__ = [
     "MicroJointParams", "contour_targets", "is_raster", "apply_kerf", "apply_lead", "auto_microjoints", "clear_joints",
     "default_lead_params", "one_key", "align", "delete_selected", "demo_document", "mirror",
-    "paste_parts", "reverse", "rotate", "scale", "scale_to", "select_where", "set_layer", "targets",
+    "paste_parts", "reverse", "rotate", "scale", "scale_to", "select_where", "selection_bbox", "set_bbox",
+    "set_layer", "targets",
     "transform_parts", "translate",
 ]

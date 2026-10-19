@@ -6,6 +6,7 @@ without running PyInstaller.
 from __future__ import annotations
 
 import re
+import sys
 from pathlib import Path
 
 # packages whose non-Python files are collected (fonts, resources, data tables)
@@ -119,6 +120,23 @@ def drop_data(dest: str) -> bool:
     if "qtwebengine" in p.lower():
         return True
     return drop_binary(p)
+
+
+def help_datas(root: Path) -> list[tuple[str, str]]:
+    """PyInstaller ``datas`` entries (source file, destination folder) for the help documents:
+    the files ``tools/help_build.py`` puts into a wheel, at ``mlaser/help/docs`` where
+    ``mlaser.diag.helpdocs.docs_root`` looks for them."""
+    sys.path.insert(0, str(root / "tools"))
+    try:
+        import help_build
+    finally:
+        sys.path.pop(0)
+    docs = root / "docs"
+    out = []
+    for rel in help_build.shipped_files(str(docs)):
+        head = rel.rpartition("/")[0]
+        out.append((str(docs / rel), "mlaser/help/docs" + ("/" + head if head else "")))
+    return out
 
 
 def version(root: Path) -> str:

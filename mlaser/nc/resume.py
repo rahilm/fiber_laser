@@ -1,4 +1,4 @@
-"""Breakpoint resume and Backward/Forward along the path (docs/protocol.md §12).
+"""Breakpoint resume and Backward/Forward along the path (docs/re/protocol.md §12).
 
 Original behaviour (observed, MainApp.exe / NCModule.dll):
 
@@ -183,7 +183,7 @@ def _rapid_to_pulses(cur: tuple[float, float], target: tuple[float, float],
 
     The rapid is compiled on its own, with a fresh pulse remainder (``carry = (0, 0)``) and,
     like every sampled move, no closing step at the exact end (the last sample is the last tick
-    t <= T, docs/nc.md §1.1).  Inside one job the remainder carries that fraction into the next
+    t <= T, docs/re/nc.md §1.1).  Inside one job the remainder carries that fraction into the next
     move; here the next move is the rest of the *original* job, whose deltas were quantised
     with a different remainder history and are replayed as they are.  So the rapid alone can
     stop one pulse short of (or past) the restart point, and everything after it would be

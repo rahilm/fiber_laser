@@ -1,6 +1,6 @@
 """Process statistics records and the files the original keeps them in.
 
-Evidence (docs/diag.md, section "Reports"):
+Evidence (docs/re/diag.md, section "Reports"):
 
 * MainApp keeps a vector of per-job statistic records at cfg+0x43e4.  At job completion the
   status timer FUN_00598280 stamps the end time into the newest record (+0x40), increments its

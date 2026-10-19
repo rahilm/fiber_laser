@@ -196,6 +196,7 @@ class SafetySupervisor:
         self._hb_state = False
         self._hb_next = 0.0
         self.heartbeat_toggles = 0
+        self.heartbeat_held = False           # commissioning test: output off, no toggling
         self.fifo_frames = 0
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
@@ -417,7 +418,7 @@ class SafetySupervisor:
         if not self.heartbeat_output or self.heartbeat_hz <= 0:
             return
         alive = (self._mc is not None and self.fsm.state not in (SafetyState.FAULT, SafetyState.OFFLINE)
-                 and not self._lost)
+                 and not self._lost and not self.heartbeat_held)
         if not alive:
             if self._hb_state:
                 self._heartbeat_write(False)

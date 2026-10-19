@@ -1,4 +1,4 @@
-"""Import cleanup (mlaser.cam.cleanup), see docs/cam.md §15."""
+"""Import cleanup (mlaser.cam.cleanup), see docs/re/cam.md §15."""
 import math
 
 from mlaser.cam.cleanup import (CleanupParams, FitParams, cleanup_contours, cleanup_document,

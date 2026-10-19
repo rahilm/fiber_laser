@@ -121,6 +121,12 @@ def bundle_check(files: list[str]) -> int:
     except Exception as e:
         line(False, "mlaser.i18n", str(e))
     try:
+        from mlaser.diag import helpdocs
+        n = len(helpdocs.topics())
+        line(n > 0, "help documents", f"{n} topics in {helpdocs.docs_root()}")
+    except Exception as e:
+        line(False, "help documents", str(e))
+    try:
         from mlaser.formats import params
         line(len(params.param_defs()) > 0, "mlaser.formats parameter registry",
              f"{len(params.param_defs())} definitions")

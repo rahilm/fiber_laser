@@ -1,4 +1,4 @@
-"""Streaming a compiled :class:`~mlaser.nc.compiler.Job` to the card (docs/protocol.md §5, §13, §15).
+"""Streaming a compiled :class:`~mlaser.nc.compiler.Job` to the card (docs/re/protocol.md §5, §13, §15).
 
 Original (observed, NCModule.dll):
 

@@ -4,7 +4,7 @@ systems, edge seek, restart, upgrade, backup, recovery), independent of Qt.
 ``MachineOps(ctl, machine_params=None, app_dir=None)`` works with the card controller
 (:class:`~mlaser.controller.ui_adapter.UiController`, its supervised ``card()`` handle) and degrades to logging
 for controllers without a card (the UI's DemoController).  Evidence is in the modules it uses
-(edgeseek, coords, upgrade, nettest, formats.backup, nc.offline) and docs/protocol.md §16-§21.
+(edgeseek, coords, upgrade, nettest, formats.backup, nc.offline) and docs/re/protocol.md §16-§21.
 """
 from __future__ import annotations
 
@@ -64,12 +64,10 @@ class MachineOps:
     @property
     def mc(self):
         """The supervised card handle of the controller (None without a card)."""
-        fn = getattr(self.ctl, "card", None)
-        return fn() if callable(fn) else None
+        return self.ctl.card()               # MachineAPI
 
     def connected(self) -> bool:
-        st = self.ctl.state() if hasattr(self.ctl, "state") else None
-        return self.mc is not None and bool(getattr(st, "connected", False))
+        return self.mc is not None and bool(self.ctl.state().connected)
 
     def require_card(self, what: str) -> bool:
         if not self.connected():
@@ -78,8 +76,7 @@ class MachineOps:
         return True
 
     def busy(self) -> bool:
-        b = getattr(self.ctl, "_busy", None)
-        return bool(b()) if callable(b) else False
+        return bool(self.ctl.job_active())
 
     def head(self) -> tuple[float, float]:
         st = self.ctl.state()
@@ -185,8 +182,7 @@ class MachineOps:
         axis word 0 of every non-ZF axis is rewritten with the soft-limit flag +0xbc76 set
         (capture: 50200/50240/50280/50360 := 131088)."""
         self.coords.select(kind)
-        if hasattr(self.ctl, "coords"):
-            self.ctl.coords = self.coords
+        self.ctl.coords = self.coords        # MachineAPI attribute
         if kind == MANUAL and self.connected():
             try:
                 self.write_axis_switch_words(False, 0)
@@ -232,10 +228,7 @@ class MachineOps:
             return None
         target, speed = c.return_target()
         cur = self.head()
-        if hasattr(self.ctl, "move_by"):
-            self.ctl.move_by(target[0] - cur[0], target[1] - cur[1], speed, c.move_acc)
-        else:
-            self.ctl.move_to(*target)
+        self.ctl.move_by(target[0] - cur[0], target[1] - cur[1], speed, c.move_acc)
         self.log(f"mp130: return to ({target[0]:.3f}, {target[1]:.3f}) at {speed:g} mm/s")
         return target
 

@@ -12,7 +12,7 @@ simulator, and the main window.
 > Much is observed in the original code, but a lot is still inferred: the meaning of some status
 > words, the bench output/DA wiring used when no machine parameter files are loaded, follower
 > state meanings, and what the card does on a FIFO underrun (see the unknowns sections of
-> [docs/protocol.md](docs/protocol.md), [docs/nc.md](docs/nc.md) and [docs/devices.md](docs/devices.md)). A wrong guess can move the head at the wrong speed or fire the laser
+> [docs/re/protocol.md](docs/re/protocol.md), [docs/re/nc.md](docs/re/nc.md) and [docs/re/devices.md](docs/re/devices.md)). A wrong guess can move the head at the wrong speed or fire the laser
 > unexpectedly. Before connecting to a machine:
 > 1. Run everything against the simulator first (`mlaser --demo`).
 > 2. On the machine, **physically disable the laser** (interlock or key off) and start with
@@ -143,17 +143,17 @@ checked (import-linter and mypy in CI), the moved modules, and the parity fence.
 
 | Layer | Package | Content | Doc |
 |---|---|---|---|
-| apps | `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, SVG icons | [ui.md](docs/ui.md) |
-| | `mlaser/diag`, `report`, `engrave` | diagnostics, production report, bitmap engraving | [diag.md](docs/diag.md) |
-| machine | `mlaser/controller` | UDP/TCP card client, alarms, job streamer (thread or separate process), card simulator, UI adapter | [protocol.md](docs/protocol.md) |
-| | `mlaser/machine`, `devices` | `machine.api` (ControllerFacade, MachineState); height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC pendant | [devices.md](docs/devices.md) |
-| NC | `mlaser/nc` | job compiler (sampling, quantisation, step items, frames), process sequences, resume | [nc.md](docs/nc.md) |
-| CAM | `mlaser/io`, `nest` | DXF (ezdxf), SVG, G-code import/export; true-shape nester, `.nestproj` | [cam.md](docs/cam.md) §1, [nest.md](docs/nest.md) |
-| | `mlaser/cam` | toolpath: start point, kerf, leads, overcut/gap, micro-joints, cool points, ordering | [cam.md](docs/cam.md) |
-| | `mlaser/motion` | path planning over the toolpath, simulation, time estimate | [motion.md](docs/motion.md) |
-| | `mlaser/formats`, `cad` | `.chf` (byte-identical round trip), parameter XML and registry, ini/aux files; drawing primitives, text | [formats.md](docs/formats.md) |
-| parity fence | `mlaser/parity_ports` | the bit-exact ports of the original (planner, smoother, quantisation, NC encoder, sort modes, start point, CircleFit, DXF import rules, `.chf` codec) behind a `ParityProfile` | [parity.md](docs/parity.md) |
-| foundation | `mlaser/geom`, `protocol`, `toolpath`, `i18n` | one geometry library; MCC100 frame codec, ManuItem, enums; MotionItem types; string catalogue | [protocol.md](docs/protocol.md), [ASSETS.md](docs/ASSETS.md) |
+| apps | `mlaser/ui` | main window, ribbon, canvas, panels, dialogs, SVG icons | [ui.md](docs/re/ui.md) |
+| | `mlaser/diag`, `report`, `engrave` | diagnostics, production report, bitmap engraving | [diag.md](docs/re/diag.md) |
+| machine | `mlaser/controller` | UDP/TCP card client, alarms, job streamer (thread or separate process), card simulator, UI adapter | [protocol.md](docs/re/protocol.md) |
+| | `mlaser/machine`, `devices` | `machine.api` (ControllerFacade, MachineState); height follower, Raycus/IPG laser, auto-focus, EtherCAT heads, XHC pendant | [devices.md](docs/re/devices.md) |
+| NC | `mlaser/nc` | job compiler (sampling, quantisation, step items, frames), process sequences, resume | [nc.md](docs/re/nc.md) |
+| CAM | `mlaser/io`, `nest` | DXF (ezdxf), SVG, G-code import/export; true-shape nester, `.nestproj` | [cam.md](docs/re/cam.md) §1, [nest.md](docs/re/nest.md) |
+| | `mlaser/cam` | toolpath: start point, kerf, leads, overcut/gap, micro-joints, cool points, ordering | [cam.md](docs/re/cam.md) |
+| | `mlaser/motion` | path planning over the toolpath, simulation, time estimate | [motion.md](docs/re/motion.md) |
+| | `mlaser/formats`, `cad` | `.chf` (byte-identical round trip), parameter XML and registry, ini/aux files; drawing primitives, text | [formats.md](docs/re/formats.md) |
+| parity fence | `mlaser/parity_ports` | the bit-exact ports of the original (planner, smoother, quantisation, NC encoder, sort modes, start point, CircleFit, DXF import rules, `.chf` codec) behind a `ParityProfile` | [parity.md](docs/re/parity.md) |
+| foundation | `mlaser/geom`, `protocol`, `toolpath`, `i18n` | one geometry library; MCC100 frame codec, ManuItem, enums; MotionItem types; string catalogue | [protocol.md](docs/re/protocol.md), [ASSETS.md](docs/ASSETS.md) |
 | | `mlaser/model.py` | shared document model (parts, contours of lines/arcs, craft, layers) | |
 
 The bit-exact ports change only with a Wine parity re-run; new algorithms are added as new
@@ -167,10 +167,10 @@ The bit-exact ports change only with a Wine parity re-run; new algorithms are ad
 
 | Area | Feature | Status | Notes / doc |
 |---|---|---|---|
-| Files | `.chf` open/save | ✅ | byte-identical round trip ([formats.md](docs/formats.md)) |
+| Files | `.chf` open/save | ✅ | byte-identical round trip ([formats.md](docs/re/formats.md)) |
 | | Machine/layer parameter XML | ✅ | `formats.params.MachineParams`, `Machine.from_dat_dir` |
-| | DXF / SVG / G-code import, G-code export | ✅ | [cam.md](docs/cam.md) §1 |
-| | Nest project (`.nestproj`) | ✅ | byte-identical round trip ([nest.md](docs/nest.md)) |
+| | DXF / SVG / G-code import, G-code export | ✅ | [cam.md](docs/re/cam.md) §1 |
+| | Nest project (`.nestproj`) | ✅ | byte-identical round trip ([nest.md](docs/re/nest.md)) |
 | CAM | Leads, start point, overcut/gap, micro-joints, cool points | ✅ | cam.md §2–7 |
 | | Kerf compensation incl. Bézier corner join | ✅ | cam.md §5, §13 |
 | | Fly cut (circle/line scan paths) | ✅/🟡 | types 3/5 U (cam.md §11) |
@@ -179,30 +179,30 @@ The bit-exact ports change only with a Wine parity re-run; new algorithms are ad
 | | Import cleanup (dedupe, join, small objects, arc fitting) | ✅ | cam.md §15 |
 | | Ordering modes 1–7 (bands, local optimal, ring), layer priority, manual order | ✅ | cam.md §8 |
 | | Shortest-path / grid sort, rapid avoidance of cut holes | ✅ | rebuild extensions, not in the original |
-| | Nesting (rotations, mirror, part-in-part, remnants, common line) | ✅ | own algorithm; the original uses a licensed SDK ([nest.md](docs/nest.md)) |
-| Motion | S-curve/trapezoid profiles, look-ahead planner | ✅ | merge/bump passes not ported ([motion.md](docs/motion.md) §4) |
+| | Nesting (rotations, mirror, part-in-part, remnants, common line) | ✅ | own algorithm; the original uses a licensed SDK ([nest.md](docs/re/nest.md)) |
+| Motion | S-curve/trapezoid profiles, look-ahead planner | ✅ | merge/bump passes not ported ([motion.md](docs/re/motion.md) §4) |
 | | Contour smoothing (CContoutSmooth) | ✅/🟡 | `Machine(smooth=True)`; some end conditions U (motion.md §9) |
 | | Simulation + time estimate | ✅ | rapid parameters INFERRED |
 | NC | 1 ms sampling, pulse carry, step items (freq/duty/power), frames | ✅ | Σdeltas = final position (tested) |
 | | Step scale ppr ÷ lead, speed cap 127 pulses/period (1270 mm/s default) | ✅ | protocol.md §11 |
-| | Pierce stages, gas valves/pressure, follower moves, slow start/end, power curve | ✅/🟡 | op 106/3002 U ([nc.md](docs/nc.md), protocol.md §10) |
-| Card | Frame codec, CRC, retries, HAL filter | ✅ | [protocol.md](docs/protocol.md) §1–2 |
+| | Pierce stages, gas valves/pressure, follower moves, slow start/end, power curve | ✅/🟡 | op 106/3002 U ([nc.md](docs/re/nc.md), protocol.md §10) |
+| Card | Frame codec, CRC, retries, HAL filter | ✅ | [protocol.md](docs/re/protocol.md) §1–2 |
 | | Status, outputs, DA, jog, move, card scaling read-back | ✅ | protocol.md §11 |
 | | Homing (`[2, mask, 0]`), alarms + reset | ✅ | protocol.md §12–13; Edge Seek ❌ |
 | | Pause/stop (program stop + breakpoint), resume, backward/forward | ✅/🟡 | backward/forward wire sequence INFERRED (§14) |
 | | FIFO streaming: prefill, underrun watchdog, separate-process streamer | ✅ | §15, `tools/bench_stream.py` |
 | | Firmware upgrade | ❌ | `.mcf` is encrypted; described only |
-| Devices | On-card height follower, calibration curve | ✅/🟡 | alarm bit layout U ([devices.md](docs/devices.md)) |
+| Devices | On-card height follower, calibration curve | ✅/🟡 | alarm bit layout U ([devices.md](docs/re/devices.md)) |
 | | Raycus / IPG laser (emission, aiming beam) | ✅ | the original sends no status queries |
 | | Auto-focus, EtherCAT heads | ✅/🟡 | alarm words U |
 | | XHC wireless pendant (HID) | ✅ | needs `hidapi`; keys hold-to-jog |
-| UI | Main window, ribbon (SVG icons), canvas, layers, parts, log, status bar | ✅ | [ui.md](docs/ui.md) |
+| UI | Main window, ribbon (SVG icons), canvas, layers, parts, log, status bar | ✅ | [ui.md](docs/re/ui.md) |
 | | English catalogue; 10 more languages imported from your own Mlaser install | ✅ | [Languages](#languages), [ASSETS.md](docs/ASSETS.md) |
 | | CAM+, Nest, Devices and card extensions | ✅ | `mlaser/ui/ext_*.py`, loaded by the app |
-| | Drawing/editing tools (14 shapes, text, QR, trim/extend, groups, align, size) | ✅/🟡 | [draw.md](docs/draw.md); ellipse/curve flattened, trim internals inferred |
-| | Manual craft tools, one-click process, bitmap engraving (Bitmap.exe port) | ✅ | [craft.md](docs/craft.md), [engrave.md](docs/engrave.md) |
+| | Drawing/editing tools (14 shapes, text, QR, trim/extend, groups, align, size) | ✅/🟡 | [draw.md](docs/re/draw.md); ellipse/curve flattened, trim internals inferred |
+| | Manual craft tools, one-click process, bitmap engraving (Bitmap.exe port) | ✅ | [craft.md](docs/re/craft.md), [engrave.md](docs/re/engrave.md) |
 | | Edge seek, coordinate systems, firmware upload, parameter backup, task/recovery | ✅/🟡 | protocol.md §16–§21; offline job partial |
-| | Monitors, device/work reports (report.exe port), aux tests, batch, maintenance, help | ✅/🟡 | [diag.md](docs/diag.md) |
+| | Monitors, device/work reports (report.exe port), aux tests, batch, maintenance, help | ✅/🟡 | [diag.md](docs/re/diag.md) |
 | | Command coverage | ✅ | all 247 ribbon commands bound (`tools/command_coverage.py`) |
 
 ## Parity with the original
@@ -210,7 +210,7 @@ The bit-exact ports change only with a Wine parity re-run; new algorithms are ad
 `/home/dev/scratch/mlaser/parity/` runs the original binaries under 32-bit Wine (loopback-only
 network namespace, unpatched, licence checks untouched) and compares them with the rebuild:
 `./run_parity.sh` for the DLL level, `--app` and `run_app.sh machine` to drive MainApp itself.
-Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/parity.md](docs/parity.md)).
+Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/re/parity.md](docs/re/parity.md)).
 
 * **Match:**
   * card frame encoding/decoding and the start-up sequence (byte-identical);
@@ -228,7 +228,7 @@ Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/parity.md](docs/par
   hardware licence check, so the cutting step stream is verified only by the rebuild's own
   tests, not against the original.
 * **Check it on your own machine:** capture the original's card traffic during a Dry Cut and run
-  `tools/compare_capture.py`; see [Verifying against your machine](docs/parity.md#8-verifying-against-your-machine).
+  `tools/compare_capture.py`; see [Verifying against your machine](docs/re/parity.md#8-verifying-against-your-machine).
 
 ## Timing: why Python is enough
 

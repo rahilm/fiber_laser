@@ -49,8 +49,9 @@ exit codes are not visible there.
   matplotlib and Wine captures). `mlaser.parity_ports` stays because the app uses it.
 * Package data: `mlaser/ui/resources` (the `layer_colors.json` file and the Tabler icons with
   their licence), `mlaser/i18n/*.json`, `mlaser/formats/data/*`, any fonts under `mlaser/cad`.
-  The `docs/` folder is not bundled. Help → Topics is empty in a frozen build because
-  `diag/helpdocs.py` reads `../../docs`.
+  The help documents (`docs/user`, `docs/dev`, `docs/re` and the top-level `SAFETY.md`,
+  `ASSETS.md`, `ROADMAP.md`) go to `mlaser/help/docs` (`bundle_config.help_datas`), where
+  `diag/helpdocs.py` finds them; `docs/review` and `docs/re/history` stay out.
 * Libraries: PySide6 (QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport, and QtDBus/QtNetwork,
   which the bindings pull in), numpy, shapely (GEOS), ezdxf with its fonts and resources,
   svgelements, pyclipper, uharfbuzz, fontTools, segno, Pillow, platformdirs. When they are

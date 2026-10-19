@@ -136,6 +136,14 @@ class WorkspacePage(QWidget):
             it = self.body_lay.takeAt(0)
             if it.widget() is not None:
                 old.append(it.widget())
+        for w in old:                  # release the contributed widgets from their old wrappers
+            areas = [w] if isinstance(w, QScrollArea) and w.objectName() == "shell_ws_scroll" else []
+            areas += [a for a in w.findChildren(QScrollArea, "shell_ws_scroll")]
+            for a in areas:
+                inner = a.takeWidget()
+                if inner is not None:
+                    inner.setParent(self.host.stack)
+                    inner.hide()
         self.canvas_slot = None
         self.splitter = None
         self.tabs = None
@@ -151,7 +159,8 @@ class WorkspacePage(QWidget):
             if own is not None:
                 self.splitter.addWidget(own)
                 self.splitter.setStretchFactor(0, 3)
-                self.splitter.setStretchFactor(1, 1)
+                self.splitter.setStretchFactor(1, 2)
+                self.splitter.setSizes([600, 400])
             self.body_lay.addWidget(self.splitter)
         else:
             if own is None:
@@ -164,6 +173,18 @@ class WorkspacePage(QWidget):
                 w.deleteLater()
         self._old = None
 
+    @staticmethod
+    def _fit(widget: QWidget) -> QWidget:
+        """A contributed page in a frameless scroll area: its minimum size never forces the
+        main window wider or taller than the screen (1280 × 800, 150 %)."""
+        sa = QScrollArea()
+        sa.setObjectName("shell_ws_scroll")
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setWidgetResizable(True)
+        sa.setWidget(widget)
+        widget.show()
+        return sa
+
     def _own_widget(self) -> Optional[QWidget]:
         ws = [c.widget for c in self.contributions if c.widget is not None]
         if not ws and self.spec.widget is not None and not self.spec.placeholder:
@@ -171,12 +192,12 @@ class WorkspacePage(QWidget):
         if not ws:
             return None
         if len(ws) == 1:
-            return ws[0]
+            return self._fit(ws[0])
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
         for c in self.contributions:
             if c.widget is not None:
-                i = self.tabs.addTab(c.widget, "")
+                i = self.tabs.addTab(self._fit(c.widget), "")
                 self.host.tr.bind(c.widget, c.title or c.id, lambda t, i=i, tb=self.tabs: tb.setTabText(i, t))
         return self.tabs
 
@@ -270,6 +291,7 @@ class WorkspaceHost:
         self.pages: dict[str, WorkspacePage] = {}
         self.specs: dict[str, WorkspaceSpec] = {}
         self.current: str = ""
+        self.aliases: dict[str, str] = {}        # contributed id ("run.run") -> its slot ("run")
         self.listeners: list[Callable[[str], None]] = []
         self.rail = QToolBar("Workspaces")
         self.rail.setObjectName("shell_rail")
@@ -334,6 +356,7 @@ class WorkspaceHost:
         slot = slot_for(spec.id, self.tr.tr(spec.title) if spec.title else "", spec.slot)
         if slot:
             page = self.pages[slot]
+            self.aliases[spec.id] = slot
             page.contribute(spec)
             if spec.docks:
                 self._managed_docks.update(spec.docks)
@@ -375,7 +398,9 @@ class WorkspaceHost:
 
     # ------------------------------------------------------------------ switching
     def activate(self, ws_id: str, force: bool = False) -> bool:
-        """Show workspace ``ws_id`` (False when it is unknown or hidden in this user mode)."""
+        """Show workspace ``ws_id`` (a slot, a plugin workspace or the id of a contribution to a
+        slot such as ``"run.run"``; False when it is unknown or hidden in this user mode)."""
+        ws_id = self.resolve(ws_id)
         spec = self.specs.get(ws_id)
         if spec is None or ws_id not in self.visible_ids():
             return False
@@ -395,19 +420,24 @@ class WorkspaceHost:
             fn(ws_id)
         return True
 
+    def resolve(self, ws_id: str) -> str:
+        return self.aliases.get(ws_id, ws_id)
+
     def _apply_docks(self, prev: Optional[WorkspaceSpec], spec: WorkspaceSpec) -> None:
-        """Docks named by the new workspace are shown; docks named by the previous one but not by
-        the new one are hidden; every other dock stays as the user (or a plugin) left it."""
+        """Docks named by the new workspace are shown; docks named by any other workspace (the
+        "owned" docks) are hidden; every other dock stays as the user or a plugin left it."""
         if spec.docks is None:
             return
         want = set(spec.docks)
-        before = set(prev.docks or ()) if prev is not None else self._managed_docks
+        owned = set(self._managed_docks)
+        for s in self.specs.values():
+            owned.update(s.docks or ())
         for d in self.docks():
             name = d.objectName()
             if name in want:
                 if d.isHidden() and not d.isFloating():
                     d.show()
-            elif name in before and not d.isHidden() and not d.isFloating():
+            elif name in owned and not d.isHidden() and not d.isFloating():
                 d.hide()
 
     def docks(self) -> list:

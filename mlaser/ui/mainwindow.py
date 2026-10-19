@@ -1,5 +1,5 @@
 """Main window: the task shell (top bar, workspace rail, canvas, docks, run bar) or the classic
-ribbon (layout per docs/ui.md); the shell is :mod:`mlaser.ui.shell` (docs/user/shell.md)."""
+ribbon (layout per docs/re/ui.md); the shell is :mod:`mlaser.ui.shell` (docs/user/shell.md)."""
 from __future__ import annotations
 
 import copy
@@ -29,7 +29,7 @@ from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
 from .params import OPTION_SECTIONS
 from .ribbon import Ribbon
 
-# ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/cam.md §8;
+# ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/re/cam.md §8;
 # 6/7 CRingSort; 0 keep, 20/21 rebuild additions).  The one path for every ordering mode: the
 # duplicate bbox fallback (docops.sort_parts) and ext_nest's second binding of nearest / in-out /
 # out-in / run are gone.
@@ -39,7 +39,11 @@ SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid"
 # Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
 # plugins come from the "mlaser.plugins" entry-point group.
 EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
-              "ext_draw", "ext_craft", "ext_machine", "ext_diag", "ext_options")
+              "ext_draw", "ext_craft", "ext_machine", "ext_diag", "ext_options",
+              "ext_process",   # Wave 3 Process track: technology, Process workspace, properties, preview
+              "ext_project",   # .mlz projects, autosave (File > Open / Save through its providers)
+              # Wave 3 workspaces (full module paths; plugin names run / nest / report)
+              "mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report")
 
 
 def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow
@@ -196,9 +200,6 @@ class MainWindow(QMainWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._timer.start(100)
-        self._panel_timer = QTimer(self)
-        self._panel_timer.setSingleShot(True)
-        self._panel_timer.timeout.connect(self._refresh_part_list)
         self.docs.subscribe(self._document_changed)
         self.set_document(Document())
         self._close_watch = _CloseWatch(self)
@@ -216,7 +217,7 @@ class MainWindow(QMainWindow):
         """Register the built-in plugins ``names`` (modules of this package) and, with
         ``entry_points``, the ``mlaser.plugins`` entry points (services.plugins).  A failing
         plugin is logged with its reason and rolled back; the core window still works."""
-        mods = [n if "." in n or ":" in n else f"{__package__}.{n}" for n in names]
+        mods = list(dict.fromkeys(n if "." in n or ":" in n else f"{__package__}.{n}" for n in names))
         for info in discover(mods, entry_points=entry_points):
             ctx, result = register_plugin(self, info)
             if ctx is not None:
@@ -552,12 +553,7 @@ class MainWindow(QMainWindow):
             self.canvas.rebuild()
         self._update_toolpath()
         self.layer_panel.set_document(doc)
-        if kind == "replace":
-            self.part_list.set_document(doc)
-        else:
-            # the part list measures every part (bbox): after an edit it is refreshed once the
-            # edits stop (coalesced), not inside each edit on the GUI thread
-            self._panel_timer.start(250)
+        self.part_list.set_document(doc)       # bounding boxes are cached (22 ms at 2,000 parts)
         self.hooks.emit("document_changed", kind)
 
     def _refresh_part_list(self) -> None:
@@ -766,7 +762,9 @@ class MainWindow(QMainWindow):
         return sel[0].craft.kerf_width if sel and sel[0].craft.kerf_width else 0.1
 
     # ------------------------------------------------------------------ files
-    FILTER = "Supported (*.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;DXF (*.dxf);;CHF (*.chf);;All (*)"
+    FILTER = ("Supported (*.mlz *.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;mlaser project (*.mlz);;"
+              "DXF (*.dxf);;CHF (*.chf);;All (*)")
+    SAVE_FILTER = "mlaser project (*.mlz);;CHF (*.chf)"
 
     def _job_locked(self, what: str) -> bool:
         """Safety (docs/SAFETY.md): no file open / new document while a job runs."""
@@ -785,6 +783,12 @@ class MainWindow(QMainWindow):
         if self._job_locked("open"):
             return False
         ext = os.path.splitext(path)[1].lower()
+        if ext == ".mlz":                                   # ext_project: native projects
+            opener = self.hooks.provider("project.open")
+            if opener is None:
+                self.log_panel.log(f"mf155: no importer for {ext} yet")
+                return False
+            return bool(opener(path))
         loader = None
         if ext == ".chf":
             loader = _lazy("mlaser.formats.chf", "load_chf")
@@ -831,13 +835,27 @@ class MainWindow(QMainWindow):
             self.set_document(merged, self.path)
 
     def file_save(self, save_as: bool = False) -> None:
+        """Save: a new drawing (or Save As) asks for a file, ``.mlz`` project by default
+        (``project.save`` provider of ext_project); a document opened from a ``.chf`` is saved
+        back as ``.chf``; File > Export CHF (``file.export_chf``) writes the interchange file."""
+        project_save = self.hooks.provider("project.save")
+        path = self.path
+        if save_as or not path:
+            start = os.path.splitext(path)[0] + ".mlz" if path else ""
+            filt = self.SAVE_FILTER if project_save is not None else "chf (*.chf)"
+            path, _ = QFileDialog.getSaveFileName(self, self.tr_.tr("mf152"), start, filt)
+            if path and project_save is not None and not os.path.splitext(path)[1]:
+                path += ".mlz"
+        if not path:
+            return
+        if not path.lower().endswith(".chf") and project_save is not None:
+            if project_save(path):
+                self.shell.mark_saved()
+            return
         saver = _lazy("mlaser.formats.chf", "save_chf")
         if saver is None:
             self.log_panel.log("mf153: .chf writer not available yet")
             return
-        path = self.path
-        if save_as or not path:
-            path, _ = QFileDialog.getSaveFileName(self, self.tr_.tr("mf152"), "", "chf (*.chf)")
         if path:
             from mlaser.cam.raster_engraving import expand_document
             saver(expand_document(self.document), path)    # raster parts as their burn segments

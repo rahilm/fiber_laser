@@ -1,6 +1,6 @@
 """Nesting data model: parts, sheets, parameters and results.
 
-The fields mirror what the original passes to its nesting engines (see docs/nest.md for the
+The fields mirror what the original passes to its nesting engines (see docs/re/nest.md for the
 evidence; SmartNest.dll ``NAddPartInfo``/``NAddSheetInfo``/``NDefineAngleList`` and AutoNest.dll
 ``Nest_SetPartPara``/``Nest_SetNestPara``). Units are millimetres and degrees.
 """
@@ -64,7 +64,7 @@ class NestSheet:
 @dataclass
 class NestParams:
     """Engine parameters (NestParam section of ManuPara.xml / ``pd_Nest_*`` dialog).
-    Defaults are the original's NP.* defaults (docs/nest.md)."""
+    Defaults are the original's NP.* defaults (docs/re/nest.md)."""
     spacing: float = 3.0                  # NP.PartSpace (pd_Nest_PartSpace)
     margin: float = 5.0                   # NP.EdgeStock (pd_Nest_EdgeStock)
     rotation_step: float = 90.0           # NP.PartRoateStepAngle_deg: angles 0, step, ... < 360

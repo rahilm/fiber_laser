@@ -28,7 +28,7 @@ WINDOW_KEYS: dict[str, str] = {
     # run (pre-flight first; Stop always passes)
     "run.start": "F5", "run.frame": "F6", "run.dry_run": "Shift+F6", "run.stop": "F12",
     # shell
-    "shell.palette": "Ctrl+K|F1", "shell.shortcuts": "Ctrl+F1",
+    "shell.palette": "Ctrl+K", "app.help": "F1", "shell.shortcuts": "Ctrl+F1",
     "shell.reset_layout": "Ctrl+Shift+F12", "shell.user_mode": "Ctrl+Shift+M",
     "workspace.design": "Ctrl+1", "workspace.process": "Ctrl+2", "workspace.nest": "Ctrl+3",
     "workspace.run": "Ctrl+4", "workspace.report": "Ctrl+5", "workspace.machine": "Ctrl+6",

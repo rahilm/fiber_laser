@@ -3,7 +3,7 @@
 The numbers below were produced by MotionCtrl.dll (exports segInterp, segInterp_time, arcInterp,
 CVelocityPlanning vt[1]/[2]/[4]) and by CADModule.dll's v1.3.23 planner copy (factory
 0x1010d140, called directly by the debug harness in work/motionK/h) for the inputs given here.
-They let the rebuild keep exact parity without Wine.  See docs/motion.md §2-§4 and docs/parity.md
+They let the rebuild keep exact parity without Wine.  See docs/re/motion.md §2-§4 and docs/re/parity.md
 D-01..D-05.
 """
 import math

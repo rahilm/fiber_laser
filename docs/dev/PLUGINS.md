@@ -50,7 +50,7 @@ ignored with a log line.
 | `ctx.on_document_changed(fn)` | `fn(kind)` after an edit, undo, redo or a new document |
 | `ctx.on_plan(fn)` | `fn(planned_job)` when a new PlannedJob is ready (preview = what Start cuts) |
 | `ctx.on_close(fn)` | before the window closes (save state, close devices) |
-| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises |
+| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises.  Used today: `dxf.mode` (ext_options), `machine.monitor_host` (ext_machine: `fn(key, factory)` shows a device monitor as a panel of the Machine workspace); read when present: `user_mode` (`fn() -> "operator" / "engineer" / "service"`), `workspace.show` (`fn(name)`, the shell's switcher) |
 | `ctx.add_dock(widget, title, area="right")` | a dock widget (`left` / `right` / `bottom` / `top`) |
 | `ctx.add_ribbon_tab(title, command_ids)` | a ribbon tab with one button per command |
 | `ctx.add_workspace(name, widget, title, **options)` | a task workspace in the shell's rail, or the content of a built-in slot (§5); kept in `window.workspaces` too |
@@ -58,6 +58,12 @@ ignored with a log line.
 | `ctx.on_workspace_changed(fn)`, `ctx.on_user_mode_changed(fn)` | `fn(workspace_id)` / `fn(mode)` after the shell switched |
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
 | `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs |
+
+Data that belongs to the job (a technology assignment, queue entries, a plugin's own state) is
+saved in the `.mlz` project and its autosave when the plugin registers a section:
+`window.extension("ext_project").register_section(name, get, set)`; see
+[project-format.md](project-format.md#plugin-sections).  Keep typed data in the model's typed
+fields, not in new `extra` keys (`extra` is for opaque round-trip data, `model.EXTRA_KEYS`).
 
 Rules:
 
@@ -112,7 +118,7 @@ Options (all optional; `mlaser.services.workspaces.WorkspaceSpec`):
 | `min_mode` | lowest user mode that sees it (`operator`, `engineer` (default), `service`) |
 | `canvas` | `True`: the page shows the shared canvas; `widget` goes into a side panel |
 | `toolbar` | command ids of the slim workspace toolbar (`"-"` = separator), at most ~15 |
-| `docks` | dock object names shown while active (`lp0` layers/parts, `mf141` run control, `mf124` log, `mf460` nest; your own `ctx.add_dock(..., key=...)`); docks of the previous workspace that are not listed are hidden, others are left alone |
+| `docks` | dock object names shown while active (`lp0` layers/parts, `mf141` run control, `mf124` log, `mf460` nest; your own `ctx.add_dock(..., key=...)`); a dock that some workspace lists but the active one does not is hidden, docks no workspace lists are left alone; `()` = no docks |
 | `description` | one line for the rail tooltip and the placeholder |
 | `slot` | the slot to fill, when `name`/`title` do not say it |
 
@@ -138,6 +144,12 @@ the supervisor are independent of it (docs/SAFETY.md).
 `QToolButton.setDefaultAction(window.ribbon.actions["run.start"])` and get the pre-flight check,
 the arming dialog and the keys for free.  The persistent run bar stays at the bottom of every
 workspace; do not build a second one.
+
+**Providers.**  `window.hooks.provider("workspace.show")(id)` and
+`window.show_workspace(id)` switch (ids as in `window.workspaces`: `"run.run"`,
+`"ext_machine.machine"` ... resolve to their slot); `window.hooks.provider("user_mode")()`
+returns the mode.  A contributed page sits in a scroll area, so its minimum size never makes
+the main window larger than 1280 × 800.
 
 **Testing.**  `tests/wiring.py:real_window(user_mode="service")` (the default) enables every
 command; pass `user_mode="operator"` to test an operator screen.  `window.show_workspace(id)`

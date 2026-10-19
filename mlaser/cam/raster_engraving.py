@@ -5,7 +5,7 @@ Before this module a bitmap engraving reached the document as raster G-code read
 dithered picture becomes 184,627 parts).  :class:`RasterEngraving` keeps the same burn runs in
 numpy arrays and a single Part carries it:
 
-* ``Part.extra['raster']`` is the :class:`RasterEngraving` (local coordinates, read-only arrays);
+* ``Part.raster`` is the :class:`RasterEngraving` (local coordinates, read-only arrays);
 * ``Part.contours`` is one closed *frame* contour around the engraving (5 lines: the bbox
   rectangle with an extra vertex at a quarter of the bottom edge).  Everything that works on
   contours (bbox, selection, rubber band, snap, docops move / rotate / scale / mirror / reverse,
@@ -81,7 +81,7 @@ __all__ = [
     "segment_arrays",
 ]
 
-RASTER_KEY = "raster"  # Part.extra key of the RasterEngraving
+RASTER_KEY = "raster"  # the old Part.extra key of the RasterEngraving (now ``Part.raster``)
 FRAME_KEY = "raster_frame"  # Contour.extra flag of the frame contour
 CLOSE_TOL = 1e-3  # parse_gcode: a run is a closed contour when |end - start| < 1e-3
 MIN_LEN = 1e-6  # prepare_contour drops contours shorter than this
@@ -228,16 +228,16 @@ def frame_contour(r: RasterEngraving) -> Contour:
 
 
 def make_raster_part(r: RasterEngraving, craft: Optional[Craft] = None, name: str = "raster") -> Part:
-    """One Part holding the raster (``extra['raster']``) and its frame contour."""
+    """One Part holding the raster (``Part.raster``) and its frame contour."""
     if len(r) == 0:
         raise ValueError("raster engraving without burn runs")
     part = Part(contours=[frame_contour(r)], craft=copy.deepcopy(craft) if craft else Craft(), name=name)
-    part.extra[RASTER_KEY] = r
+    part.raster = r
     return part
 
 
 def raster_of_part(part: Part) -> Optional[RasterEngraving]:
-    r = part.extra.get(RASTER_KEY) if isinstance(part.extra, dict) else None
+    r = getattr(part, "raster", None)
     return r if isinstance(r, RasterEngraving) else None
 
 
@@ -401,9 +401,9 @@ def _plain(craft: Craft, prm: "CamParams") -> bool:
     joints, cooling points or leads on open contours)."""
     if craft.kerf_comp is not None and craft.kerf_comp >= 0 and craft.kerf_width:
         return False
-    if float(craft.extra.get("overcut", 0.0) or 0.0) < -0.05:
+    if float(craft.overcut or 0.0) < -0.05:
         return False
-    if craft.micro_joints or craft.cool_point is not None or craft.extra.get("cool_points"):
+    if craft.micro_joints or craft.cool_points:
         return False
     if prm.leads_on_open and (craft.lead_in.kind != 0 or craft.lead_out.kind != 0):
         return False

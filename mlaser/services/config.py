@@ -213,6 +213,7 @@ class ConfigService:
         self._dirty = False
         if load:
             self.load()
+        install_layer_defaults(self)
 
     # ------------------------------------------------------------------ schema
     def register(self, settings: Iterable[Setting], replace_existing: bool = False) -> None:
@@ -430,8 +431,27 @@ class ConfigService:
     def motion_config(self):
         return self.machine().motion_config()
 
+    # ------------------------------------------------------------------ layer defaults
+    def layer_defaults(self, co2: bool = False) -> dict[str, Any]:
+        """The ``GP.*`` layer descriptor defaults the NC layer view starts from
+        (``parity_ports.mainapp.layer``).  These are the registry defaults exactly: a layer's own
+        values come from the document (LayerPara.xml / the layer table), so the compiled job does
+        not depend on which ConfigService is open (the goldens prove it)."""
+        from mlaser.formats.params import layer_default_values
+
+        return layer_default_values(co2)
+
     def process_config(self):
         return self.machine().process_config()
+
+
+def install_layer_defaults(svc: Optional["ConfigService"] = None) -> None:
+    """Hand the layer defaults to the parity fence (``set_layer_defaults``): the ConfigService's
+    provider, or the plain registry reader without one."""
+    from mlaser.formats.params import layer_default_values
+    from mlaser.parity_ports.mainapp.layer import set_layer_defaults
+
+    set_layer_defaults(svc.layer_defaults if svc is not None else layer_default_values)
 
 
 _REF: list = []

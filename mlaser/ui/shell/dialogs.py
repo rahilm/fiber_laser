@@ -5,8 +5,8 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PySide6.QtCore import Qt, QUrl
-from PySide6.QtGui import QDesktopServices, QRegularExpressionValidator
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
 from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
                                QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
@@ -182,16 +182,18 @@ class WelcomeSheet(QDialog):
         super().closeEvent(ev)
 
 
-def open_docs(parent, tr) -> bool:
-    """Open docs/user in the system file browser / viewer."""
-    from PySide6.QtGui import QGuiApplication
-    path = DOCS_DIR
-    target = os.path.join(path, "shell.md")
-    if QGuiApplication.platformName() in ("offscreen", "minimal"):
-        return False                     # headless (tests, coverage): never launch a viewer
-    if os.path.isdir(path):
-        return QDesktopServices.openUrl(QUrl.fromLocalFile(target if os.path.exists(target) else path))
-    QMessageBox.information(parent, tr.tr("shell.docs"), tr.format("shell.docs.missing", path=path))
+def open_docs(window, tr) -> bool:
+    """docs/user/shell.md in the offline help browser (``app.help``, ext_diag)."""
+    diag = window.extension("ext_diag") if hasattr(window, "extension") else None
+    if diag is not None and hasattr(diag, "help"):
+        browser = diag.help()
+        if browser is not None and hasattr(browser, "open"):
+            try:
+                browser.open("user/shell.md")
+            except Exception:  # noqa: BLE001 - the help browser shows its home page instead
+                pass
+            return True
+    QMessageBox.information(window, tr.tr("shell.docs"), tr.format("shell.docs.missing", path=DOCS_DIR))
     return False
 
 

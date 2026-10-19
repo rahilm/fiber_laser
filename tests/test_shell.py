@@ -59,23 +59,41 @@ def test_rail_has_the_six_workspaces_and_design_is_default(win, app):
     assert sh.host.current == "process" and sh.host.pages["process"].isAncestorOf(win.canvas)
     win.run("workspace.report")
     assert sh.host.current == "report" and not win.canvas.isVisible()
-    page = sh.host.pages["report"]
-    assert page.placeholder is not None and "diag.work_report" in page.placeholder.buttons
+    # the Wave 3 workspaces fill the slots (EXTENSIONS); their own ids switch too
+    assert sh.host.pages["report"].isAncestorOf(win.extension("report").widget)
+    assert sh.host.pages["run"].isAncestorOf(win.extension("run").screen)
+    assert sh.host.pages["machine"].isAncestorOf(win.extension("ext_machine").workspace)
+    assert sh.host.pages["process"].isAncestorOf(win.extension("ext_process").workspace)
+    assert all(sh.host.pages[s].placeholder is None for s in ("process", "nest", "run", "report", "machine"))
+    for full, slot in (("run.run", "run"), ("nest.nest", "nest"), ("report.report", "report"),
+                       ("ext_machine.machine", "machine"), ("ext_process.process", "process")):
+        assert win.show_workspace(full) and sh.host.current == slot
+        assert win.hooks.provider("workspace.show")(full)
+    win.run("process.show")
+    assert sh.host.current == "process" and win.canvas.isVisible()
+    assert win.hooks.provider("user_mode")() == "engineer"
     win.show_workspace("design")
     assert win.canvas.isVisible()
 
 
 def test_workspace_docks_follow(win, app):
-    win.show_workspace("nest")
+    win.show_workspace("process")
     _pump(app)
-    nest = win.findChild(type(win.left_dock), "mf460")
-    assert nest is not None and not nest.isHidden()
+    props = win.findChild(type(win.left_dock), "plugin.ext_process.properties")
+    assert props is not None and not props.isHidden() and win.right_dock.isHidden()
     win.show_workspace("report")
     _pump(app)
-    assert nest.isHidden() and win.right_dock.isHidden() and not win.log_dock.isHidden()
+    assert props.isHidden() and win.right_dock.isHidden() and not win.log_dock.isHidden()
     win.show_workspace("design")
     _pump(app)
     assert not win.right_dock.isHidden() and not win.left_dock.isHidden()
+
+
+def test_window_keeps_its_size_with_every_workspace(win, app):
+    for ws in win.shell.host.visible_ids():
+        win.show_workspace(ws)
+        _pump(app)
+        assert win.width() <= 1280 and win.height() <= 800, ws
 
 
 def test_plugin_fills_a_slot_and_adds_its_own_workspace(win, app):
@@ -92,10 +110,11 @@ def test_plugin_fills_a_slot_and_adds_its_own_workspace(win, app):
     ctx, _ = register_plugin(win, PluginInfo("shell_test_plugin", "shell_test_plugin"))
     assert ctx is not None
     sh = win.shell
-    assert sh.host.pages["process"].isAncestorOf(proc)
-    assert sh.host.pages["process"].placeholder is None
-    assert win.show_workspace("process") and proc.isVisible()
-    assert [a.data() for a in sh.host.pages["process"].toolbar.actions()] == ["craft.lead", "craft.kerf"]
+    page = sh.host.pages["process"]
+    assert page.isAncestorOf(proc) and page.tabs is not None and page.tabs.count() == 2   # 2nd: a tab
+    assert win.show_workspace("shell_test_plugin.process") and sh.host.current == "process"
+    page.tabs.setCurrentIndex(1)
+    assert proc.isVisible() and win.canvas.isVisible()     # the first contribution kept the canvas
     ids = sh.host.visible_ids()
     assert "shell_test_plugin.techdb" in ids and len(ids) == 8
     assert sh.host.specs["shell_test_plugin.techdb"].shortcut == "Ctrl+7"
@@ -161,10 +180,10 @@ def test_user_modes_gate_commands_rail_and_editing(win, app, monkeypatch):
     win.nudge(1, 0)
     win.delete_selected()
     assert len(win.document.parts) == n and win.document.parts[0].bbox() == b
-    mp = sh.host.pages["machine"].placeholder
-    assert "machine.home" in mp.buttons and "hw.upgrade" not in mp.buttons and "dev.follower" not in mp.buttons
+    assert win.show_workspace("ext_machine.machine")
+    assert not win.extension("ext_machine").workspace.settings_panel.editable
     assert win.set_user_mode("service")
-    assert a["hw.upgrade"].isEnabled() and "hw.upgrade" in sh.host.pages["machine"].placeholder.buttons
+    assert a["hw.upgrade"].isEnabled() and win.extension("ext_machine").workspace.settings_panel.editable
     assert win.layer_panel.isEnabled()
 
 
@@ -263,7 +282,7 @@ def test_keys_and_shortcut_sheet(win, app):
     assert "(Ctrl+S)" in a["file.save"].toolTip()
     rows = win.shell.shortcut_rows()
     keys = {r[2] for r in rows}
-    assert "Ctrl+K / F1" in keys and "F5" in keys and "Space" in keys
+    assert "Ctrl+K" in keys and "F1" in keys and "F5" in keys and "Space" in keys
     d = win.shell.show_shortcuts()
     assert d.table.rowCount() == len(rows)
     d.filter.setText("undo")
@@ -309,7 +328,7 @@ def test_dirty_marker_and_title(win, app, tmp_path):
     sh = win.shell
     win.set_document(ops.demo_document())
     assert sh.dirty and "●" in win.windowTitle() and "●" in sh.topbar.file.text()
-    path = tmp_path / "x.chf"
+    path = tmp_path / "x.mlz"
     from PySide6.QtWidgets import QFileDialog
     orig = QFileDialog.getSaveFileName
     QFileDialog.getSaveFileName = staticmethod(lambda *a, **k: (str(path), ""))
@@ -317,7 +336,7 @@ def test_dirty_marker_and_title(win, app, tmp_path):
         win.file_save()
     finally:
         QFileDialog.getSaveFileName = orig
-    assert not sh.dirty and "x.chf" in win.windowTitle() and "●" not in win.windowTitle()
+    assert not sh.dirty and "x.mlz" in win.windowTitle() and "●" not in win.windowTitle()
     win.canvas.select_parts([0])
     win.run("xform.mirror_h")
     assert sh.dirty

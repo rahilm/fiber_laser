@@ -1,6 +1,6 @@
 """Wire format of the MCC100 motion card ("CExtModbus" in NCModule.dll).
 
-Everything here is pure data conversion (no sockets).  See ``docs/protocol.md``
+Everything here is pure data conversion (no sockets).  See ``docs/re/protocol.md``
 for the full write-up and evidence.  Addresses below are virtual addresses in
 ``Module/NCModule.dll`` (image base 0x10000000) of Mlaser v0.0.1.51_SP1.
 

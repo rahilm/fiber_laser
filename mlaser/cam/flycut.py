@@ -1,6 +1,6 @@
 """Fly cut / scan cutting (lang ``mf112`` 飞行切割), port of the CADModule scan builders.
 
-Evidence (CADModule.dll unless noted; see docs/cam.md section 11):
+Evidence (CADModule.dll unless noted; see docs/re/cam.md section 11):
 
 * Entry: CCADModule vtable slot 88 (0x100f30d0) -> ``FUN_100c80d0(type, ...)``. MainApp's
   worker ``FUN_00480520`` calls it with the GraphParam block (offsets in the global param
@@ -51,7 +51,7 @@ Engraving (type 4) paths use the opposite parity (odd glyphs are the cuts and th
 starts with the beam off); ``scan_paths_from_chf`` reads them from .chf files.
 
 Scan engraving (types 4 and 5, agent G phase 3): ``engrave_scan``, ``apply_engrave_scan``,
-``parse_scan_gcode`` and ``gcode_scan_part`` (docs/craft.md §6).
+``parse_scan_gcode`` and ``gcode_scan_part`` (docs/re/craft.md §6).
 
 Not reimplemented (U): type 3 concentric-arc scan, the link-collision split 0x100a7580, link
 types 1/2/3 between non-collinear circles.
@@ -808,7 +808,7 @@ def apply_fly_cut(doc: Document, kind: int = SCAN_CIRCLE, params=None,
 # --------------------------------------------------------------------------- scan engraving (types 4 / 5)
 @dataclass
 class EngraveScanParams:
-    """Scan engraving dialog (MainApp FUN_004310c0 / OnInit FUN_00435ff0; agent G, docs/craft.md).
+    """Scan engraving dialog (MainApp FUN_004310c0 / OnInit FUN_00435ff0; agent G, docs/re/craft.md).
 
     Mode 0 (mf112_5, type 4): GRP scanSideLineLength pd719_3 (0xb3a8, default 5 mm) and
     scanDirection pd719_4 (0xb3b0, default 0); the worker uses start corner 0 (LD) for

@@ -11,7 +11,7 @@ Each test runs one comparison area and
 * reports listed (known) discrepancies as warnings, and warns when a listed one no longer
   reproduces;
 * asserts the cases that are known to match exactly (e.g. the frame encoder) still match.
-See docs/parity.md.
+See docs/re/parity.md.
 """
 from __future__ import annotations
 

@@ -25,7 +25,7 @@ Parameter offsets: the NC config object and MainApp's parameter block share one 
 the struct offsets in ``mlaser/formats/data/mlaser_params.json`` name the fields used here
 (layer block = +0x4ed8 + 0x480 * layer; pierce stage s = layer + 0x158 + 0x58 * s).
 
-Not reproduced (documented in docs/protocol.md "Process items"): the frog-jump lift (op 106,
+Not reproduced (documented in docs/re/protocol.md "Process items"): the frog-jump lift (op 106,
 needs MainApp's jump profile), clean-residue
 spirals, autofocus types other than 0/5/6, the CO2/bus-card variants, gas pressure maps.
 Licensing/dongle code is intentionally omitted.
@@ -213,7 +213,11 @@ class ProcessConfig:
 # --------------------------------------------------------------------------- layer view
 # the GP.* layer block view is part of the parity fence: mlaser.parity_ports.mainapp.layer
 from ..parity_ports.mainapp.layer import (_STAGE_ALIASES, LayerView, Stage,  # noqa: E402,F401
-                                          _layer_defaults)
+                                          _layer_defaults, set_layer_defaults)
+from ..formats.params import layer_default_values as _registry_layer_defaults  # noqa: E402
+
+# the registry defaults, unless the ConfigService installed its provider first
+set_layer_defaults(_registry_layer_defaults, replace_existing=False)
 
 
 # --------------------------------------------------------------------------- power curve

@@ -141,7 +141,7 @@ def test_keymap_has_no_conflicts():
     from mlaser.ui.shell import keymap
     assert keymap.conflicts() == []
     assert keymap.sequences("Ctrl+K|F1") == ["Ctrl+K", "F1"]
-    assert keymap.key_for("shell.palette") == "Ctrl+K / F1"
+    assert keymap.key_for("shell.palette") == "Ctrl+K" and keymap.key_for("app.help") == "F1"
     md = keymap.markdown([("Design", "Undo", "Ctrl+Z", "main window")])
     assert "| Design | Undo | `Ctrl+Z` | main window |" in md
 

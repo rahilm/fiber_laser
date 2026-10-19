@@ -42,9 +42,13 @@ passes but one random job (seed 257) plans differently: 3.11's plain ``sum()`` c
 point in the last bit and the smoother amplifies it.  tests/golden/test_goldens.py therefore
 skips on other minor versions (``MLASER_GOLDEN_ANY_PYTHON=1`` forces it).
 
-DXF samples with TEXT depend on the installed fonts (the outline comes from the font engine), so
+DXF samples with TEXT depend on the text font (the outline comes from the font engine), so
 cases flagged ``host_dependent`` are compared only when the text-font fingerprint matches the
-one in manifest.json, and skipped otherwise.
+one in manifest.json, and skipped otherwise.  Since Wave 3 the default text font is the bundled
+Noto Sans SC subset (mlaser.cad.fonts), so the fingerprint, and these cases, are the same on
+every host; the 23 TEXT cases were regenerated once for that change (before: WenQuanYi Micro
+Hei, the original's 宋体 as the Wine harness maps it; ``MLASER_TEXT_FONT=system`` still gives
+that probe, 10e96370...).
 """
 
 from __future__ import annotations
@@ -304,12 +308,12 @@ def _craft(rnd: random.Random, layer: int, length: float):
     cr.kerf_width = rnd.uniform(0.05, 0.4) if cr.kerf_comp >= 0 else 0.0
     if rnd.random() < 0.4 and length > 5:
         cr.micro_joints = sorted(rnd.uniform(0, length) for _ in range(rnd.randint(1, 3)))
-        cr.extra["micro_joint_len"] = rnd.uniform(0.3, 1.5)
+        cr.joint_width = rnd.uniform(0.3, 1.5)
     oc = rnd.random()
     if oc < 0.2:
-        cr.extra["overcut"] = rnd.uniform(0.3, 2.0)
+        cr.overcut = rnd.uniform(0.3, 2.0)
     elif oc < 0.35:
-        cr.extra["overcut"] = -rnd.uniform(0.3, 1.5)
+        cr.overcut = -rnd.uniform(0.3, 1.5)
     return cr
 
 

@@ -1,7 +1,7 @@
 """Parameter backup / restore and task (.aut) containers.
 
 Recovered from MainApp.exe (base 0x400000), NCModule.dll and ParaModule.dll.  Tags: **O**
-observed (address given), **I** inferred, **U** unknown.  docs/protocol.md §19-§20.
+observed (address given), **I** inferred, **U** unknown.  docs/re/protocol.md §19-§20.
 
 Parameter files (O, FUN_00451c30 at 0x4d91e2..0x4d9301): ``HardPara.xml``, ``ManuPara.xml``,
 ``LayerPara.xml`` (and legacy ``SystemPara.xml``) live in

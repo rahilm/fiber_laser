@@ -1,4 +1,4 @@
-"""Mlaser ``.chf`` drawing/job files (docs/formats.md).
+"""Mlaser ``.chf`` drawing/job files (docs/re/formats.md).
 
 The codec is a byte-exact port in the parity fence, :mod:`mlaser.parity_ports.cadmodule.chf`;
 this module is its domain-facing name.  ``loads_chf`` / ``dumps_chf`` / ``load_chf`` /

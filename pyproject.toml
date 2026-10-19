@@ -48,9 +48,15 @@ include = ["mlaser*"]
 
 [tool.setuptools.package-data]
 "mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*"]
-"mlaser.i18n" = ["*.json"]
+"mlaser.i18n" = ["*.json", "qm/*.qm"]   # catalogues; compiled Qt Linguist translations (docs/dev/i18n.md)
 "mlaser.formats" = ["data/*"]
 "mlaser.cad" = ["fontdata/*"]   # bundled Noto Sans SC / Arabic subsets + OFL (tools/build_bundled_fonts.py)
+# the help documents (docs/user, dev, re): copied into the wheel as mlaser/help/docs by the build_py
+# hook below (an editable install reads the checkout's docs/); mlaser.diag.helpdocs.docs_root
+"mlaser" = ["help/docs/*.md", "help/docs/**/*"]
+
+[tool.setuptools.cmdclass]
+build_py = "tools.help_build.BuildPy"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -59,7 +65,10 @@ testpaths = ["tests"]
 addopts = "-m 'not parity and not golden'"
 # old import paths left by the Wave 1 moves (mlaser/_compat.py) warn once; tests that still use
 # them, and tests/test_compat_shims.py, must not fail or flood the summary
-filterwarnings = ["ignore:mlaser\\..* moved to mlaser\\..*:DeprecationWarning"]
+# the old ``extra`` keys of the typed model fields (mlaser.model.LegacyExtra) warn; the tests that
+# exercise the old keys on purpose (compatibility) must not flood the summary
+filterwarnings = ["ignore:mlaser\\..* moved to mlaser\\..*:DeprecationWarning",
+                  "ignore::mlaser.model.LegacyExtraWarning"]
 markers = [
     "unit: pure tests (no Qt widgets, no sockets); assigned by tests/conftest.py",
     "ui: builds Qt widgets (offscreen)",
@@ -103,7 +112,7 @@ ignore = ["E702", "E731", "E741"]
 [tool.mypy]
 python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/nc", "mlaser/services",
-         "mlaser/ops"]
+         "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py"]
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -125,11 +134,11 @@ type = "layers"
 layers = [
     "mlaser.ui | mlaser.parity",
     "mlaser.services",
-    "mlaser.diag | mlaser.report | mlaser.engrave",
+    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web",
     "mlaser.controller",
     "mlaser.devices | mlaser.machine",
     "mlaser.ops",
-    "mlaser.nc",
+    "mlaser.nc | mlaser.project",
     "mlaser.io | mlaser.nest",
     "mlaser.cam",
     "mlaser.motion",
@@ -138,10 +147,7 @@ layers = [
     "mlaser.geom | mlaser.protocol | mlaser.toolpath | mlaser.i18n",
     "mlaser.model",
 ]
-ignore_imports = [
-    # LayerView's lazy registry defaults (see the parity_ports contract below)
-    "mlaser.parity_ports.mainapp.layer -> mlaser.formats.params",
-]
+# no ignores left: the layer defaults are injected (ConfigService.layer_defaults, Wave 3)
 
 [[tool.importlinter.contracts]]
 name = "Domain packages import no Qt"
@@ -151,7 +157,7 @@ source_modules = [
     "mlaser.parity_ports",
     "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
     "mlaser.nc", "mlaser.ops", "mlaser.machine", "mlaser.devices", "mlaser.controller",
-    "mlaser.services",
+    "mlaser.services", "mlaser.project", "mlaser.web",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 # no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt
@@ -167,8 +173,4 @@ forbidden_modules = [
     "mlaser.controller", "mlaser.diag", "mlaser.report", "mlaser.engrave", "mlaser.ui",
     "mlaser.parity", "mlaser._compat",
 ]
-ignore_imports = [
-    # LayerView reads the layer defaults from the parameter registry (mlaser_params.json) lazily;
-    # ROADMAP Wave 2 "ConfigService" hands them in instead
-    "mlaser.parity_ports.mainapp.layer -> mlaser.formats.params",
-]
+# no ignores left: LayerView's defaults are injected (parity_ports.mainapp.layer.set_layer_defaults)

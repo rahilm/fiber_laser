@@ -1,4 +1,4 @@
-"""Array / fill operations (mlaser.cam.array), see docs/cam.md §14."""
+"""Array / fill operations (mlaser.cam.array), see docs/re/cam.md §14."""
 import math
 
 from mlaser.cam.array import (ArrayParams, FillParams, apply_rect_array, circular_array,

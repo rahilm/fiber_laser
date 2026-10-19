@@ -30,7 +30,7 @@ import sys
 ROOT = os.path.normpath(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.insert(0, ROOT)
 
-#: shapes of the original's opaque keys (docs/ui.md "Key-family cheat sheet")
+#: shapes of the original's opaque keys (docs/re/ui.md "Key-family cheat sheet")
 KEY_RE = re.compile(
     r"^(?:(?:mf|mp|pd|gp|hp|mv|lp|slp|ss|zf|af|ec|cp|de|db|da|ap|np|SBT|SLED|newLang|eNewLang)\d[\w-]*"
     r"|A2\d{5}_\d+|\w*RegName_\d+|EtherCAT\w*_\d+(?:_\d+)?|(?:np|nset|pd_Nest|mf_S)_\w+)$")

@@ -1,6 +1,6 @@
 """PySide6 port of the companion program ``Report\\report.exe`` (Qt 5, class ``Qlist_test``).
 
-Observed in report.exe (Ghidra via the REA CLI, docs/diag.md "Report viewer"):
+Observed in report.exe (Ghidra via the REA CLI, docs/re/diag.md "Report viewer"):
 
 * main window 800 x 320 (``setFixedSize(800, 0x140)``), title ``加工统计`` / ``Report``
   (``lang==0`` in ``lang.txt`` = Chinese), icon ``./icon.ico``;

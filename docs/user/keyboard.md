@@ -26,30 +26,31 @@ shown in the application under Help > Keyboard shortcuts (Ctrl+F1, or ? on the c
 | Design | Zoom Reset | `F` | main window |
 | Machine | Options | `Ctrl+,` | main window |
 | Machine | Workspace: Machine | `Ctrl+6` | main window |
-| Nest | Workspace: Nest | `Ctrl+3` | main window |
 | Process | Compensate | `K` | canvas focused |
 | Process | Lead Line | `L` | canvas focused |
 | Process | Micro Joint | `J` | canvas focused |
 | Process | Sort | `S` | canvas focused |
 | Process | Workspace: Process | `Ctrl+2` | main window |
-| Report | Workspace: Report | `Ctrl+5` | main window |
 | Run | Dry run | `Shift+F6` | main window |
 | Run | Frame | `F6` | main window |
 | Run | Simulate (preview) | `P` | canvas focused |
 | Run | Start job | `F5` | main window |
 | Run | Stop | `F12` | main window |
-| Run | Workspace: Run | `Ctrl+4` | main window |
 | - | Add to the selection | `Shift / Ctrl + click` | canvas focused |
-| - | Command palette | `Ctrl+K / F1` | main window |
+| - | Command palette | `Ctrl+K` | main window |
 | - | Deselect, back to the select tool | `Esc` | no job running |
 | - | Exit | `Ctrl+Q` | main window |
+| - | Help | `F1` | main window |
 | - | Hold / continue the job | `Space` | while a job runs |
 | - | Keyboard shortcuts | `Ctrl+F1` | main window |
 | - | Keyboard shortcuts | `?` | canvas focused |
 | - | Move the selection by the keyboard step | `← ↑ → ↓` | canvas focused |
+| - | Nest | `Ctrl+3` | main window |
 | - | Next / previous control | `Tab / Shift+Tab` | anywhere |
 | - | Pan the view | `Middle button drag` | canvas focused |
+| - | Report | `Ctrl+5` | main window |
 | - | Reset layout | `Ctrl+Shift+F12` | main window |
+| - | Run | `Ctrl+4` | main window |
 | - | Stop the job | `Esc` | while a job runs |
 | - | Stop the job | `F12` | anywhere |
 | - | User mode... | `Ctrl+Shift+M` | main window |

@@ -8,7 +8,7 @@ Two layers:
    segInterp/segInterp_time at 0x101078a0/0x10106e70).  They return the normalised
    path parameter at every interpolation period, which is the DLL's output format
    (vector<double>, every value divided by the last sample, so it ends at 1.0;
-   no extra end sample, docs/parity.md D-01).
+   no extra end sample, docs/re/parity.md D-01).
 2. ``simulate``/``estimate_time``: run the look-ahead planner over a MotionItem
    stream (mlaser.toolpath.items) and sample x/y/v every period.  Continuous runs of
    cut moves are planned as one path (the controller blends them); rapids are

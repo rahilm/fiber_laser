@@ -22,7 +22,7 @@ aux.ball_arm           mf702 426b   ball-bar pattern into the drawing
 aux.interferometer     mf180 17000  interferometer dock (:class:`InterferometerPanel`)
 aux.batch_cut          mf705 4270   :class:`BatchDialog` + batch runner / production counter
 aux.maintain           A251113_0    :class:`MaintainDialog` + reminders
-app.help               mf23         :class:`HelpWindow` (docs/ + About)
+app.help               mf23         :class:`HelpWindow` (packaged docs + About)
 =====================  ===========  =========================================================
 
 Job statistics, device counters, the planned-quantity interlock and the maintenance reminders
@@ -30,7 +30,7 @@ are :class:`mlaser.services.production.ProductionService` (Qt-free); this module
 messages.  Settings (counters, maintenance plan, batch list, custom IO) are ConfigService values;
 files (statistics, logs, reports) live in the data directory: ``settings["data_dir"]``, the
 ``MLASER_DATA_DIR`` environment variable, or the platform data directory (platformdirs).
-Evidence: docs/diag.md.
+Evidence: docs/re/diag.md.
 """
 from __future__ import annotations
 
@@ -46,14 +46,15 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
-                               QTextBrowser, QVBoxLayout, QWidget)
+                               QVBoxLayout, QWidget)
 
 from mlaser.diag import ballarm, batch as B, burnin, customio as CIO, devicereport as DR
-from mlaser.diag import helpdocs, interferometer as IF, lighttest, logs as L, maintain as M
+from mlaser.diag import interferometer as IF, lighttest, logs as L, maintain as M
 from mlaser.diag import registers as R
 from mlaser.diag.measure import DataRecorder
 from mlaser.diag.paramset import ParamSet, find_def
 from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
+from mlaser.ui.help_browser import HelpBrowser
 
 
 # =========================================================================== helpers
@@ -82,8 +83,7 @@ def _log(window, msg: str) -> None:
 def _mc(window):
     """The supervised card handle (None without a card): every command is checked by the safety
     supervisor (arming for DA/PWM/laser outputs, no motion while a fault is latched)."""
-    ctl = getattr(window, "ctl", None)
-    return ctl.card() if ctl is not None else None
+    return window.ctl.card()                 # MachineAPI: None without a card
 
 
 def _lang(window) -> str:
@@ -400,6 +400,16 @@ class ControllerMonitor(QDialog):
         self._timer.stop()
         super().closeEvent(ev)
 
+    # as a panel of the Machine workspace: poll only while visible
+    def showEvent(self, ev) -> None:
+        if not self._timer.isActive():
+            self._timer.start(500)
+        super().showEvent(ev)
+
+    def hideEvent(self, ev) -> None:
+        self._timer.stop()
+        super().hideEvent(ev)
+
 
 class DeviceMonitor(QDialog):
     """FTC (zf), auto-focus (af) and extension card (ec) monitors."""
@@ -589,6 +599,15 @@ class DeviceMonitor(QDialog):
             rows.append(("", "calibration", _tr(self.ext.w, grade, fs.calibration_grade) if grade
                          else fs.calibration_grade))
         _fill(self.table, rows)
+
+    def showEvent(self, ev) -> None:
+        if not self._timer.isActive():
+            self._timer.start(500)
+        super().showEvent(ev)
+
+    def hideEvent(self, ev) -> None:
+        self._timer.stop()
+        super().hideEvent(ev)
 
     def closeEvent(self, ev) -> None:
         self._timer.stop()
@@ -1249,56 +1268,13 @@ class MaintainDialog(QDialog):
         self.accept()
 
 
-class HelpWindow(QDialog):
-    """Offline help from docs/ plus About (mf23 / mf24)."""
+class HelpWindow(HelpBrowser):
+    """Offline help (mf23) with About (mf24): :class:`mlaser.ui.help_browser.HelpBrowser` on the
+    packaged documents (``mlaser.diag.helpdocs.docs_root``)."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
         self.ext = ext
-        self.setWindowTitle(_tr(ext.w, "mf23", "Help"))
-        self.resize(980, 680)
-        lay = QVBoxLayout(self)
-        top = QHBoxLayout()
-        self.search = QLineEdit()
-        self.search.setPlaceholderText("search")
-        self.search.returnPressed.connect(self.do_search)
-        top.addWidget(self.search, 1)
-        lay.addLayout(top)
-        sp = QSplitter()
-        self.list = QListWidget()
-        self.topics = helpdocs.topics()
-        for t in self.topics:
-            self.list.addItem(t.title)
-        self.list.addItem(_tr(ext.w, "mf24", "About"))
-        self.list.currentRowChanged.connect(self.show_topic)
-        self.view = QTextBrowser()
-        self.view.setOpenExternalLinks(False)
-        self.view.setOpenLinks(False)
-        self.view.anchorClicked.connect(self._link)
-        sp.addWidget(self.list)
-        sp.addWidget(self.view)
-        sp.setSizes([240, 740])
-        lay.addWidget(sp, 1)
-        self.list.setCurrentRow(0)
-
-    def show_topic(self, row: int) -> None:
-        if 0 <= row < len(self.topics):
-            self.view.setMarkdown(helpdocs.read_topic(self.topics[row].path))
-        else:
-            self.view.setPlainText(helpdocs.about_text())
-
-    def _link(self, url: QUrl) -> None:
-        """Only local documents are followed (no network access)."""
-        name = os.path.basename(url.path() or url.toString())
-        for i, t in enumerate(self.topics):
-            if os.path.basename(t.path) == name:
-                self.list.setCurrentRow(i)
-                return
-
-    def do_search(self) -> None:
-        hits = helpdocs.search(self.search.text())
-        self.view.setPlainText("\n".join(f"{os.path.basename(t.path)}:{n}: {ln}" for t, n, ln in hits)
-                               or "no match")
+        super().__init__(_parent(ext.w), getattr(ext.w, "tr_", None))
 
 
 # =========================================================================== extension
@@ -1416,6 +1392,10 @@ class DiagExtension:
 
     # ------------------------------------------------------------------ commands
     def _show(self, key: str, factory: Callable[[], QWidget]) -> QWidget:
+        if key in self.MONITOR_KEYS and self.ctx is not None:
+            host = self.ctx.host.hooks.provider("machine.monitor_host")   # Machine workspace
+            if host is not None:
+                return host(key, factory)
         win = self.windows.get(key)
         if win is None or not _alive(win):
             win = factory()
@@ -1423,6 +1403,14 @@ class DiagExtension:
         win.show()
         _raise(win)
         return win
+
+    MONITOR_KEYS = ("controller", "zf", "af", "ec")
+
+    def show_monitor(self, key: str) -> QWidget:
+        """The monitor ``key`` (controller / zf / af / ec): a panel of the Machine workspace when
+        it is there, else its own window."""
+        return {"controller": self.mon_controller, "zf": self.mon_ftc, "af": self.mon_af,
+                "ec": self.mon_ext}[key]()
 
     def mon_controller(self):
         return self._show("controller", lambda: ControllerMonitor(self))

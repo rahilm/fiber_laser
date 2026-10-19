@@ -35,3 +35,6 @@ Thumbs.db
 .vscode/
 *.swp
 .venv*/
+
+# help documents copied by tools/help_build.py (wheel builds)
+mlaser/help/docs/

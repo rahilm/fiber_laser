@@ -189,7 +189,9 @@ def test_real_wiring_no_monkeypatching_no_duplicates(app):
 
     w = real_window()
     try:
-        assert sorted(w.extensions) == sorted(EXTENSIONS)
+        from mlaser.ui.workspaces import PLUGINS as WORKSPACES      # bootstrapped by ext_nest
+        names = {n.rsplit(".", 1)[-1] for n in EXTENSIONS} | {n.rsplit(".", 1)[-1] for n in WORKSPACES}
+        assert sorted(w.extensions) == sorted(names)
         assert w.commands.duplicates == []
         # nothing replaced the window's methods (set_controller, set_mode, nudge)
         for name in ("set_controller", "set_mode", "nudge"):

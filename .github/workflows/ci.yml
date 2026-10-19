@@ -90,3 +90,8 @@ jobs:
       # typed core: protocol, geom, parity_ports, nc ([tool.mypy] in pyproject.toml)
       - name: mypy
         run: uv run --locked mypy
+      # string catalogues: keys the code uses are in en.json, placeholders match in every
+      # translation (.json / Qt Linguist .ts); the import-based scan of the original's keys runs
+      # in the test job (tests/test_i18n_check.py), which has the Qt runtime libraries
+      - name: i18n check
+        run: uv run --locked python tools/i18n_check.py --no-legacy-scan

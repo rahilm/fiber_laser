@@ -1,7 +1,7 @@
 """Generic motion items produced by the CAM pipeline (``build_toolpath``).
 
 These are deliberately controller-agnostic: the controller/protocol layer maps
-them to MCC100 FIFO wire items (see docs/cam.md, "MotionItem stream").
+them to MCC100 FIFO wire items (see docs/re/cam.md, "MotionItem stream").
 Coordinates are machine mm (after part placement), speeds mm/s, times seconds.
 """
 from __future__ import annotations

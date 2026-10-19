@@ -138,3 +138,19 @@ check refuses FMA instructions) and CPython's own `math.hypot` called back. Prof
 | spyrrow nesting (opt-in) | last sheet 10–14 % shorter; full-sheet utilisation 62 % vs 66 % (raster); uses the whole time limit (30 s) vs 0.3–0.7 s |
 | Ruckig planner (opt-in, not hardware-validated) | job time −5 % over 13 samples + 300 random jobs; corner-heavy paths −15 to −35 %; limits met exactly |
 | Linux PyInstaller bundle | 357 MB / 139 MB tar.gz with all extras (slim 281 / 111 MB); clean build 49 s |
+
+## Part list (Wave 3, run track)
+
+`ui/panels.PartListPanel` caches each part's bounding box by `uid`, validated by the identity of
+its segment objects (edits replace them), and reuses its tree items.  2,000 parts (a square and a
+circle each), offscreen, machine load ~230 on 64 cores:
+
+| | before | after |
+|---|---|---|
+| first fill | 298 ms | 248 ms |
+| refresh after an edit of 10 parts | 306 ms | **22 ms** |
+| refresh, nothing changed | 298 ms | **21 ms** |
+
+The 250 ms coalescing timer in `MainWindow._document_changed` (shell) can go: the refresh is now
+cheap enough to run inside each edit.  Benchmark: `tools/bench/bench_partlist.py`.
+

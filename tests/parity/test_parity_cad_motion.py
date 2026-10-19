@@ -1,6 +1,6 @@
 """CADModule.dll's motion copy (segInterp / segInterp_time copies, CVelocityPlanning) vs
 mlaser.motion.  This is the main motion reference: MainApp uses CADModule's copy, not
-MotionCtrl.dll (docs/motion.md §1, docs/parity.md)."""
+MotionCtrl.dll (docs/re/motion.md §1, docs/re/parity.md)."""
 from parity_helpers import assert_no_new_discrepancies, run_area
 
 

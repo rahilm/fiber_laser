@@ -14,7 +14,7 @@ Each button: ``Btn(command_id, lang_key, icon=None, menu=[...])``. ``icon`` name
 SVG icon; when it is ``None`` the icon comes from :data:`mlaser.ui.icons.COMMAND_ICONS`, and a
 command with no entry there is shown as a text-only button. The vendor's bitmap strips are not
 used (docs/ASSETS.md). Menu children are ``(command_id, lang_key)`` pairs. ``priority`` per
-command lives in docs/ui.md.
+command lives in docs/re/ui.md.
 """
 from __future__ import annotations
 
@@ -47,7 +47,9 @@ class Tab:
 # Application ("File", mf7) menu: mf8 New, mf9 Open, mf13 Import, mf10 Save, mf11 Save as, ...
 FILE_MENU: list[tuple[str, str]] = [
     ("file.new", "mf8"), ("file.open", "mf9"), ("file.import", "mf13"),
-    ("file.save", "mf10"), ("file.save_as", "mf11"), ("-", ""),
+    ("file.save", "mf10"), ("file.save_as", "mf11"),
+    ("file.open_project", "project.open"), ("file.save_project", "project.save"),
+    ("file.export_chf", "project.export_chf"), ("-", ""),
     ("file.bitmap", "A250622_0"), ("file.import_scan_gcode", "A251104_0"),
     ("file.task_import", "A250320_1"), ("file.task_save", "A250320_2"), ("-", ""),
     ("param.backup_file", "mf234"), ("param.restore_file", "mf235"), ("-", ""),
