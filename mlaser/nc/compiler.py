@@ -544,6 +544,9 @@ def frame_items(bbox: tuple[float, float, float, float], speed: float) -> list:
 def with_layers(doc: Document, layers) -> Document:
     """Shallow copy of ``doc`` whose missing layer parameters come from ``layers``.
 
+    A layer the UI only shows with defaults (``LayerParams.extra["placeholder"]``) counts as
+    missing (docs/SAFETY.md: an undefined layer never cuts with the 100 % default).
+
     ``layers`` may be a MachineParams (``layer_params(i)``), a dict, or None (no change).
     """
     if layers is None:
@@ -551,8 +554,8 @@ def with_layers(doc: Document, layers) -> Document:
     used = {p.craft.layer for p in doc.parts}
     new = dict(doc.layers)
     for li in used:
-        if li in new:
-            continue
+        if li in new and not (getattr(new[li], "extra", None) or {}).get("placeholder"):
+            continue                       # a UI placeholder layer takes the machine's values
         try:
             new[li] = layers.layer_params(li) if hasattr(layers, "layer_params") else layers[li]
         except Exception:   # noqa: BLE001 - unknown layer index: keep defaults
