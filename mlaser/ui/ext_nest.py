@@ -304,8 +304,13 @@ class NestExtension:
             lp.log(msg)
 
     def show(self) -> None:
-        self.dock.show()
-        self.dock.raise_()
+        """Show the classic Nest dock, except while the Nest workspace is active: it shows the
+        same nest project, and the dock used to stay open in Run and Report afterwards."""
+        shell = getattr(self.window, "shell", None)
+        host = getattr(shell, "host", None)
+        if host is None or host.resolve(host.current) != "nest":
+            self.dock.show()
+            self.dock.raise_()
         self.panel.refresh()
 
     # -------------------------------------------------- project

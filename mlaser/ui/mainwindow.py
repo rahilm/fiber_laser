@@ -243,6 +243,9 @@ class MainWindow(QMainWindow):
         d.setObjectName(key or title)
         d.setWidget(widget)
         self.addDockWidget(areas.get(area, Qt.RightDockWidgetArea), d)
+        shell = getattr(self, "shell", None)
+        if shell is not None:          # an exclusive workspace (Run) keeps plugin docks out
+            shell.host.watch_docks()
         return d
 
     def host_add_ribbon_tab(self, title: str, commands: list[str]):
