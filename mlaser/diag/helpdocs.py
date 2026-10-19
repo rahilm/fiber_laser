@@ -52,7 +52,7 @@ ORDER = {
     "user": ("README.md", "getting-started.md", "safety.md", "importing-mlaser-setup.md", "design.md",
              "process.md", "nest.md", "run.md", "report.md", "machine.md", "faq.md"),
     "dev": ("README.md", "ARCHITECTURE.md", "PLUGINS.md", "PERFORMANCE.md", "NATIVE_KERNEL.md",
-            "TESTING.md", "PARITY.md", "project-format.md", "RELEASE.md", "SAFETY.md", "ASSETS.md",
+            "TESTING.md", "PARITY.md", "project-format.md", "i18n.md", "RELEASE.md", "SAFETY.md", "ASSETS.md",
             "ROADMAP.md"),
     "re": ("README.md", "protocol.md", "formats.md", "cam.md", "motion.md", "nc.md", "devices.md",
            "diag.md", "ui.md", "draw.md", "craft.md", "engrave.md", "nest.md", "parity.md"),
