@@ -2,7 +2,7 @@
 
 The definitive check of the NC pipeline needs the original's card traffic for a real job, which
 the Wine harness cannot produce (the original refuses processing without its hardware
-authorisation, docs/parity.md §4.6/§6).  On the user's own licensed machine the original runs
+authorisation, docs/re/parity.md §4.6/§6).  On the user's own licensed machine the original runs
 normally; a Wireshark/tcpdump capture of the PC <-> card traffic (``udp port 502``) then holds
 the complete FIFO stream.  This module:
 

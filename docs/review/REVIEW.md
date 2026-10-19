@@ -7,7 +7,7 @@ Detailed reports, with evidence, measurements and file/line references:
 
 Goal: modern, well-supported, feature-rich software to control the owner's fiber-laser cutter,
 maintainable over years and usable by others, while keeping the parity guarantees against the
-original (docs/parity.md) available.
+original (docs/re/parity.md) available.
 
 ## Verdict
 

@@ -1,4 +1,4 @@
-"""DXF import as the original builds it (DxfParse + CADModule; docs/cam.md §1, docs/parity.md D-07..D-16).
+"""DXF import as the original builds it (DxfParse + CADModule; docs/re/cam.md §1, docs/re/parity.md D-07..D-16).
 
 Goldens marked "orig" come from .chf files the original MainApp wrote for the parity samples
 (parity/out/app_files/*.chf) or from the decompiled constants they reflect.

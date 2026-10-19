@@ -1,7 +1,7 @@
 """Corner treatments: fillet (CArcRound), relief loop (CUnloadAngle), alpha loop (CAlphaRound),
 automatic cooling points (CCoolPoint) and the kerf cubic-Bezier corner join.
 
-Evidence (CADModule.dll, dump ``decomp/CADModule.c``; see docs/cam.md section 13):
+Evidence (CADModule.dll, dump ``decomp/CADModule.c``; see docs/re/cam.md section 13):
 
 * **Fillet** ("倒圆角", pd600 radius, pd601 min angle, pd602 max angle; mf400/mf401/mf484).
   Manual, one corner: 0x10075e00 -> 0x10059f70.  Auto, every corner: 0x10075e00 -> 0x1005a650.

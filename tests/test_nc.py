@@ -103,7 +103,7 @@ def test_layer_frequency_and_duty_in_step_items():
 
 
 def test_default_step_scale_is_ppr_over_lead():
-    # MainApp FUN_00458b60: step pulses/mm = WritePluse / SpeedRatio = 10000 / 100 (docs/protocol.md §11)
+    # MainApp FUN_00458b60: step pulses/mm = WritePluse / SpeedRatio = 10000 / 100 (docs/re/protocol.md §11)
     m = Machine()
     assert (m.pulses_per_mm_x, m.ppr, m.lead_mm) == (100.0, 10000, 100.0)
     assert m.max_step_speed == pytest.approx(1270.0)

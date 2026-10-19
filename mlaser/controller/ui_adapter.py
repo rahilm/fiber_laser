@@ -14,10 +14,10 @@ IO, job runner.  Notifications go out on the event bus ``events`` (:mod:`mlaser.
 a GUI installs a dispatcher on it to receive them on its own thread (the Qt signal bridge that
 used to live here moved to ``mlaser.ui.qtbridge``).
 
-Behaviour taken from the original (docs/protocol.md §10-§13):
+Behaviour taken from the original (docs/re/protocol.md §10-§13):
 
 * connect: read RO[0..1], write 101 := [9999, 5, 0, 0] (VM start, FUN_100571f0), optionally the
-  full start-up with parameter download (``card_params``, docs/protocol.md §3a), then read the
+  full start-up with parameter download (``card_params``, docs/re/protocol.md §3a), then read the
   card's parameter blocks
   ("hardware restore", FUN_10039f20) for the interpolation period, the axis scaling and the
   card soft limits;

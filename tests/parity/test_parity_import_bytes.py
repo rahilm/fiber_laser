@@ -1,5 +1,5 @@
 """App level: the rebuild's DXF import -> .chf is byte-identical to MainApp's import -> Save As
-(uninitialised ints skipped, docs/parity.md D-12), and the lead command on the rebuild's own
+(uninitialised ints skipped, docs/re/parity.md D-12), and the lead command on the rebuild's own
 import picks the original's start points (D-19)."""
 import pytest
 

@@ -1,5 +1,5 @@
 """PySide6 version of the PicConvert form (``next_cut.MyFrom``, 1062 x 701, title
-"PicConvert(1.06)"), see docs/engrave.md.
+"PicConvert(1.06)"), see docs/re/engrave.md.
 
 Controls follow MyFrom.InitializeComponent (0x06000039) and the tool's own two-language table
 (next_cut.Luaguage..ctor 0x06000073, rows 0..27, column 0 = 中文, 1 = English).  Differences

@@ -5,6 +5,6 @@
 ``thumbnail`` job thumbnail JPG
 ``printing``  report page layout, print preview and PDF export
 ``window``    the viewer (ReportWindow) and the Count/Bill dialog
-Evidence: docs/diag.md.
+Evidence: docs/re/diag.md.
 """
 from .records import JobRecord, ReportStore, cost, parse_line, read_records, totals  # noqa: F401

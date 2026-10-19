@@ -1,5 +1,5 @@
 """Raster engraving: port of the companion tool ``Bitmap/Bitmap.exe`` (next_cut.dll,
-"PicConvert(1.06) (BitmapRaster)").  See docs/engrave.md.
+"PicConvert(1.06) (BitmapRaster)").  See docs/re/engrave.md.
 
 ``image_ops`` holds the pixel operations, ``raster`` the parameters, the pipeline, the
 G-code writer and the ``status.ini`` protocol; ``dialog`` (imported lazily, needs PySide6) the

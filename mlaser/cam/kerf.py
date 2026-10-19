@@ -190,7 +190,7 @@ def offset_contour(c: Contour, d: float) -> Optional[Contour]:
                 joins[i] = [Line(ends[i], starts[j])]
         else:
             # 0x10038130: tangent arc for a symmetric corner (= round join about V),
-            # cubic Bezier when the two sides are asymmetric (docs/cam.md §5, §13)
+            # cubic Bezier when the two sides are asymmetric (docs/re/cam.md §5, §13)
             joins[i] = kerf_corner_join(ends[i], t0, starts[j], t1) or [
                 Arc(ends[i], starts[j], V, ccw=(tr > 0))]
     for i in range(n):

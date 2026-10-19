@@ -390,4 +390,4 @@ monitor phone-home (`pd518..534`, `pd870..873`, `mf225/226`, `mf242/243`, HTTP
 * Default canvas background and selection style; original rubber-band semantics.
 * Control panel placement (left/right) and which panes are docked by default.
 * Exact enum values for lead type, kerf type, micro-joint type, sort type (shared with
-  `docs/cam.md` / `docs/formats.md`).
+  `docs/re/cam.md` / `docs/re/formats.md`).

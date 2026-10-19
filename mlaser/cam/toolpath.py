@@ -1,6 +1,6 @@
 """Document -> MotionItem stream (CAM pipeline).
 
-Mirrors the original data flow (see docs/cam.md):
+Mirrors the original data flow (see docs/re/cam.md):
 
 1. containment tree & depth (CContourTopTree), inner-before-outer order
    (ordering.py, CADModule 0x1003f010);
@@ -513,7 +513,7 @@ def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
 
     for n in nodes:
         pi, _ci = n.key
-        # a contour may carry its own craft (manual lead/start/joints on one hole; docs/craft.md)
+        # a contour may carry its own craft (manual lead/start/joints on one hole; docs/re/craft.md)
         ov = n.contour.extra.get("craft") if isinstance(n.contour.extra, dict) else None
         crafts[id(n)] = ov if isinstance(ov, Craft) else doc.parts[pi].craft
         n.layer = crafts[id(n)].layer

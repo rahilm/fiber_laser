@@ -157,4 +157,4 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 
 ## Outside software
 - ☐ a hardware watchdog relay in the laser-enable chain (owner, with the documented wiring)
-- ☐ the first hardware session, following docs/parity.md §8 and protocol.md §8
+- ☐ the first hardware session, following docs/re/parity.md §8 and protocol.md §8

@@ -6,7 +6,7 @@ to the pendant dialog.  The pendant's state lives on the :class:`DevicesExtensio
 window.
 Everything talks to devices through :mod:`mlaser.devices`; the motion card connection is taken
 from ``window.ctl.card()`` (the supervised card handle) when the UI controller is connected (otherwise the follower dialogs work
-on files only).  Evidence for every command: docs/devices.md.
+on files only).  Evidence for every command: docs/re/devices.md.
 """
 from __future__ import annotations
 

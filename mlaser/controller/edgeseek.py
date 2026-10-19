@@ -2,7 +2,7 @@
 and origin, so the job is rotated and offset to match the sheet.
 
 Recovered from MainApp.exe (base 0x400000) and NCModule.dll (0x10000000); tags **O** observed,
-**I** inferred, **U** unknown.  docs/protocol.md §16 has the full write-up.
+**I** inferred, **U** unknown.  docs/re/protocol.md §16 has the full write-up.
 
 Commands (MainApp FUN_004b0760, ids 0x10cd..0x10d3, O):
 
@@ -362,7 +362,7 @@ class EdgeSeekResult:
 def apply_to_document(doc, angle: float, centre: Point, enabled: bool = True,
                       offset: Point = (0.0, 0.0)) -> None:
     """Store the sheet rotation in the document's whole-drawing rotation state (the .chf
-    trailer ``rotated / angle / centre / offset``, docs/formats.md §2.1; CADModule this+0x9d00
+    trailer ``rotated / angle / centre / offset``, docs/re/formats.md §2.1; CADModule this+0x9d00
     / +0x9d10).  MainApp FUN_004b0300 calls CAD +0x1b8(cfg+0x4c60, cfg+0x4bc4, cfg+0x4980) with
     the anchor point +0x4980 as the centre (O).  ``mlaser.nc.compiler.compile_job`` applies it."""
     doc.extra["rotated"] = bool(enabled)

@@ -6,5 +6,5 @@
   status reads, FIFO frames), job reconstruction, and the comparison with ``compile_job``.
 * :mod:`mlaser.parity.report`: text and HTML reports (plots with matplotlib when installed).
 
-CLI: ``tools/compare_capture.py``.  Procedure: docs/parity.md "Verifying against your machine".
+CLI: ``tools/compare_capture.py``.  Procedure: docs/re/parity.md "Verifying against your machine".
 """

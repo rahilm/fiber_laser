@@ -1,6 +1,6 @@
 """Manual craft tools (lang ``mf87``..``mf97``, ``mf101``, ``mf103_1``, ``mf406``, ``mf475``,
 ``mf472``, ``mf604``): the geometry behind the Process-tab commands that act on one clicked
-contour or on the selection.  UI in ``mlaser/ui/ext_craft.py``; evidence in docs/craft.md.
+contour or on the selection.  UI in ``mlaser/ui/ext_craft.py``; evidence in docs/re/craft.md.
 
 Conventions (shared with ``cam.toolpath``):
 
@@ -15,7 +15,7 @@ The original keeps these per contour; the rebuild keeps them per ``Part`` (one c
 part after import).  For a part with several contours the per-contour value goes to
 ``Contour.extra['craft']`` (a full ``Craft``); ``contour_craft`` returns the craft that
 applies to one contour.  (``cam.toolpath`` reads the override once the lead applies the
-patch listed in docs/craft.md §9.)
+patch listed in docs/re/craft.md §9.)
 """
 from __future__ import annotations
 

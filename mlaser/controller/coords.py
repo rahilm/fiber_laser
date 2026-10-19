@@ -1,6 +1,6 @@
 """Coordinate systems (mf307): Float, Tool (work) origins 1..6, Manual; set / return origin.
 
-Recovered from MainApp.exe (O = observed, I = inferred); docs/protocol.md §17.
+Recovered from MainApp.exe (O = observed, I = inferred); docs/re/protocol.md §17.
 
 * Ids 0xcf6d..0xcf74 (FUN_004b1130 -> FUN_00482950): ``MSC.CoordSysType`` (+0x42a0) :=
   id − 0xcf6d: 0 Float, 1..6 Tool 1..6, 7 Manual.  0xcf75 Set origin (FUN_004b1200), 0xcf76

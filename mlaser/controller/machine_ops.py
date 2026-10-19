@@ -4,7 +4,7 @@ systems, edge seek, restart, upgrade, backup, recovery), independent of Qt.
 ``MachineOps(ctl, machine_params=None, app_dir=None)`` works with the card controller
 (:class:`~mlaser.controller.ui_adapter.UiController`, its supervised ``card()`` handle) and degrades to logging
 for controllers without a card (the UI's DemoController).  Evidence is in the modules it uses
-(edgeseek, coords, upgrade, nettest, formats.backup, nc.offline) and docs/protocol.md §16-§21.
+(edgeseek, coords, upgrade, nettest, formats.backup, nc.offline) and docs/re/protocol.md §16-§21.
 """
 from __future__ import annotations
 

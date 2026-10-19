@@ -173,7 +173,7 @@ def _fmt(i: int, v: int) -> str:
 
 
 # ---------------------------------------------------------------- follower / AF / EC monitors
-ZF_RO_KEYS = [f"ZFReadOnly{i:02d}" for i in range(1, 19)]     # getReg(7, i) labels (docs/devices.md)
+ZF_RO_KEYS = [f"ZFReadOnly{i:02d}" for i in range(1, 19)]     # getReg(7, i) labels (docs/re/devices.md)
 AF_RO_KEYS = {0: "af0", 1: "af1", 2: "af2", 3: "af3", 4: "af4", 5: "af5", 6: "af6", 7: "af7", 8: "af8",
               9: "af17", 10: "af18", 11: "af30_1", 13: "af30_2"}
 EC_RO_KEYS = {0: "ec0", 1: "ec1", 2: "ec2", 3: "ec3", 4: "ec4", 5: "ec5", 6: "ec6", 7: "ec7", 8: "ec8",
@@ -182,7 +182,7 @@ EC_RO_KEYS = {0: "ec0", 1: "ec1", 2: "ec2", 3: "ec3", 4: "ec4", 5: "ec5", 6: "ec
 
 def device_rows(kind: str, raw: list[int], tr=None) -> list[tuple[str, str, str]]:
     """Rows (index, label, scaled value) for the follower / AF / EC status words, using the
-    field tables of :mod:`mlaser.devices` (scales from MainApp, docs/devices.md)."""
+    field tables of :mod:`mlaser.devices` (scales from MainApp, docs/re/devices.md)."""
     rows = []
     if kind == "zf":
         from mlaser.devices.follower import STATUS_FIELDS

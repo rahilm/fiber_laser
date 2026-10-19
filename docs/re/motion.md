@@ -398,7 +398,7 @@ Addresses are MotionCtrl.dll unless prefixed "CAD" (CADModule.dll v1.3.23 copy).
 |---|---|---|---|
 | factory | `newContourSmooth` 0x10005e10 (0x48 bytes) | 0x100fa680 (0x68 bytes: adds vectors at +0x44, +0x54) | O |
 | vtable | 0x100196b0: [0] dtor 0x10005e70, [1] set 0x1000a890, [2] load 0x10005f70, [3] 0x100084e0, [4] 0x10007fd0, [5] points 0x10008b70, [6] 0x10008df0, [7] 0x10009260 | 0x10123128: [0] 0x100fa6f0, [1] 0x100f9350, [2] load 0x100ff000, [3] 0x100fd5b0, [4] 0x100fc6a0, [5] nodes 0x100fc150, [6] 0x100fdca0, [7] 0x100f9bc0, [8] s→XY 0x100f9fb0, [9] 0x100f9940 | O |
-| driver | — | CInterpMrg::Interp 0x10105260: vt[1](this+0xe0), vt[2](prims, tol=+0x50, flag=+0x4c, K_X=+0x68, K_Y=+0x70, mode), vt[9](), then vt[4] if mode==4 else vt[5](&nodes) | O |
+| driver | — | CInterpMrg::Interp 0x10105260: `vt[1](this+0xe0)`, `vt[2](prims, tol=+0x50, flag=+0x4c, K_X=+0x68, K_Y=+0x70, mode)`, `vt[9]()`, then `vt[4]` if mode==4 else `vt[5](&nodes)` | O |
 
 The slot numbering of motion.md §1 (vt[5] nodes, vt[8] s→XY, vt[9] run) is the CAD layout. In MotionCtrl, load does all the work and slot [5] returns XY points.
 CAD's load takes a seventh argument (`mode`) and records primitive boundaries in the +0x44 list, which vt[9] reads back. It uses the same constants: -0.984375, 0.34, 0.125, 1.08/0.42/1.5/0.5, 0.8/0.2, 1e-5, 1e-4, 0.01/0.3 (O, constant set of CAD 0x100ff000). The core algorithm is therefore taken to be the same (I).

@@ -1,7 +1,7 @@
 """Manual craft and engraving commands (agent G, phase 3).
 
 ``register(ctx)`` (PluginContext) binds these ribbon commands (MainApp handler / command id / CAD view tool
-in brackets, evidence in docs/craft.md):
+in brackets, evidence in docs/re/craft.md):
 
 * lead: ``craft.lead_manual`` (FUN_004b5520 0x3459, tool 5), ``craft.lead_check`` (0x345a, CCAD
   slot 83), ``craft.lead_clear_mark`` (0x345c, slot 84)

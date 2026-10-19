@@ -1,7 +1,7 @@
 """Cutting-job pipeline, CADModule half: contours loaded and crafted by the original CADModule
 (.chf body loader, lead setter, primitive list, CInterpMrg::Interp; harness/cad_job_harness.c)
 vs cam.toolpath.prepare_contour + motion.interp.plan_path sampling.  Skips without Wine; see
-docs/parity.md "Cutting-job pipeline"."""
+docs/re/parity.md "Cutting-job pipeline"."""
 from parity_helpers import assert_no_new_discrepancies, run_area
 
 

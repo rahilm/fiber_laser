@@ -71,6 +71,20 @@ def test_prune_binaries_removes_only_orphans():
     assert {r[0] for r in removed} >= {"libgtk-3.so.0", "libcairo.so.2", "cairo_link.so.2"}
 
 
+def test_help_documents_bundled():
+    """The bundle carries the help documents where helpdocs looks for them (mlaser/help/docs)."""
+    from mlaser.diag import helpdocs
+    datas = cfg.help_datas(ROOT)
+    dests = {Path(src).name: dest for src, dest in datas}
+    assert dests["getting-started.md"] == "mlaser/help/docs/user"
+    assert dests["SAFETY.md"] == "mlaser/help/docs" and dests["protocol.md"] == "mlaser/help/docs/re"
+    assert all(Path(src).exists() for src, _ in datas)
+    assert not any("review" in dest or "history" in dest for _, dest in datas)
+    assert helpdocs.PKG_DOCS.replace(os.sep, "/").endswith("mlaser/help/docs")
+    spec = (ROOT / "packaging" / "mlaser.spec").read_text(encoding="utf-8")
+    assert "cfg.help_datas(ROOT)" in spec
+
+
 def test_spec_is_onedir():
     spec = (ROOT / "packaging" / "mlaser.spec").read_text(encoding="utf-8")
     assert "exclude_binaries=True" in spec and "COLLECT(" in spec
@@ -127,6 +141,7 @@ def test_launcher_bundle_check(tmp_path):
                        env=_env(tmp_path), capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, p.stdout + p.stderr
     assert "import gear.dxf" in p.stdout and "result: OK" in p.stdout
+    assert "[ok     ] help documents" in p.stdout
 
 
 @pytest.mark.ui

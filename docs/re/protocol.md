@@ -567,7 +567,7 @@ VM+0x11c8 (peak) = 0, VM+0x11d0 (focus position) = the card's focus-axis positio
   (delta from the element start = 0, beam on at the curve duty). Each delta is
   `ftol((x_i·1e4 − x_(i−1)·1e4) · ppu + carry[axis])` with ppu = (WritePulse/SpeedRatio)/1e4
   (FUN_00458b60) and `carry = value + carry − delta`; the carry globals 0x9f2358[0..1] are never
-  reset. No step to the exact end point is added. docs/nc.md §1.1 has the rebuild mapping.
+  reset. No step to the exact end point is added. docs/re/nc.md §1.1 has the rebuild mapping.
 
 ### 10.5 Rebuild choices (I)
 

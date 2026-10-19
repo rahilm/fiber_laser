@@ -1,5 +1,9 @@
 # Mlaser cross-platform rebuild: shared brief
 
+> **Archived (Wave 3).** This is the brief the reverse-engineering agents worked from in the
+> first phases. Paths and agent assignments in it are historical; the current documentation
+> starts at [docs/README.md](../../README.md).
+
 The target is Gweike **Mlaser v0.0.1.51_SP1**, a Windows (32-bit MFC + BCGControlBar) CAM/CNC program
 for fiber-laser sheet cutting. It drives an Ethernet motion card (MCC100, `10.1.1.168:502`, UDP),
 a height follower ("ZF", `10.1.1.169`), a laser source (Raycus/IPG/..., `10.1.1.170:10001`), autofocus
@@ -43,7 +47,7 @@ Several agents run at once and the REA MCP server holds ONE active target per se
 
 ## Phase 2 (build-out of missing components)
 Additional dumps: SmartNest, AutoNest, Dxf2Grp, PHBX (wireless handwheel/pendant over HID), CircleFit.
-Phase 1 docs to read: README.md, docs/protocol.md, formats.md, cam.md, motion.md, nc.md, ui.md.
+Phase 1 docs to read: README.md, docs/re/protocol.md, formats.md, cam.md, motion.md, nc.md, ui.md.
 Full test suite: `QT_QPA_PLATFORM=offscreen .venv/bin/python -m pytest -q` (107 passing at start of phase 2; keep it green).
 
 Five agents work at once. **File ownership** (only edit files you own; add new files freely inside your area):

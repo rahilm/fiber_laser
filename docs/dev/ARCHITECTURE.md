@@ -111,7 +111,7 @@ re-export the port (private names too) and their entry points dispatch through t
 ## 3. The parity fence (`mlaser/parity_ports/`)
 
 A *port* reproduces a function of Mlaser v0.0.1.51_SP1 operation by operation. Its output is
-pinned by the Wine parity run (docs/parity.md) and the goldens (tests/golden/). Rules:
+pinned by the Wine parity run (docs/re/parity.md) and the goldens (tests/golden/). Rules:
 
 * a port changes only together with a Wine parity re-run;
 * new behaviour is a new `ParityProfile`, never an edit of a port;

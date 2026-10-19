@@ -1,4 +1,4 @@
-"""Geometric checks for mlaser.cam.commonedge (CShareEdge; docs/cam.md section 12)."""
+"""Geometric checks for mlaser.cam.commonedge (CShareEdge; docs/re/cam.md section 12)."""
 import math
 
 from mlaser.cam import commonedge as CE

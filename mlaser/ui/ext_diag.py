@@ -30,7 +30,7 @@ are :class:`mlaser.services.production.ProductionService` (Qt-free); this module
 messages.  Settings (counters, maintenance plan, batch list, custom IO) are ConfigService values;
 files (statistics, logs, reports) live in the data directory: ``settings["data_dir"]``, the
 ``MLASER_DATA_DIR`` environment variable, or the platform data directory (platformdirs).
-Evidence: docs/diag.md.
+Evidence: docs/re/diag.md.
 """
 from __future__ import annotations
 

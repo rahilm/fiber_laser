@@ -520,7 +520,7 @@ convention.
 
 * chf: contour +0x354 and the sub-segment flags, the scan +0xe0 int, the meanings of the
   ContourEx link fields and the text doubles. The exact semantics of `+0x88`, of the kerf side
-  values and of lead types 1..3 (see docs/cam.md, owned by the CAM agent).
+  values and of lead types 1..3 (see docs/re/cam.md, owned by the CAM agent).
 * Trailer `rotated/angle` units.
 * PithCompensate.pcf record layout and the AutosaveParam a/b ints.
 * XML on-disk encoding/indentation (no sample file). Craft-file category naming. The tables not

@@ -52,6 +52,8 @@ datas += collect_data_files("mlaser.i18n", includes=["*.json"])
 datas += collect_data_files("mlaser.formats", includes=["data/*"])
 datas += collect_data_files("mlaser.cad", includes=["**/*.ttf", "**/*.otf", "**/*.ttc", "**/*.shx",
                                                      "**/*.lff", "**/LICENSE*", "**/OFL*"])
+# the help documents (docs/user, dev, re): Help reads them from mlaser/help/docs
+datas += cfg.help_datas(ROOT)
 # third-party data (fonts/resources of ezdxf, svgelements, fontTools, shapely ...)
 for pkg in cfg.DATA_PACKAGES:
     if have(pkg):

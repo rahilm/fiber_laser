@@ -13,7 +13,7 @@ one place to switch over.  Outputs go through callables, so the UI decides how t
 The planned-quantity interlock (SOP.PlanManuCount / SOP.AfterPlanFinishedActionType = 2
 "prohibit") is enforced twice: :meth:`start_allowed` is a JobService start guard (the job is
 refused before anything is sent), and a job that still starts is stopped at once (the original's
-behaviour, FUN_004b9260 area, docs/diag.md).
+behaviour, FUN_004b9260 area, docs/re/diag.md).
 """
 
 from __future__ import annotations

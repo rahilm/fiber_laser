@@ -1,6 +1,6 @@
 """Import cleanup: overlap/duplicate removal, joining, small-object removal, arc fitting.
 
-Evidence (docs/cam.md §15). The import post-processor is ``CGly2ContourEng`` (CADModule
+Evidence (docs/re/cam.md §15). The import post-processor is ``CGly2ContourEng`` (CADModule
 ``0x10061c90``, called from the CCADModule import ``0x100f0e10`` via ``0x100b1220``) with an
 option block that MainApp fills from the "IGP." import parameters (``0x004d35c0``)::
 
@@ -34,7 +34,7 @@ glyph; type 1: 0x1005f7d0; else 0x10076a20 per contour) -> small-object removal
   (0x10001010 -> 0x100011e0), used by Dxf2Grp ``0x1000eec0`` on runs of line glyphs with
   Ang_CircleFit = pi/10, Err_CircleFit = caller tolerance, Len_CircleFit = 10 (DLL
   defaults 0.02 / pi/10 / 100 / Rmax 5000). Ported statement by statement (O), see
-  docs/cam.md §15: duplicate removal (1e-6), point tangents (0x10002420), whole-set circle
+  docs/re/cam.md §15: duplicate removal (1e-6), point tangents (0x10002420), whole-set circle
   test (0x10002af0), then a loop over runs of monotonically decreasing (fitted on a reversed
   copy, 0x10002620 / 0x100028a0) or increasing tangents whose chord turn stays <= Ang, each
   run of more than 4 points fitted by 0x100019e0 (biarc 0x100020b0 grown while the points

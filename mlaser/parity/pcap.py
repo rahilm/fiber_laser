@@ -9,7 +9,7 @@ Reading:
 * IPv4 with fragment reassembly (IPv6 is skipped: the card is IPv4 only), UDP, TCP;
 * TCP: per-direction stream reassembly (SYN, out-of-order segments, retransmitted and
   overlapping segments, 32-bit sequence wrap), then split into card frames by the frame's
-  LEN field (``AccessType=0``; docs/protocol.md §1-§2).  Checksums are not verified, because
+  LEN field (``AccessType=0``; docs/re/protocol.md §1-§2).  Checksums are not verified, because
   Windows captures with checksum offload carry wrong ones.
 
 Writing (synthetic captures for the tests): :class:`PcapWriter` / :class:`PcapngWriter` with

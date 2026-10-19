@@ -87,7 +87,7 @@ reproduced (vendor password); Read&Write is a checkbox.
 
 ### 2.2 FTC (mf120), auto focus (mf249), extended card (mf620)
 
-Status words and scales are the tables of `mlaser.devices` (docs/devices.md): follower
+Status words and scales are the tables of `mlaser.devices` (docs/re/devices.md): follower
 `getReg(7, i)` = card registers 10000..10017 labelled `ZFReadOnly01..18`; AF `getReg(9, i)`
 (card registers 13000.. for AF types 3/5/6, network RTU otherwise; labels `af0..af8`, `af17`,
 `af18`, `af30_*`); EC `getReg(11, i)` (labels `ec0..ec10`). Buttons (O keys): FTC refresh /

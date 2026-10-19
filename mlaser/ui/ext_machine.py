@@ -7,7 +7,7 @@ task files and system recovery.
 modules it uses; this file is the Qt part.  MachineOps' values are the ConfigService namespace
 ``machine_ops`` (they fall back to the Options the user set, so hardware options reach it).
 Long card operations run in worker threads; results come back through a queued Qt signal.
-Evidence: docs/protocol.md §16-§21.
+Evidence: docs/re/protocol.md §16-§21.
 """
 from __future__ import annotations
 

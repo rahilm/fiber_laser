@@ -1,7 +1,7 @@
 """True-shape raster nester (bottom-left fill with rotations, mirror and part-in-part).
 
 This is a cross-platform replacement for the original's engines (SmartNest.dll /
-AutoNest.dll, see docs/nest.md). It keeps their inputs and outputs (part list with quantity,
+AutoNest.dll, see docs/re/nest.md). It keeps their inputs and outputs (part list with quantity,
 priority, angle list, mirror; sheets/remnants; spacing, edge margin; result = per-sheet
 placements part id / x / y / angle / mirror) but uses its own algorithm:
 
