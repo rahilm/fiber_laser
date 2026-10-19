@@ -202,11 +202,18 @@ class Pendant:
     """Opens the pendant's input and control interfaces and runs a reader thread that calls
     ``on_event(PendantEvent)`` for every valid report whose packed value changed.
 
-    ``devices`` (input, control) can be injected for tests; otherwise hidapi is used."""
+    ``devices`` (input, control) can be injected for tests; otherwise hidapi is used.
+
+    Dead-man support (docs/SAFETY.md §8): ``on_error(exc)`` is called on a HID read error (the
+    jog mapper stops any jog), ``on_tick()`` on every reader cycle without an error (the jog
+    mapper sends the controller's jog keep-alive while a key is held)."""
 
     def __init__(self, on_event: Optional[Callable[[PendantEvent], None]] = None,
                  devices: Optional[tuple] = None):
         self.on_event = on_event
+        self.on_error: Optional[Callable[[Exception], None]] = None
+        self.on_tick: Optional[Callable[[], None]] = None
+        self.read_errors = 0
         self.input = self.control = None
         self.model = 0
         self.status = PendantStatus()
@@ -312,8 +319,20 @@ class Pendant:
             while not self._stop.is_set():
                 try:
                     self.poll(80)
-                except (OSError, ValueError):
+                except (OSError, ValueError) as e:
+                    self.read_errors += 1
+                    if self.on_error is not None:
+                        try:
+                            self.on_error(e)
+                        except Exception:  # noqa: BLE001 - the reader keeps running
+                            pass
                     time.sleep(0.4)
+                    continue
+                if self.on_tick is not None:
+                    try:
+                        self.on_tick()
+                    except Exception:  # noqa: BLE001
+                        pass
                 if time.monotonic() - last_status > 1.0:
                     self.read_status()
                     last_status = time.monotonic()
@@ -338,6 +357,18 @@ class PendantJogMapper:
         self.step_mode = False
         self._jogging: Optional[str] = None
         self._laser_held = False
+
+    def attach(self, pendant: "Pendant") -> None:
+        """Dead-man wiring: a HID read error stops the jog; every clean reader cycle while a
+        key is held is a jog keep-alive (the controller stops a jog without one)."""
+        pendant.on_error = lambda _e: self._release()
+        pendant.on_tick = self.tick
+
+    def tick(self) -> None:
+        if self._jogging is not None:
+            fn = getattr(self.ctl, "jog_keepalive", None)
+            if fn is not None:
+                fn()
 
     def _release(self) -> None:
         if self._jogging is not None:

@@ -63,7 +63,7 @@ def format_custom_do(items: list[CustomIO]) -> str:
 class OutputDriver:
     """Reads / writes digital outputs through the window controller.
 
-    With a card controller (``ctl.mc``) the DO number is written directly (CNCModule
+    With a card controller (``ctl.card()``, the supervised card handle) the DO number is written directly (CNCModule
     +0x13c set output); the facade's named outputs are used otherwise (demo controller)."""
 
     def __init__(self, ctl, log=None):
@@ -72,7 +72,7 @@ class OutputDriver:
         self._shadow: dict[int, bool] = {}
 
     def get(self, port: int) -> bool:
-        mc = getattr(self.ctl, "mc", None)
+        mc = self.ctl.card()
         if mc is not None:
             try:
                 return mc.read_status().output(port)
@@ -81,7 +81,7 @@ class OutputDriver:
         return self._shadow.get(port, False)
 
     def set(self, port: int, on: bool) -> bool:
-        mc = getattr(self.ctl, "mc", None)
+        mc = self.ctl.card()
         self._shadow[port] = bool(on)
         if mc is not None:
             try:

@@ -49,12 +49,13 @@ def test_all_commands_rebound(win):
 
 
 def test_job_statistics_end_to_end(win, tmp_path):
-    from mlaser.model import Contour, Document, Line, Part
+    from mlaser.model import Contour, Document, LayerParams, Line, Part
     from mlaser.ui.facade import DemoController
     w, ext = win
     sq = Contour([Line((0, 0), (5, 0)), Line((5, 0), (5, 5)), Line((5, 5), (0, 5)), Line((0, 5), (0, 0))])
-    w.set_document(Document(parts=[Part([sq])]))
+    w.set_document(Document(parts=[Part([sq])], layers={1: LayerParams(1)}))
     w.ctl.connect()
+    assert w.ctl.arm()
     DemoController.RAPID = 4000.0
     try:
         w.ctl.start(w.document)
@@ -89,8 +90,11 @@ def test_prohibit_after_plan(win):
     w, ext = win
     ext.settings.update({"SOP.PlanManuCount": 1, "SOP.TotalManuCount": 1, "SOP.AfterPlanFinishedActionType": 2})
     w.ctl.connect()
+    assert w.ctl.arm()
     from mlaser.ui.docops import demo_document
     w.set_document(demo_document())
+    for lp in w.document.layers.values():
+        lp.extra.pop("placeholder", None)          # layer parameters set by the operator
     w.ctl.start(w.document)
     assert w.ctl.state().mode == "process"
     QApplication.processEvents()

@@ -153,11 +153,8 @@ source_modules = [
     "mlaser.nc", "mlaser.machine", "mlaser.devices", "mlaser.controller",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
-ignore_imports = [
-    # UiController emits Qt signals to the GUI thread (optional, PySide6 may be missing);
-    # ROADMAP Wave 2 "typed MachineAPI plus an event bus" replaces them
-    "mlaser.controller.ui_adapter -> PySide6",
-]
+# no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt
+# bridge moved out of the controller (Wave 2 safety track)
 
 [[tool.importlinter.contracts]]
 name = "parity_ports imports only geom, protocol and model"

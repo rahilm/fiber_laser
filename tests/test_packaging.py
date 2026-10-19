@@ -142,7 +142,16 @@ def test_launcher_smoke_test_and_first_run(tmp_path):
     assert p2.returncode == 0 and "network self-test" not in p2.stderr   # only once
 
 
-def test_launcher_freeze_support_first():
+def test_launcher_hands_multiprocessing_children_to_the_app_entry():
+    """freeze_support() lives in mlaser.ui.__main__.main (first statement); the launcher sends
+    a frozen spawn child there before parsing anything."""
     src = (ROOT / "mlaser" / "__main__.py").read_text(encoding="utf-8")
     body = src[src.index("def main("):]
-    assert body.index("multiprocessing.freeze_support()") < body.index("argparse")
+    assert body.index("_is_multiprocessing_child") < body.index("argparse")
+    ui = (ROOT / "mlaser" / "ui" / "__main__.py").read_text(encoding="utf-8")
+    ub = ui[ui.index("def main("):]
+    assert ub.index("multiprocessing.freeze_support()") < ub.index("argparse")
+    import mlaser.__main__ as L
+    assert L._is_multiprocessing_child(["--multiprocessing-fork", "pipe_handle=3"])
+    assert L._is_multiprocessing_child(["-B", "-c", "from multiprocessing.spawn import spawn_main"])
+    assert not L._is_multiprocessing_child(["--demo"])

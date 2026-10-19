@@ -2611,7 +2611,34 @@
    "wire": "20a53dfa377f246c5b57951cca1dc97815b45310d14af23a0cb4c85eb60ee991"
   },
   "seed087": {
-   "error": "ValueError: cannot convert float NaN to integer"
+   "approx": {
+    "estimate_total_s": 4.245097767473798,
+    "laser_on_length_mm": 220.91986232790623,
+    "process_time_s": 1.1166666666666667,
+    "pulse_carry": [
+     0.27802421649320674,
+     -0.17230468750042296
+    ],
+    "rapid_length_mm": 425.6577801623349
+   },
+   "cut_blocks": "875bc1cd011638ad8daeaafb14e1bb47aa4920abca6f9010234895c47b5cc62a",
+   "end_pulses": [
+    107900,
+    46766
+   ],
+   "frames": "410502468d60857ef84ddaa5a6d8637f10d3d6b85a98f35e89e31ca31e60be4d",
+   "items": 7745,
+   "markers": "94af4726340248e36e51fb6a312f3e43217f121b09ad4892c50f1526fd6ec1f0",
+   "n_frames": 79,
+   "overspeed_periods": 3252,
+   "pierces": 3,
+   "process_items": 45,
+   "start_pulses": [
+    0,
+    0
+   ],
+   "steps": 7700,
+   "wire": "ade762350521402bb0630ce3aa7004a45e923cf8bbb4f81900d07da334212b29"
   },
   "seed088": {
    "approx": {

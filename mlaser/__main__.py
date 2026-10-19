@@ -20,14 +20,21 @@ Imports are absolute: PyInstaller runs this file as a top-level script.
 """
 from __future__ import annotations
 
-import multiprocessing
 import sys
 
 
+def _is_multiprocessing_child(argv: list[str]) -> bool:
+    """A spawn child (or resource tracker) of a frozen app: it re-runs this executable."""
+    return any(a == "--multiprocessing-fork" or a.startswith("from multiprocessing") for a in argv)
+
+
 def main(argv: list[str] | None = None) -> int:
-    # spawn-based ProcessStreamer: in a frozen app the child re-runs this executable, and
-    # freeze_support() turns it into the worker before any argument parsing (no-op otherwise)
-    multiprocessing.freeze_support()
+    # spawn-based ProcessStreamer: in a frozen app the child re-runs this executable.  The app's
+    # own entry point (mlaser.ui.__main__.main) calls multiprocessing.freeze_support() as its
+    # first statement (Safety track), so a child goes there before anything here runs.
+    if _is_multiprocessing_child(sys.argv[1:] if argv is None else argv):
+        from mlaser.ui.__main__ import main as ui_main
+        return ui_main(argv)
     import argparse
 
     args = list(sys.argv[1:] if argv is None else argv)
