@@ -176,12 +176,17 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
     canvas.  Returns the theme id actually applied."""
     theme = theme if theme in THEMES else DEFAULT_THEME
     app = app or QApplication.instance()
-    if app is not None:
+    if app is not None and app.property("mlaser_theme") != theme:
+        # application-wide changes only when the theme really changes: setStyle / setPalette
+        # post a change event to every widget of every window
         if app.style().objectName().lower() != "fusion":
             app.setStyle("Fusion")
         app.setPalette(palette(theme))
+        app.setProperty("mlaser_theme", theme)
     if window is not None:
-        window.setStyleSheet(style_sheet(theme))
+        qss = style_sheet(theme)
+        if window.styleSheet() != qss:
+            window.setStyleSheet(qss)
         apply_canvas_theme(theme, getattr(window, "canvas", None))
         # icons re-tint from the new palette: repaint everything
         window.update()

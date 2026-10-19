@@ -150,6 +150,7 @@ class Shell:
         w.hooks.add("close", self._on_close, "shell")
         self._watch = _WindowWatch(self)
         w.installEventFilter(self._watch)
+        w.setProperty("userMode", self.modes.mode)          # before the style sheet: one polish
         self.set_theme(self.config.get("shell.theme", theme.DEFAULT_THEME), persist=False)
         self._apply_mode(self.modes.mode)
         self.set_classic(bool(self.config.get("shell.classic_ribbon", False)), persist=False)
@@ -349,7 +350,7 @@ class Shell:
         return chain
 
     def apply_focus_order(self) -> None:
-        chain = [c for c in self.focus_chain() if c is not None]
+        chain = [c for c in self.focus_chain() if c is not None and c.window() is self.w]
         for a, b in zip(chain, chain[1:]):
             QWidget.setTabOrder(a, b)
 
@@ -418,8 +419,10 @@ class Shell:
         w = self.w
         for cmd, act in w.ribbon.actions.items():
             self._apply_mode_to(cmd, act)
-        w.setProperty("userMode", mode)
-        w.setStyleSheet(theme.style_sheet(self.theme))     # re-polish the [userMode] rules
+        if w.property("userMode") != mode:
+            w.setProperty("userMode", mode)
+            w.setStyleSheet("")                             # re-polish the [userMode] rules
+            w.setStyleSheet(theme.style_sheet(self.theme))
         self.host.refresh_mode()
         if self.topbar is not None:
             self.topbar.set_mode(mode)

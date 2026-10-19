@@ -151,6 +151,16 @@ def test_user_modes_gate_commands_rail_and_editing(win, app, monkeypatch):
     monkeypatch.setattr("mlaser.ui.dialogs.LayerParamDialog.exec", lambda self: edited.append(1) or 0)
     win.edit_layer(1)
     assert edited == []                                   # no parameter editing
+    from mlaser import ops
+    win.shell.set_user_mode("engineer")
+    win.set_document(ops.demo_document())
+    win.set_user_mode("operator")
+    n = len(win.document.parts)
+    win.canvas.select_parts([0])
+    b = win.document.parts[0].bbox()
+    win.nudge(1, 0)
+    win.delete_selected()
+    assert len(win.document.parts) == n and win.document.parts[0].bbox() == b
     mp = sh.host.pages["machine"].placeholder
     assert "machine.home" in mp.buttons and "hw.upgrade" not in mp.buttons and "dev.follower" not in mp.buttons
     assert win.set_user_mode("service")

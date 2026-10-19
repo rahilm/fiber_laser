@@ -686,7 +686,18 @@ class MainWindow(QMainWindow):
         if label:
             self.statusBar().showMessage(f"redo: {label}", 3000)
 
+    def _operator_blocked(self) -> bool:
+        """Operator mode (mlaser.services.usermodes): the drawing and the parameters are not
+        edited from the keyboard, the context menu or the layer table."""
+        shell = getattr(self, "shell", None)
+        if shell is not None and shell.modes.mode == "operator":
+            self.statusBar().showMessage(self.tr_.tr("shell.mode.no_params"), 4000)
+            return True
+        return False
+
     def delete_selected(self) -> None:
+        if self._operator_blocked():
+            return
         if any(p.selected for p in self.document.parts):
             self._edit(ops.delete_selected, label="delete", scope="selection")
 
@@ -715,7 +726,7 @@ class MainWindow(QMainWindow):
     def paste(self) -> None:
         """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
         clip = getattr(self, "_clipboard", None)
-        if not clip:
+        if not clip or self._operator_blocked():
             return
         # paste deselects every part, so all parts are in the scope (selection flags change)
         self._edit(ops.paste_parts, clip, 10.0, 10.0, label="paste", scope="all")
@@ -723,6 +734,8 @@ class MainWindow(QMainWindow):
     def nudge(self, dx: float, dy: float) -> None:
         """mf445 keyboard fine-tuning (arrow keys): the ``nudge`` provider when a plugin sets one
         (ext_draw: pd377 step / auto step), else move the selection by SP.KeyboardMoveStep."""
+        if self._operator_blocked():
+            return
         provider = self.hooks.provider("nudge")
         if provider is not None:
             provider(dx, dy)
@@ -734,13 +747,13 @@ class MainWindow(QMainWindow):
                    label="nudge", scope="selection")
 
     def assign_layer(self, layer: int) -> None:
+        if self._operator_blocked():
+            return
         if any(p.selected for p in self.document.parts):
             self._edit(ops.set_layer, layer, label="layer", scope="selection")
 
     def edit_layer(self, layer: int) -> None:
-        from mlaser.services.usermodes import OPERATOR
-        if self.shell.modes.mode == OPERATOR:      # Operator mode: no parameter editing
-            self.log_panel.log(self.tr_.tr("shell.mode.no_params"))
+        if self._operator_blocked():               # Operator mode: no parameter editing
             return
         lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
                                                                 extra={"placeholder": True}))
