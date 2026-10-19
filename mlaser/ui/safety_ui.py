@@ -606,6 +606,8 @@ class SafetyUI(QObject):
                                 emits=emits)
         except TypeError:
             rep = ctl.preflight(action, doc)
+        from .safety_io import augment_preflight          # "interlock not configured" warnings
+        rep = augment_preflight(self.w, rep, action, emits)
         if not rep.issues:
             return True
         if not self._dialogs():

@@ -442,6 +442,13 @@ class OperatorScreen(QWidget):
         hl.addWidget(self.times, 2, 2)
         hl.setColumnStretch(1, 1)
         root.addWidget(head)
+        # safety I/O that is not configured (ui/safety_io.py): "door interlock not configured ..."
+        self.safety_notice = QLabel()
+        self.safety_notice.setObjectName("run_safety_notice")
+        self.safety_notice.setWordWrap(True)
+        self.safety_notice.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        self.safety_notice.setVisible(False)
+        root.addWidget(self.safety_notice)
 
         body = QHBoxLayout()
         body.setSpacing(8)
@@ -638,6 +645,12 @@ class OperatorScreen(QWidget):
             self.state.setStyleSheet(f"background:{bg};color:{fg};border-radius:8px;padding:6px 14px;")
             self._kind = s.kind
         self.reason.setText(self.ws.reason_text(s))
+        b = getattr(w, "safety_io", None)
+        note = b.notice_text() if b is not None else ""
+        if note != self.safety_notice.text():
+            self.safety_notice.setText(note)
+        if bool(note) != self.safety_notice.isVisibleTo(self):
+            self.safety_notice.setVisible(bool(note))
         # counters
         bits = []
         ent = self.ws.runner.current

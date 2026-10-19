@@ -15,11 +15,37 @@ Screens: `work/w3/machine/ws_*.png` and `wiz_*.png` (offscreen captures).
 | Homing and jog | Position in mm, Home X/Y, X, Y, X/Y/Z, focus homing; **hold-to-jog** X± Y± Z± (release stops; a step size of 0.1 / 1 / 10 mm makes one click one step; the jog stops when the window loses focus or is hidden, docs/SAFETY.md §8); coordinate system, set origin, go to origin, clear the sheet rotation | Operator |
 | Procedures | The guided procedures below, each with the mode it needs | per procedure |
 | Monitors | Controller, follower (FTC), autofocus and EtherCAT monitors as panels (they poll only while visible); the ribbon's monitor commands open them here | Engineer |
-| Hardware settings | The hardware parameter sections with readable names, a search box, typed editors with units and ranges; Apply validates every value; read-only below Service mode.  Changes reach the card at the next connect | Engineer (view), Service (edit) |
+| Hardware settings | The hardware parameter sections with readable names, a search box, typed editors with units and ranges; Apply validates every value; read-only below Service mode.  Changes reach the card at the next connect.  **Safety I/O...** opens the interlock and heartbeat settings ([below](#safety-io-interlocks-and-the-pc-alive-heartbeat)) | Engineer (view), Service (edit); Safety I/O: Engineer |
 | Alarms | Every card alarm and latched fault with raise and clear time, duration, code, text and **what to do**; Reset alarms; Clear history.  Kept in `alarm_history.jsonl` in the data folder | Operator |
 
 User modes (Operator / Engineer / Service) come from the shell.  Without them every section is
 open.  A command above the current mode says which mode it needs instead of running.
+
+## Safety I/O: interlocks and the PC-alive heartbeat
+
+**Machine > Hardware settings > Safety I/O...** (command `machine.safety_io`, Engineer and
+Service mode; also offered by the commissioning checklist) sets which card inputs the
+interlocks read and which card output drives the watchdog relay (docs/SAFETY.md §8 and §11):
+
+| Setting | Meaning |
+|---|---|
+| Gas-low interlock | input of the low-pressure switch; trips (FAULT, halt) during a cut |
+| Door / guard interlock | input of the door or guard switch; trips during a cut |
+| Laser-source alarm interlock | input wired to the source's alarm output; trips while armed or running, and refuses arming |
+| Alarm when | input ON (normally open contact) or input OFF (normally closed: a broken wire trips too, the safer choice) |
+| This machine has no such sensor | the service engineer's declaration: the pre-flight stops warning, the Run screen still lists it |
+| Follower alarm interlock | the on-board follower's alarm word (on by default) |
+| PC-alive heartbeat | the output toggled while mlaser runs normally (0 = off) and its frequency (5 Hz) |
+
+Inputs are 1..28, outputs 1..26, 0 = not wired.  Every input starts at 0 because the wiring of
+a machine is unknown until it is commissioned, but "not configured" is never silent: the **Run**
+screen shows an amber line naming every interlock and the heartbeat that is not configured, the
+**pre-flight** of a laser job on a real machine lists them as warnings (to acknowledge), and the
+**commissioning checklist** flags them.  The dialog refuses a heartbeat on a process output
+(laser, gas, shutter...).  Values are stored at once (`safety.*` in `config.json`) and reach the
+controller immediately when the machine is disarmed and idle; while a job runs or the machine is
+armed the change waits ("change pending" on the Run screen) and applies as soon as it is
+disarmed.  Check every input with the commissioning checklist's wiring test after a change.
 
 ## Guided procedures
 
@@ -84,8 +110,9 @@ the laser source off (key switch) first.
 | Network and connection | the self-test has no failure and the card is connected | – |
 | Card scaling | the card's pulses/mm (X, Y) and interpolation period equal the machine parameters | – |
 | Soft limits | the card's soft limits equal the axis strokes (`MAC.SoftLimitMaxLen`) | write the soft limits |
+| Interlocks | every interlock is wired or declared "not fitted"; then the **wiring test**: trigger each wired sensor when the checklist asks (open the door, close the gas supply, set the source alarm) and release it; the interlock monitor must see it go active and clear within 30 s each (a dry run toggles the simulator's inputs) | Configure safety I/O... |
 | Homing | Home X/Y finishes and the axes report homed | – |
-| Watchdog heartbeat | the "PC alive" output toggles at its frequency, and the watchdog relay drops when you press **Hold heartbeat** (docs/SAFETY.md §11) | – |
+| Watchdog heartbeat | the "PC alive" output toggles at its frequency, and the watchdog relay drops when you press **Hold heartbeat** (docs/SAFETY.md §11) | set the output in Safety I/O |
 | Jog direction X / Y | a +10 mm jog increases the position, and you confirm the head moved right (X+) / away from you (Y+) | reverse the axis (`MAC.AxisReverse`, written at the next connect) |
 
 The report (`commissioning/commissioning-<date>.json` in the data folder) lists every check

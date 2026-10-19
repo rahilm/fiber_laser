@@ -205,6 +205,10 @@ class MainWindow(QMainWindow):
         self._close_watch = _CloseWatch(self)
         self.installEventFilter(self._close_watch)
         self._load_extensions(extensions, entry_points)
+        # --- safety I/O (ui/safety_io.py): the interlocks and the heartbeat from the ConfigService
+        # reach the controller now, after every change and after a controller swap
+        from . import safety_io
+        safety_io.install(self)
         # --- safety UI (ui/safety_ui.py): event dispatcher, state/alarm banners, run bar,
         # global Hold/Stop keys, pre-flight dialogs (docs/SAFETY.md)
         from . import safety_ui

@@ -111,6 +111,10 @@ class SettingsPanel(QWidget):
         self.search.setClearButtonEnabled(True)
         self.search.textChanged.connect(self._filter)
         top.addWidget(self.search, 1)
+        # the interlocks and the heartbeat have their own dialog (Engineer and Service mode)
+        self.b_safety_io = _button(window, "safety.io.button", self._safety_io, "alert-triangle")
+        self.b_safety_io.setObjectName("machine_safety_io")
+        top.addWidget(self.b_safety_io)
         lay.addLayout(top)
         self.ro_note = QLabel(T(window, "ws.machine.hw_readonly"))
         self.ro_note.setWordWrap(True)
@@ -131,6 +135,11 @@ class SettingsPanel(QWidget):
         row.addWidget(self.b_apply)
         lay.addLayout(row)
         self.build()
+
+    def _safety_io(self) -> None:
+        run = getattr(self.w, "run", None)
+        if callable(run):
+            run("machine.safety_io")
 
     def set_editable(self, on: bool) -> None:
         if on == self.editable:

@@ -176,8 +176,9 @@ def test_commissioning_wizard_checklist(app, win):
     d.dry.setChecked(True)
     drive(app, d)
     assert d.proc.state == PE.DONE
-    assert d.checklist.rowCount() == 7
-    texts = [d.checklist.item(i, 1).text() for i in range(7)]
+    assert d.checklist.rowCount() == 8
+    texts = [d.checklist.item(i, 1).text() for i in range(8)]
+    # 6 pass; soft limits and the interlocks (none configured: flagged) warn
     assert sum("pass" in t for t in texts) == 6, [(d.checklist.item(i, 0).text(), t, d.checklist.item(i, 2).text())
                                                    for i, t in enumerate(texts)]
     assert d.proc.report_path is not None and d.proc.report_path.exists()

@@ -22,6 +22,11 @@ Below it: the sheet number of a queued job, **part n/N** and **contour n/N** (fr
 contour markers), a progress bar, the elapsed time and the **ETA** (the planner's estimate at
 the start, the measured rate as the job advances).
 
+An **amber line** under the header names every interlock (gas-low, door, laser-source alarm)
+and the PC-alive heartbeat that is not configured, and says when a Safety I/O change is waiting
+for the machine to be disarmed ([machine.md](machine.md#safety-io-interlocks-and-the-pc-alive-heartbeat)).
+It disappears once everything is wired; a sensor declared "not fitted" stays listed as such.
+
 ## Live view and process values
 
 The live view draws the job as it is placed on the machine: parts already cut in grey, the part
