@@ -20,6 +20,8 @@ from .craft import (
 )
 from .document import (
     align,
+    contour_targets,
+    is_raster,
     delete_selected,
     demo_document,
     mirror,
@@ -36,7 +38,7 @@ from .document import (
 )
 
 __all__ = [
-    "MicroJointParams", "apply_kerf", "apply_lead", "auto_microjoints", "clear_joints",
+    "MicroJointParams", "contour_targets", "is_raster", "apply_kerf", "apply_lead", "auto_microjoints", "clear_joints",
     "default_lead_params", "one_key", "align", "delete_selected", "demo_document", "mirror",
     "paste_parts", "reverse", "rotate", "scale", "scale_to", "select_where", "set_layer", "targets",
     "transform_parts", "translate",

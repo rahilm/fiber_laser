@@ -10,7 +10,7 @@ from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit, QSpinBox,
+                               QFormLayout, QGroupBox, QLabel, QLineEdit, QSpinBox,
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                                QTableWidget, QTableWidgetItem, QHeaderView)
 
@@ -337,7 +337,23 @@ class AboutDialog(QDialog):
         self.setWindowTitle(tr.tr("mf24"))
         lay = QVBoxLayout(self)
         lay.addWidget(QLabel("Mlaser rebuild (PySide6)\nCross-platform reimplementation of the "
-                             "Mlaser v0.0.1.51 user interface."))
+                             "Mlaser v0.0.1.51 user interface.  MIT licence."))
+        lic = QLabel("Uses Qt for Python (PySide6), licensed under the GNU LGPL v3: you may replace "
+                     "the Qt / PySide6 libraries with your own build.  Licence texts: "
+                     "packaging/licenses/ (LGPL-3.0, GPL-3.0) and docs/ASSETS.md.  Bundled fonts: "
+                     "Noto Sans SC / Noto Sans Arabic subsets (SIL Open Font License 1.1).")
+        lic.setWordWrap(True)
+        lay.addWidget(lic)
+        try:
+            from mlaser import netcheck
+            res = netcheck.last_result()
+            net = res.text() if res is not None else "Network self-test: not run yet (Options+ > Network self-test)"
+        except Exception as e:  # noqa: BLE001 - informative only
+            net = f"Network self-test unavailable: {e}"
+        nl = QLabel(net)
+        nl.setWordWrap(True)
+        nl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        lay.addWidget(nl)
         bb = QDialogButtonBox(QDialogButtonBox.Ok)
         bb.accepted.connect(self.accept)
         lay.addWidget(bb)

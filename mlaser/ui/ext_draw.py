@@ -614,6 +614,20 @@ def _commands(ext: DrawExtension) -> dict[str, Callable[[], None]]:
     return cmds
 
 
+def register_bundled_fonts() -> list[str]:
+    """Make the bundled fonts (Noto Sans SC / Arabic subsets, ``mlaser.cad.fonts``) available to
+    the text tool's font combo; returns the families Qt registered."""
+    from PySide6.QtGui import QFontDatabase
+
+    from mlaser.cad.fonts import bundled_fonts
+    fams: list[str] = []
+    for ref in bundled_fonts():
+        fid = QFontDatabase.addApplicationFont(ref.path)
+        if fid >= 0:
+            fams += QFontDatabase.applicationFontFamilies(fid)
+    return fams
+
+
 def _bind(ext: DrawExtension, cmd: str, fn: Callable[[], None]) -> Callable:
     def run():
         try:
@@ -627,6 +641,7 @@ def _bind(ext: DrawExtension, cmd: str, fn: Callable[[], None]) -> Callable:
 def register(ctx, exec_dialogs: bool = True) -> DrawExtension:
     """Bind the drawing / CAD-editing commands (``ctx``: PluginContext)."""
     ext = DrawExtension(ctx, exec_dialogs)
+    register_bundled_fonts()
     for cmd, fn in _commands(ext).items():
         ctx.register_command(cmd, _bind(ext, cmd, fn))
     # choosing a view mode ends the active drawing tool (FUN_004d1780 resets the view mode)

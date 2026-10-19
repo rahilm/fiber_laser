@@ -15,7 +15,7 @@ from typing import Callable, Optional
 
 from mlaser.model import Contour, Document, Part
 
-from .document import targets
+from .document import contour_targets as targets  # raster parts excluded
 
 
 class OpError(ValueError):
@@ -153,9 +153,12 @@ def dedup(doc: Document, overlap_gate: float) -> int:
     from mlaser.cam.cleanup import remove_duplicate_contours
 
     removed = 0
-    allc = [(p, c) for p in doc.parts for c in p.contours]
+    from .document import is_raster
+    allc = [(p, c) for p in doc.parts if not is_raster(p) for c in p.contours]
     keep = {id(c) for c in remove_duplicate_contours([c for _, c in allc], overlap_gate)}
     for p in doc.parts:
+        if is_raster(p):
+            continue
         n0 = len(p.contours)
         p.contours = [c for c in p.contours if id(c) in keep]
         removed += n0 - len(p.contours)

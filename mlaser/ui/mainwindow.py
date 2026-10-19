@@ -38,7 +38,7 @@ SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid"
 # Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
 # plugins come from the "mlaser.plugins" entry-point group.
 EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
-              "ext_draw", "ext_craft", "ext_machine", "ext_diag")
+              "ext_draw", "ext_craft", "ext_machine", "ext_diag", "ext_options")
 
 
 def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow
@@ -722,6 +722,10 @@ class MainWindow(QMainWindow):
             loader = _lazy("mlaser.formats.chf", "load_chf")
         elif ext == ".dxf":
             loader = _lazy("mlaser.io.dxf_import", "import_dxf")
+            mode = self.hooks.provider("dxf.mode")              # ext_options: modern (ezdxf) import
+            if loader is not None and mode is not None and mode() is not None:
+                import functools
+                loader = functools.partial(loader, mode=mode())
         elif ext == ".svg":
             loader = _lazy("mlaser.io.svg_import", "import_svg")
         elif ext in (".nc", ".txt", ".cnc", ".g"):
@@ -767,7 +771,8 @@ class MainWindow(QMainWindow):
         if save_as or not path:
             path, _ = QFileDialog.getSaveFileName(self, self.tr_.tr("mf152"), "", "chf (*.chf)")
         if path:
-            saver(self.document, path)
+            from mlaser.cam.raster_engraving import expand_document
+            saver(expand_document(self.document), path)    # raster parts as their burn segments
             self.path = path
             self.log_panel.log(f"np_FileSaveDone: {path}")
 

@@ -319,3 +319,10 @@ def test_gui_option_reaches_the_compiled_job(app):
         assert after.job.wire == expect.wire
     finally:
         w.close()
+
+
+def test_planned_job_uses_the_packed_wire():
+    from mlaser.nc.packed import PackedWire
+    plan = svc_inline().plan_sync(req_for(demo_doc()))
+    assert isinstance(plan.job.wire, PackedWire)
+    assert list(plan.iter_frames(5)) == plan.frames(5) == plan.job.frames(5)

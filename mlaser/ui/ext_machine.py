@@ -443,7 +443,8 @@ class MachineExtension:
         if not path:
             return
         ctl = self.w.ctl
-        out = save_task(path, doc, self.params().layer, self.ops.laser_type,
+        from mlaser.cam.raster_engraving import expand_document
+        out = save_task(path, expand_document(doc), self.params().layer, self.ops.laser_type,
                         ctl.autosave_dir, int(ctl.breakpoint is not None))
         self.log(f"A250320_2: task saved to {out}")
 
@@ -467,7 +468,8 @@ class MachineExtension:
         from mlaser.formats.chf import save_chf
         try:
             self.ops.file_dir.mkdir(parents=True, exist_ok=True)
-            save_chf(doc, str(self.ops.file_dir / "autosave.chf"))
+            from mlaser.cam.raster_engraving import expand_document
+            save_chf(expand_document(doc), str(self.ops.file_dir / "autosave.chf"))
         except Exception as e:  # noqa: BLE001
             self.log(f"autosave.chf not written: {e}")
 

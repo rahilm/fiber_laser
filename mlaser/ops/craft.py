@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from mlaser.model import Document, LeadParams
 
-from .document import targets
+from .document import contour_targets as targets  # raster parts excluded
 
 
 def default_lead_params() -> tuple[LeadParams, LeadParams]:

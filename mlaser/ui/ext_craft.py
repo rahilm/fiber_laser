@@ -228,8 +228,9 @@ DOCK_KEYS = ["ap2", "ap3", "ap4", "ap5", "ap6", "ap7", "ap8", "ap9", "ap10"]
 
 
 def _targets(doc: Document) -> list[Part]:
-    sel = [p for p in doc.parts if p.selected]
-    return sel or list(doc.parts)
+    """Selection (else all), without raster engraving parts (contour tools)."""
+    from mlaser.ops.document import contour_targets
+    return contour_targets(doc)
 
 
 class CraftExtension:
@@ -592,9 +593,18 @@ class CraftExtension:
         return self.import_bitmap_result()
 
     def import_bitmap_result(self) -> Optional[str]:
-        """After Bitmap.exe exits MainApp checks ``Bitmap\\status.ini`` (FUN_004ae380: the
-        companion writes 0 at start-up and 1 after "Generate GCode") and then loads
-        ``Bitmap\\newGcode.nc`` as a scan G-code (mode-2 dialog, type-5 scan)."""
+        """The engraving the bitmap dialog generated, as one :class:`RasterEngraving` part
+        (``mlaser.cam.raster_engraving``).  Without one (G-code generated outside the dialog), as
+        MainApp does: check ``Bitmap\\status.ini`` (FUN_004ae380: 0 at start-up, 1 after
+        "Generate GCode") and load ``Bitmap\\newGcode.nc`` as a scan G-code (type-5 scan)."""
+        d = getattr(self, "bitmap_dialog", None)
+        doc = d.result_document() if d is not None and hasattr(d, "result_document") else None
+        if doc is not None:
+            # the in-process generator: one RasterEngraving part (not one Part per burn segment)
+            self.ctx.replace_document(doc, "bitmap engraving")
+            self.log(f"A250622_0: raster engraving, {len(doc.parts[0].extra['raster'])} burn runs"
+                     if doc.parts and "raster" in doc.parts[0].extra else "A250622_0")
+            return "raster"
         from mlaser.engrave import raster
         if raster.read_status_ini(self.bitmap_dir) != 1:
             return None

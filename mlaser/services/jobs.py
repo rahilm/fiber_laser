@@ -98,6 +98,10 @@ class PlannedJob:
         """The FIFO frames to stream: ``Job.frames()`` (one size test per ManuItem group)."""
         return self.job.frames(first_seq)
 
+    def iter_frames(self, first_seq: int = 1):
+        """:meth:`frames` one at a time from the packed wire (``Job.iter_frames``)."""
+        return self.job.iter_frames(first_seq)
+
     @property
     def time_s(self) -> float:
         """Card replay time plus the estimated process time (``Job.total_time_s``)."""

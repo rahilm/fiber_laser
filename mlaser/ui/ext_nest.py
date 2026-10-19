@@ -478,7 +478,8 @@ class NestExtension:
         for k, lay in enumerate(self.job.result.layouts):
             doc = Document(parts=layout_parts(self.job, lay), layers=copy.deepcopy(base.layers))
             path = os.path.join(directory, f"{_tr(self.window, 'np_Reslut_', 'Result_')}{k + 1}.chf")
-            save_chf(doc, path)
+            from ..cam.raster_engraving import expand_document
+            save_chf(expand_document(doc), path)
             out.append(path)
         self.log(f"mf420: {len(out)} files")
         return out

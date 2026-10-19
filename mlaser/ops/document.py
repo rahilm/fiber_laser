@@ -41,6 +41,19 @@ def targets(doc: Document) -> list[Part]:
 _targets = targets          # old private name (mlaser.ui.docops._targets)
 
 
+def is_raster(p: Part) -> bool:
+    """A raster engraving part (``mlaser.cam.raster_engraving``): its one contour is the frame
+    of the image, not geometry to cut, so contour tools leave it alone."""
+    from mlaser.cam.raster_engraving import raster_of_part
+    return raster_of_part(p) is not None
+
+
+def contour_targets(doc: Document) -> list[Part]:
+    """:func:`targets` without raster engraving parts (for leads, kerf, joints, CAM ops).
+    Transforms, alignment and layers still use :func:`targets`, so rasters move with the rest."""
+    return [p for p in targets(doc) if not is_raster(p)]
+
+
 def _bbox(parts: list[Part]):
     bs = [p.bbox() for p in parts if p.contours]
     if not bs:
