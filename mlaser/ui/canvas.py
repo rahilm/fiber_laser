@@ -68,8 +68,30 @@ class ViewOptions:
     table_size: tuple[float, float] = (3000.0, 1500.0)
 
 
+_PATH_CACHE: dict = {}       # segment values -> (QPainterPath, points): edits rebuild the scene
+
+
 def _contour_path(contour) -> tuple[QPainterPath, list[tuple[float, float]]]:
-    pts = list(contour.points(0.05))
+    """Display path and polyline of a contour, cached on the values of its segments (the
+    scene is rebuilt after every edit; unchanged contours reuse their path)."""
+    from mlaser.geom.curves import _fingerprint
+    fp = _fingerprint(contour.segments)
+    key = None if fp is None else (fp, bool(contour.closed))
+    if key is not None:
+        hit = _PATH_CACHE.get(key)
+        if hit is not None:
+            return hit[0], hit[1]
+    path, pts = _make_contour_path(contour)
+    if key is not None:
+        if len(_PATH_CACHE) > 200_000:
+            _PATH_CACHE.clear()
+        _PATH_CACHE[key] = (path, pts)
+    return path, pts
+
+
+def _make_contour_path(contour) -> tuple[QPainterPath, list[tuple[float, float]]]:
+    from mlaser.geom.curves import flatten_points
+    pts = flatten_points(contour, 0.05)
     path = QPainterPath()
     if pts:
         path.moveTo(*pts[0])
