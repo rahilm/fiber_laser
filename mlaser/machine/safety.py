@@ -84,8 +84,10 @@ CMD_FOLLOWER_CANCEL = 101
 FOLLOW_STOP = 5          # [118, 5, 0]
 
 
-def _outputs_class(mask: int, value: int, guarded: int, shift: int = 0) -> Cmd:
-    on = (mask & value & 0xFFFF) << shift
+def _outputs_class(sub: int, mask: int, value: int, guarded: int) -> Cmd:
+    """``[sub, mask, value]`` of sub 2 (outputs 1..10) or sub 13 (outputs 11..26) against the
+    guarded port mask (bit n-1 = output n, :func:`mlaser.protocol.frames.output_bit`)."""
+    on = F.ports_of_sub_mask(sub, int(mask) & int(value))
     if on & guarded:
         return Cmd.EMISSION
     if on:
@@ -96,10 +98,8 @@ def _outputs_class(mask: int, value: int, guarded: int, shift: int = 0) -> Cmd:
 def classify_sys(sub: int, p: Sequence[int], guarded_outputs: int) -> Cmd:
     """A system command ``[9999, sub, p...]`` (mailbox) or FIFO sys item (params ``[sub, p...]``)."""
     p = list(p) + [0, 0, 0, 0]
-    if sub == F.SYS_OUTPUTS:
-        return _outputs_class(p[0], p[1], guarded_outputs)
-    if sub == F.SYS_OUTPUTS_EXT:
-        return _outputs_class(p[0], p[1], guarded_outputs, 16)
+    if sub in (F.SYS_OUTPUTS, F.SYS_OUTPUTS_EXT):
+        return _outputs_class(sub, p[0], p[1], guarded_outputs)
     if sub in (F.SYS_PWM, F.SYS_PWM_BUS):
         # [3, freq, duty, enable]: any duty counts (the enable word's meaning is INFERRED)
         return Cmd.EMISSION if p[1] & 0xFFFFFFFF else Cmd.HALT
@@ -161,7 +161,10 @@ def classify_request(req: F.Request, guarded_outputs: int = 0) -> Cmd:
         return classify_mailbox(req.values, guarded_outputs)
     if a == F.REG_FIFO_CTRL:
         v = req.values[0] if req.values else 0
-        return Cmd.MOTION if v == F.FIFO_START else Cmd.HALT
+        if v in (F.FIFO_CLEAR, F.FIFO_STOP):
+            return Cmd.HALT
+        # FIFO start, and any value the card might take as one (fails closed)
+        return Cmd.MOTION if v == F.FIFO_START else Cmd.MOTION | Cmd.CONFIG
     if a == F.REG_FIFO_DATA:
         try:
             items = F.parse_fifo_items(req.values[1:])

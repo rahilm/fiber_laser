@@ -19,7 +19,8 @@ that exposes the card methods but not the socket, the guard or ``close``.
 :meth:`safe_halt` sends, each command on its own and best effort, in the order the original
 uses for a program stop (parity ``test_stop_sequence``): decelerated stop ``[1, 0x1f, 2,
 decel, 200000]``, PWM off ``[9999, 3, f, 0, 0]`` and ``[9999, 17, f, 0, 0]``, process outputs off
-``[9999, 2, mask, 0]`` (+ 13 for outputs 17..32), follower stop ``[118, 5, 0]``, FIFO stop
+``[9999, 2, mask, 0]`` for outputs 1..10 and ``[9999, 13, mask, 0]`` for the extended IO
+outputs 11..26 (:func:`mlaser.protocol.frames.output_bit`), follower stop ``[118, 5, 0]``, FIFO stop
 (103 := 3), FIFO clear (103 := 1).  A halt that did not go through completely is repeated by
 the monitor every ``halt_retry_s`` until one succeeds (the link may come back).
 
@@ -62,7 +63,7 @@ class HaltParams:
     """Words of the halt sequence (UiController supplies them from the machine parameters)."""
     decel: int = 4000                 # [1, 0x1f, 2, decel, 200000] (FUN_10038de0)
     pwm_freq: int = 5000              # LC.PtLaserFreq
-    outputs_mask: int = 0             # process outputs (gas valves, laser DO), bit n = output n+1
+    outputs_mask: int = 0             # process + laser outputs, bit n-1 = output n (1..26)
     follower: bool = True
 
 
@@ -91,12 +92,10 @@ def halt_steps(mc, p: HaltParams, pause: bool = False) -> list[tuple[str, Callab
         ("pwm off", lambda: mc.command(F.mailbox_sys(F.SYS_PWM, f, 0, 0))),
         ("pwm off (bus)", lambda: mc.command(F.mailbox_sys(F.SYS_PWM_BUS, f, 0, 0))),
     ]
-    if p.outputs_mask & 0xFFFF:
-        steps.append(("process outputs off",
-                      lambda: mc.command(F.mailbox_sys(F.SYS_OUTPUTS, p.outputs_mask & 0xFFFF, 0))))
-    if (p.outputs_mask >> 16) & 0xFFFF:
-        steps.append(("process outputs off (ext)",
-                      lambda: mc.command(F.mailbox_sys(F.SYS_OUTPUTS_EXT, (p.outputs_mask >> 16) & 0xFFFF, 0))))
+    for sub, m16 in F.sub_masks_of_ports(p.outputs_mask):
+        # outputs 1..10: [9999, 2, mask, 0]; outputs 11..26 (extended IO): [9999, 13, mask, 0]
+        steps.append(("process outputs off" if sub == F.SYS_OUTPUTS else "process outputs off (ext)",
+                      lambda sub=sub, m16=m16: mc.command(F.mailbox_sys(sub, m16, 0))))
     if p.follower:
         steps.append(("follower stop", lambda: mc.command([F.OP_FOLLOW, 5, 0])))
     if not pause:
@@ -212,8 +211,9 @@ class SafetySupervisor:
         if fn is not None:
             try:
                 return int(fn())
-            except Exception:  # noqa: BLE001 - fall back to the last fixed mask
-                pass
+            except Exception:  # noqa: BLE001 - fails closed: every output but the heartbeat
+                hb = self.heartbeat_output
+                return F.ALL_OUTPUTS_MASK & ~((1 << (hb - 1)) if 1 <= hb <= F.N_OUTPUTS else 0)
         return self._guarded
 
     @guarded_outputs.setter
@@ -316,8 +316,11 @@ class SafetySupervisor:
         n = self.heartbeat_output
         if not n or req.addr != F.REG_MAILBOX or len(req.values) < 4:
             return False
-        bit = 1 << ((n - 1) if n <= 16 else (n - 17))
-        return req.values[1] in (F.SYS_OUTPUTS, F.SYS_OUTPUTS_EXT) and req.values[2] == bit
+        try:
+            sub, bit = F.output_bit(n)
+        except ValueError:
+            return False
+        return req.values[1] == sub and req.values[2] == 1 << bit
 
     # ------------------------------------------------------------------ halt
     def safe_halt(self, reason: str, pause: bool = False, latch: bool = True) -> HaltResult:

@@ -684,23 +684,17 @@ class MotionController:
         self.write_regs(F.REG_MAILBOX, list(words))
 
     def set_outputs(self, mask: int, value: int) -> None:
-        """[9999, 2, mask, value] for outputs 1..16, [9999, 13, ...] for 17..32 bits
-        (FUN_100304a0 writes all 16 with mask 0xffff)."""
-        lo_m, lo_v = mask & 0xFFFF, value & 0xFFFF
-        hi_m, hi_v = (mask >> 16) & 0xFFFF, (value >> 16) & 0xFFFF
-        if lo_m:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS, lo_m, lo_v))
-        if hi_m:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS_EXT, hi_m, hi_v))
+        """Several outputs at once; ``mask`` / ``value`` are port masks (bit n-1 = output n):
+        ``[9999, 2, mask, value]`` for outputs 1..10, ``[9999, 13, mask, value]`` for the
+        extended IO outputs 11..26 (:func:`mlaser.protocol.frames.output_bit`)."""
+        for sub, m16 in F.sub_masks_of_ports(mask):
+            shift = 0 if sub == F.SYS_OUTPUTS else F.N_BASE_OUTPUTS
+            self.command(F.mailbox_sys(sub, m16, (int(value) >> shift) & m16))
 
     def set_output(self, n: int, on: bool) -> None:
         """FUN_10030620: output n (1..10 -> sub 2, 11..26 -> sub 13)."""
-        if 1 <= n <= 10:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS, 1 << (n - 1), int(on) << (n - 1)))
-        elif 11 <= n <= 26:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS_EXT, 1 << (n - 11), int(on) << (n - 11)))
-        else:
-            raise ValueError(n)
+        sub, bit = F.output_bit(n)
+        self.command(F.mailbox_sys(sub, 1 << bit, int(bool(on)) << bit))
 
     def set_da(self, channel: int, value: int) -> None:
         """Analog output (laser power). FUN_100308f0: channel 1/2, value clamped 50..10000
@@ -809,6 +803,10 @@ class MotionController:
         2. PWM off ``[9999, 3, freq, 0, 0]`` and ``[9999, 17, freq, 0, 0]``;
         3. process outputs off ``[9999, 2, 0xffff, outputs & ~process]`` (+ ``[9999, 13, ..]``);
         4. follower stop ``[118, 5, 0]``.
+
+        ``outputs_off`` is a port mask (bit n-1 = output n, 1..26): outputs 1..10 go out with
+        sub 2, 11..26 with sub 13; ``ext_outputs_off`` is an extra sub-13 mask (bit k = output
+        11+k).
         """
         if fifo_stop:
             self.fifo_stop()
@@ -816,10 +814,12 @@ class MotionController:
             self.stop_motion(decel)
         self.command(F.mailbox_sys(F.SYS_PWM, pwm_freq, 0, 0))
         self.command(F.mailbox_sys(F.SYS_PWM_BUS, pwm_freq, 0, 0))
-        if outputs_off & 0xFFFF:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS, outputs_off & 0xFFFF, 0))
+        words = dict(F.sub_masks_of_ports(outputs_off))
         if ext_outputs_off & 0xFFFF:
-            self.command(F.mailbox_sys(F.SYS_OUTPUTS_EXT, ext_outputs_off & 0xFFFF, 0))
+            words[F.SYS_OUTPUTS_EXT] = words.get(F.SYS_OUTPUTS_EXT, 0) | (ext_outputs_off & 0xFFFF)
+        for sub in (F.SYS_OUTPUTS, F.SYS_OUTPUTS_EXT):
+            if words.get(sub):
+                self.command(F.mailbox_sys(sub, words[sub], 0))
         if follower:
             self.command([F.OP_FOLLOW, 5, 0])
 

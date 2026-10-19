@@ -567,7 +567,10 @@ class CardSimulator:
         st = self.state
         p = p + [0] * 4
         if sub == F.SYS_OUTPUTS:
-            m, v = p[0] & 0xFFFF, p[1] & 0xFFFF
+            # the base board has outputs 1..10 only: bits 10..15 of sub 2 address nothing (a
+            # word that puts an output 11..16 there must not switch it, or the simulator would
+            # hide a halt that never reaches the extended IO board)
+            m, v = p[0] & 0x3FF, p[1] & 0x3FF
             st.outputs = (st.outputs & ~m) | (v & m)
         elif sub == F.SYS_OUTPUTS_EXT:
             m, v = (p[0] & 0xFFFF) << 10, (p[1] & 0xFFFF) << 10
