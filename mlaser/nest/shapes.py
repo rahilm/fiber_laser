@@ -110,8 +110,8 @@ def transform_part(part: Part, pl: Placement) -> Part:
     q = copy.deepcopy(part)
     q.contours = [Contour([_tseg(s, pl) for s in c.segments], c.closed, copy.deepcopy(c.extra))
                   for c in part.contours]
-    if q.craft.cool_point is not None:
-        q.craft.cool_point = _tp(q.craft.cool_point, pl)
+    # cooling points are arc lengths; only legacy (x, y) entries move with the part
+    q.craft.cool_points = [_tp(p, pl) if isinstance(p, (tuple, list)) else p for p in q.craft.cool_points]
     q.selected = False
     return q
 

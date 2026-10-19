@@ -308,12 +308,12 @@ def _craft(rnd: random.Random, layer: int, length: float):
     cr.kerf_width = rnd.uniform(0.05, 0.4) if cr.kerf_comp >= 0 else 0.0
     if rnd.random() < 0.4 and length > 5:
         cr.micro_joints = sorted(rnd.uniform(0, length) for _ in range(rnd.randint(1, 3)))
-        cr.extra["micro_joint_len"] = rnd.uniform(0.3, 1.5)
+        cr.joint_width = rnd.uniform(0.3, 1.5)
     oc = rnd.random()
     if oc < 0.2:
-        cr.extra["overcut"] = rnd.uniform(0.3, 2.0)
+        cr.overcut = rnd.uniform(0.3, 2.0)
     elif oc < 0.35:
-        cr.extra["overcut"] = -rnd.uniform(0.3, 1.5)
+        cr.overcut = -rnd.uniform(0.3, 1.5)
     return cr
 
 

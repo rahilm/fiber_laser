@@ -598,8 +598,9 @@ def _xform_doc(doc: Document, fn) -> Document:
                 else:
                     new.append(Line(fn(sg.start), fn(sg.end)))  # type: ignore[arg-type]
             c.segments = new  # type: ignore[assignment]
-        if part.craft.cool_point is not None:
-            part.craft.cool_point = fn(part.craft.cool_point)
+        # cooling points are arc lengths; only legacy (x, y) entries move with the drawing
+        part.craft.cool_points = [fn(p) if isinstance(p, (tuple, list)) else p
+                                  for p in part.craft.cool_points]
     return d
 
 

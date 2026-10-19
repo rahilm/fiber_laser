@@ -4,16 +4,16 @@ contour or on the selection.  UI in ``mlaser/ui/ext_craft.py``; evidence in docs
 
 Conventions (shared with ``cam.toolpath``):
 
-* ``Craft.extra['start_param']``: start position as a fraction 0..1 of the contour length
+* ``Craft.start_param``: start position as a fraction 0..1 of the contour length
   (original contour +0x180, setter CADModule 0x10071f30; forced to 0 on open contours).
-* ``Craft.micro_joints``: joint centres in mm of arc length from the contour's first
-  segment, or ``(pos, len)`` pairs (original +0x118 fractions / +0x128 widths).
-* ``Craft.extra['cool_points']``: cooling positions in mm (or points); original +0x15c.
-* ``Craft.extra['overcut']``: signed overcut (+) / gap (-) in mm (original +0x198).
+* ``Craft.micro_joints``: :class:`~mlaser.model.MicroJoint` (centre mm of arc length from the
+  contour's first segment, width mm); original +0x118 fractions / +0x128 widths.
+* ``Craft.cool_points``: cooling positions in mm (or legacy points); original +0x15c.
+* ``Craft.overcut``: signed overcut (+) / gap (-) in mm (original +0x198).
 
 The original keeps these per contour; the rebuild keeps them per ``Part`` (one contour per
 part after import).  For a part with several contours the per-contour value goes to
-``Contour.extra['craft']`` (a full ``Craft``); ``contour_craft`` returns the craft that
+``Contour.craft`` (a full ``Craft``); ``contour_craft`` returns the craft that
 applies to one contour.  (``cam.toolpath`` reads the override once the lead applies the
 patch listed in docs/re/craft.md §9.)
 """
@@ -28,7 +28,7 @@ from ..geom.curves import reverse_contour, signed_area
 from ..model import Arc, Contour, Craft, Document, LeadParams, Line, Part, Point, Segment
 from ..geom.contour import (contour_bbox, is_ccw, point_at, polyline, rotate_start, seg_point,
                        seg_tangent, sub_path, tangent_at)
-from .microjoint import DEFAULT_JOINT_LEN, joint_intervals
+from .microjoint import joint_intervals
 
 __all__ = [
     "Hit", "project_on_segment", "nearest_on_contour", "hit_test", "contour_craft",
@@ -113,19 +113,17 @@ def contour_craft(part: Part, ci: int, create: bool = False) -> Craft:
     """Craft that applies to contour ``ci`` of ``part``.
 
     Single-contour parts use ``part.craft``.  For several contours a per-contour override in
-    ``Contour.extra['craft']`` is returned (created as a copy of the part craft when
-    ``create``)."""
+    ``Contour.craft`` is returned (created as a copy of the part craft when ``create``)."""
     if len(part.contours) <= 1:
         return part.craft
     c = part.contours[ci]
-    ov = c.extra.get("craft") if isinstance(c.extra, dict) else None
+    ov = c.craft
     if isinstance(ov, Craft):
         return ov
     if not create:
         return part.craft
     ov = copy.deepcopy(part.craft)
-    c.extra = dict(c.extra or {})
-    c.extra["craft"] = ov
+    c.craft = ov
     return ov
 
 
@@ -133,7 +131,7 @@ def start_distance(c: Contour, craft: Craft) -> float:
     """Current start position in mm (``start_param`` fraction, 0 when unset)."""
     if not c.closed:
         return 0.0
-    return float(craft.extra.get("start_param", 0.0) or 0.0) * c.length()
+    return float(craft.start_param or 0.0) * c.length()
 
 
 # --------------------------------------------------------------------------- start point
@@ -144,21 +142,14 @@ def set_start_at(part: Part, ci: int, dist: float) -> float:
     craft = contour_craft(part, ci, create=True)
     L = c.length()
     f = 0.0 if (not c.closed or L <= 0) else (dist % L) / L
-    craft.extra["start_param"] = f
+    craft.start_param = f
     return f
 
 
 # --------------------------------------------------------------------------- micro-joints
 def joint_list(craft: Craft) -> list[tuple[float, float]]:
-    """``Craft.micro_joints`` normalised to (pos_mm, len_mm)."""
-    jl = float(craft.extra.get("micro_joint_len", DEFAULT_JOINT_LEN))
-    out = []
-    for j in craft.micro_joints:
-        if isinstance(j, (tuple, list)):
-            out.append((float(j[0]), float(j[1])))
-        else:
-            out.append((float(j), jl))
-    return out
+    """``Craft.micro_joints`` as (pos_mm, len_mm)."""
+    return craft.joint_list()
 
 
 def toggle_joint(craft: Craft, c: Contour, pos: float, length: float) -> str:
@@ -229,9 +220,9 @@ def explode_joints(c: Contour, craft: Craft) -> list[Contour]:
 
 # --------------------------------------------------------------------------- cooling points
 def add_cool_point(craft: Craft, pos: float) -> None:
-    pts = [p for p in craft.extra.get("cool_points", [])]
+    pts = list(craft.cool_points)
     pts.append(float(pos))
-    craft.extra["cool_points"] = sorted(pts, key=lambda v: v if isinstance(v, (int, float)) else 0.0)
+    craft.cool_points = sorted(pts, key=lambda v: v if isinstance(v, (int, float)) else 0.0)
 
 
 def snap_to_vertex(c: Contour, p: Point, tol: float) -> Optional[float]:
@@ -253,26 +244,26 @@ def place_cool_point(craft: Craft, c: Contour, pos: float, tol: float) -> str:
     existing point therefore moves it.  Returns 'added' or 'moved'."""
     L = c.length()
     lim = max(tol, 0.5)
-    pts = list(craft.extra.get("cool_points", []))
+    pts = list(craft.cool_points)
     keep = []
     for p in pts:
         d = nearest_on_contour(c, p)[0] if isinstance(p, (tuple, list)) else float(p)
         if _arc_gap(d, pos, L, False) >= lim:
             keep.append(p)
-    craft.extra["cool_points"] = keep
+    craft.cool_points = keep
     add_cool_point(craft, pos)
     return "moved" if len(keep) < len(pts) else "added"
 
 
 def toggle_cool_point(craft: Craft, c: Contour, pos: float, tol: float) -> str:
     """Rebuild convenience (not in the original): remove a point within ``tol``, else add."""
-    pts = list(craft.extra.get("cool_points", []))
+    pts = list(craft.cool_points)
     L = c.length()
     for k, p in enumerate(pts):
         d = nearest_on_contour(c, p)[0] if isinstance(p, (tuple, list)) else float(p)
         if _arc_gap(d, pos, L, c.closed) <= tol:
             del pts[k]
-            craft.extra["cool_points"] = pts
+            craft.cool_points = pts
             return "removed"
     add_cool_point(craft, pos)
     return "added"
@@ -305,7 +296,7 @@ def split_contour_at(c: Contour, dist: float, tol: float = 0.0) -> list[Contour]
 # --------------------------------------------------------------------------- gap / seal / overcut
 def set_gap_seal(craft: Craft, c: Optional[Contour], mode: int, value: float) -> float:
     """Gap / seal / overcut (FUN_004b5ad0 -> CCAD slot 90): stores the signed value in
-    ``Craft.extra['overcut']``: gap -> -value, seal -> 0, overcut -> +value.  Open contours
+    ``Craft.overcut``: gap -> -value, seal -> 0, overcut -> +value.  Open contours
     keep only gaps (cam.md §4).  Returns the stored value."""
     v = 0.0
     if mode == GAP:
@@ -314,7 +305,7 @@ def set_gap_seal(craft: Craft, c: Optional[Contour], mode: int, value: float) ->
         v = abs(value)
         if c is not None and not c.closed:
             v = 0.0
-    craft.extra["overcut"] = v
+    craft.overcut = v
     return v
 
 
@@ -544,8 +535,8 @@ def lead_in_path(c: Contour, craft: Craft, depth: int, invert: bool = False) -> 
     """Lead-in polyline from the contour start point P outwards (P first), and P."""
     from .leads import lead_in, side_flag
     from .ordering import choose_start
-    if "start_param" in craft.extra:
-        s = float(craft.extra["start_param"]) * c.length()
+    if craft.start_param is not None:
+        s = float(craft.start_param) * c.length()
     else:
         s = choose_start(c, 0, craft.lead_in.length)
     P = point_at(c, s)
@@ -563,7 +554,7 @@ def check_leads(doc: Document, invert: bool = False) -> list[tuple[int, int]]:
     other contours; for other contours the distance counts x0.7 unless the lead is a line
     (type 1).  On a hit the lead-in is shortened to the crossing distance d (I: scaled by
     1/1.5 when the hit lies on the 0.5 x extension so the clearance is kept) and the error
-    mark (+0x1f9, rebuild ``Craft.extra['lead_error']``) is set.  Returns the marked
+    mark (+0x1f9, rebuild ``Craft.lead_error``) is set.  Returns the marked
     (part, contour) keys."""
     from ..geom.contour import contour_bbox as cbb
     marked: list[tuple[int, int]] = []
@@ -608,7 +599,7 @@ def check_leads(doc: Document, invert: bool = False) -> list[tuple[int, int]]:
         cr.lead_in = copy.deepcopy(cr.lead_in)
         new_len = d if d <= lp.length else d / 1.5
         cr.lead_in.length = max(0.0, min(lp.length, new_len))
-        cr.extra["lead_error"] = True
+        cr.lead_error = True
         marked.append((pi, ci))
     return marked
 
@@ -618,10 +609,10 @@ def clear_lead_marks(doc: Document) -> int:
     shortened lengths stay."""
     n = 0
     for p in doc.parts:
-        crafts = [p.craft] + [c.extra["craft"] for c in p.contours
-                              if isinstance(c.extra, dict) and isinstance(c.extra.get("craft"), Craft)]
+        crafts = [p.craft] + [c.craft for c in p.contours if isinstance(c.craft, Craft)]
         for cr in crafts:
-            if cr.extra.pop("lead_error", None):
+            if cr.lead_error:
+                cr.lead_error = False
                 n += 1
     return n
 
@@ -696,6 +687,6 @@ def adjust_starts(parts: Sequence[Part]) -> int:
                 v = c.segments[k].start
                 off = (v[0] - x0, v[1] - y0)
             if k:
-                p.contours[ci] = Contour(c.segments[k:] + c.segments[:k], True, dict(c.extra or {}))
+                p.contours[ci] = Contour(c.segments[k:] + c.segments[:k], True, c.extra.materialize())
                 n += 1
     return n

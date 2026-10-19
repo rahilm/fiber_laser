@@ -11,7 +11,7 @@ from __future__ import annotations
 import copy
 from dataclasses import dataclass
 
-from mlaser.model import Document, LeadParams
+from mlaser.model import Document, LeadParams, MicroJoint
 
 from .document import contour_targets as targets  # raster parts excluded
 
@@ -34,7 +34,7 @@ def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start
     * "只对封闭图形有效" (closed graphs only, on by default): open contours keep their lead;
       ``closed_only=False`` applies to every target (used to clear leads);
     * the start point is chosen and **stored** when the lead is applied (``start_param`` of
-      the contour, ``Craft.extra['start_param']`` here), with the dialog's start mode
+      the contour, ``Craft.start_param`` here), with the dialog's start mode
       (default 0, "自动选择起点位置(长边优先)", :func:`mlaser.cam.ordering.choose_start`);
       clearing leads (both kinds 0) leaves the start alone.
 
@@ -65,8 +65,7 @@ def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start
             c = p.contours[i]
             L = c.length()
             if set_start and c.closed and L > 0:
-                cr.extra = dict(cr.extra or {})
-                cr.extra["start_param"] = (choose_start(c, start_mode, lead_in.length) % L) / L
+                cr.start_param = (choose_start(c, start_mode, lead_in.length) % L) / L
         n += 1
     return n
 
@@ -116,7 +115,7 @@ class MicroJointParams:
 def auto_microjoints(doc: Document, prm: MicroJointParams) -> int:
     """mf103 auto micro-joints (:func:`mlaser.cam.microjoint.auto_joints`, CADModule 0x10071180)
     on the longest contour of every target part; stores the joint length in
-    ``craft.extra['micro_joint_len']`` for the .chf writer.  Returns the number of joints."""
+    ``Craft.joint_width``.  Returns the number of joints."""
     from mlaser.cam.microjoint import auto_joints
 
     n = 0
@@ -131,8 +130,8 @@ def auto_microjoints(doc: Document, prm: MicroJointParams) -> int:
             joint_len=prm.length,
             min_size=prm.min_size,
         )
-        p.craft.micro_joints = [list(j) for j in js]  # type: ignore[misc]  # (position, width) pairs
-        p.craft.extra["micro_joint_len"] = prm.length
+        p.craft.micro_joints = [MicroJoint(float(a), float(w)) for a, w in js]
+        p.craft.joint_width = prm.length
         n += len(js)
     return n
 

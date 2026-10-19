@@ -65,7 +65,10 @@ testpaths = ["tests"]
 addopts = "-m 'not parity and not golden'"
 # old import paths left by the Wave 1 moves (mlaser/_compat.py) warn once; tests that still use
 # them, and tests/test_compat_shims.py, must not fail or flood the summary
-filterwarnings = ["ignore:mlaser\\..* moved to mlaser\\..*:DeprecationWarning"]
+# the old ``extra`` keys of the typed model fields (mlaser.model.LegacyExtra) warn; the tests that
+# exercise the old keys on purpose (compatibility) must not flood the summary
+filterwarnings = ["ignore:mlaser\\..* moved to mlaser\\..*:DeprecationWarning",
+                  "ignore::mlaser.model.LegacyExtraWarning"]
 markers = [
     "unit: pure tests (no Qt widgets, no sockets); assigned by tests/conftest.py",
     "ui: builds Qt widgets (offscreen)",
