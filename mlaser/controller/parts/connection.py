@@ -155,6 +155,7 @@ class ConnectionPart:
             self._s = MachineState(x=self._s.x, y=self._s.y)
         self.breakpoint = None
         self._jogging = None
+        self._jog_active = False
         self.fsm.offline("disconnected")
         if was:
             audit("disconnect")
@@ -319,10 +320,11 @@ class ConnectionPart:
         """Hold-to-jog dead-man: a continuous jog without a keep-alive for ``jog_deadman_s``
         (UI hung, release lost, pendant silent) is stopped."""
         ax = self._jogging
-        if ax is None or self.jog_deadman_s is None:
+        if ax is None or self.jog_deadman_s is None or not self._jog_active:
             return
         if time.monotonic() - self._jog_alive > self.jog_deadman_s:
             self._jogging = None
+            self._jog_active = False
             self._log(f"jog {ax}: no keep-alive for {self.jog_deadman_s:.2f} s (dead-man) - stopping",
                       logging.WARNING)
             audit("deadman", axis=ax)

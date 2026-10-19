@@ -57,10 +57,22 @@ classified (`classify_request`):
 |---|---|---|
 | READ | status, parameters | always |
 | HALT | `[1, 0x1f, 2, ...]`, PWM/DA/laser-sync 0, outputs off, `[118, 5, 0]`, FIFO stop/clear, alarm reset | always |
-| IO | outputs that are not process outputs (red light, dedust, lube) | connected |
+| IO | non-laser outputs: gas valves (manual gas test), red light, follower, dust extraction, lube | connected |
 | MOTION | jog, move, home, FIFO start, laser-off step frames, Z/follower moves, zero | not in FAULT/OFFLINE, not after a halt until a new operator action |
-| EMISSION | step items with a duty, PWM duty > 0, DA > 0, process outputs (gas valves, laser DO, shutter/gate) on, laser sync on, laser-source emission | armed, in ARMED or RUNNING |
+| EMISSION | step items with a duty, PWM duty > 0, DA > 0, laser outputs on (shutter/gate, `LGP.DOLaser*`, `LGP.DOLaserGate*`, `ProcessConfig.do_laser`), laser sync on, laser-source emission | armed, in ARMED or RUNNING |
 | CONFIG | register 100, parameter blocks, fast map, firmware/byte downloads | not during a job |
+
+**Off commands always pass.** The guard is direction-aware: anything that turns something off -
+PWM duty 0, DA 0, an output to 0 (shutter close included), laser sync off, follower stop, axis
+stop, FIFO stop/clear, alarm reset, laser-source emission off - is HALT class and is never
+refused, in any state including FAULT and OFFLINE (`tests/safety/test_arming_and_preflight.py::
+test_off_commands_always_pass`).  The laser button's release therefore always sends the PWM-off
+pair, even when the press was refused.
+
+**Which outputs need arming:** only the laser outputs (shutter/gate and the laser DOs).  Gas
+valves and the other process outputs can be switched by hand while disarmed (they are still
+switched off by every halt); the beam cannot come on without arming because PWM, DA, laser
+sync, step duty and the shutter all need it.
 
 Refusals raise `CommandRefused` (a `ControllerError`, code 9101) and are written to the audit
 log. The UI, diag and devices get `ctl.card()`, a `CardHandle` without access to the socket,
@@ -136,6 +148,8 @@ can only run out what is buffered (≤ 1.2 s).
 * Hold-to-jog: a continuous jog needs a keep-alive (`jog_keepalive()`, sent every 100 ms by the
   run panel and by the pendant reader); without one for `jog_deadman_s` (0.5 s) the jog is
   stopped. Release, focus loss, panel hidden, Stop and pendant HID errors stop it at once.
+  `jog_stop` is idempotent: a jog already stopped (by the dead-man, a Stop, a halt) sends no
+  second stop sequence, so the wire matches the original's single stop.
 * Stop never blocks the caller: it flags the cancel, a background thread sends the halt first,
   then waits for the worker. Global keys while a job runs: Space = Hold/continue (not while typing
   in a text field), Esc and F12 = Stop.

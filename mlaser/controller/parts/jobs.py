@@ -327,6 +327,7 @@ class JobRunnerPart:
                 st.set_cancel()
             self._cancel.set()
         self._jogging = None
+        self._jog_active = False
         if self.sup.connected:
             self.sup.safe_halt(f"fault: {reason}")
 
@@ -374,6 +375,7 @@ class JobRunnerPart:
         if self.sup.connected:
             self.sup.safe_halt(reason or "safe_halt")
         self._jogging = None
+        self._jog_active = False
         if self._busy():
             self._stop_reason = reason or "safe_halt"
             st = self._streamer
@@ -539,6 +541,7 @@ class JobRunnerPart:
                 st.set_cancel()
             self._cancel.set()
         self._jogging = None
+        self._jog_active = False
         audit("stop", running=running, breakpoint=self.breakpoint is not None)
 
         def do_stop():

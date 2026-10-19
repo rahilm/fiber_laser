@@ -172,6 +172,7 @@ class MotionPart:
         if length is None:
             self._jogging = axis.upper()
             self._jog_alive = time.monotonic()
+            self._jog_active = True
         self._safe(what, self._mc.jog, a, F.ftol(p * v), acc, F.ftol(p * d))
         if length is None:
             self._s.mode = "jog"
@@ -194,10 +195,14 @@ class MotionPart:
     def jog_stop(self, axis: Optional[str] = None) -> None:
         """Jog button released (WM_LBUTTONUP, FUN_005ad9f0 -> CManuPanel::jogStop FUN_005cd960):
         CNCModule +0x58 = "send stop manu cmd" (FUN_10046420, VM event 10) with no program
-        running -> :meth:`_vm_stop_jog`."""
+        running -> :meth:`_vm_stop_jog`.  Idempotent: a jog that the dead-man (or a Stop)
+        already stopped sends nothing a second time."""
         self._jogging = None
         if self._mc is None or self._busy():
             return
+        if not self._jog_active:
+            return                  # idempotent: this jog was already stopped (dead-man, Stop)
+        self._jog_active = False
         self._vm_stop_jog()
 
     def _vm_stop_jog(self) -> None:
