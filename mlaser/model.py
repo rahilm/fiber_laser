@@ -214,7 +214,8 @@ class LegacyExtra(dict):
 
     The dict itself stores only the opaque keys; the old keys live in the owner's typed fields.
     ``dict(extra)``, ``extra.items()`` and ``copy.deepcopy(extra)`` (alone) give both, like the
-    old dict did; ``pickle`` stores a plain dict (both) and the owner re-wraps it."""
+    old dict did; ``pickle`` stores the opaque keys as a plain dict (the owner pickles its typed
+    fields) and the owner re-wraps it on first access."""
 
     __slots__ = ("_ref", "_virt")
 
@@ -410,7 +411,8 @@ class LegacyExtra(dict):
         return res
 
     def __reduce__(self):
-        return (dict, (self.materialize(),))
+        # the opaque data only: the owner pickles its typed fields itself
+        return (dict, (dict(dict.items(self)),))
 
     def __or__(self, other):
         d = self.materialize()
@@ -443,18 +445,24 @@ class _ExtraField:
         return self._adopt(obj, v)
 
     def __set__(self, obj, value) -> None:
+        d = obj.__dict__
         if value is _NO_EXTRA or value is None:
-            value = {}
-        if obj.__dict__.get("_initialised") is not True:
-            # inside __init__: the typed fields after ``extra`` are not set yet; route in
-            # __post_init__ so an old key is not overwritten by the field default
-            obj.__dict__["extra"] = LegacyExtra(obj, {k: v for k, v in _items(value)
-                                                      if k not in type(obj)._LEGACY_KEYS}, route=False)
-            pending = {k: v for k, v in _items(value) if k in type(obj)._LEGACY_KEYS}
-            if pending:
-                obj.__dict__["_pending_extra"] = pending
+            d["extra"] = {}                      # wrapped on first access (cheap construction)
             return
-        obj.__dict__["extra"] = LegacyExtra(obj, dict(_items(value)))
+        legacy = type(obj)._LEGACY_KEYS
+        if type(value) is dict and not any(k in legacy for k in value):
+            d["extra"] = value                   # no old keys: wrapped on first access
+            return
+        if type(obj)._LAST not in d:
+            # inside __init__: the typed fields after ``extra`` are not set yet; route the old
+            # keys in __post_init__ so a field default does not overwrite them
+            items = _items(value)
+            d["extra"] = {k: v for k, v in items if k not in legacy}
+            pending = {k: v for k, v in items if k in legacy}
+            if pending:
+                d["_pending_extra"] = pending
+            return
+        d["extra"] = LegacyExtra(obj, dict(_items(value)))
 
     def _adopt(self, obj, v) -> LegacyExtra:
         if v is None:
@@ -471,12 +479,16 @@ def _items(v) -> list:
 
 
 def _finish_init(obj) -> None:
-    d = obj.__dict__
-    d["_initialised"] = True
-    pending = d.pop("_pending_extra", None)
+    pending = obj.__dict__.pop("_pending_extra", None)
     if pending:
         for k, v in pending.items():
             type(obj)._LEGACY_KEYS[k].set(obj, v)
+
+
+def _raw_extra(o) -> dict:
+    """The stored ``extra`` (plain dict or LegacyExtra storage) without wrapping it."""
+    v = o.__dict__.get("extra")
+    return v if v is not None else {}
 
 
 def _key(attr: str, default: Any = None, present: Optional[Callable[[Any], bool]] = None) -> _LegacyKey:
@@ -589,9 +601,11 @@ class Craft:
     lead_error: bool = False
 
     _LEGACY_KEYS = {}  # filled below
+    _LAST = "lead_error"  # the last field __init__ sets (see _ExtraField.__set__)
 
     def __post_init__(self) -> None:
-        _finish_init(self)
+        if "_pending_extra" in self.__dict__:
+            _finish_init(self)
 
     def __eq__(self, other) -> bool:
         if other.__class__ is not self.__class__:
@@ -603,7 +617,7 @@ class Craft:
                 and self.overcut == other.overcut and self.joint_width == other.joint_width
                 and self.lead_error == other.lead_error
                 and self.__dict__.get("_mj_widths") == other.__dict__.get("_mj_widths")
-                and dict.__eq__(self.extra, other.extra))
+                and dict.__eq__(_raw_extra(self), _raw_extra(other)))
 
     __hash__ = None  # type: ignore[assignment]
 
@@ -691,9 +705,11 @@ class Contour:
     glyph_key: Optional[tuple] = field(default=None, repr=False)
 
     _LEGACY_KEYS = {}  # filled below
+    _LAST = "glyph_key"
 
     def __post_init__(self) -> None:
-        _finish_init(self)
+        if "_pending_extra" in self.__dict__:
+            _finish_init(self)
 
     def __eq__(self, other) -> bool:
         if other.__class__ is not self.__class__:
@@ -701,7 +717,7 @@ class Contour:
         return (self.segments == other.segments and self.closed == other.closed
                 and self.craft == other.craft and self.glyphs == other.glyphs
                 and (self.glyphs is None or self.glyphs_current() == other.glyphs_current())
-                and dict.__eq__(self.extra, other.extra))
+                and dict.__eq__(_raw_extra(self), _raw_extra(other)))
 
     def glyphs_current(self) -> bool:
         """True when the attached glyphs still describe ``segments`` (see :meth:`source_glyphs`)."""
@@ -771,16 +787,18 @@ class Part:
     raster: Optional[Any] = None
 
     _LEGACY_KEYS = {}  # filled below
+    _LAST = "raster"
 
     def __post_init__(self) -> None:
-        _finish_init(self)
+        if "_pending_extra" in self.__dict__:
+            _finish_init(self)
 
     def __eq__(self, other) -> bool:
         if other.__class__ is not self.__class__:
             return NotImplemented
         return (self.contours == other.contours and self.craft == other.craft and self.name == other.name
                 and self.selected == other.selected and self.raster is other.raster
-                and dict.__eq__(self.extra, other.extra))
+                and dict.__eq__(_raw_extra(self), _raw_extra(other)))
 
     __hash__ = None  # type: ignore[assignment]
 
