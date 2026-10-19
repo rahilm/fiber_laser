@@ -208,6 +208,24 @@ def test_bundle_check_requires_the_backends_a_bundle_ships(monkeypatch, capsys):
     the same backend is only reported."""
     import mlaser.__main__ as L
 
+    import multiprocessing
+
+    class _Proc:                               # no real spawn child in the test process
+        exitcode = 0
+
+        def __init__(self, *a, **k):
+            pass
+
+        def start(self):
+            pass
+
+        def join(self, timeout=None):
+            pass
+
+    class _Ctx:
+        Process = _Proc
+    monkeypatch.setattr(multiprocessing, "get_context", lambda method=None: _Ctx())
+
     def broken():
         raise ImportError("DLL load failed while importing _pywrapcp")
     monkeypatch.setitem(L._BACKEND_CHECKS, "ortools", ("OR-Tools (sort mode 20)", broken))
