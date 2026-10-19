@@ -190,3 +190,47 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 ## Outside software
 - ☐ a hardware watchdog relay in the laser-enable chain (owner, with the documented wiring)
 - ☐ the first hardware session, following docs/re/parity.md §8 and protocol.md §8
+
+## Review 2 (2026-10-20): safety fixes, responsiveness, shop workflow
+Source: the second review (features, performance, code health), summarised in the session. Quoting is
+deliberately out of scope for now.
+
+### Wave A: safety (first)
+- ☐ one controller start gate: no Stop since the request, card idle, head at the plan start, no
+  breakpoint conflict, interlocks clear (closes P0-2 Stop vs compiling Start, P0-3 stale head
+  position, start-during-jog, Backward/Forward travel after a jog)
+- ☐ P0-1 extended IO (ports 11–26): arming classification, FIFO emission detection, halt words;
+  simulator models the IO split
+- ☐ P0-4 interlocks (gas-low, door, laser alarm) and the heartbeat output configurable through
+  ConfigService, Options and the commissioning wizard
+- ☐ disarm after the queue finishes; breakpoint/document lock across fault reset;
+  `replace_document` locked during a job; FIFO pause mode latches e-stop; resume re-pierce uses the
+  layer table; laser-source guard per device (no simulator hijack); raw laser query guarded;
+  guarded-output mask fails closed
+- ☐ plugin trust model: no public bypass of the guard, audited arming, opt-in allowlist
+- ☐ untrusted input limits: .mlz zip-bomb and depth limits, DXF/SVG expansion caps off the GUI
+  thread, LAN monitor timeouts and connection cap
+- ☐ the Run screen's controls never hidden by docks (the old Nest panel case)
+
+### Wave B: responsiveness and throughput
+- ☐ plan compile in a separate process; `sys.setswitchinterval` interim; scoped edit snapshots;
+  linear selection sync; no duplicate estimate pass; LAN monitor SVG/bbox cache
+- ☐ streamer: no automatic full GC during jobs, heartbeat from its own thread (motion bound kept)
+- ☐ native smoother/curve tables/crtmath, packed arrays from the C kernel, parallel compile per
+  chain (bit-identical), ring sort O(n log n)
+- ☐ packaging: ortools.dll on Windows, no host CUPS/gnutls in the Linux bundle, size trims
+- ☐ tests: pytest-xdist in CI (timing tests grouped), `.python-version` 3.12, README numbers
+
+### Wave C: shop workflow (quoting excluded)
+- ☐ part recognition and DXF repair on import
+- ☐ order intake: multi-file and CSV (quantity, material, thickness, customer, due date)
+- ☐ material check against the technology, "load this sheet" card
+- ☐ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
+  cut-up, remnant separation cut
+- ☐ lead-in collision check, automatic lead placement, tip-avoiding cut order
+- ☐ simulator/practice runs excluded from production statistics; guided practice mode
+- ☐ CLI (compile, nest, estimate) and an automation API whose queued jobs need operator approval
+- ☐ notifications (sheet done, alarm, waiting for sheet, maintenance due): ntfy / e-mail / webhook
+- ☐ part labels, part-ID etching, QR job tickets, remnant labels
+- ☐ project hygiene: SECURITY.md (safety reports), CONTRIBUTING, CHANGELOG, CODEOWNERS, CI guard on
+  golden and parity-port changes; command palette "no matches"
