@@ -202,7 +202,7 @@ from the installed dist-info metadata and licence files, and the upstream reposi
 | **ruckig** (extra `ruckig`) | 0.19.4 | MIT (Community edition) | optional modern planner profile `modern-ruckig` | dist-info `licenses/LICENSE` (© 2021 Lars Berscheid). Only offline Community features are used (no intermediate waypoints / cloud API, which are Pro); a test checks it |
 | hidapi, pyserial (extra `devices`) | 0.15.0, 3.5 | BSD (hidapi dual BSD/GPL-3: used under BSD) | pendant, serial links | METADATA |
 | platformdirs (optional) | 4.13 | MIT | config dir of the first-run self-test | METADATA |
-| mlaser-native (`native/`, optional) | 0.1 | MIT (this project) | C emitter kernel, profile `native-sampling` | own code; calls CPython's `math.hypot` at run time, copies nothing |
+| `mlaser._native` (optional C extension in the main package, `mlaser/_native/_emitter.c`) | (package version) | MIT (this project) | C emitter kernel, the default when it builds and passes its self-check (docs/dev/NATIVE_KERNEL.md) | own code; calls CPython's `math.hypot` at run time, copies nothing |
 | hypothesis (dev only) | 6.170 | MPL-2.0 | property tests, not distributed | METADATA |
 | PyInstaller (build tool only) | 6.22 | GPL-2.0-or-later with the bootloader exception | frozen builds | the exception allows distributing the frozen app under any licence; PyInstaller itself is not shipped as a library |
 
