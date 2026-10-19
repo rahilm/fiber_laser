@@ -684,26 +684,26 @@
   },
   "dxf/text_points#bands_nosmooth_ppm1000": {
    "approx": {
-    "estimate_total_s": 8.634476486903669,
-    "laser_on_length_mm": 132.7562209253312,
+    "estimate_total_s": 8.632639033902645,
+    "laser_on_length_mm": 134.1894459052601,
     "process_time_s": 1.7166666666666668,
     "pulse_carry": [
-     -0.0009400377050710063,
-     -0.0008789836950120478
+     -0.0028330202394002413,
+     -0.998213675061661
     ],
-    "rapid_length_mm": 113.86421146034678
+    "rapid_length_mm": 114.3039159919185
    },
-   "cut_blocks": "8b3ef7fbe07ab64bb0308b5ba19250a64f9ddbde2e1fa6d751279bca72b249d8",
+   "cut_blocks": "5a35617d99e92a518948eccfbafb858480574d070ebf7ad43917dfafc6cd0ee3",
    "end_pulses": [
     0,
-    0
+    1
    ],
-   "frames": "09403029459c0d98c2ec947579dbc41669074cdc611172649f3128c2b76bde9c",
+   "frames": "47655c2a536ab3308bd4c993c2323d7ffa1f63e92cd788cb08da7a7c5eeb1172",
    "host_dependent": true,
    "items": 9163,
-   "markers": "9a164fe08c02af8cf8321c1ce0eab92c3c67520027c41913f92dbc95136ffe7c",
+   "markers": "1d30c48f7585a36119c17be665816c7e54851ed566dbd7012a04b719621ee4bd",
    "n_frames": 93,
-   "overspeed_periods": 438,
+   "overspeed_periods": 442,
    "pierces": 7,
    "process_items": 89,
    "start_pulses": [
@@ -711,28 +711,28 @@
     0
    ],
    "steps": 9074,
-   "wire": "532557a108922f1988772b52842816b0f0945fad1d45fa0f73875abe7b4f1af0"
+   "wire": "beae355730cdad3476b9d83294df90493994b3d1ab40bc8c6b1c6dce118912dc"
   },
   "dxf/text_points#default": {
    "approx": {
-    "estimate_total_s": 8.166668301747515,
-    "laser_on_length_mm": 132.2023807766258,
+    "estimate_total_s": 8.148494984185877,
+    "laser_on_length_mm": 133.66694694029758,
     "process_time_s": 1.5166666666666668,
     "pulse_carry": [
-     3.7206877660178606e-05,
-     0.6451379550501705
+     0.9996972187405749,
+     0.5642913889527811
     ],
-    "rapid_length_mm": 76.13861299784148
+    "rapid_length_mm": 76.43180549361219
    },
-   "cut_blocks": "80b167ea6bd5022ff0d793b090a1eac5e55064472345025cf6dead855a107dfe",
+   "cut_blocks": "54ad057e26a55f7eb9fb3ff300f7074d07dd6e97b0873a6747309aa81f0732f6",
    "end_pulses": [
-    5000,
-    2006
+    4999,
+    2008
    ],
-   "frames": "33ab21d45a2b9305cff2ebafb87c4b94a5581315b7b95fe8119fa0a102b53189",
+   "frames": "8f0a6bd8f63999b6e869d98d9b40fe84a30bbfffeeccd7f9e870dd499e8a32a1",
    "host_dependent": true,
-   "items": 8251,
-   "markers": "9c882cf5f6f2f95fc924ab2df931396267304ee63e24d13cdfe80510d1edaa5f",
+   "items": 8232,
+   "markers": "4bdbf4a5f32c9be63af39c4d25701f38fe45697a230e5d9c4da480978794d5fb",
    "n_frames": 84,
    "overspeed_periods": 0,
    "pierces": 7,
@@ -741,8 +741,8 @@
     0,
     0
    ],
-   "steps": 8166,
-   "wire": "2baf9bcc372ae3a48e7e6e47239670b8b701f145d706c21a7ca63c3a9b7104d0"
+   "steps": 8147,
+   "wire": "2b9c075674ae8d822570b033c28a66c8adf080e19fddce73ed16a71ed9de6a6e"
   },
   "dxf/visibility#bands_nosmooth_ppm1000": {
    "approx": {

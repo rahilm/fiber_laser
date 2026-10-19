@@ -42,9 +42,13 @@ passes but one random job (seed 257) plans differently: 3.11's plain ``sum()`` c
 point in the last bit and the smoother amplifies it.  tests/golden/test_goldens.py therefore
 skips on other minor versions (``MLASER_GOLDEN_ANY_PYTHON=1`` forces it).
 
-DXF samples with TEXT depend on the installed fonts (the outline comes from the font engine), so
+DXF samples with TEXT depend on the text font (the outline comes from the font engine), so
 cases flagged ``host_dependent`` are compared only when the text-font fingerprint matches the
-one in manifest.json, and skipped otherwise.
+one in manifest.json, and skipped otherwise.  Since Wave 3 the default text font is the bundled
+Noto Sans SC subset (mlaser.cad.fonts), so the fingerprint, and these cases, are the same on
+every host; the 23 TEXT cases were regenerated once for that change (before: WenQuanYi Micro
+Hei, the original's 宋体 as the Wine harness maps it; ``MLASER_TEXT_FONT=system`` still gives
+that probe, 10e96370...).
 """
 
 from __future__ import annotations
