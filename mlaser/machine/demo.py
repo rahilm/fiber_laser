@@ -8,6 +8,7 @@ machine, arming and the pre-flight check, so the UI behaves the same with and wi
 """
 from __future__ import annotations
 
+import logging
 import math
 import threading
 import time
@@ -140,6 +141,7 @@ class DemoController(_api.ControllerFacade):
 
     # -- API ---------------------------------------------------------------
     def connect(self, host: Optional[str] = None, port: Optional[int] = None) -> bool:
+        self._invalidate_starts("connect")
         s = self._s
         s.connected, s.mode, s.ftc, s.laser, s.link_ok = True, "ready", "ready", "ready", True
         self.fsm.simulator, self.fsm.dry_run = True, not self.laser_enabled
@@ -153,6 +155,7 @@ class DemoController(_api.ControllerFacade):
         return True
 
     def disconnect(self) -> None:
+        self._invalidate_starts("disconnect")
         if self.job_active():
             self.safe_halt("disconnect")
         self._s = _api.MachineState(x=self._s.x, y=self._s.y)
@@ -236,16 +239,20 @@ class DemoController(_api.ControllerFacade):
         if self._run(pts, speed, "process", emits=emits):
             self._s.outputs["laser"] = emits
 
-    def start_job(self, job) -> None:
+    def start_job(self, job, generation: Optional[int] = None) -> bool:
         """Run a :class:`mlaser.services.jobs.PlannedJob` (the JobSubmitter protocol): pre-flight
-        on the plan's extent, then follow its toolpath (planned order, leads, rapids)."""
+        on the plan's extent, then follow its toolpath (planned order, leads, rapids).  A Stop
+        since the request (``generation``) refuses it.  Returns True when it started."""
+        if generation is not None and generation != self.start_generation():
+            self._log("start refused: Stop since the request (press Start again)", logging.WARNING)
+            return False
         if not self._motion_ok("frame" if job.mode == "frame" else "start") or self.job_active():
-            return
+            return False
         from ..toolpath.points import path_points
         pts = [(x, y) for x, y, _on in path_points(job.toolpath)]
         if not pts:
             self._log("mp74: nothing to cut")
-            return
+            return False
         self._advance()
         emits = job.mode == "process" and self.laser_enabled and not job.dry_run
         action = "frame" if job.mode == "frame" else ("start" if emits else "dry_run")
@@ -253,14 +260,16 @@ class DemoController(_api.ControllerFacade):
         rep = self.preflight(action, doc if job.mode != "frame" else None, job.selected_only,
                              extent=job.cut_bounds if job.mode != "frame" else job.bounds, emits=emits)
         if self._refuse(rep):
-            return
+            return False
         if job.mode == "process":
             layers = getattr(job.document, "layers", {}) or {}
             speed = max(1.0, min(lp.speed for lp in layers.values())) if layers else 100.0
         else:
             speed = self.RAPID / 2
-        if self._run(pts, speed, job.mode, emits=emits) and emits:
+        started = self._run(pts, speed, job.mode, emits=emits)
+        if started and emits:
             self._s.outputs["laser"] = True
+        return bool(started)
 
     def pause(self) -> None:
         self._advance()
@@ -282,6 +291,7 @@ class DemoController(_api.ControllerFacade):
             self._log("resumed")
 
     def stop(self, wait: bool = False) -> threading.Event:
+        self._invalidate_starts("stop")
         self._advance()
         was = self.job_active() and self._s.mode in ("process", "dry_run", "frame", "pause")
         mode = self._resume_mode if self._s.mode == "pause" else self._s.mode

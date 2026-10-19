@@ -45,6 +45,7 @@ from ..machine.safety import SafetyState
 from .client import CardScaling, ControllerError, MotionController, TransportConfig
 from .interlocks import InterlockConfig, InterlockMonitor
 from .parts.connection import AXES, ConnectionPart
+from .parts.gate import StartGatePart
 from .parts.io import IOPart
 from .parts.jobs import JobRunnerPart
 from .parts.motion import CANCEL_CMD, HOME_MODES, MotionPart  # noqa: F401 - re-exported
@@ -58,7 +59,7 @@ log = logging.getLogger(__name__)
 DEFAULT_OUTPUT_MAP = {"gas": 1, "shutter": 2, "red_light": 3, "dedust": 4, "lube": 5}
 
 
-class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, ControllerFacade):
+class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGatePart, ControllerFacade):
     """Real-card implementation of :class:`~mlaser.machine.api.MachineAPI` (see module doc)."""
 
     def __init__(self, host: str = "10.1.1.168", port: int = 502, ini_path: Optional[str] = None,
@@ -245,6 +246,7 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, Controller
     def disarm(self, reason: str = "") -> None:
         """Drop the arming.  A running job that fires the laser is stopped first."""
         from ..machine.audit import audit
+        self._invalidate_starts("disarm")
         if self._busy() and self._job_emits:
             self.stop()
         was = self.fsm.armed

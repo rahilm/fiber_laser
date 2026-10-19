@@ -183,6 +183,8 @@ class ControllerFacade(ABC):
         self.coords = None
         self.require_homed = True            # pre-flight policy (simulator: off, see connect_simulator)
         self.fsm = SafetyFSM(self._on_safety_change)
+        self._gen = 0                        # start generation (Stop, halt, fault, disarm, connect)
+        self._gen_lock = threading.Lock()
 
     # -- events ------------------------------------------------------------
     def add_log_listener(self, fn: Callable[[str], None]) -> None:
@@ -206,6 +208,18 @@ class ControllerFacade(ABC):
         elif not st.armed and reason.startswith(("disarm", "fault", "disconnect", "connected")) \
                 and old in (SafetyState.ARMED, SafetyState.RUNNING, SafetyState.PAUSED):
             self.events.publish(EV.Disarmed(reason))
+
+    # -- start generation (docs/SAFETY.md §5a) --------------------------------
+    def start_generation(self) -> int:
+        """Changes on every Stop, halt, fault, disarm, connect and disconnect.  A caller that
+        takes time between the operator's start request and the start (a plan compiling) reads
+        it at the request and passes it to ``start_job(plan, generation=...)``: a stale
+        generation refuses the start."""
+        return int(self._gen)
+
+    def _invalidate_starts(self, why: str = "") -> None:
+        with self._gen_lock:
+            self._gen += 1
 
     # -- safety ------------------------------------------------------------
     def safety(self) -> SafetyStatus:
@@ -250,6 +264,7 @@ class ControllerFacade(ABC):
         return True
 
     def disarm(self, reason: str = "") -> None:
+        self._invalidate_starts("disarm")
         if self.job_active() and self.fsm.armed:
             self.stop()
         if self.fsm.disarm(reason or "disarmed by operator"):
@@ -266,6 +281,7 @@ class ControllerFacade(ABC):
     def raise_fault(self, reason: str) -> None:
         """Latch a FAULT and bring the machine to a safe state."""
         first = self.fsm.raise_fault(reason)
+        self._invalidate_starts("fault")
         self._log(f"FAULT: {reason}" if first else f"(fault already latched) {reason}", logging.ERROR)
         self.safe_halt(reason)
 

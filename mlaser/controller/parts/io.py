@@ -288,6 +288,7 @@ class IOPart:
         """mp51 'Laser': fire the beam in place for ``duration_s`` (zero-motion FIFO steps with the
         laser byte set).  INFERRED: the laser gate is the step item's laser byte.  Needs the
         machine armed."""
+        gen = self.start_generation()
         if not self._motion_ok("laser test") or self._busy():
             return
         if not self._armed_for("laser test"):
@@ -298,11 +299,13 @@ class IOPart:
         pct = self._s.laser_power_pct if power_pct is None else power_pct
         doc = Document(layers={1: LayerParams(1, power_pct=pct)})
         items = [I.LayerChange(1), I.LaserOn(1), I.Delay(duration_s), I.LaserOff()]
-        job = compile_items(items, self.machine, (self._s.x, self._s.y), doc)
+        job = compile_items(items, self.machine, self._fresh_head(), doc)
         if self._refuse(self.preflight("laser_test", emits=True)):
             return
+        if not self._start_gate("laser_test", job=job, generation=gen, emits=True):
+            return
         self._run_job(job, "process", f"laser test {duration_s * 1000:.0f} ms at {pct:.0f} %",
-                      track=False, emits=True)
+                      track=False, emits=True, generation=gen)
 
 
 __all__ = ["IOPart"]

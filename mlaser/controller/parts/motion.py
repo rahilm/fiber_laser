@@ -249,11 +249,13 @@ class MotionPart:
             return
         if self._refuse(self.preflight("move", target=(x, y))):
             return
+        if not self._start_gate("move", job_like=False):     # idle, no jog; re-reads the head
+            return
         m = self.machine
         fast = bool(m.param("MC.IsFastMode", False))
         acc = m.move_acc * 0.8 * (1.0 if fast else 0.1)
-        cx, cy = self._current_xy()
-        self.move_by(x - cx, y - cy, m.jog_fast_speed if fast else m.jog_speed, acc)
+        cx, cy = self._s.x, self._s.y                        # read back by the gate just now
+        self._move_rel(x - cx, y - cy, m.jog_fast_speed if fast else m.jog_speed, acc)
 
     def _current_xy(self) -> tuple[float, float]:
         """Fresh X/Y in mm (axis RO k2 / ppm, NC +0x1ac FUN_1002b900)."""
@@ -274,6 +276,15 @@ class MotionPart:
         ftol(acc) **unscaled**.  Defaults: MC.XFastMoveSpeed, MC.XFastMoveAcc."""
         if not self._motion_ok("move") or self._busy():
             return
+        if not self._start_gate("move", job_like=False):     # idle, no jog; re-reads the head
+            return
+        if self._refuse(self.preflight("move", target=(self._s.x + dx, self._s.y + dy))):
+            return
+        self._move_rel(dx, dy, speed, acc)
+
+    def _move_rel(self, dx: float, dy: float, speed: Optional[float] = None,
+                  acc: Optional[float] = None) -> None:
+        """The relative move itself (the callers ran the pre-flight and the start gate)."""
         p = self.position_ppm
         sp = self.machine.move_speed if speed is None else speed
         ac = self.machine.move_acc if acc is None else acc
@@ -308,9 +319,11 @@ class MotionPart:
             return None
         if self._refuse(self.preflight("move", target=t)):
             return None
+        if not self._start_gate("move", job_like=False):     # idle, no jog; re-reads the head
+            return None
         cx, cy = self._s.x, self._s.y
-        self.move_by(t[0] - cx, t[1] - cy, 100.0 if zero else self.machine.move_speed,
-                     self.machine.move_acc)
+        self._move_rel(t[0] - cx, t[1] - cy, 100.0 if zero else self.machine.move_speed,
+                       self.machine.move_acc)
         self._log(f"mp29: move to ({t[0]:.3f}, {t[1]:.3f})")
         return t
 

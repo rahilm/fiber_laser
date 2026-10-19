@@ -247,6 +247,14 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
         check_geometry(document, rep, selected_only)
     if job is not None and extent is None:
         extent = job_extent_mm(job)
+        st = getattr(job, "start_mm", None)
+        if extent is not None and head is not None and st is not None:
+            # the wire is relative steps: from a head that is not at the job's start the job
+            # runs translated by (head - start), so that is the extent to check (the start
+            # gate refuses such a start anyway; this keeps the report honest)
+            dx, dy = float(head[0]) - float(st[0]), float(head[1]) - float(st[1])
+            if dx or dy:
+                extent = (extent[0] + dx, extent[1] + dy, extent[2] + dx, extent[3] + dy)
     if extent is not None:
         x0, y0, x1, y1 = extent
         if head is not None:

@@ -120,7 +120,7 @@ class JobSubmitter(Protocol):
     ``start_job(job)`` itself (pre-flight, arming, then streaming ``job.frames()``); until then
     :class:`ControllerSubmitter` adapts today's ``UiController`` / ``DemoController``."""
 
-    def start_job(self, job: PlannedJob) -> None: ...
+    def start_job(self, job: PlannedJob) -> Optional[bool]: ...
 
 
 # --------------------------------------------------------------------------- hashing
@@ -571,9 +571,12 @@ class JobService:
                 on_result(False, msg2)
                 return
             try:
-                submitter.start_job(plan)
+                started = submitter.start_job(plan)
             except Exception as exc:  # noqa: BLE001 - reported
                 on_result(False, f"start failed: {exc}")
+                return
+            if started is False:  # refused by the controller (pre-flight, start gate): it logged why
+                on_result(False, "start refused by the controller")
                 return
             on_result(True, plan.summary())
 
@@ -664,66 +667,29 @@ def build_request(mode: str, docs, ctl, machine, cam_params, selected_only: bool
 
 # --------------------------------------------------------------------------- submitter
 class ControllerSubmitter:
-    """:class:`JobSubmitter` for today's controllers (merge point: the Safety branch gives the
-    controller its own ``start_job``; then this adapter only forwards).
-
-    * a controller with ``start_job(planned)`` (DemoController, the future MachineAPI): forwarded;
-    * ``UiController``: the checks of ``_start_doc`` (connected, idle, no alarms), its job-start
-      hooks with the unplaced document, then ``_run_job(plan.job, ...)`` - no recompile."""
+    """:class:`JobSubmitter` for the controllers: forwards the plan to the controller's own
+    ``start_job(plan, generation=...)`` (UiController, DemoController: pre-flight, the start
+    gate, then streaming), with the start generation read when this submitter was made (at the
+    operator's request)."""
 
     def __init__(self, ctl, log: Callable[[str], None] = lambda m: None) -> None:
         self.ctl = ctl
         self.log = log
+        # the controller's start generation when the operator asked for the start (made with
+        # the request, see MainWindow.run_job): a Stop or a halt while the plan compiles makes
+        # the controller's start gate refuse it (review 2 P0-2)
+        gen = getattr(ctl, "start_generation", None)
+        self.generation: Optional[int] = gen() if callable(gen) else None
 
-    def start_job(self, plan: PlannedJob) -> None:
+    def start_job(self, plan: PlannedJob) -> Optional[bool]:
+        """Returns False when the controller refused the start (None: not known)."""
         ctl = self.ctl
         fn = getattr(ctl, "start_job", None)
         if callable(fn):
-            fn(plan)
-            return
-        run = getattr(ctl, "_run_job", None)
-        if not callable(run):
-            raise TypeError(f"{type(ctl).__name__} cannot run a planned job")
-        motion_ok = getattr(ctl, "_motion_ok", None)
-        busy = getattr(ctl, "_busy", lambda: False)
-        if callable(motion_ok) and not motion_ok("frame" if plan.mode == "frame" else "start"):
-            return
-        if busy():
-            ctl._log("a job is already running")
-            return
-        refuse = getattr(ctl, "_refuse", lambda rep: False)
-        preflight = getattr(ctl, "preflight", None)
-        if plan.mode == "frame":
-            if callable(preflight) and refuse(preflight("frame", job=plan.job, emits=False)):
-                return
-            x0, y0, x1, y1 = plan.document.bbox()
-            run(plan.job, "frame", f"frame {x1 - x0:.1f} x {y1 - y0:.1f} mm", track=False)
-            return
-        if getattr(ctl, "active_alarms", None):
-            ctl._log("mp74: cannot start while alarms are active (Clear Alarm first)")
-            return
-        src = plan.source if plan.source is not None else plan.document
-        ctl.document = src
-        for hook in list(getattr(ctl, "job_start_hooks", [])):
-            try:
-                hook(src)
-            except Exception as e:  # noqa: BLE001 - a hook must not stop the job (as _start_doc)
-                ctl._log(f"job start hook failed: {e}")
-        if not plan.job.wire:
-            ctl._log("mp74: nothing to cut")
-            return
-        job_emits = getattr(ctl, "job_emits", None)
-        emits = bool(job_emits(plan.job)) if callable(job_emits) else not plan.job.dry_run
-        # the controller's pre-flight on the planned job (travel, homed, armed, layers, alarms)
-        if callable(preflight) and refuse(preflight("start" if emits else "dry_run", src, plan.selected_only,
-                                                    job=plan.job, emits=emits)):
-            return
-        if plan.job.dry_run and plan.mode == "process":
-            ctl._log("laser disabled: running the job as a dry run")
-        try:
-            run(plan.job, plan.mode, plan.job.summary(), emits=emits)
-        except TypeError:                                  # a controller without the emits flag
-            run(plan.job, plan.mode, plan.job.summary())
+            if self.generation is not None:
+                return fn(plan, generation=self.generation)
+            return fn(plan)
+        raise TypeError(f"{type(ctl).__name__} cannot run a planned job (no start_job)")
 
 
 @dataclass

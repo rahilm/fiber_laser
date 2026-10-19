@@ -191,6 +191,7 @@ class SafetySupervisor:
         self.link_ok = False
         self._lost = False
         self.halts: list[HaltResult] = []
+        self.halt_count = 0                   # halts so far (the controller's start generation)
         self._retry: Optional[tuple[str, bool]] = None
         self._mon: Optional[threading.Thread] = None
         self._mon_stop = threading.Event()
@@ -325,6 +326,7 @@ class SafetySupervisor:
     # ------------------------------------------------------------------ halt
     def safe_halt(self, reason: str, pause: bool = False, latch: bool = True) -> HaltResult:
         """Bring the card to a safe state (see the module doc); idempotent, never raises."""
+        self.halt_count += 1                  # every halt makes pending start requests stale
         if latch:
             self._latch = True
             self._latch_reason = reason

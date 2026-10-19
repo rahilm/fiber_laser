@@ -32,6 +32,7 @@ class ConnectionPart:
         parameters (FUN_10039f20) and adopt the scaling.  The connection always starts
         **disarmed** (or in FAULT when a fault is still latched)."""
         self.disconnect(quiet=True, keep_sim=True)
+        self._invalidate_starts("connect")
         # the streaming link deadline: the configured one for a real card, the simulator's own
         # (see connect_simulator) while self.sim runs in this process
         if self.sim is None:
@@ -155,6 +156,7 @@ class ConnectionPart:
     def disconnect(self, quiet: bool = False, keep_sim: bool = False) -> None:
         """Halt the card first (program stop, PWM 0, process outputs off, FIFO stop/clear), then
         stop the job worker, the poller and close the sockets."""
+        self._invalidate_starts("disconnect")
         if self.sup.connected:
             self.sup.safe_halt("disconnect")
         self._stop_reason = "disconnect"
