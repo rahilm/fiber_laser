@@ -171,7 +171,8 @@ def test_heartbeat_keeps_its_rate_with_late_timers(make_ctl, monkeypatch):
     """A host whose timers fire late (the macOS runners' VMs: a 50 ms wait takes 80-100 ms)
     must not slow the heartbeat down: the monitor requests the edge wake-ups earlier by the
     lateness it measures (at most a quarter period).  Here every wait of the safety monitor
-    comes 60 ms late, more than the 50 ms between the edges of a 10 Hz heartbeat."""
+    comes 300 ms late, more than the 250 ms between the edges of a 2 Hz heartbeat (scaled down
+    so the host's own timer lateness stays small against it)."""
     import threading
 
     import mlaser.controller.supervisor as SV
@@ -179,16 +180,17 @@ def test_heartbeat_keeps_its_rate_with_late_timers(make_ctl, monkeypatch):
     class LateEvent(threading.Event):
         def wait(self, timeout=None):
             if timeout is not None and timeout > 0 and not self.is_set():
-                return super().wait(timeout + 0.06)
+                return super().wait(timeout + 0.3)
             return super().wait(timeout)
 
     monkeypatch.setattr(SV.threading, "Event", LateEvent)
-    ctl = make_ctl(heartbeat_output=8, heartbeat_hz=10.0)
+    ctl = make_ctl(heartbeat_output=8, heartbeat_hz=2.0)
     assert isinstance(ctl.sup._mon_stop, LateEvent)
+    time.sleep(1.0)                        # the lateness estimate settles
     n0, t0 = ctl.sup.heartbeat_toggles, time.monotonic()
-    time.sleep(2.0)
+    time.sleep(4.0)
     rate = (ctl.sup.heartbeat_toggles - n0) / (time.monotonic() - t0)
-    assert rate >= 0.85 * 20.0, f"{rate:.1f} edges/s at 10 Hz (20 expected), {ctl.sup.heartbeat_errors} failed"
+    assert rate >= 0.85 * 4.0, f"{rate:.2f} edges/s at 2 Hz (4 expected), {ctl.sup.heartbeat_errors} failed"
 
 
 def test_follower_alarm_holds_through_a_reset(make_ctl):
