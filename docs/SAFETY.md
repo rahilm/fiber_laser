@@ -133,6 +133,9 @@ first on the document to show the dialog.
   holds nothing of the job before the child has spoken. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
+* While a job streams, the heap that existed before it is frozen (`gc.freeze`, `stream.quiet_gc`):
+  a full garbage collection of a large drawing's objects would otherwise stop every thread of
+  the process for up to a second (the in-thread streamer, the parent's watch of the child).
 
 ## 7. Link loss
 

@@ -95,3 +95,21 @@ def pytest_sessionfinish(session, exitstatus):
     app.processEvents()
     gc.collect()
     app.processEvents()
+
+
+_frozen_module = [None]
+
+
+def pytest_runtest_setup(item):
+    """At each new test module: collect what the previous modules left, then freeze the
+    survivors (``gc.freeze``), so a full collection during a test scans only that test's objects.
+
+    The suite's heap grows to ~2 million objects (windows, documents and caches of earlier
+    tests); a full collection of it held the GIL for 0.4-0.6 s (1 s on the CI runners) in the
+    middle of timing tests: the simulated card ran dry, links and heartbeats looked dead.  The
+    collect at the boundary scans only the objects created since the last freeze."""
+    mod = item.module.__name__ if item.module is not None else None
+    if mod != _frozen_module[0]:
+        _frozen_module[0] = mod
+        gc.collect()
+        gc.freeze()

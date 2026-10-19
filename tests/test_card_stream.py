@@ -192,3 +192,26 @@ def test_simulator_wait_and_follower_model():
             assert mc.read_status().alarm_word2 & (1 << 4)  # wait timeout -> alarm
     finally:
         sim.stop()
+
+
+def test_streaming_freezes_the_preexisting_heap():
+    """While a job streams, the objects that existed before it are frozen (gc.freeze), so a
+    full collection cannot stop the streaming thread for the whole heap; afterwards the freeze
+    is undone (when the streamer made it)."""
+    import gc
+    from mlaser.controller.stream import quiet_gc
+    gc.unfreeze()
+    seen = []
+    sim = CardSimulator(time_scale=4.0).start()
+    try:
+        with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
+            JobStreamer(mc).run_job(_job(300), progress=lambda f, i: seen.append(gc.get_freeze_count()))
+    finally:
+        sim.stop()
+    assert seen and min(seen) > 0
+    assert gc.get_freeze_count() == 0
+    gc.freeze()                                  # frozen by someone else: left frozen
+    n = gc.get_freeze_count()
+    with quiet_gc():
+        pass
+    assert gc.get_freeze_count() >= n > 0

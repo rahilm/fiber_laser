@@ -44,6 +44,8 @@ Rebuild (docs/SAFETY.md §6):
 from __future__ import annotations
 
 import bisect
+import contextlib
+import gc
 import multiprocessing as mp
 import os
 import queue as _queue
@@ -68,6 +70,35 @@ class StreamFault(ControllerError):
         self.kind = kind
         self.detail = msg
         self.exec_index = exec_index
+
+
+_gc_lock = threading.Lock()
+_gc_depth = [0]
+
+
+@contextlib.contextmanager
+def quiet_gc():
+    """While a job streams, the cyclic GC does not rescan the heap that existed before it.
+
+    A full (generation 2) collection holds the GIL for the whole scan: 0.4-0.6 s with ~2 million
+    live objects (measured in the test process; a GUI with a large drawing gets there too), and
+    every thread of the process stops meanwhile: the in-thread streamer runs the card's FIFO
+    dry, the parent's watch of the streaming child sees it silent.  ``gc.freeze()`` moves the
+    existing objects to the permanent generation, so collections during the job scan only what
+    the job allocates; ``gc.unfreeze()`` gives them back afterwards (unless something else, e.g.
+    the test harness, had frozen the heap already).  Nested / concurrent uses share one freeze."""
+    with _gc_lock:
+        _gc_depth[0] += 1
+        if _gc_depth[0] == 1:
+            _gc_depth.append(gc.get_freeze_count() == 0)    # ours to undo (nobody else froze)
+            gc.freeze()
+    try:
+        yield
+    finally:
+        with _gc_lock:
+            _gc_depth[0] -= 1
+            if _gc_depth[0] == 0 and _gc_depth.pop():
+                gc.unfreeze()
 
 
 @dataclass
@@ -196,6 +227,12 @@ class JobStreamer(FifoStreamer):
         self._prepared = (job, wj, cum, ctime, frames, frame_end)
 
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
+                cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
+                poll_s: float = 0.01, timeout_s: Optional[float] = None) -> StreamStats:
+        with quiet_gc():
+            return self._run_job(job, progress, cancel, hold, poll_s, timeout_s)
+
+    def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.01, timeout_s: Optional[float] = None) -> StreamStats:
         """Clear, prefill, start, keep filling and wait until the card has executed the job."""
@@ -549,6 +586,12 @@ class ProcessStreamer:
             self.proc.terminate()
 
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
+                cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
+                poll_s: float = 0.02, timeout_s: Optional[float] = None) -> StreamStats:
+        with quiet_gc():
+            return self._run_job(job, progress, cancel, hold, poll_s, timeout_s)
+
+    def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.02, timeout_s: Optional[float] = None) -> StreamStats:
         from .client import AxisStatus, MCStatus

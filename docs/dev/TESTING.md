@@ -140,6 +140,12 @@ Two rules keep those assertions meaningful on busy CI or development hosts:
   `time_scale` k has 1.2 s / k of real time in the FIFO; at 5-50x a stall of the test process
   (CI runners) let the card run dry. Streaming tests use 1-2x (10x for the synthetic captures of
   `mlaser.parity.synth`).
+- **Garbage-collector pauses.** By the middle of the suite the test process holds ~2 million
+  objects of earlier tests, and a full collection held the GIL for 0.4-0.6 s (more on the CI
+  runners) inside timing tests. `tests/conftest.py` collects and then freezes the heap
+  (`gc.freeze`) at each new test module (largest pause in a full run then ~0.1 s, measured
+  2026-10-19), and the streamers freeze it while a job streams (`stream.quiet_gc`, also in the
+  application).
 - **Platform clocks.** On Windows before Python 3.13 `time.monotonic()` / `time.time()` tick in
   15.6 ms steps: measure short intervals with `time.perf_counter()` and select logged requests by
   position, not by timestamp. The macOS runners are VMs whose timers fire late (a 2 ms sleep
