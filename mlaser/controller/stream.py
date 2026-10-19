@@ -153,6 +153,7 @@ class JobStreamer(FifoStreamer):
         self.on_event: Optional[Callable[..., None]] = None
         self.on_status: Optional[Callable[[object], None]] = None
         self.laser_off_errors: list[str] = []
+        self._prepared: Optional[tuple] = None      # prepare(job)
 
     def _emit(self, *ev) -> None:
         if self.on_event is not None:
@@ -175,15 +176,38 @@ class JobStreamer(FifoStreamer):
                 self.laser_off_errors.append(str(e))
         return ok
 
+    def prepare(self, job) -> None:
+        """Do the host-side work of :meth:`run_job` for ``job`` now (wire copy, timing, FIFO
+        frames; about 0.1 s for a 30 000-item job, more on a slow PC), so that it does not
+        happen between the last status poll and the first streaming request.  While a job
+        streams the link deadline (``link_deadline_ms``, 150 ms) counts from the last reply of
+        the card; preparing inside :meth:`run_job` let that time run out with no request
+        outstanding and latched a spurious "link lost" at the start of a long job.
+        :meth:`run_job` uses the prepared data when it is given the same ``job``."""
+        wj = WireJob.of(job)
+        cum, ctime = wire_timing(wj.wire, wj.period_ms)
+        frames = wj.frames(0)                   # numbered from the card's sequence in run_job
+        frame_end = []              # wire index of the last item in each frame
+        acc, k = 0, 0
+        for fr in frames:
+            acc += 4 * (len(fr) - 1)
+            k = bisect.bisect_left(cum, acc, lo=k)
+            frame_end.append(min(k, len(cum) - 1))
+        self._prepared = (job, wj, cum, ctime, frames, frame_end)
+
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.01, timeout_s: Optional[float] = None) -> StreamStats:
         """Clear, prefill, start, keep filling and wait until the card has executed the job."""
         mc = self.mc
-        wj = WireJob.of(job)
+        prep = self._prepared
+        if prep is None or prep[0] is not job:
+            self.prepare(job)
+            prep = self._prepared
+        self._prepared = None
+        _job, wj, cum, ctime, frames, frame_end = prep
         cancel = cancel or threading.Event()
         hold = hold or (lambda: False)
-        cum, ctime = wire_timing(wj.wire, wj.period_ms)
         total_bytes = cum[-1] if cum else 0
         total_ms = ctime[-1] if ctime else 0.0
         mc.fifo_clear()
@@ -191,14 +215,12 @@ class JobStreamer(FifoStreamer):
         capacity = st.fifo_free
         cap_ms = self.max_buffer_ms
         self.buf = BufferStats(capacity=capacity, max_buffer_ms=cap_ms or 0.0)
-        frames = wj.frames(st.fifo_seq + 1)       # == Job.frames(): what parity verified
+        # == Job.frames(st.fifo_seq + 1) (what parity verified): frames numbered from the card's
+        # next sequence number, as build_fifo_frames numbers them (seq & 0xFFFFFFFF)
+        first = st.fifo_seq + 1
+        for j, fr in enumerate(frames):
+            fr[0] = (first + j) & 0xFFFFFFFF
         frame_bytes = [4 * (len(fr) - 1) for fr in frames]
-        frame_end = []              # wire index of the last item in each frame
-        acc, k = 0, 0
-        for nb in frame_bytes:
-            acc += nb
-            k = bisect.bisect_left(cum, acc, lo=k)
-            frame_end.append(min(k, len(cum) - 1))
         self.stats = StreamStats(items=len(wj.wire))
         dur_s = wj.duration_s or total_ms / 1000.0
         limit = timeout_s if timeout_s is not None else max(60.0, 4 * dur_s + 30.0)

@@ -127,7 +127,10 @@ first on the document to show the dialog.
 * `ProcessStreamer` (default for real cards): the child is the only user of the main connection
   during the job and relays the status. The child halts the card itself when `os.getppid()`
   changes, when the parent's heartbeat counter stops for 0.3 s, or when the card has not answered
-  for `link_deadline_ms`. The parent faults when the child dies or is silent for 0.5 s. Hold and
+  for `link_deadline_ms`. The parent faults when the child dies or, once it has sent its first
+  message, is silent for 0.5 s; the child's start-up (an interpreter start, often more than
+  0.5 s on Windows) is bounded by `ProcessStreamer.startup_s` (20 s) instead, and the card
+  holds nothing of the job before the child has spoken. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
 
@@ -136,7 +139,11 @@ first on the document to show the dialog.
 While a job streams, no successful reply for `link_deadline_ms` (150 ms) latches FAULT (in the
 process streamer the child detects it; the parent watches the child with 500 ms). While idle the
 deadline is `idle_link_deadline_ms` (1.5 s). The halt is attempted at once and repeated; the card
-can only run out what is buffered (≤ 1.2 s).
+can only run out what is buffered (≤ 1.2 s). The in-thread streamer prepares the job (wire copy,
+timing, FIFO frames: about 0.1 s for 30 000 items, more on a slow PC) before the streaming
+deadline applies, while the status poller still talks to the card (`JobStreamer.prepare`):
+before, that preparation ran inside the 150 ms and latched a spurious "link lost" at the start of
+long jobs on slow hosts.
 
 ## 8. Interlocks, jog, Stop
 
@@ -167,7 +174,10 @@ the pessimistic mode. A halt completes the step being executed (the 1-pulse resu
 State banner (FAULT dark red with Reset, ARMED red with Disarm, DRY-RUN amber, SIMULATOR blue,
 DISARMED grey with Arm), alarm banner with remedy texts (`ui/safety_texts.py`) and Details, the
 status bar never shows Ready while an alarm or fault is latched, a run bar at the bottom (not in
-a scroll area, 56 px targets; checked at 1280×720 = 1920×1080 at 150 %), the laser fire button
+a scroll area, 56 px targets; checked at 1280×720 = 1920×1080 at 150 %; on the Run operator
+screen, which is a workspace page in the shell's scroll area, Stop, Hold, Start, Frame, Dry run
+and Arm are always in view, the resume and queue controls below them may need a vertical
+scroll at that size), the laser fire button
 only when armed, no file open / import / new document while a job runs, start-up homing as one
 dialog with "don't ask again", crash recovery as a dialog.
 

@@ -236,9 +236,17 @@ class JobRunnerPart:
             t0 = time.monotonic()
             ok = False
             reason = "done"
-            self.sup.streaming = "process" if self._use_process() else "thread"
-            self.sup.child_seen = time.monotonic()
             try:
+                # the host-side preparation (wire copy, timing, frames) runs while the poller
+                # still talks to the card: once ``streaming`` is set the streaming link deadline
+                # counts from the card's last reply (supervisor.deadline_s)
+                if hasattr(streamer, "prepare"):
+                    streamer.prepare(job)
+                # process streamer: the parent's link watch starts with the child's first
+                # message (0 = not seen yet; the child's start-up is bounded by
+                # ProcessStreamer.startup_s, and the card has nothing of this job before it)
+                self.sup.child_seen = 0.0
+                self.sup.streaming = "process" if self._use_process() else "thread"
                 streamer.run_job(job, progress, self._cancel, lambda: self._paused)
                 if self._cancel.is_set():
                     reason = self._stop_reason or ("paused" if self._pausing else "stopped")

@@ -225,3 +225,49 @@ def test_simulator_deadline_does_not_leak_to_a_real_card():
             card.stop()
     finally:
         ctl.disconnect()
+
+
+def test_host_preparation_does_not_count_as_link_silence(make_ctl, monkeypatch):
+    """The streamer's host-side preparation (wire copy, timing, frames) is not link silence: it
+    runs while the poller still talks to the card, before the 150 ms streaming deadline counts
+    from the card's last reply.  (Before: a long job on a slow host spent > 150 ms in
+    ``WireJob.of`` / ``frames`` inside ``run_job`` and latched "link lost" before the first
+    streaming request; CI, 212-255 ms.)"""
+    from mlaser.controller import stream as S
+    real_of = S.WireJob.of.__func__
+
+    def slow_of(cls, job):
+        time.sleep(0.4)                    # a slow PC: well past the 150 ms deadline
+        return real_of(cls, job)
+
+    monkeypatch.setattr(S.WireJob, "of", classmethod(slow_of))
+    ctl = make_ctl(process=False, link_deadline_ms=150.0)
+    start_and_run(ctl, run_s=0.3)
+    assert not ctl.fsm.faulted, ctl.safety().fault
+    assert ctl.stop().wait(10)
+
+
+def test_child_startup_is_not_link_silence(make_ctl):
+    """Process streamer: the parent watches the child's relays (``child_deadline_ms``) from its
+    first message on; spawning the child (an interpreter start, often > 0.5 s on Windows) is
+    bounded by ``ProcessStreamer.startup_s`` instead and never reads as a lost link."""
+    ctl = make_ctl(process=True, link_deadline_ms=150.0)
+    normal = ctl.sup.child_deadline_ms
+    ctl.sup.child_deadline_ms = 50.0       # far shorter than any process start-up
+    alive = ctl._child_alive
+    spoke = []
+
+    def first_message():                   # back to the normal deadline once the child spoke
+        if not spoke:
+            spoke.append(time.monotonic())
+            ctl.sup.child_deadline_ms = normal
+        alive()
+
+    ctl._child_alive = first_message
+    t0 = time.monotonic()
+    ctl.start(rect_doc())
+    assert wait_until(lambda: spoke, 20) is not None
+    assert spoke[0] - t0 > 0.05            # the start-up did outlast the 50 ms
+    assert wait_until(lambda: ctl.sim.state.fifo_running and ctl.sim.state.laser, 20) is not None
+    assert not ctl.fsm.faulted, ctl.safety().fault
+    assert ctl.stop().wait(10)
