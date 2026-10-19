@@ -2,18 +2,19 @@
 
 The original runs its job bookkeeping in the status timer FUN_00598280 when the machine
 leaves the processing state (process statistics, TotalReport.txt, production counter, device
-counters).  The rebuild's :class:`~mlaser.ui.facade.ControllerFacade` has no job-finished
-callback yet (requested from agent H, docs/diag.md "Requests"), so this watcher derives the
-events from what both controllers already publish:
+counters).  The watcher follows the controller's typed events (:meth:`subscribe`,
+:mod:`mlaser.machine.events`): ``JobStarted`` / ``JobFinished`` of tracked jobs; laser tests,
+frames and Backward/Forward moves are untracked, and a resume (``resume=True``) continues the
+job that is already open.
 
-* log messages (``add_log_listener``): ``"<mode>: <what>"`` when a job starts (UiController
-  ``_run_job``, DemoController ``_run``), ``"done: <mode>..."`` on normal completion,
-  ``"<mode> stopped"`` / ``"stopped"`` / ``"<mode> aborted"`` when it ends otherwise;
-* :meth:`poll` with ``ctl.state()`` as a fallback for controllers that do not log
-  (``mode`` leaves ``process``; ``progress`` >= 0.999 means completed).
+Without a bus (old scripts) it falls back to what it did before the event bus existed:
 
-Laser tests (``"process: laser test ..."``) and resumes (``"... resume from wire ..."``) are
-not new jobs.  A controller with a ``jobFinished`` signal can call :meth:`finish` directly.
+* log messages (:meth:`feed_log`): ``"<mode>: <what>"`` when a job starts, ``"done: <mode>..."``
+  on normal completion, ``"<mode> stopped"`` / ``"stopped"`` / ``"<mode> aborted"`` otherwise;
+* :meth:`poll` with ``ctl.state()`` (``mode`` leaves ``process``; ``progress`` >= 0.999 means
+  completed).
+
+Once subscribed, :meth:`feed_log` and :meth:`poll` are no-ops.
 """
 from __future__ import annotations
 
@@ -55,9 +56,37 @@ class JobWatcher:
         self._paused_s = 0.0
         self._log_driven = False
         self._last_mode = "offline"
+        self._unsub: list = []
+        self.bus = None
+
+    # ------------------------------------------------------------------ events
+    def subscribe(self, bus) -> None:
+        """Follow ``bus`` (a controller's ``events``); replaces the log/state heuristics."""
+        from mlaser.machine import events as EV
+        for un in self._unsub:
+            un()
+        self.bus = bus
+        self._unsub = [bus.subscribe(EV.JobStarted, self._on_started),
+                       bus.subscribe(EV.JobFinished, self._on_finished)]
+
+    def _on_started(self, ev) -> None:
+        if not ev.tracked or ev.mode not in JOB_MODES:
+            return
+        if ev.resume and self.mode is not None:
+            return
+        self.start(ev.mode, ev.info)
+
+    def _on_finished(self, ev) -> None:
+        if not ev.tracked or self.mode is None or ev.mode not in JOB_MODES:
+            return
+        if ev.reason in ("paused",) or ev.reason.startswith("fault"):
+            return                         # the job continues after a pause / fault reset
+        self.finish(ev.ok, ev.reason)
 
     # ------------------------------------------------------------------ inputs
     def feed_log(self, msg: str) -> None:
+        if self.bus is not None:
+            return
         m = _START.match(msg)
         if m:
             what = m.group(2)
@@ -81,6 +110,9 @@ class JobWatcher:
     def poll(self, state) -> None:
         """Fallback edge detection on ``MachineState.mode`` (used only when no log events)."""
         mode = getattr(state, "mode", "offline")
+        if self.bus is not None:
+            self._last_mode = mode
+            return
         if not self._log_driven:
             if mode in JOB_MODES and self._last_mode not in JOB_MODES + ("pause",):
                 self.start(mode, "")

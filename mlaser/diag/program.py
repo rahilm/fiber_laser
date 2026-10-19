@@ -145,7 +145,7 @@ class ProgramRunner:
         elif isinstance(step, DryRun):
             ctl.dry_run(step.document)
         elif isinstance(step, Laser):
-            if step.duration_s > 0 and hasattr(ctl, "laser_test"):
+            if step.duration_s > 0:
                 ctl.laser_test(step.duration_s, step.power_pct or None)
             else:
                 if step.power_pct:

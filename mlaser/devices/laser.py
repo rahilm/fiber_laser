@@ -131,6 +131,31 @@ def raycus_status_ok(frame: bytes) -> bool:
     return len(frame) == 14 and frame[:2] == b"\xaa\x55" and frame[12:] == b"\x55\xaa"
 
 
+# ----------------------------------------------------------------------------- arming guard
+# Emission ON needs the machine armed (docs/SAFETY.md).  The connected controller registers its
+# check here (controller.parts.connection, ui.safety_ui); without one, emission is refused.
+_EMISSION_GUARD = None
+
+
+def set_emission_guard(fn) -> None:
+    """``fn(on)`` raises :class:`LaserError` to refuse; None = no supervisor (emission refused)."""
+    global _EMISSION_GUARD
+    _EMISSION_GUARD = fn
+
+
+def emission_guard():
+    return _EMISSION_GUARD
+
+
+def check_emission(on: bool) -> None:
+    if not on:
+        return
+    g = _EMISSION_GUARD
+    if g is None:
+        raise LaserError("laser source emission refused: no safety supervisor is armed")
+    g(on)
+
+
 # ----------------------------------------------------------------------------- clients
 class LaserClient:
     """Common pass-through client: send bytes, require a non-empty reply."""
@@ -157,6 +182,8 @@ class LaserClient:
         return rx
 
     def emission(self, on: bool) -> bytes:
+        """Emission on (needs the machine armed, :func:`check_emission`) / off (always)."""
+        check_emission(on)
         return self.send(self.commands.emission_on() if on else self.commands.emission_off())
 
 
@@ -179,6 +206,7 @@ class IpgLaser(LaserClient):
         return self.send(IpgCommands.modulation_on())
 
     def external_emission(self, on: bool) -> bytes:
+        check_emission(on)
         return self.send(IpgCommands.external_emission_on() if on else IpgCommands.external_emission_off())
 
     def external_aiming(self, on: bool) -> bytes:
@@ -186,7 +214,10 @@ class IpgLaser(LaserClient):
 
     def query(self, text: str) -> str:
         """Send an arbitrary ASCII command (e.g. ``STA``/``RCT`` of the vendor protocol -
-        NOT used by Mlaser, INFERRED) and return the reply text."""
+        NOT used by Mlaser, INFERRED) and return the reply text.  Emission commands (``EMON``,
+        ``ELE``) need the machine armed."""
+        if text.strip().upper().startswith(("EMON", "ELE")):
+            check_emission(True)
         return self.send(text.encode("ascii") + b"\r").decode("ascii", "replace").strip()
 
 

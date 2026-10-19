@@ -102,7 +102,7 @@ def run(mode: str, args, conn) -> dict:
     t0 = time.perf_counter()
     try:
         if mode == "process":
-            ps = ProcessStreamer(cfg, 1000.0, watchdog_ms=args.watchdog_ms)
+            ps = ProcessStreamer(cfg, 1000.0, policy={"armed": True}, watchdog_ms=args.watchdog_ms)
             ps.run_job(job, timeout_s=args.seconds * 20 + 60)
             buf = ps.buf
         else:

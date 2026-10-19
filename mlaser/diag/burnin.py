@@ -87,7 +87,8 @@ class BurnIn:
         self._clock = clock
 
     def _mc(self):
-        return getattr(self.ctl, "mc", None)
+        """The supervised card handle (every command goes through the safety supervisor)."""
+        return self.ctl.card()
 
     def can_start(self) -> Optional[str]:
         t = int(self.p["ST.Type"])

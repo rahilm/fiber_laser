@@ -41,7 +41,8 @@ class Rig:
         self.sim.start()
         self.ctl = UiController(machine=self.machine, stream_process=False, poll_s=0.02)
         self.ctl.sim = self.sim
-        self.ctl._log = lambda m: None
+        self.ctl._log = lambda m, *a: None
+        self.ctl.require_homed = False      # the simulator starts unhomed (pre-flight)
         assert self.ctl.connect("127.0.0.1", self.sim.port)
         self.ops = MachineOps(self.ctl, values=dict(self.machine.params))
 
@@ -178,11 +179,13 @@ def test_z_home_without_follower_sends_nothing(rig):
 
 # ------------------------------------------------------------------ D-28 laser button
 def test_laser_button_gate_closed_sends_pwm_off_pair(rig):
+    assert rig.ctl.arm()                     # firing needs the machine armed (docs/SAFETY.md)
     reqs = rig.run(lambda: (rig.ctl.laser_press(), rig.ctl.laser_release()))
     assert _writes(reqs) == [(101, [9999, 3, 1234, 0, 0]), (101, [9999, 17, 1234, 0, 0])]
 
 
 def test_laser_button_gate_open_fires_until_release(rig):
+    assert rig.ctl.arm()
     rig.ctl.output_map["shutter"] = 5
     rig.ctl.set_output("shutter", True)
     reqs = rig.run(rig.ctl.laser_press)
@@ -194,6 +197,7 @@ def test_laser_button_gate_open_fires_until_release(rig):
 def test_laser_button_timed_shot_release_sends_nothing():
     r = Rig({"MC.PtLaserTime_ms": 50})
     try:
+        assert r.ctl.arm()
         r.ctl.output_map["shutter"] = 5
         r.ctl.set_output("shutter", True)
         r.run(r.ctl.laser_press)

@@ -125,6 +125,8 @@ def test_light_test_countdown():
     ctl = _demo()
     t = [0.0]
     lt = lighttest.LightTest(ctl, lighttest.params({"LT.ltLaserTime": 3.0, "LT.ltPower": 30}), clock=lambda: t[0])
+    assert not lt.start()                  # the laser test fires the beam: needs the machine armed
+    assert ctl.arm()
     assert lt.start() and ctl.state().outputs["laser"] and ctl.state().laser_power_pct == 30
     assert lt.remaining == 3
     t[0] = 1.2

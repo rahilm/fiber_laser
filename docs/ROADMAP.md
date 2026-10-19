@@ -54,31 +54,32 @@ parity run at 728 match / 17 differ / 0 errors.
 
 ## Wave 2: in parallel
 ### Safety (Stage 1, highest priority)
-- ☐ `machine/SafetySupervisor`: an FSM that enforces arming on every outgoing command; connect
+Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of the Services list came with it.
+- ☑ `machine/SafetySupervisor`: an FSM that enforces arming on every outgoing command; connect
   starts disarmed; `--real` fails loudly instead of falling back
-- ☐ `safe_halt()` on every exit path: worker `finally`, disconnect, closeEvent, atexit, signals,
+- ☑ `safe_halt()` on every exit path: worker `finally`, disconnect, closeEvent, atexit, signals,
   excepthook
-- ☐ streamer process supervision: heartbeat, parent check, self-halt, `freeze_support`
-- ☐ link loss detected within about 150 ms, then a latched FAULT state; prefill capped at 1–1.5 s;
+- ☑ streamer process supervision: heartbeat, parent check, self-halt, `freeze_support`
+- ☑ link loss detected within about 150 ms, then a latched FAULT state; prefill capped at 1–1.5 s;
   no FIFO auto-restart (recovery goes through breakpoint/resume with a re-pierce)
-- ☐ pre-flight check before Start/Frame/Resume/move: travel bounds, homed, armed, layers defined
+- ☑ pre-flight check before Start/Frame/Resume/move: travel bounds, homed, armed, layers defined
   (undefined layer is an error), open contours, card limits read back
-- ☐ interlock monitor for follower, gas and laser-source alarms; hold-to-jog dead-man; an
+- ☑ interlock monitor for follower, gas and laser-source alarms; hold-to-jog dead-man; an
   asynchronous Stop that sends the halt first; global Hold/Stop shortcuts
-- ☐ "PC alive" heartbeat output for an external watchdog relay (documented wiring)
-- ☐ rotating log file, structured audit events, crash handler; swallowed safety failures become
+- ☑ "PC alive" heartbeat output for an external watchdog relay (documented wiring)
+- ☑ rotating log file, structured audit events, crash handler; swallowed safety failures become
   FAULT plus a banner
-- ☐ UX safety P0s:
+- ☑ UX safety P0s:
   - ARMED / DRY-RUN / SIMULATOR banner
   - alarm banner with remedy text
   - no file open or new document during a job
   - run controls always visible
   - startup prompts as dialogs, not log lines
-- ☐ pessimistic simulator mode plus a fault-injection API; `tests/safety/`
+- ☑ pessimistic simulator mode plus a fault-injection API; `tests/safety/`
 
 ### Services (Stage 2b)
-- ☐ typed `MachineAPI` plus an event bus (job, alarm, link events); split UiController; Demo and
-  real controllers implement the full API (removes the import-linter ignore
+- ☑ typed `MachineAPI` plus an event bus (job, alarm, link events); split UiController; Demo and
+  real controllers implement the full API (done in the Safety track) (removes the import-linter ignore
   `controller.ui_adapter -> PySide6`: the Qt signal bridge moves to the app)
 - ☐ immutable `PlannedJob` compiled in a worker (progress, cancel, cache); the preview renders it
   and Start streams exactly it; the streamer uses `Job.frames()`

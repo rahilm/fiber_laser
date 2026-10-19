@@ -2,10 +2,17 @@
 
 * ``--demo``: load the sample document and connect to the in-process MCC100 simulator through
   the real protocol stack (``mlaser.controller.ui_adapter.UiController``); falls back to the
-  dependency-free ``DemoController`` if that fails.
+  dependency-free ``DemoController`` if that fails (with a message).
 * ``--sim``: connect to the in-process simulator (with any document / file).
-* ``--real``: connect to a real card at ``--host/--port`` or the address in ``--ini``.
-* ``--laser-off``: dry-run mode, the laser byte of every step item is cleared.
+* ``--real``: connect to a real card at ``--host/--port`` or the address in ``--ini``.  If the
+  controller cannot be built or the card does not answer, mlaser **exits with an error**
+  (exit code 2) instead of falling back to a demo controller.
+* ``--laser-off``: dry-run mode, the laser byte of every step item is cleared and arming is
+  impossible (banner DRY-RUN).
+* ``--log-dir PATH``: where mlaser.log / audit.log / crash.log go (default: the user log directory).
+
+Every connection starts **disarmed** (docs/SAFETY.md): the operator arms the machine in the
+state banner or the run bar before anything can fire.
 * ``--fake``: use the time-integrated DemoController (no protocol at all).
 * ``--import-lang PATH``: import the translations of your own Mlaser install (see
   :mod:`mlaser.i18n.importer`); ``--lang-dir PATH`` reads them from there without importing.
@@ -13,10 +20,14 @@
 from __future__ import annotations
 
 import argparse
+import multiprocessing
 import sys
 
 
 def main(argv=None) -> int:
+    # a frozen Windows build re-runs the executable for the streaming child (spawn): let
+    # multiprocessing take over there instead of starting a second GUI
+    multiprocessing.freeze_support()
     ap = argparse.ArgumentParser(prog="mlaser")
     ap.add_argument("file", nargs="?", help=".chf / .dxf / .svg / .nc to open")
     ap.add_argument("--lang", default="en", help="language code (en; zh, ru, de, es, pt, fr, it, pl, vi, tr "
@@ -34,7 +45,16 @@ def main(argv=None) -> int:
     ap.add_argument("--ini", help="ipAdd.ini with CardIP/CardPort/timeouts")
     ap.add_argument("--laser-off", action="store_true", help="never set the laser byte (dry run)")
     ap.add_argument("--fake", action="store_true", help="use the protocol-free DemoController")
+    ap.add_argument("--log-dir", help="log directory (default: the user log directory)")
     args = ap.parse_args(argv)
+
+    from mlaser.machine import lifecycle, logsetup
+    try:
+        logdir = logsetup.setup_logging(args.log_dir)
+    except OSError as exc:
+        print(f"log files unavailable ({exc})", file=sys.stderr)
+        logdir = None
+    lifecycle.install()          # atexit, SIGINT/SIGTERM, excepthooks -> safe_halt
 
     from PySide6.QtWidgets import QApplication
 
@@ -63,9 +83,13 @@ def main(argv=None) -> int:
         try:
             from mlaser.controller.ui_adapter import UiController
             ctl = UiController(args.host, args.port, ini_path=args.ini, laser_enabled=not args.laser_off)
-        except Exception as exc:  # pragma: no cover - controller package broken
+        except Exception as exc:  # noqa: BLE001 - controller package broken
+            if args.real:
+                print(f"ERROR: the real controller cannot be built ({exc}); not starting "
+                      "(no fallback to the demo controller with --real)", file=sys.stderr)
+                return 2
             print(f"real controller unavailable ({exc}); using the demo controller", file=sys.stderr)
-    win = MainWindow(ctl or DemoController(), tr, extensions=EXTENSIONS)
+    win = MainWindow(ctl or DemoController(laser_enabled=not args.laser_off), tr, extensions=EXTENSIONS)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
     if args.file:
@@ -75,15 +99,30 @@ def main(argv=None) -> int:
     if ctl is None:
         if args.demo or args.sim:
             win.ctl.connect()
+    elif args.real:
+        if not ctl.connect():
+            msg = (f"ERROR: no answer from the motion card at {ctl.cfg.host}:{ctl.cfg.port} "
+                   f"({ctl.cfg.transport}); not starting.  Check the cable and the address "
+                   "(--host/--port/--ini).  mlaser does not fall back to a demo controller with --real.")
+            print(msg, file=sys.stderr)
+            from PySide6.QtWidgets import QMessageBox
+            QMessageBox.critical(win, "Motion card not connected", msg)
+            win._test_no_dialogs = True        # closing: no "job running" questions
+            win.close()
+            return 2
     elif args.demo or args.sim:
         if not ctl.connect_simulator(time_scale=args.sim_speed):
-            win.set_controller(DemoController())
+            print("the in-process simulator could not start; using the protocol-free demo controller",
+                  file=sys.stderr)
+            win.set_controller(DemoController(laser_enabled=not args.laser_off))
             win.ctl.connect()
-    elif args.real:
-        ctl.connect()
+            win.log_panel.log("simulator unavailable: using the protocol-free demo controller")
+    if logdir is not None:
+        win.log_panel.log(f"log files: {logdir}")
     win.show()
     return app.exec()
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     sys.exit(main())

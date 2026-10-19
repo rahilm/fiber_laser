@@ -143,9 +143,6 @@ ignore_imports = [
     # ROADMAP Wave 2 "fontTools + uharfbuzz text" removes the Qt fallback
     "mlaser.cad.text -> PySide6",
     "mlaser.io.dxf_import -> PySide6",
-    # UiController emits Qt signals to the GUI thread (optional, PySide6 may be missing);
-    # ROADMAP Wave 2 "typed MachineAPI plus an event bus" replaces them
-    "mlaser.controller.ui_adapter -> PySide6",
 ]
 
 [[tool.importlinter.contracts]]

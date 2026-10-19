@@ -320,6 +320,12 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
             return
         pr = _rapid_profile(I.Rapid(a, p), cfg)
         us = pr.sample(period) if pr is not None else [1.0]
+        if not all(math.isfinite(u) for u in us):
+            # sub-micrometre rapid (about 0.5-1.3 um): the S-curve is degenerate (a phase of
+            # ~1e-19 s) and the port's normalisation divides by a zero first sample, giving
+            # NaN, which used to abort the compile.  Guard outside the bit-exact port: jump in
+            # one step (the move is below one pulse).  Only jobs that crashed before change.
+            us = [1.0]
         for u in us[1:] if len(us) > 1 else us:
             em.to(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u, False)
         em.pos = (float(p[0]), float(p[1]))
@@ -538,6 +544,9 @@ def frame_items(bbox: tuple[float, float, float, float], speed: float) -> list:
 def with_layers(doc: Document, layers) -> Document:
     """Shallow copy of ``doc`` whose missing layer parameters come from ``layers``.
 
+    A layer the UI only shows with defaults (``LayerParams.extra["placeholder"]``) counts as
+    missing (docs/SAFETY.md: an undefined layer never cuts with the 100 % default).
+
     ``layers`` may be a MachineParams (``layer_params(i)``), a dict, or None (no change).
     """
     if layers is None:
@@ -545,8 +554,8 @@ def with_layers(doc: Document, layers) -> Document:
     used = {p.craft.layer for p in doc.parts}
     new = dict(doc.layers)
     for li in used:
-        if li in new:
-            continue
+        if li in new and not (getattr(new[li], "extra", None) or {}).get("placeholder"):
+            continue                       # a UI placeholder layer takes the machine's values
         try:
             new[li] = layers.layer_params(li) if hasattr(layers, "layer_params") else layers[li]
         except Exception:   # noqa: BLE001 - unknown layer index: keep defaults
