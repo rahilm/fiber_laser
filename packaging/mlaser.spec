@@ -48,7 +48,7 @@ datas = []
 # mlaser package data: the [tool.setuptools.package-data] of pyproject.toml, plus any fonts that
 # may sit under mlaser/cad at build time
 datas += collect_data_files("mlaser.ui", includes=["resources/*.json", "resources/icons/tabler/*"])
-datas += collect_data_files("mlaser.i18n", includes=["*.json"])
+datas += collect_data_files("mlaser.i18n", includes=["*.json", "qm/*.qm"])
 datas += collect_data_files("mlaser.formats", includes=["data/*"])
 datas += collect_data_files("mlaser.cad", includes=["**/*.ttf", "**/*.otf", "**/*.ttc", "**/*.shx",
                                                      "**/*.lff", "**/LICENSE*", "**/OFL*"])
