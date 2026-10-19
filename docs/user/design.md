@@ -36,6 +36,30 @@ undone (**Ctrl+Z**).
 
 **Draw → Text** writes text as cuttable outlines. The font is bundled with mlaser (Noto Sans SC,
 which covers Latin and Chinese), so the same text gives the same geometry on every computer.
+DXF TEXT and MTEXT use the same bundled font unless the drawing names a font file that is
+installed. To use an installed font, pick it explicitly in the Text dialog. The original's
+SimSun lookup is available with the environment variable `MLASER_TEXT_FONT=system`.
+
+## Saving your work
+
+| File | Use it for |
+|---|---|
+| `.mlz` project | your own work: everything mlaser knows about the job is kept (layers, leads, micro-joints with their widths, cooling points, raster engravings, nest results, the job queue, technology assignments) |
+| `.chf` drawing | exchanging drawings with the original Mlaser (or a machine that runs it) |
+
+* **Save project…** (`file.save_project`, Ctrl+K) writes an `.mlz`. **Open project…** reads it.
+* **Export .chf…** writes the interchange file. A `.chf` you opened and did not change is
+  exported byte for byte as it was. Data that `.chf` cannot hold (cooling points, raster
+  engravings, nest results) is kept only in the project.
+* Saving is safe against crashes and power loss: the old file stays intact until the new one is
+  complete.
+* mlaser autosaves the project every two minutes when something changed, and when a job is
+  prepared (`File/autosave.mlz` next to the original's `File/autosave.chf`). After a crash it
+  offers to recover the last state. You can also recover any time with **System Recovery**.
+
+A project file that is damaged, or that was made by a newer mlaser, is not opened. The message
+says what is wrong, for example "document.json is damaged (checksum mismatch)". The open drawing
+is not changed.
 
 ## Reference
 

@@ -323,3 +323,16 @@ def test_deep_copies_of_loaded_projects_are_independent():
     cp = copy.deepcopy(back)
     cp.parts[0].contours[1].craft.layer = 9
     assert back.parts[0].contours[1].craft.layer == 3
+
+
+def test_command_line_convert_info_and_schema(tmp_path, capsys):
+    from mlaser.project.__main__ import main
+
+    assert main(["convert", str(DATA / "autosave.chf"), str(tmp_path / "a.mlz")]) == 0
+    assert main(["convert", str(tmp_path / "a.mlz"), str(tmp_path / "a.chf")]) == 0
+    assert (tmp_path / "a.chf").read_bytes() == (DATA / "autosave.chf").read_bytes()
+    assert main(["info", str(tmp_path / "a.mlz")]) == 0 and "parts 1" in capsys.readouterr().out
+    assert main(["schema"]) == 0 and '"document"' in capsys.readouterr().out
+    (tmp_path / "bad.mlz").write_bytes(b"nope")
+    assert main(["info", str(tmp_path / "bad.mlz")]) == 1
+    assert "not an mlaser project" in capsys.readouterr().err
