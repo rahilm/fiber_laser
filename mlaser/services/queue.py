@@ -264,8 +264,12 @@ class QueueRunner:
                  start: Callable[[], bool] = lambda: True,
                  start_allowed: Callable[[], tuple[bool, str]] = lambda: (True, ""),
                  clock: Callable[[], float] = time.time,
-                 start_timeout_s: float = 30.0) -> None:
+                 start_timeout_s: float = 30.0,
+                 disarm: Optional[Callable[[str], None]] = None) -> None:
         self.queue = queue
+        # called when the last sheet of the queue is done: the machine does not stay armed
+        # unattended after the queue (docs/SAFETY.md §5; review 2 features #8)
+        self.disarm = disarm
         self.load = load
         self.start = start
         self.start_allowed = start_allowed
@@ -428,6 +432,11 @@ class QueueRunner:
         if nxt is None:
             self.state, self.current = "idle", None
             self._say("queue.msg.finished")
+            if self.disarm is not None:
+                try:
+                    self.disarm("queue finished")
+                except Exception:  # noqa: BLE001 - the queue state is already final
+                    pass
         else:
             self.current = nxt
             self.state = "confirm"              # always ask before the next sheet

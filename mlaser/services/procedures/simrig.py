@@ -61,6 +61,7 @@ def simulator_controller(kind: str = "card", time_scale: float = 20.0, machine: 
     from mlaser.controller.ui_adapter import UiController
 
     ctl = UiController(machine=machine, poll_s=poll_s, require_homed=False, **ctl_kw)
+    ctl.registers_laser_guard = False      # a private rig: never part of the laser-source decision
     if kind == "sheet" and sheet is None:
         sheet = SimSheet.rect(*DEMO_SHEET)
     elif kind == "disc" and sheet is None:

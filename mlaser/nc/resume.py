@@ -320,9 +320,41 @@ class BreakpointStore:
 
 @dataclass
 class Breakpoint:
-    """A held breakpoint (what UiController keeps while paused)."""
+    """A held breakpoint (what UiController keeps while paused).  ``doc_key`` is the
+    :func:`document_key` of the document the job was started from ("" = unknown): Resume
+    refuses an open document with another key."""
     job: object
     index: int
     x: float
     y: float
     mode: str = "process"
+    doc_key: str = ""
+
+
+def document_key(doc) -> str:
+    """A fingerprint of a document's cutting content: parts in order, their layer, contours
+    (closed flag, every segment's end points, arc centres and direction, rounded to 1 µm) and the
+    layer table's cutting values.  Two snapshots of the same drawing have the same key; an
+    edit, another file or a new document gives another one.  "" for None."""
+    if doc is None:
+        return ""
+    import hashlib
+    h = hashlib.sha1()
+
+    def r(p) -> tuple:
+        return (round(float(p[0]), 3), round(float(p[1]), 3))
+    for part in getattr(doc, "parts", ()) or ():
+        craft = getattr(part, "craft", None)
+        h.update(repr(("P", getattr(craft, "layer", None))).encode())
+        for c in getattr(part, "contours", ()) or ():
+            segs = []
+            for sg in getattr(c, "segments", ()) or ():
+                cen = getattr(sg, "center", None)
+                segs.append((r(sg.start), r(sg.end)) if cen is None else
+                            (r(sg.start), r(sg.end), r(cen), bool(getattr(sg, "ccw", True))))
+            h.update(repr(("C", bool(getattr(c, "closed", True)), segs)).encode())
+    for li, lp in sorted((getattr(doc, "layers", None) or {}).items()):
+        h.update(repr(("L", li, getattr(lp, "speed", None), getattr(lp, "power_pct", None),
+                       getattr(lp, "frequency_hz", None), getattr(lp, "duty_pct", None),
+                       getattr(lp, "gas", None))).encode())
+    return h.hexdigest()

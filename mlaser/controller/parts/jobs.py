@@ -78,7 +78,7 @@ class JobRunnerPart:
     # ------------------------------------------------------------------ start
     def start(self, document, selected_only: bool = False) -> None:
         if self.breakpoint is not None and not self._busy():
-            self.resume()
+            self.resume(document=document)       # refused when it is not the paused job's document
             return
         self._start_doc(document, selected_only, False, "process")
 
@@ -423,7 +423,8 @@ class JobRunnerPart:
     def reset_fault(self) -> bool:
         """Operator reset of a latched FAULT: link must answer, the card alarms are cleared
         (``[9999, 5, 0, 0]``) and must stay clear, no interlock may hold.  The machine is
-        disarmed afterwards; a breakpoint is kept for Resume."""
+        disarmed afterwards; a breakpoint is kept for Resume, and with it the job stays active
+        (FSM PAUSED, :meth:`job_active`): the document stays locked until Resume or Stop."""
         if not self.fsm.faulted and not self.fsm.fault:
             return True
         if self._busy():
@@ -456,7 +457,7 @@ class JobRunnerPart:
             self._log(f"fault reset refused: interlock active: {why}", logging.WARNING)
             return False
         reason = self.fsm.fault
-        self.fsm.reset()
+        self.fsm.reset(paused=self.breakpoint is not None)
         self.sup.clear_latch("fault reset")
         audit("fault_reset", reason=reason)
         self._log("fault reset: the machine is disarmed" + (" (breakpoint kept: Resume continues there)"
@@ -501,6 +502,12 @@ class JobRunnerPart:
             self.fsm.job_paused()
             self._log("paused (FIFO stop)")
             return
+        self._pause_to_breakpoint()
+
+    def _pause_to_breakpoint(self, blocking: bool = False) -> None:
+        """The breakpoint pause: cancel the stream, halt (pause halt), keep the executed wire
+        index as the breakpoint once the worker ended (``blocking``: wait for it here)."""
+        st = self._streamer
         bp_job, offset = self._bp_job, self._run_offset
         self._pausing = True
         self._stop_reason = "paused"
@@ -534,19 +541,23 @@ class JobRunnerPart:
 
         w = self._worker
         if w is not None and w is not threading.current_thread():
-            w.join(timeout=0.5)
+            w.join(timeout=10.0 if blocking else 0.5)
         if w is None or not w.is_alive():
             finish()
         else:
             threading.Thread(target=finish, name="mlaser-pause", daemon=True).start()
 
     def _set_breakpoint(self, job, idx: int, why: str) -> None:
-        from ...nc.resume import Breakpoint, BreakpointStore, position_mm
+        from ...nc.resume import Breakpoint, BreakpointStore, document_key, position_mm
         hc = self.sup._halt_channel()
         if hc is not None:
             self._try("pause", hc.fifo_clear)
         x, y = position_mm(job, idx)
-        self.breakpoint = Breakpoint(job, idx, x, y)
+        try:
+            key = document_key(self.document)
+        except Exception:  # noqa: BLE001 - unknown: Resume then cannot compare (logged)
+            key = ""
+        self.breakpoint = Breakpoint(job, idx, x, y, doc_key=key)
         self._paused = False
         with self._slock:
             self._s.mode = "pause"
@@ -562,23 +573,28 @@ class JobRunnerPart:
         audit("breakpoint", index=idx, x=round(x, 3), y=round(y, 3), why=why[:120])
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
 
-    def resume(self, mode: str = "exact") -> None:
-        """Continue: from the breakpoint (re-run the contour's pierce block there, laser-off
-        rapid from the current position), or release the FIFO hold in ``fifo`` mode.  Refused
-        while a fault is latched; a resume that fires the laser needs the machine armed and
-        passes the pre-flight check (travel, homed, alarms)."""
+    def resume(self, mode: str = "exact", document=None) -> None:
+        """Continue from the breakpoint: laser-off rapid from the head back to it, the
+        contour's start-cut (re-pierce) there, then the rest of the wire.  Refused while a
+        fault is latched; it passes the pre-flight (travel, homed, alarms, arming when it fires)
+        and the start gate.  ``document``: the document open now - refused when it is not the
+        one the paused job was started from (open it again, or Stop to drop the breakpoint).
+
+        ``pause_mode="fifo"``: the FIFO hold is not released in place (the beam would restart
+        mid-contour with no checks); the hold becomes a breakpoint first (the stream is
+        cancelled and the card halted) and the resume runs from it like any other."""
         if self._busy() and self._paused:
             if self.fsm.faulted:
                 self._log(f"resume refused: a fault is latched ({self.fsm.fault})")
                 return
-            self._paused = False                   # the streamer restarts its own hold
-            st = self._streamer
-            if st is not None and hasattr(st, "set_hold"):
-                st.set_hold(False)
-            self._s.mode = self._job_mode or "process"
-            self.fsm.job_resumed()
-            self._log("resumed")
-            return
+            if self.pause_mode == "fifo" and not self._pausing:
+                self._log("resume from the FIFO hold: continuing through a breakpoint (re-pierce)")
+                self._pause_to_breakpoint(blocking=True)
+                if self._busy() or self.breakpoint is None:
+                    self._log("resume refused: the held job did not stop in time", logging.WARNING)
+                    return
+            else:
+                return                             # a breakpoint pause is still being taken
         gen = self.start_generation()
         bp = self.breakpoint
         if bp is None or self._busy() or not self._motion_ok("resume"):
@@ -586,6 +602,12 @@ class JobRunnerPart:
         if self.active_alarms:
             self._log("cannot resume while alarms are active (Clear Alarm first)")
             return
+        if document is not None and getattr(bp, "doc_key", ""):
+            from ...nc.resume import document_key
+            if document_key(document) != bp.doc_key:
+                self._gate_refuse("resume", "the open document is not the one the paused job was "
+                                  "started from: open that document again, or Stop to abandon the breakpoint")
+                return
         if not self._start_gate("resume", generation=gen, resume=True):
             return
         from ...nc.resume import resume_job
@@ -606,7 +628,7 @@ class JobRunnerPart:
     def resume_saved(self, document, autosave_dir: Optional[str] = None, mode: str = "contour") -> bool:
         """BreakCon after a restart: compile ``document`` and continue from the newest
         AutosaveParam record (rebuild index convention, see mlaser.nc.resume)."""
-        from ...nc.resume import Breakpoint, BreakpointStore, position_mm
+        from ...nc.resume import Breakpoint, BreakpointStore, document_key, position_mm
         d = autosave_dir or self.autosave_dir
         if not d or not self._ok():
             return False
@@ -619,7 +641,7 @@ class JobRunnerPart:
             return False
         x, y = position_mm(job, idx)
         self.job = job
-        self.breakpoint = Breakpoint(job, idx, x, y)
+        self.breakpoint = Breakpoint(job, idx, x, y, doc_key=document_key(document))
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
         self.resume(mode)
         return True
@@ -723,7 +745,7 @@ class JobRunnerPart:
         def after(ok: bool) -> None:
             idx = new if ok else keep.index
             x, y = seg.end_mm if ok else (keep.x, keep.y)
-            self.breakpoint = Breakpoint(keep.job, idx, x, y, keep.mode)
+            self.breakpoint = Breakpoint(keep.job, idx, x, y, keep.mode, keep.doc_key)
             with self._slock:
                 self._s.mode = "pause"
             self.events.publish(EV.BreakpointChanged(self.breakpoint))

@@ -132,28 +132,88 @@ def raycus_status_ok(frame: bytes) -> bool:
 
 
 # ----------------------------------------------------------------------------- arming guard
-# Emission ON needs the machine armed (docs/SAFETY.md).  The connected controller registers its
-# check here (controller.parts.connection, ui.safety_ui); without one, emission is refused.
-_EMISSION_GUARD = None
+# Emission ON needs the machine armed (docs/SAFETY.md §3).  Two ways to say who decides:
+#
+# * per device instance: ``client.bind_guard(fn)`` - the controller that owns this laser source
+#   checks it (``UiController.laser_source_guard``); nothing else can override it;
+# * the process-wide registry: every connected controller (and the window) registers its check
+#   under its own owner (:func:`register_emission_guard`); emission is allowed only when there
+#   is at least one and **every** registered guard allows it.  A second controller (the
+#   procedures' simulator rig) therefore can never let a real laser source fire while the real
+#   machine is disarmed, and closing it removes only its own entry.
+#
+# Without any guard, emission is refused.
+_GUARDS: dict = {}            # owner key -> fn(on)
+_DEFAULT_OWNER = "default"
+
+
+def register_emission_guard(fn, owner) -> None:
+    """Register ``fn(on)`` (raises :class:`LaserError` to refuse) for ``owner`` (any hashable;
+    the controller registers itself).  Replaces only that owner's entry."""
+    _GUARDS[_owner_key(owner)] = fn
+
+
+def unregister_emission_guard(owner) -> None:
+    _GUARDS.pop(_owner_key(owner), None)
+
+
+def _owner_key(owner):
+    return owner if isinstance(owner, str) else ("id", id(owner))
 
 
 def set_emission_guard(fn) -> None:
-    """``fn(on)`` raises :class:`LaserError` to refuse; None = no supervisor (emission refused)."""
-    global _EMISSION_GUARD
-    _EMISSION_GUARD = fn
+    """The window-level guard (``ui.safety_ui``): ``fn(on)`` raises :class:`LaserError` to
+    refuse; None removes it.  Other owners' guards stay registered."""
+    if fn is None:
+        unregister_emission_guard(_DEFAULT_OWNER)
+    else:
+        register_emission_guard(fn, _DEFAULT_OWNER)
 
 
 def emission_guard():
-    return _EMISSION_GUARD
+    """The window-level guard (None when not set)."""
+    return _GUARDS.get(_DEFAULT_OWNER)
 
 
-def check_emission(on: bool) -> None:
+def emission_guards() -> list:
+    return list(_GUARDS.values())
+
+
+def check_emission(on: bool, guard=None) -> None:
+    """Refuse (LaserError) an emission ON unless ``guard`` (a device's bound guard) allows it,
+    or - without one - every registered guard allows it (and there is at least one)."""
     if not on:
         return
-    g = _EMISSION_GUARD
-    if g is None:
+    if guard is not None:
+        guard(on)
+        return
+    guards = list(_GUARDS.values())
+    if not guards:
         raise LaserError("laser source emission refused: no safety supervisor is armed")
-    g(on)
+    for g in guards:
+        g(on)
+
+
+# IPG commands that switch the beam on or hand emission to an external signal: refused unless
+# armed wherever they appear in a payload.  The raw query also guards the aiming laser
+# (``ABN``, ``EEABC``); the aiming-beam button (``aiming_beam``) stays usable disarmed, like the
+# red-light output it is paired with in the original.
+IPG_EMISSION_COMMANDS = ("EMON", "EMOD", "ELE")
+IPG_QUERY_GUARDED = IPG_EMISSION_COMMANDS + ("ABN", "EEABC")
+IPG_SEPARATORS = ("\r", "\n", ";")
+
+
+def ipg_tokens(text: str) -> list[str]:
+    """The commands of an IPG payload (split at CR, LF and ``;``), upper case, stripped."""
+    t = text
+    for sep in IPG_SEPARATORS:
+        t = t.replace(sep, "\x00")
+    return [c.strip().upper() for c in t.split("\x00") if c.strip()]
+
+
+def ipg_emits(text: str, commands: tuple = IPG_EMISSION_COMMANDS) -> bool:
+    """Does any command of the payload start with one of ``commands``?"""
+    return any(c.split()[0].startswith(commands) for c in ipg_tokens(text) if c.split())
 
 
 # ----------------------------------------------------------------------------- clients
@@ -162,16 +222,33 @@ class LaserClient:
 
     commands = None
 
-    def __init__(self, transport: Transport):
+    def __init__(self, transport: Transport, guard=None):
         self.t = transport
         self.last_reply: bytes = b""
+        self._guard = guard
+
+    def bind_guard(self, fn) -> None:
+        """Bind this laser source to its owning controller's check (``fn(on)`` raises
+        LaserError): from now on only that controller's arming decides for this device."""
+        self._guard = fn
+
+    def check_emission(self, on: bool) -> None:
+        check_emission(on, self._guard)
 
     def close(self) -> None:
         self.t.close()
 
+    def _payload_emits(self, data: bytes) -> bool:
+        """Does the raw payload contain an emission-on command of this protocol?"""
+        return False
+
     def send(self, data: bytes, require_reply: bool = True) -> bytes:
+        """Send a raw payload.  A payload that contains an emission-on command anywhere (not only
+        at its start) needs the machine armed, like :meth:`emission`."""
         if not data:
             return b""
+        if self._payload_emits(data):
+            self.check_emission(True)
         if not require_reply:
             self.t.send_only(data)
             return b""
@@ -183,7 +260,7 @@ class LaserClient:
 
     def emission(self, on: bool) -> bytes:
         """Emission on (needs the machine armed, :func:`check_emission`) / off (always)."""
-        check_emission(on)
+        self.check_emission(on)
         return self.send(self.commands.emission_on() if on else self.commands.emission_off())
 
 
@@ -196,6 +273,9 @@ class IpgLaser(LaserClient):
                 timeout_ms: int = 100, max_send: int = 5) -> "IpgLaser":
         return cls(NetTransport(host, port, access, timeout_ms, max_send, 1, 10))
 
+    def _payload_emits(self, data: bytes) -> bool:
+        return ipg_emits(data.decode("ascii", "replace"))
+
     def aiming_beam(self, on: bool) -> bytes:
         return self.send(IpgCommands.aim_on() if on else IpgCommands.aim_off())
 
@@ -206,24 +286,36 @@ class IpgLaser(LaserClient):
         return self.send(IpgCommands.modulation_on())
 
     def external_emission(self, on: bool) -> bytes:
-        check_emission(on)
+        self.check_emission(on)
         return self.send(IpgCommands.external_emission_on() if on else IpgCommands.external_emission_off())
 
     def external_aiming(self, on: bool) -> bytes:
         return self.send(IpgCommands.external_aim_on() if on else IpgCommands.external_aim_off())
 
     def query(self, text: str) -> str:
-        """Send an arbitrary ASCII command (e.g. ``STA``/``RCT`` of the vendor protocol -
-        NOT used by Mlaser, INFERRED) and return the reply text.  Emission commands (``EMON``,
-        ``ELE``) need the machine armed."""
-        if text.strip().upper().startswith(("EMON", "ELE")):
-            check_emission(True)
-        return self.send(text.encode("ascii") + b"\r").decode("ascii", "replace").strip()
+        """Send one ASCII command (e.g. ``STA``/``RCT`` of the vendor protocol - NOT used by
+        Mlaser, INFERRED) and return the reply text.  One command only: CR, LF, ``;`` and other
+        control characters are refused (a second command could hide in them); an emission
+        command (``EMON``, ``EMOD``, ``ELE``, ``ABN``, ``EEABC``) needs the machine armed."""
+        if any(ord(ch) < 0x20 or ord(ch) == 0x7F for ch in text) or ";" in text:
+            raise LaserError("laser query refused: one command only (no CR, LF, ';' or control characters)")
+        try:
+            raw = text.strip().encode("ascii")
+        except UnicodeEncodeError:
+            raise LaserError("laser query refused: ASCII commands only") from None
+        if not raw:
+            raise LaserError("laser query refused: empty command")
+        if ipg_emits(raw.decode("ascii"), IPG_QUERY_GUARDED):
+            self.check_emission(True)
+        return self.send(raw + b"\r").decode("ascii", "replace").strip()
 
 
 class RaycusLaser(LaserClient):
     """Raycus ESC-sequence channel (LaserType 0, control types 1 "MCC serial" and 4 "PC serial")."""
     commands = RaycusCommands
+
+    def _payload_emits(self, data: bytes) -> bool:
+        return RaycusCommands.emission_on() in bytes(data)
 
     @classmethod
     def connect(cls, host: str = "10.1.1.168", port: int = 888, access: str = "udp",

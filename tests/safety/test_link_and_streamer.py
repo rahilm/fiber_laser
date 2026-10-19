@@ -61,8 +61,9 @@ def test_link_loss_latches_a_fault_and_bounds_the_motion(make_ctl, process):
     assert not any(c[0] in (3, 5) for c in sim.state.commands[n:]), "motion sent while faulted"
     assert ctl.wait_job(8)
     assert ctl.breakpoint is not None
-    # operator reset: link answers, no alarms -> disarmed; arm + resume continues at the breakpoint
-    assert ctl.reset_fault() and ctl.fsm.state == SafetyState.DISARMED and not ctl.fsm.armed
+    # operator reset: link answers, no alarms -> disarmed, the job still paused at its
+    # breakpoint (review 2: the document lock holds); arm + resume continues there
+    assert ctl.reset_fault() and ctl.fsm.state == SafetyState.PAUSED and not ctl.fsm.armed
     assert ctl.arm()
     ctl.resume()
     assert wait_until(lambda: sim.state.fifo_running, 10) is not None

@@ -77,7 +77,10 @@ class ConnectionPart:
         self._poll_thread.start()
         self.sup.start_monitor()
         lifecycle.register(self)
-        _laser.set_emission_guard(self._laser_source_guard)
+        if self.registers_laser_guard:
+            # one entry per controller; every registered one must allow (devices.laser): a
+            # second controller can never make a laser source fire for a disarmed machine
+            _laser.register_emission_guard(self.laser_source_guard, self)
         for fn in list(self.connect_hooks):
             try:
                 fn(self)
@@ -85,8 +88,13 @@ class ConnectionPart:
                 self._log(f"connect hook failed: {e}")
         return True
 
-    def _laser_source_guard(self, on: bool) -> None:
-        """Laser source emission on (devices.laser) needs the machine armed."""
+    # False for a private controller (the procedures' simulator rig): it never takes part in
+    # the laser-source decision of the process (devices.laser registry)
+    registers_laser_guard = True
+
+    def laser_source_guard(self, on: bool) -> None:
+        """Laser source emission on (devices.laser) needs this machine armed.  Bind a laser
+        source this controller owns with ``laser.bind_guard(ctl.laser_source_guard)``."""
         if on and not (self.fsm.armed and self.fsm.state in (SafetyState.ARMED, SafetyState.RUNNING)):
             audit("command", logging.WARNING, cls="EMISSION", target="laser source", refused="not armed")
             raise _laser.LaserError("laser source emission refused: the machine is not armed")
@@ -173,8 +181,7 @@ class ConnectionPart:
         was = self.sup.connected
         self.sup.close()
         lifecycle.unregister(self)
-        if _laser.emission_guard() == self._laser_source_guard:
-            _laser.set_emission_guard(None)
+        _laser.unregister_emission_guard(self)
         if self.sim is not None and not keep_sim:
             self.sim.stop()
             self.sim = None
@@ -350,9 +357,11 @@ class ConnectionPart:
         if homing_done:
             self._log("mp28: go origin done" if not new_alarms else "go origin ended with alarms")
             self.events.publish(EV.HomingDone(not new_alarms))
-        if raised and self._busy() and not self._paused:
+        if raised and self._busy() and (not self._paused or self.pause_mode == "fifo"):
             # MainApp FUN_00598280: any alarm during a job -> "Sys Pause" (FUN_005b9a60).  The
             # rebuild latches a FAULT (halt + breakpoint); reset, then Resume continues there.
+            # A FIFO hold (pause_mode "fifo") keeps the worker alive: an alarm (e-stop) while
+            # held faults too.
             self.raise_fault("card alarm during the job: " + ", ".join(f"{a.text_en} ({a.code})" for a in raised))
         trips = self.interlocks.evaluate(
             st, zf, follower_present=bool(self._zf_type()), job_active=self.job_active(),

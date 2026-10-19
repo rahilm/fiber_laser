@@ -768,7 +768,8 @@ class RunWorkspace:
             self.log(f"queue: {self.queue.load_error} (the file was kept as queue.json.bad)")
         self.remnants = RemnantStore(os.path.join(d, "remnants.json"))
         self.runner = QueueRunner(self.queue, load=self._load_entry, start=self._start_sheet,
-                                  start_allowed=self._start_allowed)
+                                  start_allowed=self._start_allowed,
+                                  disarm=lambda why: self.window.ctl.disarm(why))
         self.runner.sheet_listeners.append(self._sheet_done)
         self.monitor: Any = None
         self._job_t0 = 0.0

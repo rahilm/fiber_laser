@@ -280,7 +280,7 @@ class DemoController(_api.ControllerFacade):
             self.fsm.job_paused()
             self._log("paused")
 
-    def resume(self, mode: str = "exact") -> None:
+    def resume(self, mode: str = "exact", document=None) -> None:
         self._advance()
         if self._s.mode == "pause":
             if self.fsm.faulted:

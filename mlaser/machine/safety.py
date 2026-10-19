@@ -378,14 +378,17 @@ class SafetyFSM:
             self.on_change(st, st, self.status(), reason)
         return first
 
-    def reset(self) -> Optional[str]:
-        """Operator reset of a latched fault (the caller has checked link and alarms)."""
+    def reset(self, paused: bool = False) -> Optional[str]:
+        """Operator reset of a latched fault (the caller has checked link and alarms).
+        ``paused``: a breakpoint of the faulted job is kept, so the job stays active (PAUSED,
+        disarmed) until it is resumed or stopped."""
         with self._lock:
             if not self._fault and self._state != SafetyState.FAULT:
                 return None
             self._fault, self._fault_t = "", 0.0
             self._armed = False
-            new = SafetyState.OFFLINE if self._state == SafetyState.OFFLINE else SafetyState.DISARMED
+            new = (SafetyState.OFFLINE if self._state == SafetyState.OFFLINE
+                   else SafetyState.PAUSED if paused else SafetyState.DISARMED)
         self._go(new, "fault reset by operator")
         return None
 
