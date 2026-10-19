@@ -66,7 +66,10 @@ def coverage() -> dict:
     errors: dict[str, str] = {}
     w.not_implemented = lambda c: missing.append(c)
     w.commands.failures.clear()
+    trace = bool(os.environ.get("MLASER_COVERAGE_TRACE"))     # name each command first (a crash)
     for cmd, act in sorted(w.ribbon.actions.items()):
+        if trace:
+            print(f"command_coverage: {cmd}", file=sys.stderr, flush=True)
         try:
             act.trigger()
         except Exception as e:  # noqa: BLE001 - report, keep going
