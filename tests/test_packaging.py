@@ -160,14 +160,16 @@ def test_launcher_bundle_check(tmp_path):
 
 @pytest.mark.ui
 def test_launcher_smoke_test_and_first_run(tmp_path):
+    # the first-run check is what this test is about: CI sets MLASER_NO_FIRSTRUN=1 for the rest
+    env = {k: v for k, v in _env(tmp_path).items() if k != "MLASER_NO_FIRSTRUN"}
     p = subprocess.run([sys.executable, "-m", "mlaser", "--fake", "--smoke-test", "1"],
-                       env=_env(tmp_path), capture_output=True, text=True, timeout=120)
+                       env=env, capture_output=True, text=True, timeout=120)
     assert p.returncode == 0, p.stderr
     assert "smoke test: GUI ran for 1 s, exit code 0" in p.stderr
     assert "network self-test" in p.stderr                      # first run printed the check
     assert (tmp_path / "cfg" / "netcheck.json").is_file()
     p2 = subprocess.run([sys.executable, "-m", "mlaser", "--fake", "--smoke-test", "0.5"],
-                        env=_env(tmp_path), capture_output=True, text=True, timeout=120)
+                        env=env, capture_output=True, text=True, timeout=120)
     assert p2.returncode == 0 and "network self-test" not in p2.stderr   # only once
 
 

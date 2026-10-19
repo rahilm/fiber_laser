@@ -114,8 +114,11 @@ def test_run_screen_on_the_simulator(win, app):
     """Start, hold, continue, stop and the fault display on the MCC100 simulator."""
     from mlaser.controller.ui_adapter import UiController
     # a generous link deadline: this is a UI test, the link timing is tests/safety's job
-    ctl = UiController(poll_s=0.02, stream_process=False, link_deadline_ms=3000.0)
-    assert ctl.connect_simulator(time_scale=1.0)
+    # (connect_simulator sets the streaming deadline itself, SIM_LINK_DEADLINE_MS unless given:
+    # the constructor's value is the real card's and does not apply to the simulator)
+    ctl = UiController(poll_s=0.02, stream_process=False)
+    assert ctl.connect_simulator(time_scale=1.0, link_deadline_ms=3000.0)
+    assert ctl.sup.link_deadline_ms == 3000.0
     win.set_controller(ctl)
     try:
         win.set_document(doc_of(rect(10, 10, 300, 200), rect(400, 10, 200, 200), rect(10, 300, 300, 150)))
@@ -172,11 +175,35 @@ def test_run_screen_on_the_simulator(win, app):
 def test_touch_targets_and_layout(win, app, size):
     ws, host = show_run(win, app, size)
     scr = ws.screen
+    # the operator screen is a workspace page, inside the shell's frameless scroll area
+    # (WorkspacePage._fit, docs/SAFETY.md §10): the main targets are always in view, the rest
+    # (resume, queue card) may need a vertical scroll at 1280 x 720 (font metrics differ per
+    # platform), never a horizontal one; the run bar is outside the scroll area, never clipped
+    from PySide6.QtWidgets import QScrollArea, QWidget
+    area = scr.parentWidget()
+    while area is not None and not isinstance(area, QScrollArea):
+        area = area.parentWidget()
+    assert area is not None and area.objectName() == "shell_ws_scroll"
+    view = area.viewport()
+
+    def in_view(b):
+        r = b.rect().translated(b.mapTo(view, b.rect().topLeft()))
+        return r, view.rect().contains(r)
+
     for b in scr.findChildren(QPushButton):
         if b.isVisible():
             assert b.height() >= 44, (b.objectName(), b.height())
+            r, _ok = in_view(b)
+            assert 0 <= r.left() and r.right() <= view.width() - 1, (b.objectName(), r, view.size())
+    for key in ("stop", "start", "hold", "frame", "dry_run", "arm"):
+        r, ok = in_view(scr.buttons[key])
+        assert ok, (key, r, view.size())                                   # never clipped
+    bar = win.findChild(QWidget, "run_bar")
+    assert bar is not None and bar.isVisible()
+    for b in bar.findChildren(QPushButton):
+        if b.isVisible():
             r = b.rect().translated(b.mapTo(host, b.rect().topLeft()))
-            assert host.rect().contains(r), (b.objectName(), r, host.size())    # never clipped
+            assert host.rect().contains(r), (b.objectName(), r, host.size())  # never clipped
     for key in ("stop", "start", "hold", "frame", "dry_run", "arm"):
         assert scr.buttons[key].height() >= 56, key
     assert scr.buttons["stop"].height() >= 70

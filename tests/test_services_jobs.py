@@ -187,7 +187,9 @@ def test_streamed_frames_are_job_frames():
     from mlaser.protocol import frames as F
 
     flat = F.build_fifo_frames(plan.wire, 1)
-    sim = CardSimulator(time_scale=5.0).start()        # slow enough that the FIFO never runs dry
+    # time_scale 2: the card runs the 1.2 s motion cap in 0.6 s of real time, ample for a slow
+    # host to refill (at 5x, 0.24 s, the FIFO ran dry on a Windows runner: unexpected_idle)
+    sim = CardSimulator(time_scale=2.0).start()
     try:
         with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
             seq0 = mc.read_status().fifo_seq + 1

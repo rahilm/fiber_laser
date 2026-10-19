@@ -123,7 +123,11 @@ def test_compile_job_with_the_modern_profile():
 
 def test_default_profile_output_is_unchanged():
     """Selecting the modern profile and leaving it restores the bit-exact default: same wire,
-    same planner output as the faithful port, and the motion goldens still match."""
+    same planner output as the faithful port, and the motion golden records are the same as
+    before (recomputed on this platform: the frozen goldens themselves are checked by
+    ``-m golden``, bit-exact on the reference platform, docs/dev/TESTING.md)."""
+    G = _golden_tools()
+    motion_before = G.gen_motion({})
     before = compile_job(_doc(), None, Machine())
     with PP.use_profile(NAME):
         compile_job(_doc(), None, Machine())
@@ -136,8 +140,9 @@ def test_default_profile_output_is_unchanged():
         prm = PlannerParams(**cfg.cut.__dict__)
         prm.max_vel = max(prm.max_vel, max(m.feed for m in moves))
         assert plan.sample(1.0) == faithful.plan_velocity(pts, prm).sample(1.0)
-    diffs, _ = _golden_tools().compare_group("motion", True)
-    assert not diffs, diffs[:5]
+    motion_after = G.gen_motion({})
+    diffs = [k for k in sorted(motion_before) if G._same(motion_before[k], motion_after.get(k, {}), True)]
+    assert not diffs and motion_before.keys() == motion_after.keys(), diffs[:5]
 
 
 # --------------------------------------------------------------------------- kinematics
