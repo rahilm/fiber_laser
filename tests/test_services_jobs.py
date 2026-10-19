@@ -196,7 +196,10 @@ def test_streamed_frames_are_job_frames():
             sent = []
             orig = mc.fifo_write_frame
             mc.fifo_write_frame = lambda fr: (sent.append(list(fr)), orig(fr))[1]
-            JobStreamer(mc).run_job(plan, timeout_s=120)
+            # no motion cap: the whole 64 KB FIFO (~5 s of card time, 2.7 s of real time at 2x) as
+            # margin; this test is about the frames, and a stall of a shared macOS runner longer
+            # than the capped 0.6 s ran the simulated card dry (a real underrun, as on a card)
+            JobStreamer(mc, max_buffer_ms=None).run_job(plan, timeout_s=120)
             assert sent == plan.frames(seq0)
             assert sent == plan.job.frames(seq0)
             if flat != plan.frames(1):  # what the streamer used to send
