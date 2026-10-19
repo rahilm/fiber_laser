@@ -7,7 +7,8 @@ ICADModule+0x84(13, text, &height, font).  CADModule builds a CGlyText (0x100ab5
 0x100aca20) whose glyphs come from CTextGlyphAdapter::GetGlyph (0x100f51c0):
 ``CreateFontA(height, 0, 0, 0, 500, ...)`` (0x100e1e30, weight 500) and
 ``GetGlyphOutlineW(GGO_BEZIER)`` (format 3) - cubic Bezier outlines, advance = gmCellIncX (docs/cam.md §1, FUN_100f51c0).
-Default face: gp79 (宋体 / "Segoe UI").
+Default face: gp79 (宋体 / "Segoe UI"); the rebuild defaults to the bundled Noto Sans SC subset
+(:data:`DEFAULT_FONT`, machine-independent).
 
 Rebuild: the outlines come from the font file through fontTools (glyph outlines via a pen) and
 uharfbuzz (shaping: kerning, ligatures, Arabic joining, Indic reordering, CJK), no Qt and no
@@ -30,7 +31,9 @@ from . import fonts as _fonts
 if TYPE_CHECKING:
     from .shaping import Metrics
 
-DEFAULT_FONT = "SimSun"      # gp79 宋体
+#: default face of cutting text: the bundled Noto Sans SC subset (machine-independent geometry);
+#: the original's gp79 宋体 is the "system" text-font mode (mlaser.cad.fonts.text_font_mode)
+DEFAULT_FONT = _fonts.BUNDLED_FAMILY
 DEFAULT_HEIGHT = 10.0        # app+0xb490 (int); no registered default, value INFERRED
 FONT_WEIGHT = 500            # CreateFontA weight
 SYNTH_SLANT = 0.2            # synthetic italic: x += 0.2 y
@@ -141,6 +144,7 @@ def available_fonts() -> list[str]:
 
 
 def resolve_family(family: Optional[str]) -> str:
-    """``family`` if it can be found (font file, installed or bundled), else the first installed
-    of SimSun, Segoe UI, DejaVu Sans, Liberation Sans, Arial, else the bundled Noto Sans SC."""
+    """``family`` if it can be found (font file, installed or bundled), else the bundled Noto Sans
+    SC (in the "system" text-font mode first the installed SimSun, Segoe UI, DejaVu Sans,
+    Liberation Sans, Arial)."""
     return _fonts.resolve_family(family)

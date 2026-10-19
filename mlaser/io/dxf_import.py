@@ -81,15 +81,21 @@ from ..parity_ports.dxfparse.rules import (  # noqa: F401 - re-exported, used be
 
 
 # --------------------------------------------------------------------------- text
+#: the original's DXF TEXT faces ("system" text-font mode only, mlaser.cad.fonts.text_font_mode)
 TEXT_FAMILIES = ("SimSun", "宋体", "NSimSun", "WenQuanYi Micro Hei")
 
 
 def _text_family() -> Optional[str]:
-    """The font family of DXF TEXT outlines: FUN_10007bf0 uses DAT_1011d850 = "宋体" (SimSun);
-    the Wine prefix of the parity harness maps it to WenQuanYi Micro Hei.  The first of these
-    that is installed (font folders, fontTools name tables), else the first installed of the
-    Draw -> Text fallbacks (SimSun, Segoe UI, DejaVu Sans, Liberation Sans, Arial), else the
-    bundled Noto Sans SC (mlaser.cad.fonts).  No Qt."""
+    """The font family of DXF TEXT outlines.  Default: the bundled Noto Sans SC subset
+    (:func:`mlaser.cad.fonts.default_text_family`), so the outlines do not depend on the fonts
+    installed on this machine.  In the "system" text-font mode (``MLASER_TEXT_FONT=system``,
+    for comparing with the original): FUN_10007bf0 uses DAT_1011d850 = "宋体" (SimSun), which the
+    Wine prefix of the parity harness maps to WenQuanYi Micro Hei; the first of these that is
+    installed, else the first installed Draw -> Text fallback (SimSun, Segoe UI, DejaVu Sans,
+    Liberation Sans, Arial), else the bundled font.  No Qt."""
+    from ..cad import fonts as cfonts
+    if cfonts.text_font_mode() == "bundled":
+        return cfonts.default_text_family()
     for f in TEXT_FAMILIES:
         if _font_file(f) is not None:
             return f
@@ -137,15 +143,63 @@ TEXT_CLOSE_TOL = 0.01      # FUN_100ab710: text contours are made with FUN_1006c
 TEXT_MIN_STEP = 1e-4       # DAT_1011f290: a line piece is kept when |dx| or |dy| >= 1e-4
 
 
-def _tt_font(family: str):
-    ff = _font_file(family)
+def _tt_font(family: str, cff: bool = False):
+    """The TrueType (glyf) font of ``family`` (bundled file for a bundled family name, else the
+    installed one); with ``cff`` an OpenType/CFF font is returned too (cubic outlines)."""
+    from ..cad.fonts import text_font_file
+    ff = text_font_file(family)
     if ff is None:
         return None
     from fontTools.ttLib import TTFont
     font = TTFont(ff[0], fontNumber=ff[1], lazy=True)
-    if "glyf" not in font:
+    if "glyf" not in font and not (cff and "CFF " in font):
         return None              # CFF outlines: not what GDI's TrueType path sees
     return font
+
+
+def _cff_records(glyph, pen_x: float) -> list[tuple]:
+    """GGO_BEZIER-style records of an OpenType/CFF glyph (cubic outlines, as GDI returns them
+    for a PostScript-flavoured font): [(pfxStart, [(kind, points)])] per contour, kind 1 = a run
+    of lines, 3 = a run of cubic pieces (c1, c2, p per piece), shifted by the pen position."""
+    from fontTools.pens.recordingPen import RecordingPen
+    rp = RecordingPen()
+    glyph.draw(rp)
+    out: list[tuple] = []
+    start = None
+    recs: list = []
+    cur = None
+
+    def sh(p):
+        return (float(p[0]) + pen_x, float(p[1]))
+
+    def add(kind, pts):
+        if recs and recs[-1][0] == kind:
+            recs[-1][1].extend(pts)
+        else:
+            recs.append((kind, list(pts)))
+
+    for op, args in rp.value:
+        if op == "moveTo":
+            start = cur = sh(args[0]); recs = []
+        elif op == "lineTo":
+            cur = sh(args[0]); add(1, [cur])
+        elif op == "curveTo":
+            pts = [sh(p) for p in args]
+            for i in range(0, len(pts) - 2, 3):
+                add(3, pts[i:i + 3])
+            cur = pts[-1]
+        elif op == "qCurveTo":          # TrueType-style quadratic (rare in CFF): as cubics
+            from fontTools.pens.basePen import decomposeQuadraticSegment
+            for q, p in decomposeQuadraticSegment(list(args)):
+                q, p = sh(q), sh(p)
+                add(3, [(cur[0] + 2 / 3 * (q[0] - cur[0]), cur[1] + 2 / 3 * (q[1] - cur[1])),
+                        (p[0] + 2 / 3 * (q[0] - p[0]), p[1] + 2 / 3 * (q[1] - p[1])), p])
+                cur = p
+        elif op in ("closePath", "endPath"):
+            if start is not None and recs:
+                out.append((start, recs))
+            start, recs = None, []
+    return out
 
 
 def _tt_records(pts, on) -> tuple[tuple, list]:
@@ -227,17 +281,26 @@ def _tt_text_contours(t: dict, family: str, flatten_tol: float = geom.SPLINE_TOL
     outline height equals the text height, rotated, font origin on the insertion point.
     None when no TrueType file of ``family`` is found (the caller falls back to
     :func:`_text_contours`, shaped outlines from fontTools + uharfbuzz)."""
-    font = _tt_font(family)
+    font = _tt_font(family, cff=True)
     if font is None:
         return None
     txt, H = t["text"], t["height"]
     if not txt.strip() or H <= 0:
         return []
     cmap = font.getBestCmap() or {}
-    glyf, hmtx = font["glyf"], font["hmtx"]
+    hmtx = font["hmtx"]
     raw: list[tuple] = []
     pen = 0.0
-    for ch in txt:
+    if "glyf" not in font:              # OpenType/CFF (the bundled Noto Sans SC): cubic records
+        gs = font.getGlyphSet()
+        for ch in txt:
+            gname = cmap.get(ord(ch)) or ".notdef"
+            raw += _cff_records(gs[gname], pen)
+            pen += hmtx[gname][0]
+        glyf = None
+    else:
+        glyf = font["glyf"]
+    for ch in (txt if glyf is not None else ""):
         gname = cmap.get(ord(ch))
         if gname is None:
             gname = ".notdef"

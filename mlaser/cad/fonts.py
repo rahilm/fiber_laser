@@ -13,6 +13,14 @@ Lookup order (:func:`locate`):
 The bundled fonts are also the per-character fallback of the shaper
 (:mod:`mlaser.cad.shaping`): a character missing in the chosen font is drawn from the first
 bundled font that has it.
+
+Cutting text default (Wave 3): text that names no font (DXF TEXT, Draw -> Text) is drawn with
+the bundled Noto Sans SC subset, and a bundled family name always resolves to the bundled file
+(even when a full Noto Sans SC is installed), so the default text geometry is the same on every
+machine.  An explicitly chosen installed family or font file is still used.  The original's
+lookup (宋体 / SimSun, which the Wine harness maps to WenQuanYi Micro Hei, then the installed
+:data:`FALLBACK_FAMILIES`) is the ``"system"`` text-font mode: ``MLASER_TEXT_FONT=system`` or a
+ParityProfile with the option ``text_font="system"`` (:func:`text_font_mode`).
 """
 from __future__ import annotations
 
@@ -29,13 +37,36 @@ BUNDLED_FONTS: tuple[tuple[str, str], ...] = (
     ("Noto Sans Arabic", "NotoSansArabic-Regular-subset.ttf"),
 )
 BUNDLED_FAMILY = BUNDLED_FONTS[0][0]
-#: installed families tried, in this order, when the requested one is missing (cad.text default
-#: face gp79 宋体 / "Segoe UI", then common Linux/macOS faces)
+#: installed families tried, in this order, when the requested one is missing in the "system"
+#: text-font mode (the original's default face gp79 宋体 / "Segoe UI", then common Linux/macOS
+#: faces); the default "bundled" mode falls back to :data:`BUNDLED_FAMILY` instead
 FALLBACK_FAMILIES = ("SimSun", "Segoe UI", "DejaVu Sans", "Liberation Sans", "Arial")
 
 _FONT_FILES: dict = {}
 _FONT_HINTS = {"simsun": ("simsun.ttc", "simsun.ttf"), "宋体": ("simsun.ttc",), "nsimsun": ("simsun.ttc",),
                "wenquanyi micro hei": ("wqy-microhei.ttc",)}
+
+
+TEXT_FONT_MODES = ("bundled", "system")
+
+
+def text_font_mode() -> str:
+    """``"bundled"`` (default: cutting text without a font uses the bundled font) or ``"system"``
+    (the original's installed-font lookup).  ``MLASER_TEXT_FONT`` wins over the active
+    ParityProfile's ``text_font`` option."""
+    env = os.environ.get("MLASER_TEXT_FONT", "").strip().lower()
+    if env in TEXT_FONT_MODES:
+        return env
+    try:
+        from mlaser.parity_ports import active_profile
+        v = str(active_profile().option("text_font", "bundled")).lower()
+    except Exception:   # noqa: BLE001
+        v = "bundled"
+    return v if v in TEXT_FONT_MODES else "bundled"
+
+
+def is_bundled_family(family: Optional[str]) -> bool:
+    return bool(family) and str(family).strip().lower() in {f.lower() for f, _fn in BUNDLED_FONTS}
 
 
 @dataclass(frozen=True)
@@ -152,6 +183,16 @@ def _faces() -> tuple[tuple[str, int, frozenset, str, str], ...]:
     return tuple(out)
 
 
+def text_font_file(family: str) -> Optional[tuple[str, int]]:
+    """(path, index) of the font file of ``family`` for the DXF TEXT outline path: the bundled
+    file for a bundled family name, else the installed one (:func:`find_font_file`)."""
+    if is_bundled_family(family):
+        b = bundled_font(family)
+        if b is not None:
+            return (b.path, b.index)
+    return find_font_file(family)
+
+
 def find_face(family: str, bold: bool = False, italic: bool = False) -> Optional[FontRef]:
     """The installed face of ``family`` matching ``bold`` / ``italic`` best (subfamily name),
     else :func:`find_font_file`'s face; None when the family is not installed."""
@@ -179,6 +220,10 @@ def locate(family: Optional[str], bold: bool = False, italic: bool = False,
     for f in (font_file, family):
         if f and is_font_file(f):
             return FontRef(os.path.abspath(str(f)), 0, os.path.splitext(os.path.basename(str(f)))[0])
+    if family and is_bundled_family(family):
+        b = bundled_font(family)        # deterministic: the bundled file, not an installed copy
+        if b is not None:
+            return b
     if family:
         r = find_face(family, bold, italic)
         if r is not None:
@@ -187,11 +232,22 @@ def locate(family: Optional[str], bold: bool = False, italic: bool = False,
     return None
 
 
+def default_text_family() -> str:
+    """The family of cutting text that names no font: :data:`BUNDLED_FAMILY` (when the bundled
+    font is present) unless the text-font mode is ``"system"``."""
+    if text_font_mode() == "bundled" and bundled_font() is not None:
+        return BUNDLED_FAMILY
+    return resolve_family(None)
+
+
 def resolve_family(family: Optional[str]) -> str:
-    """``family`` when it can be found (file, installed or bundled), else the first installed
-    family of :data:`FALLBACK_FAMILIES`, else the bundled :data:`BUNDLED_FAMILY`."""
+    """``family`` when it can be found (file, installed or bundled), else the bundled
+    :data:`BUNDLED_FAMILY`; in the ``"system"`` text-font mode the first installed family of
+    :data:`FALLBACK_FAMILIES` comes before the bundled one."""
     if family and locate(family) is not None:
         return family
+    if text_font_mode() == "bundled" and bundled_font() is not None:
+        return BUNDLED_FAMILY
     for f in FALLBACK_FAMILIES:
         if find_font_file(f) is not None:
             return f

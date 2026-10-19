@@ -36,7 +36,7 @@ HATCH, MPOLYGON     boundary paths as closed cut contours: polyline paths with b
 SOLID, TRACE        closed contours (3DFACE, MESH, 3DSOLID, IMAGE, WIPEOUT, VIEWPORT skipped)
 TEXT, ATTRIB        outlines from the text style's font: TrueType/OpenType through
                     :mod:`mlaser.cad.text` (fontTools + uharfbuzz: kerning, CJK, Arabic;
-                    style font file -> style family -> SimSun/... -> bundled Noto Sans SC);
+                    style font file -> style family -> the bundled Noto Sans SC default);
                     SHX / LFF fonts through ``ezdxf.fonts`` when ezdxf finds the font file.
                     Height = cap height (CAD semantics, not the faithful "outline height");
                     alignment, fit/aligned, width factor, oblique, mirroring and OCS as
@@ -315,7 +315,7 @@ def _local_text(text: str, e, H: float, tol: float):
         ref = cfonts.find_by_filename(name)
     if ref is None and fam:
         ref = cfonts.locate(fam)
-    if ref is None:                                  # the DXF TEXT default (SimSun, ... bundled)
+    if ref is None:                                  # the DXF TEXT default (bundled Noto Sans SC)
         from .dxf_import import _text_family
         ref = cfonts.locate(_text_family())
     polys, m = text_outlines(text, ref=ref, tol_em=1e-4)

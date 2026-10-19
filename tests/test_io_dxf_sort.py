@@ -169,8 +169,8 @@ def test_contour_glyphs_from_source_glyphs_and_long_side_start(tmp_path):
 def test_text_outline_glyph_kinds(tmp_path):
     from mlaser.io import dxf_import
     fam = dxf_import._text_family()
-    if not fam or dxf_import._tt_font(fam) is None:
-        pytest.skip("no TrueType font for the text family")
+    if not fam or dxf_import._tt_font(fam, cff=True) is None:
+        pytest.skip("no outline font for the text family")
     d = ezdxf.new("R2000")
     d.modelspace().add_text("HO", dxfattribs={"height": 5.0, "insert": (0, 0)})
     doc = import_dxf(_save(d, tmp_path), placement=None)
