@@ -29,9 +29,30 @@ def ms(fn, n=5):
     return statistics.median(out)
 
 
-def main(path: str) -> None:
+def synthetic(n: int):
+    """``n`` plates with a hole on a grid (the review's large-document case)."""
+    from mlaser.model import Arc, Contour, Craft, Document, LayerParams, Line, Part
+    parts = []
+    k = int(n ** 0.5) + 1
+    for i in range(n):
+        x, y = (i % k) * 30.0, (i // k) * 30.0
+        pts = [(x, y), (x + 20, y), (x + 20, y + 20), (x, y + 20)]
+        outer = Contour([Line(pts[j], pts[(j + 1) % 4]) for j in range(4)], True)
+        s = (x + 13, y + 10)
+        hole = Contour([Arc(s, s, (x + 10, y + 10), True)], True)
+        parts.append(Part([hole, outer], Craft(layer=1), name=f"p{i}"))
+    return Document(parts=parts, layers={1: LayerParams(1)})
+
+
+def load(path: str):
+    if path.startswith("synthetic:"):
+        return synthetic(int(path.split(":", 1)[1]))
     from mlaser.formats.chf import load_chf
-    doc = load_chf(path)
+    return load_chf(path)
+
+
+def main(path: str) -> None:
+    doc = load(path)
     nseg = sum(len(c.segments) for p in doc.parts for c in p.contours)
     print(f"{os.path.basename(path)}: {len(doc.parts)} parts, {sum(len(p.contours) for p in doc.parts)} contours, {nseg} segments")
     print(f"whole-document deepcopy (old undo snapshot): {ms(lambda: copy.deepcopy(doc)):.1f} ms")
@@ -52,11 +73,12 @@ def main(path: str) -> None:
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import MainWindow
     w = MainWindow(DemoController())
-    w.set_document(load_chf(path))
+    w.set_document(load(path))
     jobs = getattr(w, "jobs", None)
     if jobs is not None:
         jobs.settle(timeout=600)
     times = []
+    w.canvas.select_parts([0])
     for _ in range(3):
         t = time.perf_counter()
         w.run("xform.rot_cw90")
@@ -67,7 +89,7 @@ def main(path: str) -> None:
             jobs.settle(timeout=600)
             worker = (time.perf_counter() - t1) * 1e3
             print(f"  worker after the edit: {worker:.0f} ms (toolpath + compile, compile {jobs.stats['last_compile_s']*1e3:.0f} ms)")
-    print(f"GUI thread per ribbon edit (rotate 90): {statistics.median(times):.1f} ms")
+    print(f"GUI thread per ribbon edit (rotate 90 of one selected part): {statistics.median(times):.1f} ms")
     w.close()
 
 

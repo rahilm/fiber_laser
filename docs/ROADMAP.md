@@ -28,9 +28,8 @@ Status: ☐ todo · ◐ in progress · ☑ done
 Layout, rules and checks: [docs/dev/ARCHITECTURE.md](dev/ARCHITECTURE.md).  Every step kept the
 goldens bit-identical, the default and parity suites green, command coverage at 0 / 0 and the Wine
 parity run at 728 match / 17 differ / 0 errors.
-- ☑ break the cycles (both are gone; the only package cycle left is diag ↔ ui through one lazy
-  `diag.batch -> ui.docops` import, an explicit import-linter ignore, see Wave 2 "business logic
-  out of the UI"):
+- ☑ break the cycles (both are gone; the last one, diag ↔ ui through the lazy
+  `diag.batch -> ui.docops` import, went with Wave 2 "business logic out of the UI"):
   - `mlaser/protocol/` (frame codec, ManuItem, enums)
   - `mlaser/geom/` (one flatten/spline/bbox library: `curves` + `contour`)
   - `process.py` → `nc/`; the job streamer → `controller/stream.py`
@@ -81,16 +80,22 @@ Done (docs/SAFETY.md, `tests/safety/`); the typed MachineAPI and event bus of th
 - ☑ typed `MachineAPI` plus an event bus (job, alarm, link events); split UiController; Demo and
   real controllers implement the full API (done in the Safety track) (removes the import-linter ignore
   `controller.ui_adapter -> PySide6`: the Qt signal bridge moves to the app)
-- ☐ immutable `PlannedJob` compiled in a worker (progress, cancel, cache); the preview renders it
-  and Start streams exactly it; the streamer uses `Job.frames()`
-- ☐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
-  the machine profile feeds `Machine`; it hands the layer defaults to
-  `parity_ports.mainapp.layer` (removes the import-linter ignore
-  `parity_ports.mainapp.layer -> formats.params`)
-- ☐ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
-- ☐ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
-- ☐ business logic out of the UI (docops, ext handlers → services; removes the import-linter
-  ignore `diag.batch -> ui.docops`)
+- ☑ immutable `PlannedJob` compiled in a worker (progress, cancel, cache); the preview renders it
+  and Start streams exactly it; the streamer uses `Job.frames()` (`mlaser.services.jobs`; the
+  run bar, run controls, pendant and batch runner hand the plan to `start_job`, which runs the
+  pre-flight on it; tests/test_services_jobs.py)
+- ◐ `ConfigService` generated from the 1,129-entry registry: typed, units, ranges, platformdirs;
+  the machine profile feeds `Machine` (done: `mlaser.services.config`, typed Options dialogs,
+  HardPara/ManuPara XML import/export, a GUI option changes the compiled job); still open: it
+  hands the layer defaults to `parity_ports.mainapp.layer` (the import-linter ignore
+  `parity_ports.mainapp.layer -> formats.params` stays)
+- ☑ command-based undo with stable IDs; round-trip blobs kept in an immutable side table
+  (`mlaser.services.undo`; bounded by count and bytes; byte-exact .chf through edit/undo/redo)
+- ☑ `PluginContext` API; port ext_* onto it; command coverage keeps all 246 commands bound
+  (`mlaser.services.plugins`, docs/dev/PLUGINS.md, `examples/mlaser_hello`, entry points
+  `mlaser.plugins`; coverage: every command bound, 0 raising, 0 duplicate registrations)
+- ☑ business logic out of the UI (docops, ext handlers → services; removes the import-linter
+  ignore `diag.batch -> ui.docops`) (`mlaser.ops`, `services.production`; the ignore is gone)
 
 ### Code health
 - ☐ mypy on the rest of the package (cam, motion, io, formats, controller, devices, ui ...;

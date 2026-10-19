@@ -189,6 +189,9 @@ class MainWindow(QMainWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._timer.start(100)
+        self._panel_timer = QTimer(self)
+        self._panel_timer.setSingleShot(True)
+        self._panel_timer.timeout.connect(self._refresh_part_list)
         self.docs.subscribe(self._document_changed)
         self.set_document(Document())
         self._close_watch = _CloseWatch(self)
@@ -511,8 +514,16 @@ class MainWindow(QMainWindow):
             self.canvas.rebuild()
         self._update_toolpath()
         self.layer_panel.set_document(doc)
-        self.part_list.set_document(doc)
+        if kind == "replace":
+            self.part_list.set_document(doc)
+        else:
+            # the part list measures every part (bbox): after an edit it is refreshed once the
+            # edits stop (coalesced), not inside each edit on the GUI thread
+            self._panel_timer.start(250)
         self.hooks.emit("document_changed", kind)
+
+    def _refresh_part_list(self) -> None:
+        self.part_list.set_document(self.docs.document)
 
     def refresh_views(self) -> None:
         """Rebuild the views after a change that is deliberately not an undo step."""
