@@ -165,14 +165,25 @@ def route_source(host: str, port: int) -> str:
         s.close()
 
 
-def local_ipv4_addresses() -> list[str]:
-    """Best-effort list of local IPv4 addresses (stdlib only: host name lookup)."""
+def local_ipv4_addresses(timeout_s: float = 0.5) -> list[str]:
+    """Best-effort list of local IPv4 addresses (stdlib only: host name lookup).
+
+    The lookup of the own host name can hang for seconds (macOS: a ``.local`` name resolved
+    over mDNS, about 5 s on the CI runners), so it runs in a daemon thread and is abandoned
+    after ``timeout_s`` (the list is then empty: the subnet check says so)."""
+    found: list = []
+
+    def lookup() -> None:
+        try:
+            found.extend(socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET))
+        except OSError:
+            pass
+
+    t = threading.Thread(target=lookup, name="mlaser-netcheck-addrs", daemon=True)
+    t.start()
+    t.join(timeout_s)
     out: list[str] = []
-    try:
-        infos = socket.getaddrinfo(socket.gethostname(), None, socket.AF_INET)
-    except OSError:
-        infos = []
-    for info in infos:
+    for info in (list(found) if not t.is_alive() else []):
         ip = str(info[4][0])
         if ip not in out:
             out.append(ip)
