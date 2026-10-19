@@ -271,6 +271,12 @@ class JobRunnerPart:
                 logging.getLogger("mlaser.controller").exception("job worker")
                 self.raise_fault(f"{mode}: unexpected error {type(e).__name__}: {e}")
             finally:
+                if self.sup.streaming == "process" and self._mc is not None and self.sup.child_seen:
+                    # the child owned the link during the job and relayed the card's status
+                    # until child_seen; the parent's own connection last heard the card before
+                    # the job, so without this the idle deadline (1.5 s) counted the whole job
+                    # as silence and a stop / hold right after it read as a lost link
+                    self._mc.last_ok = max(self._mc.last_ok, self.sup.child_seen)
                 self.sup.streaming = None
                 if not ok:
                     self.sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)

@@ -271,3 +271,23 @@ def test_child_startup_is_not_link_silence(make_ctl):
     assert wait_until(lambda: ctl.sim.state.fifo_running and ctl.sim.state.laser, 20) is not None
     assert not ctl.fsm.faulted, ctl.safety().fault
     assert ctl.stop().wait(10)
+
+
+def test_link_age_after_a_process_job_counts_from_the_childs_relays():
+    """After a process-streamed job the parent's own connection last heard the card before the
+    job (the child owned the link).  The idle deadline (1.5 s) must count from the child's
+    last relay, not from the parent's last poll: a stop or hold right after a job longer than
+    1.5 s read as a lost link (Windows, 1641-1765 ms).  The poller is slowed down (5 s) so it
+    cannot hide the gap."""
+    from mlaser.controller.ui_adapter import UiController
+    ctl = UiController(poll_s=5.0, stream_process=True)
+    try:
+        assert ctl.connect_simulator(time_scale=1.0, pessimistic=True)
+        assert ctl.arm()
+        start_and_run(ctl, run_s=1.8)
+        assert ctl.stop().wait(10)
+        time.sleep(0.3)                    # a few monitor ticks after the job ended
+        assert not ctl.fsm.faulted, ctl.safety().fault
+        assert ctl.sup.link_age_s() < 1.0
+    finally:
+        ctl.disconnect()
