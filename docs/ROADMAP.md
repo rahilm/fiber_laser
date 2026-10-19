@@ -139,15 +139,20 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
   validation
 
 ## Wave 3: modern workflow (Stage 3, built on the services)
-- ☐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
-  a Ctrl+K command palette, and an optional classic ribbon
+- ◐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
+  a Ctrl+K command palette, and an optional classic ribbon (☑ Machine workspace:
+  `ui/workspaces/machine.py`, monitors as panels, typed hardware settings, alarm history)
 - ☐ material/technology database: material × thickness × gas × nozzle; versioned; diff against
   factory values
 - ☐ properties panel instead of modal dialogs; units; live previews
 - ☐ preview with a scrubber, plus a time and cost card
 - ☐ touch-first Run screen; Operator, Engineer and Service modes
 - ☐ graphical nest workspace; job queue; production reports; remnant stock
-- ☐ guided edge-seek and calibration procedures
+- ☑ guided edge-seek and calibration procedures (Machine track: `services.procedures` step
+  machines with abort = `safe_halt` and a simulator dry run; edge seek 3/4-point, disc and
+  two-point with outline review and undoable apply; follower calibration with the curve; focus
+  homing; laser power test with arming; first-connection commissioning checklist; settings import
+  from an original install; docs/user/machine.md)
 - ☐ i18n: readable keys (Qt Linguist), cleaned-up translations, an importer for the original's
   files
 - ☐ dark and high-contrast themes, SVG icons, accessibility

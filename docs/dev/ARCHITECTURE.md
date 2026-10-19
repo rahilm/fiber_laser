@@ -237,6 +237,9 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
 | `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
+| procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
+| `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
+| `AlarmHistory` (`alarm_history.py`) | alarms and faults with raise / clear times, persisted | the alarm tab's log lines |
 
 ### Undo
 
