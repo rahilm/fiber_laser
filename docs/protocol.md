@@ -796,6 +796,12 @@ with cfg +0x48c4 adds NC +0x164 (gate off). Rebuild `UiController.stop`: running
 stop with PWM off at LC.PtLaserFreq; idle → `[101]` + `_vm_stop_jog`; paused at a breakpoint →
 `_vm_stop_jog` only.
 
+**Wave 2 (docs/SAFETY.md §4).** The job stop sequence is unchanged on the wire (same commands, same
+order) but goes out through the halt channel **before** the worker is joined, and `stop()` returns at
+once. `safe_halt()` sends the same sequence on disconnect, close, exit, signals, excepthooks and every
+FAULT. Pause sets the streamer hold first, then sends the program stop. An alarm during a job latches a
+FAULT with a breakpoint (instead of the plain pause); reset, arm, Resume.
+
 ## 15. FIFO capacity, underrun and streaming robustness
 
 * No capacity constant exists in NCModule: fillFifo only compares RO[16] (free bytes) with
@@ -805,14 +811,16 @@ stop with PWM off at LC.PtLaserFreq; idle → `[101]` + `_vm_stop_jog`; paused a
 * Start (mcCoreProcess `FUN_10058030`): one fillFifo (≤ 20 frames ≈ 2000 step items ≈ 2 s at 1 ms)
   then `[9999, 1, mask|0x66800000, 0]` and 103 := 2.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
-* Rebuild `controller/stream.py`: `JobStreamer` prefills until the FIFO is full (or `prefill_ms`), tracks
-  buffered motion (`BufferStats.min_buffer_ms`), and a **watchdog** (`watchdog_ms`, 40 ms) stops the
-  FIFO and switches the PWM off before the card runs dry, refills and restarts (`auto_resume`).
-  `ProcessStreamer` runs it in a spawned process with its own socket (queues for progress and
-  pause/resume/cancel); `UiController` uses it for real cards (`stream_process=None` = auto).
-  `tools/bench_stream.py` reports the headroom. Measured (simulator in its own process, 2 CPU-hog
-  threads in the caller, real time, 64 KiB): thread min fill 4487 ms, process 5182 ms of 5461 ms;
-  stress (20× real time, 16 KiB, 4 hogs): thread 48 underruns, process 0 underruns, min 755 ms.
+* Rebuild `controller/stream.py` (changed in Wave 2, docs/SAFETY.md §6): `JobStreamer` keeps at most
+  `max_buffer_ms` (1200 ms) of motion in the FIFO, prefill included (it used to fill the whole FIFO,
+  ~5.4 s). The **watchdog** (`watchdog_ms`, 40 ms) still switches the PWM off and stops the FIFO
+  before the card runs dry, but the streamer **never restarts the FIFO** on its own: an underrun or
+  an unexpected idle (FIFO stopped by another client, an alarm, a dry FIFO) raises `StreamFault`,
+  the controller latches a FAULT with a breakpoint and the operator continues with Resume (re-pierce).
+  `ProcessStreamer` (real cards) is supervised both ways: the child self-halts on parent loss
+  (`getppid`, heartbeat) and link loss (150 ms), the parent halts on child death or silence; during
+  the job the child is the only user of the main connection and relays the status. Halts go through
+  a second socket (halt channel, 40 ms timeout). `tools/bench_stream.py` reports the headroom.
 
 ## 16. Edge seek (寻边, mf19)
 
