@@ -127,7 +127,8 @@ first on the document to show the dialog.
 * `ProcessStreamer` (default for real cards): the child is the only user of the main connection
   during the job and relays the status. The child halts the card itself when `os.getppid()`
   changes, when the parent's heartbeat counter stops for 0.3 s, or when the card has not answered
-  for `link_deadline_ms`. The parent faults when the child dies or, once it has sent its first
+  for `link_deadline_ms` (the shared hold / cancel / heartbeat flags have no cross-process lock,
+  so a parent killed at any moment cannot leave the child blocked). The parent faults when the child dies or, once it has sent its first
   message, is silent for 0.5 s; the child's start-up (an interpreter start, often more than
   0.5 s on Windows) is bounded by `ProcessStreamer.startup_s` (20 s) instead, and the card
   holds nothing of the job before the child has spoken. Hold and

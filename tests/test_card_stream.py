@@ -144,8 +144,7 @@ def test_child_treats_a_refusal_after_the_cancel_as_the_cancel(monkeypatch):
     from mlaser.controller.supervisor import CommandRefused
     from mlaser.machine.safety import Cmd
 
-    flags = {"hold": mp.Value("b", 0), "cancel": mp.Value("b", 0), "hb": mp.Value("q", 0),
-             "halted": mp.Value("b", 0)}
+    flags = S._shared_flags(mp)
 
     def run_job(self, job, *a, **kw):
         flags["cancel"].value = 1                  # the cancel arrives ...
@@ -215,3 +214,17 @@ def test_streaming_freezes_the_preexisting_heap():
     with quiet_gc():
         pass
     assert gc.get_freeze_count() >= n > 0
+
+
+def test_shared_flags_have_no_cross_process_lock():
+    """The parent / child flags are lock-free: a parent killed while holding a shared lock must
+    not leave the child's watchdog blocked (it would never halt the card)."""
+    import multiprocessing as mp
+
+    from mlaser.controller.stream import _shared_flags
+    flags = _shared_flags(mp.get_context("spawn"))
+    assert set(flags) == {"hold", "cancel", "hb", "halted"}
+    for v in flags.values():
+        assert not hasattr(v, "get_lock")
+        v.value = 1
+        assert v.value == 1

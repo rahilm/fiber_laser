@@ -17,6 +17,7 @@ FIFO prefill                           whole FIFO, 5.4 s of motion              
 from __future__ import annotations
 
 import os
+import signal
 import subprocess
 import sys
 import textwrap
@@ -90,7 +91,7 @@ def test_ui_process_killed_child_self_halts():
                 while not ps.executed:
                     time.sleep(0.01)
                 time.sleep(0.5)
-                print("KILL", flush=True)
+                print("KILL", ps.proc.pid, flush=True)
                 os.kill(os.getpid(), signal.SIGKILL)
             threading.Thread(target=die, daemon=True).start()
             ps.run_job(job)
@@ -100,10 +101,22 @@ def test_ui_process_killed_child_self_halts():
         with open(path, "w") as f:
             f.write(code)
         p = subprocess.Popen([sys.executable, path], stdout=subprocess.PIPE, text=True)
-        assert "KILL" in p.stdout.readline()
+        line = p.stdout.readline()
+        assert "KILL" in line
+        child = int(line.split()[1])
         p.wait(10)
         t = wait_until(lambda: safe(sim), 2.0)
-        assert t is not None and t < 1.0, f"orphaned child kept streaming ({t})"
+
+        def alive(pid):
+            try:
+                os.kill(pid, 0)
+                return True
+            except OSError:
+                return False
+        assert t is not None and t < 1.0, (
+            f"orphaned child kept streaming ({t}): child alive={alive(child)}, "
+            f"fifo_running={sim.state.fifo_running}, beam_on={sim.beam_on}, "
+            f"last commands={sim.state.commands[-6:]}")
         x = sim.position(0)
         time.sleep(0.5)
         assert sim.position(0) == x and not sim.state.fifo_running
@@ -112,6 +125,10 @@ def test_ui_process_killed_child_self_halts():
         sim.stop()
         if os.path.exists(path):
             os.remove(path)
+        try:
+            os.kill(child, signal.SIGKILL)       # never leave an orphan behind
+        except (NameError, OSError):
+            pass
 
 
 def test_streaming_child_killed_parent_halts(make_ctl):

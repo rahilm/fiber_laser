@@ -372,6 +372,17 @@ class JobStreamer(FifoStreamer):
 
 
 # =============================================================================== process
+def _shared_flags(ctx) -> dict:
+    """Hold / cancel / heartbeat / halted, shared between the parent and the streaming child,
+    **without** a lock (``lock=False``): each flag has one writer, and an aligned load or store
+    of a byte / 64-bit integer is atomic.  With the default lock (a process-shared semaphore) a
+    parent killed while it held it (it bumps ``hb`` all the time) left it held for good, and the
+    child's watchdog blocked on ``flags["hb"].value`` instead of halting the card (macOS CI:
+    "orphaned child kept streaming")."""
+    return {"hold": ctx.Value("b", 0, lock=False), "cancel": ctx.Value("b", 0, lock=False),
+            "hb": ctx.Value("q", 0, lock=False), "halted": ctx.Value("b", 0, lock=False)}
+
+
 def _child_guard(policy: dict, flags: dict):
     """The parent's safety policy applied to the child's own socket."""
     from ..machine.safety import Cmd, classify_request
@@ -401,8 +412,7 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     except Exception:  # noqa: BLE001
         pass
     policy = dict(policy or {})
-    flags = flags or {"hold": mp.Value("b", 0), "cancel": mp.Value("b", 0),
-                      "hb": mp.Value("q", 0), "halted": mp.Value("b", 0)}
+    flags = flags or _shared_flags(mp)
     ppid0 = int(policy.get("ppid", os.getppid()))
     parent_timeout = float(policy.get("parent_timeout_s", 0.3))
     link_deadline = float(policy.get("link_deadline_ms", 150.0)) / 1000.0
@@ -600,8 +610,7 @@ class ProcessStreamer:
         hold = hold or (lambda: False)
         ctx = self.ctx
         self.cmd_q, self.evt_q = ctx.Queue(), ctx.Queue()
-        self.flags = {"hold": ctx.Value("b", 0), "cancel": ctx.Value("b", 0), "hb": ctx.Value("q", 0),
-                      "halted": ctx.Value("b", 0)}
+        self.flags = _shared_flags(ctx)
         policy = {**self.policy, "ppid": os.getpid()}
         self.proc = ctx.Process(target=_child_main, name="mlaser-stream", daemon=True,
                                 args=(self._cfg_dict(), self.position_ppm, wj, self.kw,

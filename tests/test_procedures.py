@@ -459,9 +459,13 @@ def test_commissioning_relay_answer_no_fails(tmp_path):
         p = CM.CommissioningProcedure(ctl, report_dir=tmp_path, netcheck_fn=_netcheck_ok, relay_window_s=0.6)
         run_all(p, stop_at="heartbeat_relay")
         p.heartbeat_hold(True)
+        # an edge already being written when the hold came, and the one "off" write after it,
+        # complete first (on the macOS runners a write to the simulator takes tens of ms)
+        time.sleep(0.25)
         n = ctl.heartbeat_status()["toggles"]
         time.sleep(0.5)
-        assert ctl.heartbeat_status()["toggles"] <= n + 1          # held: the output stays off
+        assert ctl.heartbeat_status()["toggles"] == n              # held: no more edges
+        assert not ctl.sim.state.outputs >> (ctl.heartbeat_status()["output"] - 1) & 1   # and off
         p.answer(False)
         assert p.items["heartbeat"].status == CM.FAIL and not ctl.heartbeat_status()["hold"]
     finally:
