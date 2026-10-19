@@ -521,7 +521,7 @@ class NestWorkspace(QWidget):
             self.ctx.log(f"nest: {note}")
         self.run = run
         self.status.setText(tr(self.window_, "nestws.msg.done",
-                               "Run {n}: {placed} parts on {sheets} sheets, {util:.1f} % used, {unplaced} unplaced, {t:.1f} s",
+                               "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
                                n=run.number, placed=run.placed, sheets=run.sheets, util=100 * run.utilisation,
                                unplaced=run.unplaced, t=run.elapsed_s))
         self._show_run(run)

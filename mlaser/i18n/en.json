@@ -548,7 +548,7 @@
   "nestws.leftover": "  → leftover {w:.0f} × {h:.0f}",
   "nestws.margin": "Edge",
   "nestws.material": "Material",
-  "nestws.msg.done": "Run {n}: {placed} parts on {sheets} sheets, {util:.1f} % used, {unplaced} unplaced, {t:.1f} s",
+  "nestws.msg.done": "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
   "nestws.msg.failed": "Nesting failed: {err}",
   "nestws.msg.no_parts": "Add parts first (from the drawing or a file).",
   "nestws.msg.queued": "{n} sheet jobs added to the queue",
@@ -2121,6 +2121,52 @@
   "main.import_language_done": [
    "languages"
   ],
+  "nestws.leftover": [
+   "w",
+   "h"
+  ],
+  "nestws.msg.done": [
+   "n",
+   "placed",
+   "sheets",
+   "util",
+   "unplaced",
+   "t"
+  ],
+  "nestws.msg.failed": [
+   "err"
+  ],
+  "nestws.msg.queued": [
+   "n"
+  ],
+  "nestws.remnant_item": [
+   "label"
+  ],
+  "nestws.result_item": [
+   "n",
+   "util",
+   "parts",
+   "sheet"
+  ],
+  "nestws.sheet_item": [
+   "name",
+   "w",
+   "h",
+   "n"
+  ],
+  "nestws.sheet_title": [
+   "n",
+   "total",
+   "w",
+   "h",
+   "util"
+  ],
+  "nestws.total": [
+   "sheets",
+   "util",
+   "placed",
+   "unplaced"
+  ],
   "panel.estimate": [
    "minutes",
    "seconds",
@@ -2131,6 +2177,91 @@
   "pitch.average_backlash": [
    "backlash"
   ],
+  "queue.note.missing": [
+   "path"
+  ],
+  "queue.note.unreadable": [
+   "path"
+  ],
+  "queue.totals": [
+   "entries",
+   "done",
+   "sheets",
+   "left"
+  ],
+  "remnant.saved": [
+   "label"
+  ],
+  "report.msg.csv": [
+   "path"
+  ],
+  "report.msg.pdf": [
+   "path"
+  ],
+  "report.note": [
+   "path"
+  ],
+  "run.alarm.title": [
+   "n"
+  ],
+  "run.count.contour": [
+   "n",
+   "total"
+  ],
+  "run.count.part": [
+   "n",
+   "total"
+  ],
+  "run.count.sheet": [
+   "n",
+   "total"
+  ],
+  "run.monitor_on": [
+   "host",
+   "port"
+  ],
+  "run.queue.next": [
+   "name",
+   "n",
+   "total",
+   "sheet"
+  ],
+  "run.queue.title": [
+   "n",
+   "left"
+  ],
+  "run.reason.alarm": [
+   "code",
+   "text"
+  ],
+  "run.reason.breakpoint": [
+   "x",
+   "y"
+  ],
+  "run.reason.fault": [
+   "fault"
+  ],
+  "run.times": [
+   "elapsed",
+   "eta"
+  ],
+  "run.val.gas": [
+   "v"
+  ],
+  "run.val.height": [
+   "v"
+  ],
+  "run.val.position": [
+   "x",
+   "y",
+   "z"
+  ],
+  "run.val.power": [
+   "v"
+  ],
+  "run.val.speed": [
+   "v"
+  ],
   "status.speed": [
    "unit",
    "speed"
@@ -2139,6 +2270,18 @@
    "dx",
    "dy",
    "length"
+  ],
+  "web.log.failed": [
+   "host",
+   "port",
+   "err"
+  ],
+  "web.log.started": [
+   "url"
+  ],
+  "web.warn.text": [
+   "host",
+   "port"
   ]
  },
  "legacy": {
