@@ -388,3 +388,23 @@ def test_launcher_hands_multiprocessing_children_to_the_app_entry():
     assert L._is_multiprocessing_child(["--multiprocessing-fork", "pipe_handle=3"])
     assert L._is_multiprocessing_child(["-B", "-c", "from multiprocessing.spawn import spawn_main"])
     assert not L._is_multiprocessing_child(["--demo"])
+
+
+def test_strip_skips_wheel_vendored_libraries(tmp_path, monkeypatch):
+    """auditwheel/patchelf-rewritten libraries in *.libs must never be stripped (numpy's OpenBLAS
+    broke with 'ELF load command address/offset not page-aligned' in a Linux bundle)."""
+    import importlib.util, sys
+    spec = importlib.util.spec_from_file_location("pkg_build", "packaging/build.py")
+    build = importlib.util.module_from_spec(spec)
+    sys.modules["pkg_build"] = build
+    spec.loader.exec_module(build)
+    elf = b"\x7fELF" + b"\0" * 60
+    for rel in ("numpy.libs/libscipy_openblas64_-x.so", "ortools/.libs/libortools.so", "mlaser/_native/_emitter.so"):
+        f = tmp_path / rel
+        f.parent.mkdir(parents=True, exist_ok=True)
+        f.write_bytes(elf)
+    stripped = []
+    monkeypatch.setattr(build.subprocess, "run", lambda cmd, check=True: stripped.append(cmd[-1]))
+    build.strip_linux(tmp_path)
+    assert [p for p in stripped if ".libs" in p] == []
+    assert any(p.endswith("_emitter.so") for p in stripped)

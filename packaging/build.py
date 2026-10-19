@@ -123,12 +123,15 @@ def strip_linux(contents: Path) -> dict:
     symbol tables and debug info, Review 2 P2-8).  Not touched: the executables (the bootloader
     carries the appended archive), PySide6/shiboken6 (Qt and its bindings stay the unmodified
     LGPL libraries, packaging/README.md) and files with a .hmac/.chk companion (PyInstaller's
-    own rule: checksummed libraries)."""
+    own rule: checksummed libraries).  Also not touched: libraries vendored by wheels in ``*.libs``
+    directories (numpy.libs, shapely.libs, ortools/.libs ...): auditwheel rewrote them with
+    patchelf, and stripping such a file can leave its load segments misaligned ("ELF load command
+    address/offset not page-aligned": numpy's OpenBLAS in the first Review 2 Package run)."""
     before = after = n = 0
     for f in _elf_files(contents):
         rel = f.relative_to(contents).parts
-        if rel[0] in ("PySide6", "shiboken6") or f.with_name(f.name + ".hmac").exists() \
-                or f.with_suffix(".chk").exists():
+        if rel[0] in ("PySide6", "shiboken6") or any(part.endswith(".libs") for part in rel[:-1]) \
+                or f.with_name(f.name + ".hmac").exists() or f.with_suffix(".chk").exists():
             continue
         size = f.stat().st_size
         subprocess.run(["strip", "--strip-unneeded", str(f)], check=True)
