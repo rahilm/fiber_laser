@@ -28,8 +28,9 @@ from __future__ import annotations
 
 import contextlib
 import importlib
+import logging
 from dataclasses import dataclass, fields, replace
-from typing import Any, Callable, Iterator, Protocol, Union
+from typing import Any, Callable, Iterator, Optional, Protocol, Union
 
 
 # --------------------------------------------------------------------------- interfaces
@@ -177,16 +178,27 @@ class ParityProfile:
     arcfit: Implementation
     dxf: Implementation
     chf: Implementation
+    #: logged as a warning whenever the profile is made active (e.g. "not validated on hardware")
+    warning: str = ""
+    #: options of rebuild extensions that are not parity slots (no bit-exact original exists),
+    #: e.g. ``{"shortest_path": "ortools"}`` for sort mode 20 (``mlaser.cam.ordering``)
+    options: tuple = ()
+
+    def option(self, key: str, default: Any = None) -> Any:
+        return dict(self.options).get(key, default)
 
     def slots(self) -> dict[str, Implementation]:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name in INTERFACES}
 
-    def derive(self, name: str, description: str, **slots: Implementation) -> "ParityProfile":
-        """A new profile that replaces the given slots and keeps the others."""
+    def derive(self, name: str, description: str, *, warning: str = "",
+               options: Optional[dict] = None, **slots: Implementation) -> "ParityProfile":
+        """A new profile that replaces the given slots (and extension options) and keeps the
+        others."""
         for k, impl in slots.items():
             if k not in INTERFACES or impl.slot != k:
                 raise ValueError(f"slot {k!r} needs an Implementation of that slot")
-        return replace(self, name=name, description=description, **slots)
+        opts = tuple(sorted({**dict(self.options), **(options or {})}.items()))
+        return replace(self, name=name, description=description, warning=warning, options=opts, **slots)
 
 
 _PP = "mlaser.parity_ports"
@@ -227,9 +239,11 @@ ORIGINAL = ParityProfile(
     ),
     ordering=Implementation(
         "ordering",
-        import_sort=f"{_PP}.cadmodule.ordering:import_sort",
-        local_optimal_elems=f"{_PP}.cadmodule.ordering:local_optimal_elems",
-        containers_last_faithful=f"{_PP}.cadmodule.ordering:containers_last_faithful",
+        # numpy / grid drop-ins with the reference's results bit for bit (the statement-level
+        # reference functions in cadmodule.ordering: profile "original-reference")
+        import_sort=f"{_PP}.cadmodule.ordering_fast:import_sort",
+        local_optimal_elems=f"{_PP}.cadmodule.ordering_fast:local_optimal_elems",
+        containers_last_faithful=f"{_PP}.cadmodule.ordering_fast:containers_last_faithful",
         ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
         choose_start=f"{_PP}.cadmodule.ordering:choose_start",
     ),
@@ -266,9 +280,13 @@ def register_profile(profile: ParityProfile) -> ParityProfile:
 
 
 def get_profile(name: str | None = None) -> ParityProfile:
-    """The registered profile ``name``; without a name, the active one."""
+    """The registered profile ``name``; without a name, the active one.  An unknown name first
+    imports the optional profiles (:mod:`mlaser.parity_ports.profiles`), which register
+    themselves."""
     if name is None:
         return _active
+    if name not in PROFILES:
+        importlib.import_module(f"{_PP}.profiles")
     try:
         return PROFILES[name]
     except KeyError:
@@ -284,6 +302,9 @@ def set_profile(profile: Union[str, ParityProfile]) -> ParityProfile:
     global _active
     prev = _active
     _active = get_profile(profile) if isinstance(profile, str) else profile
+    if _active.warning and _active is not prev:
+        logging.getLogger(__name__).warning("parity profile %r selected: %s", _active.name,
+                                            _active.warning)
     return prev
 
 

@@ -37,8 +37,8 @@ import shapely
 from shapely import affinity
 from shapely.geometry import Polygon
 
-from .model import (GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, GRAVITY_RIGHT, GRAVITY_TOP, NestJob,
-                    NestPart, NestResult, NestSheet, Placement, SheetLayout)
+from .model import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, GRAVITY_RIGHT,
+                    GRAVITY_TOP, NestJob, NestPart, NestResult, NestSheet, Placement, SheetLayout)
 from .shapes import fit_geometry, oriented, parts_geometry, sheet_geometry
 
 ProgressFn = Callable[[float, str], Optional[bool]]   # (fraction, message) -> False to cancel
@@ -419,25 +419,31 @@ class Nester:
         return result
 
     def _finish_layout(self, s: _Sheet) -> None:
-        lay = s.layout
-        lay.utilisation = s.used_area / s.area if s.area else 0.0
-        x0, y0, x1, y1 = s.full.bounds
-        ux0 = min(b[0] for b in s.bounds); uy0 = min(b[1] for b in s.bounds)
-        ux1 = max(b[2] for b in s.bounds); uy1 = max(b[3] for b in s.bounds)
-        sp = self.spacing
-        g = self.p.gravity
-        if g == GRAVITY_LEFT:
-            lay.used_extent = ux1 - x0
-            lay.remnant = (min(x1, ux1 + sp), y0, x1, y1) if ux1 + sp < x1 else None
-        elif g == GRAVITY_RIGHT:
-            lay.used_extent = x1 - ux0
-            lay.remnant = (x0, y0, max(x0, ux0 - sp), y1) if ux0 - sp > x0 else None
-        elif g == GRAVITY_BOTTOM:
-            lay.used_extent = uy1 - y0
-            lay.remnant = (x0, min(y1, uy1 + sp), x1, y1) if uy1 + sp < y1 else None
-        else:
-            lay.used_extent = y1 - uy0
-            lay.remnant = (x0, y0, x1, max(y0, uy0 - sp)) if uy0 - sp > y0 else None
+        finish_layout(s.layout, s.full.bounds, s.bounds, s.used_area, s.area, self.spacing, self.p.gravity)
+
+
+def finish_layout(lay: SheetLayout, full_bounds, part_bounds, used_area: float, area: float,
+                  spacing: float, gravity: str) -> None:
+    """Fill ``utilisation``, ``used_extent`` and ``remnant`` of a finished sheet layout
+    (shared by all engines). ``part_bounds`` are the bounds of the placed exact outlines."""
+    lay.utilisation = used_area / area if area else 0.0
+    x0, y0, x1, y1 = full_bounds
+    ux0 = min(b[0] for b in part_bounds); uy0 = min(b[1] for b in part_bounds)
+    ux1 = max(b[2] for b in part_bounds); uy1 = max(b[3] for b in part_bounds)
+    sp = spacing
+    g = gravity
+    if g == GRAVITY_LEFT:
+        lay.used_extent = ux1 - x0
+        lay.remnant = (min(x1, ux1 + sp), y0, x1, y1) if ux1 + sp < x1 else None
+    elif g == GRAVITY_RIGHT:
+        lay.used_extent = x1 - ux0
+        lay.remnant = (x0, y0, max(x0, ux0 - sp), y1) if ux0 - sp > x0 else None
+    elif g == GRAVITY_BOTTOM:
+        lay.used_extent = uy1 - y0
+        lay.remnant = (x0, min(y1, uy1 + sp), x1, y1) if uy1 + sp < y1 else None
+    else:
+        lay.used_extent = y1 - uy0
+        lay.remnant = (x0, y0, x1, max(y0, uy0 - sp)) if uy0 - sp > y0 else None
 
 
 def _placement_from(pid: int, angle: float, mirror: bool, origin, t) -> Placement:
@@ -452,19 +458,48 @@ def _quality(res: NestResult) -> tuple:
     return (sum(res.unplaced.values()), len(res.layouts), -rem_area)
 
 
+class NestEngineUnavailable(RuntimeError):
+    """The engine selected in ``NestParams.engine`` cannot run (optional package missing or
+    unknown engine name). The message says what to install."""
+
+
+def engine_class(name: str):
+    """Engine class for ``NestParams.engine``. Raises :class:`NestEngineUnavailable`."""
+    if not name or name == ENGINE_RASTER:
+        return Nester
+    if name == ENGINE_SPYRROW:
+        from .sparrow_engine import SpyrrowNester, spyrrow_available
+        if not spyrrow_available():
+            raise NestEngineUnavailable(
+                "The 'spyrrow' nesting engine needs the optional package spyrrow "
+                "(pip install 'mlaser[nest]' or pip install spyrrow). "
+                "Choose the raster engine in the nest parameters to nest without it.")
+        return SpyrrowNester
+    raise NestEngineUnavailable(f"Unknown nesting engine {name!r} (use {ENGINE_RASTER!r} or {ENGINE_SPYRROW!r})")
+
+
+def available_engines() -> list[str]:
+    """Engine names that can run in this installation (the raster engine always can)."""
+    from .sparrow_engine import spyrrow_available
+    return [ENGINE_RASTER] + ([ENGINE_SPYRROW] if spyrrow_available() else [])
+
+
 def nest(job: NestJob, progress: Optional[ProgressFn] = None) -> NestResult:
     """Nest ``job`` (parts onto sheets) and store the result in ``job.result``.
 
+    The engine is ``job.params.engine`` (default: the raster engine); an engine that cannot
+    run raises :class:`NestEngineUnavailable` before anything is changed.
     With ``gravity == "auto"`` both directions (left, bottom) are tried and the result with
     fewer unplaced parts, then fewer sheets, then the shorter last-sheet extent is kept."""
+    cls = engine_class(getattr(job.params, "engine", ENGINE_RASTER))
     if job.params.gravity != GRAVITY_AUTO:
-        return Nester(job, progress).run()
+        return cls(job, progress).run()
     best = None
     for k, g in enumerate((GRAVITY_LEFT, GRAVITY_BOTTOM)):
         job.params.gravity = g
         prog = None if progress is None else (lambda f, m, k=k: progress(0.5 * (k + f), m))
         try:
-            r = Nester(job, prog).run()
+            r = cls(job, prog).run()
         finally:
             job.params.gravity = GRAVITY_AUTO
         r.gravity = g

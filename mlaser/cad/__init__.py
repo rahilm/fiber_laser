@@ -1,7 +1,7 @@
 """Drawing and editing geometry (phase 3, agent F): the CAD half of CADModule.dll.
 
-Pure Python on top of :mod:`mlaser.model` (no Qt except :mod:`mlaser.cad.text`, which uses
-QtGui's font engine for glyph outlines).  Evidence for every function is cited in its
+Pure Python on top of :mod:`mlaser.model`, no Qt (text outlines come from fontTools +
+uharfbuzz).  Evidence for every function is cited in its
 docstring and collected in ``docs/draw.md``.
 
 Modules
@@ -13,6 +13,8 @@ Modules
 ``arrange``     align, size, grouping, similar / inner / outer selection, measure
 ``snap``        the dynamic capture engine (CDynCaptureEng, 0x10054420)
 ``text``        text to contours (CGlyText / GetGlyphOutlineW, 0x100f51c0)
+``fonts``       font file lookup without Qt (installed families, bundled ``fontdata/``)
+``shaping``     uharfbuzz shaping + fontTools outlines (kerning, ligatures, Arabic, CJK)
 ``qr``          QR code as scan lines (CQRCodeCreateDlg, MainApp 0x004b67d0)
 ``tools``       interactive state machines for each drawing command (Qt-free)
 """

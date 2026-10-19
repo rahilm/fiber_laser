@@ -19,6 +19,14 @@ own copy of the original at runtime.
 | `mlaser/i18n/en.json` | English UI catalogue: 1,858 strings, readable ids, placeholder names, map from the original's keys | Written for mlaser (see §3) | MIT (mlaser) |
 | `mlaser/formats/data/mlaser_params.json` | 1,129 parameter descriptors | Facts recovered from MainApp.exe's descriptor tables (§4) | facts; file is mlaser's (MIT) |
 | `mlaser/ui/resources/layer_colors.json` | 11 RGB layer colours | Values read from MainApp.exe `.rdata` (FUN_004473c0; docs/ui.md §3.1). Needed so layers in the user's `.chf` files keep the colours they have in the original. | facts |
+| `mlaser/cad/fontdata/NotoSansSC-Regular-subset.otf` (1,763,304 B, SHA-256 `ca60a451…8dd1f9e`) | bundled CJK-capable text font (Draw → Text, DXF TEXT fallback): Noto Sans SC 2.004, subset to GB 2312 + Latin/Greek/Cyrillic + punctuation by `tools/build_bundled_fonts.py` (downloads https://github.com/notofonts/noto-cjk/raw/Sans2.004/Sans/SubsetOTF/SC/NotoSansSC-Regular.otf, checks its SHA-256 `faa6c9df…5ea9`, subsets deterministically; `--full-cjk` keeps all of U+4E00–9FFF, 5.2 MB; the full upstream SC file is 8.3 MB, Noto Sans CJK SC ~16 MB) | SIL OFL 1.1, no Reserved Font Name, © 2014-2021 Adobe; `fontdata/OFL-NotoSansCJK.txt` |
+| `mlaser/cad/fontdata/NotoSansArabic-Regular-subset.ttf` (112,560 B, SHA-256 `870a5d20…b493d`) | Arabic fallback font for shaping: Noto Sans Arabic 2.013 (release zip SHA-256 `1301acea…54f1`, member `NotoSansArabic/unhinted/ttf/NotoSansArabic-Regular.ttf`), subset by the same script | SIL OFL 1.1; `fontdata/OFL-NotoSansArabic.txt` |
+
+Packaging (not in the Python package, copied into frozen bundles by `packaging/`):
+`packaging/licenses/LGPL-3.0.txt` and `GPL-3.0.txt` are the verbatim FSF licence texts; the
+build generates `LICENSES/THIRD_PARTY_NOTICES.txt` from the installed dist-info metadata of what
+is actually in the bundle (`packaging/gen_licenses.py`), plus a Qt/PySide6 notice with the Qt
+version, the source location and how to replace the shared Qt libraries (LGPL-3.0 §4).
 
 Code-level tables of the original's protocol, register and alarm numbers (`mlaser/controller`,
 `mlaser/diag`, ...) are interoperability facts and are documented next to the code. Some modules
@@ -101,3 +109,35 @@ expression.
 Vendor branding (splash and logo bitmaps RT_BITMAP 472/42885, `res/splash.bmp`,
 `File/help.bmp`, `File/logo_1.bmp`, the application icon), the original's binaries and DLLs,
 help documents and firmware files.
+
+## 7. Dependency licences
+
+Every dependency must be MIT-compatible for redistribution with an MIT program: no GPL, AGPL or
+non-commercial licences (docs/review/libraries.md, "Licence context").  Checked on 2026-10-18
+from the installed dist-info metadata and licence files, and the upstream repositories.
+
+| Package | Version | Licence | Use | Evidence / notes |
+|---|---|---|---|---|
+| PySide6 / shiboken6 | 6.12.0 | LGPL-3.0-only (or GPL-2/3), used under the LGPL | the UI | frozen builds are one-folder: Qt stays as replaceable shared libraries; licence notice + source pointer in the bundle (`packaging/README.md`) |
+| ezdxf | 1.4.5 | MIT | DXF import (faithful and modern modes) | dist-info `licenses/LICENSE` |
+| numpy | 2.5.4 | BSD-3-Clause (+ 0BSD, MIT, Zlib, CC0 parts) | everywhere | METADATA |
+| shapely | 2.2.0 | BSD-3-Clause; bundled GEOS is LGPL-2.1 as a shared library | geometry, STRtree filters | METADATA |
+| segno | 1.6.6 | BSD-3-Clause | QR codes | METADATA |
+| fontTools | 4.67.0 | MIT | glyph outlines, font subsetting | dist-info `licenses/LICENSE` (© 2017 Just van Rossum) |
+| Pillow | 13.0.0 | MIT-CMU | bitmap engraving | METADATA |
+| **svgelements** | 1.9.6 | MIT | SVG import | dist-info `LICENSE` (© 2019 meerk40t), PyPI `License: MIT` |
+| **pyclipper** | 1.4.0 | MIT; embedded Clipper 1 (Angus Johnson) Boost Software License 1.0 | opt-in kerf fallback, synthetic bold text | dist-info `licenses/LICENSE`; README "License" section and the `src/clipper.cpp` header in github.com/fonttools/pyclipper state BSL-1.0 for Clipper |
+| **uharfbuzz** | 0.56.3 | Apache-2.0; HarfBuzz inside under the "Old MIT" licence | text shaping | dist-info `licenses/LICENSE`; the wheel does not ship HarfBuzz's COPYING, the bundle notices add it |
+| **ortools** (extra `ortools`) | 9.15 | Apache-2.0 | optional sort mode 20 backend (profile `modern-ortools`) | METADATA; pulls pandas (BSD-3), protobuf (BSD-3), absl-py, immutabledict (Apache-2.0 / MIT) |
+| **spyrrow** (extra `nest`) | 0.9.0 | MIT (PyPI licence field empty; repo `LICENSE.txt` and Cargo.toml `license = "MIT"`, © 2025 Paul Durand-Lupinski) | optional nesting engine | wheel `licenses/LICENSE.txt` and CycloneDX SBOM (`sboms/spyrrow.cyclonedx.json`); GitHub licence API |
+| sparrow (inside spyrrow) | git 881cdcb | MIT (© 2025 Jeroen Gardeyn, KU Leuven) | strip-packing solver, statically linked | repository LICENSE at that revision |
+| jagua-rs (inside spyrrow) | 0.7.0 | **MPL-2.0**, unmodified | collision engine, statically linked | crates.io / SBOM. MPL-2.0 is file-level copyleft: distributing it unmodified in binary form inside a larger work is allowed (§3.3); recipients must be told where the source is (§3.2(a)): https://github.com/JeroenGar/jagua-rs, crate jagua-rs 0.7.0, and the MPL text kept. Modified jagua-rs files would have to be published under MPL-2.0. The other 99 Rust crates in the SBOM are MIT / Apache-2.0 / Unlicense / Zlib / Unicode-3.0 |
+| **ruckig** (extra `ruckig`) | 0.19.4 | MIT (Community edition) | optional modern planner profile `modern-ruckig` | dist-info `licenses/LICENSE` (© 2021 Lars Berscheid). Only offline Community features are used (no intermediate waypoints / cloud API, which are Pro); a test checks it |
+| hidapi, pyserial (extra `devices`) | 0.15.0, 3.5 | BSD (hidapi dual BSD/GPL-3: used under BSD) | pendant, serial links | METADATA |
+| platformdirs (optional) | 4.13 | MIT | config dir of the first-run self-test | METADATA |
+| mlaser-native (`native/`, optional) | 0.1 | MIT (this project) | C emitter kernel, profile `native-sampling` | own code; calls CPython's `math.hypot` at run time, copies nothing |
+| hypothesis (dev only) | 6.170 | MPL-2.0 | property tests, not distributed | METADATA |
+| PyInstaller (build tool only) | 6.22 | GPL-2.0-or-later with the bootloader exception | frozen builds | the exception allows distributing the frozen app under any licence; PyInstaller itself is not shipped as a library |
+
+Avoided on purpose (libraries.md): GPL (potrace and bindings, scapy, pygcode, deepnest core),
+AGPL (PyMuPDF, Nuitka without its runtime exception), non-commercial (LKH-3 / elkai).

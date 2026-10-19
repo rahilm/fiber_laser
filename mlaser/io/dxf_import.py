@@ -21,8 +21,8 @@ POLYLINE       glyph
 SPLINE/HELIX   FUN_10008740                 cubic spline glyph(s), see :func:`_spline_glyphs`
 ELLIPSE        FUN_10003500 -> FUN_10097600 cubic Bezier spline glyphs, one per quadrant
 TEXT/MTEXT     FUN_10007bf0                 group of outline contours on layer 10, one
-                                            group per text line (TrueType glyf records,
-                                            Qt fallback)
+                                            group per text line (TrueType glyf records;
+                                            fallback: fontTools + uharfbuzz, bundled font)
 POINT          FUN_100062f0 point glyph     point glyph (a point graph)
 3DFACE/SOLID/  handler 0 (ignored)          ignored (counted in ``doc.extra['faces']``)
 TRACE, XLINE,
@@ -54,7 +54,6 @@ from __future__ import annotations
 
 import copy  # noqa: F401 - module namespace kept (the moved rules used it)
 import math
-import os
 from dataclasses import dataclass, field  # noqa: F401
 from typing import Optional
 
@@ -65,6 +64,9 @@ from ..model import (GLYPH_ARC, GLYPH_CIRCLE, GLYPH_LINE, GLYPH_LWPOLY, GLYPH_PO
                      Arc, Contour, Craft, Document, Glyph, Line, Part, Segment)
 from ..geom import curves as geom
 from ..parity_ports import active_profile
+# font files without Qt (fontTools name tables); the old private names are kept for callers
+from ..cad.fonts import (_FONT_FILES, _FONT_HINTS, find_font_file as _font_file,  # noqa: F401
+                         font_dirs as _font_dirs, font_names as _font_names)
 
 # parser and import rules: a port in the parity fence (mlaser.parity_ports.dxfparse.rules)
 from ..parity_ports.dxfparse.rules import (  # noqa: F401 - re-exported, used below
@@ -79,54 +81,36 @@ from ..parity_ports.dxfparse.rules import (  # noqa: F401 - re-exported, used be
 
 
 # --------------------------------------------------------------------------- text
-_QT_APP = None
+TEXT_FAMILIES = ("SimSun", "宋体", "NSimSun", "WenQuanYi Micro Hei")
 
 
 def _text_family() -> Optional[str]:
-    try:
-        from PySide6.QtGui import QFontDatabase, QGuiApplication
-        global _QT_APP
-        if QGuiApplication.instance() is None:
-            # a QApplication (not a bare QGuiApplication) so that a UI created later still works
-            from PySide6.QtWidgets import QApplication
-            os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
-            _QT_APP = QApplication([])
-        fams = set(QFontDatabase.families())
-    except Exception:   # noqa: BLE001 - no Qt: texts stay in doc.extra only
-        return None
-    # FUN_10007bf0 uses DAT_1011d850 = "宋体" (SimSun); the Wine prefix of the parity harness maps
-    # it to WenQuanYi Micro Hei.
-    for f in ("SimSun", "宋体", "NSimSun", "WenQuanYi Micro Hei"):
-        if f in fams:
+    """The font family of DXF TEXT outlines: FUN_10007bf0 uses DAT_1011d850 = "宋体" (SimSun);
+    the Wine prefix of the parity harness maps it to WenQuanYi Micro Hei.  The first of these
+    that is installed (font folders, fontTools name tables), else the first installed of the
+    Draw -> Text fallbacks (SimSun, Segoe UI, DejaVu Sans, Liberation Sans, Arial), else the
+    bundled Noto Sans SC (mlaser.cad.fonts).  No Qt."""
+    for f in TEXT_FAMILIES:
+        if _font_file(f) is not None:
             return f
     from ..cad.text import resolve_family
     return resolve_family(None)
 
 
-def _text_contours(t: dict, family: str) -> list[Contour]:
-    """FUN_10007bf0: outline of one text line scaled so that its outline height equals the text
-    height (dVar1 = height / bbox height), rotated by the text angle and moved so that the font
-    origin (pen start on the baseline) lands on the insertion point."""
-    from PySide6.QtGui import QFont, QPainterPath
-    from ..cad.text import FONT_WEIGHT, text_contours
+def _text_contours(t: dict, family: str, flatten_tol: float = geom.SPLINE_TOL) -> list[Contour]:
+    """Fallback of :func:`_tt_text_contours` when ``family`` has no TrueType (glyf) file: the
+    line shaped with uharfbuzz and drawn with fontTools from the family's font file (CFF/OTF
+    too), else the bundled font (mlaser.cad.text).  As FUN_10007bf0: scaled so that the outline
+    height equals the text height, rotated by the text angle, the font origin (pen start on the
+    baseline) on the insertion point.  Line segments only (no GGO_BEZIER records)."""
+    from ..cad.text import _simplify, text_outlines
     txt, H = t["text"], t["height"]
     if not txt.strip() or H <= 0:
         return []
-    ref = 100.0
-    cs = text_contours(txt, family, height=ref, origin=(0.0, 0.0))
-    if not cs:
+    polys, _m = text_outlines(txt, family, tol_em=max(flatten_tol, 1e-4) / (4.0 * H))
+    ys = [p[1] for poly in polys for p in poly]
+    if not ys:
         return []
-    f = QFont(family)
-    f.setPixelSize(100)
-    f.setWeight(QFont.Weight(FONT_WEIGHT))
-    f.setHintingPreference(QFont.PreferNoHinting)
-    path = QPainterPath()
-    path.addText(0.0, 0.0, f, txt)
-    br = path.boundingRect()
-    from PySide6.QtGui import QFontMetricsF
-    s0 = ref / max(QFontMetricsF(f).height(), 1e-9)       # text_contours' own scale
-    bx, by = br.left() * s0, -br.bottom() * s0               # bbox lower-left relative to the pen
-    ys = [y for c in cs for s in c.segments for y in (s.start[1], s.end[1])]
     h0 = max(ys) - min(ys)
     if h0 <= 1e-9:
         return []
@@ -134,78 +118,23 @@ def _text_contours(t: dict, family: str) -> list[Contour]:
     a = math.radians(t.get("rotation", 0.0))
     ca, sa = math.cos(a), math.sin(a)
     ix, iy = t["insert"]
-
-    def tr(p):
-        x, y = (p[0] + bx) * k, (p[1] + by) * k
-        return (ix + x * ca - y * sa, iy + x * sa + y * ca)
-
     out = []
-    for c in cs:
-        segs = [Line(tr(s.start), tr(s.end)) for s in c.segments]
-        out.append(Contour(segs, True, {"text": txt, "font": family}))
+    for poly in polys:
+        q = [(ix + (x * ca - y * sa) * k, iy + (x * sa + y * ca) * k) for x, y in poly]
+        q = _simplify(q + [q[0]], max(flatten_tol, 1e-4))
+        if len(q) > 1 and math.dist(q[0], q[-1]) < 1e-9:
+            q = q[:-1]
+        n = len(q)
+        if n < 3:
+            continue
+        out.append(Contour([Line(q[i], q[(i + 1) % n]) for i in range(n)], True,
+                           {"text": txt, "font": family}))
     return out
 
 
 # --------------------------------------------------------------------------- text (TrueType)
 TEXT_CLOSE_TOL = 0.01      # FUN_100ab710: text contours are made with FUN_1006c2d0(DAT_1011d800 = 0.01)
 TEXT_MIN_STEP = 1e-4       # DAT_1011f290: a line piece is kept when |dx| or |dy| >= 1e-4
-_FONT_FILES: dict = {}
-_FONT_HINTS = {"simsun": ("simsun.ttc", "simsun.ttf"), "宋体": ("simsun.ttc",), "nsimsun": ("simsun.ttc",),
-               "wenquanyi micro hei": ("wqy-microhei.ttc",)}
-
-
-def _font_dirs() -> list[str]:
-    home = os.path.expanduser("~")
-    dirs = [os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts"),
-            os.path.join(os.environ.get("LOCALAPPDATA", ""), "Microsoft", "Windows", "Fonts"),
-            "/System/Library/Fonts", "/Library/Fonts", os.path.join(home, "Library", "Fonts"),
-            "/usr/share/fonts", "/usr/local/share/fonts", os.path.join(home, ".fonts"),
-            os.path.join(home, ".local", "share", "fonts")]
-    return [d for d in dirs if d and os.path.isdir(d)]
-
-
-def _font_names(path: str) -> list[tuple[int, set]]:
-    """[(index in the collection, {family names})] of a TrueType file (fontTools, lazily)."""
-    from fontTools.ttLib import TTCollection, TTFont
-    fonts = TTCollection(path, lazy=True).fonts if path.lower().endswith(".ttc") else [TTFont(path, lazy=True)]
-    out = []
-    for i, f in enumerate(fonts):
-        try:
-            names = {str(n).strip().lower() for n in f["name"].names if n.nameID in (1, 16)}
-        except Exception:   # noqa: BLE001
-            names = set()
-        out.append((i, names))
-    return out
-
-
-def _font_file(family: str) -> Optional[tuple[str, int]]:
-    """(path, index) of the TrueType file of ``family`` (searched in the usual font folders of
-    Windows, macOS and Linux; well-known file names first), cached."""
-    key = family.strip().lower()
-    if key in _FONT_FILES:
-        return _FONT_FILES[key]
-    found = None
-    try:
-        files = []
-        for d in _font_dirs():
-            for root, _ds, fs in os.walk(d):
-                files += [os.path.join(root, f) for f in fs if f.lower().endswith((".ttf", ".ttc", ".otf"))]
-        hints = _FONT_HINTS.get(key, ())
-        files.sort(key=lambda f: (os.path.basename(f).lower() not in hints, f))
-        for f in files:
-            try:
-                for i, names in _font_names(f):
-                    if key in names:
-                        found = (f, i)
-                        break
-            except Exception:   # noqa: BLE001
-                continue
-            if found:
-                break
-    except Exception:   # noqa: BLE001
-        found = None
-    _FONT_FILES[key] = found
-    return found
 
 
 def _tt_font(family: str):
@@ -296,7 +225,8 @@ def _tt_text_contours(t: dict, family: str, flatten_tol: float = geom.SPLINE_TOL
     original's are hinted by GDI at the CreateFont size: coordinates differ slightly, D-16);
     the pen advances by the unhinted advance width (GDI: gmCellIncX).  Scaled so that the
     outline height equals the text height, rotated, font origin on the insertion point.
-    None when no TrueType file of ``family`` is found (the caller falls back to Qt)."""
+    None when no TrueType file of ``family`` is found (the caller falls back to
+    :func:`_text_contours`, shaped outlines from fontTools + uharfbuzz)."""
     font = _tt_font(family)
     if font is None:
         return None
@@ -371,10 +301,26 @@ def _sort_text_contours(cs: list[Contour], sort_mode: int, seed: int) -> list[Co
 
 
 # --------------------------------------------------------------------------- main
+IMPORT_MODES = ("faithful", "modern")
+
+
+def dxf_rules(mode: Optional[str] = None):
+    """The ``dxf`` slot implementation for ``mode`` (see :func:`import_dxf`)."""
+    if mode is None:
+        return active_profile().dxf
+    if mode in ("faithful", "original"):
+        from ..parity_ports import ORIGINAL
+        return ORIGINAL.dxf
+    if mode == "modern":
+        from ..parity_ports.profiles.modern_dxf import MODERN_DXF
+        return MODERN_DXF.dxf
+    raise ValueError(f"unknown DXF import mode {mode!r} (one of {IMPORT_MODES})")
+
+
 def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom.SPLINE_TOL,
                group: str = "contour", placement: Optional[tuple] = PLACEMENT,
                text_outlines: bool = True, sort_mode: int = IMPORT_SORT_MODE,
-               sort_seed: int = 0) -> Document:
+               sort_seed: int = 0, mode: Optional[str] = None) -> Document:
     """Read a DXF file into a Document the way the original's import command does.
 
     ``group='contour'``: one Part per contour (each graph of the original), text lines as one
@@ -385,6 +331,12 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     it 20 mm right of the existing drawing, i.e. at (20, 0) for an empty one); ``None`` keeps the
     DXF coordinates.  ``text_outlines=False`` skips the TEXT/MTEXT outlines (they are always
     listed in ``doc.extra['texts']``).
+
+    ``mode``: ``None`` uses the active ParityProfile's ``dxf`` rules (the default profile
+    ``"original"`` is the DxfParse-faithful import); ``"faithful"`` forces those;
+    ``"modern"`` reads the drawing with ezdxf the way CAD programs draw it (HATCH boundaries,
+    DIMENSION/LEADER geometry, ATTRIB and MINSERT, full INSERT transforms, TEXT/MTEXT via
+    fontTools + uharfbuzz or SHX fonts; :mod:`mlaser.io.dxf_modern`, profile ``"modern-dxf"``).
     """
     try:
         dxf = ezdxf.readfile(path)
@@ -393,9 +345,10 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     except ezdxf.DXFStructureError:
         from ezdxf import recover
         dxf, _ = recover.readfile(path)
-    rules = active_profile().dxf       # DxfParse + CADModule import rules (parity fence)
+    rules = dxf_rules(mode)            # DxfParse + CADModule import rules (parity fence)
     weights_map = _acad_weights(path)
-    stats = {"faces": 0, "regions": 0}
+    stats: dict = {"faces": 0, "regions": 0,
+                   "options": {"flatten_tol": flatten_tol, "text_outlines": text_outlines}}
     items: list[_Item] = []
     rules.collect(dxf.modelspace(), weights_map, [], items, stats)
     try:
@@ -406,6 +359,7 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
         rules.collect(psp, weights_map, [], items, stats)
 
     texts = [it.text for it in items if it.text]
+    ready = [t.pop("contours") if "contours" in t else None for t in texts]   # modern: outlines made
     points = [g.data["p"] for it in items for g in it.glyphs if g.kind == GLYPH_POINT]
     chains = rules.chain_glyphs([it for it in items if it.glyphs], join_tol)
     contours = [(ch.key, rules.contour_of_chain(ch, flatten_tol), ch.kind) for ch in chains]
@@ -440,14 +394,21 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
                 craft.lead_in.at_corner = True
             doc.parts.append(Part(contours=[c], craft=craft, name=f"{key[0]}#{n.key}",
                                   extra={"layer": key[0], "color": key[1], "dxf_type": t}))
-    if text_outlines and texts:
+    if text_outlines and any(r is not None for r in ready):
+        for t, cs in zip(texts, ready):
+            cs = _sort_text_contours(cs or [], sort_mode, sort_seed)
+            if cs:
+                doc.parts.append(Part(contours=cs, craft=Craft(layer=TEXT_LAYER), name="text",
+                                      extra={"layer": t["layer"], "dxf_type": t["type"],
+                                             "text": t["text"]}))
+    elif text_outlines and texts:
         fam = _text_family()
         if fam:
             for t in texts:
                 try:
                     cs = _tt_text_contours(t, fam, flatten_tol)
-                    if cs is None:                  # no TrueType (glyf) file: Qt outline, lines
-                        cs = _text_contours(t, fam)
+                    if cs is None:                  # no TrueType (glyf) file: shaped outline, lines
+                        cs = _text_contours(t, fam, flatten_tol)
                     else:
                         cs = _sort_text_contours(cs, sort_mode, sort_seed)
                 except Exception:   # noqa: BLE001

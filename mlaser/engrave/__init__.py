@@ -13,7 +13,7 @@ from .raster import (
     FOOTER, GCODE_NAME, HEADER, MODE_DITHER, MODE_HALFTONE, MODE_LABELS, MODE_NONE, MODES,
     OVERSCAN_MM, POWER_THRESHOLD, STATUS_NAME, SVG_NAME, EditSession, RasterParams, RasterSegment,
     apply_edits, aspect_height, aspect_width, format_f3, gcode_from_bitmap, generate_gcode,
-    generate_to_dir, pixel_power, process_image, raster_segments, read_status_ini, segment_gcode,
+    generate_to_dir, pixel_power, process_image, raster_from_bitmap, raster_segments, read_status_ini, segment_gcode,
     write_gcode, write_status_ini,
 )
 
@@ -25,6 +25,7 @@ __all__ = [
     "MODES", "OVERSCAN_MM", "POWER_THRESHOLD", "STATUS_NAME", "SVG_NAME", "EditSession",
     "RasterParams", "RasterSegment", "apply_edits", "aspect_height", "aspect_width", "format_f3",
     "gcode_from_bitmap", "generate_gcode", "generate_to_dir", "pixel_power", "process_image",
+    "raster_from_bitmap",
     "raster_segments", "read_status_ini", "segment_gcode", "write_gcode", "write_status_ini",
 ]
 
