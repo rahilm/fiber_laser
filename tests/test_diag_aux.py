@@ -226,5 +226,8 @@ def test_logs(tmp_path):
 def test_help_topics():
     ts = helpdocs.topics()
     names = [os.path.basename(t.path) for t in ts]
-    assert "ui.md" in names and "BRIEF.md" not in names
+    assert "ui.md" in names and "getting-started.md" in names and "BRIEF.md" not in names
+    assert ts[0].rel == "README.md" and ts[1].rel == "user/README.md"
+    assert [t.section for t in ts if t.section] == sorted((t.section for t in ts if t.section),
+                                                           key=["user", "dev", "re"].index)
     assert helpdocs.search("Report") and "omitted" in helpdocs.about_text()

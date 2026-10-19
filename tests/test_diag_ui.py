@@ -159,6 +159,6 @@ def test_dialog_contents(win):
     lv = ext.log_dir_viewer()
     lv.reload()
     hw = ext.help()
-    assert hw.list.count() >= 3
-    hw.list.setCurrentRow(hw.list.count() - 1)
+    assert hw.tree.topLevelItemCount() >= 4 and len(hw.topics) >= 20
+    hw.tree.setCurrentItem(hw.tree.topLevelItem(hw.tree.topLevelItemCount() - 1))   # About
     assert "omitted" in hw.view.toPlainText()
