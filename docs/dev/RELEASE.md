@@ -43,17 +43,15 @@ All of these are uploaded as workflow artifacts (14 days): `wheels-<runner>`, `s
 
 ## Bundle size
 
-Uncompressed folder, archive and entry count (files + symlinks). "Before" is Package run
-39318015663 (main @ ae49e02, Python 3.12), measured in the second review. "After" (Review 2,
-P2-8) is a local Linux build (Python 3.13). For Windows and macOS, "after" is a prediction:
-the new rules applied to the CI listings of the "before" run. Replace these numbers with
-the job summaries of the first Package run after the change.
+Uncompressed folder and archive size. "Before" is Package run 39318015663 (main @ ae49e02),
+measured in the second review. "After" is Package run 39344495395 (main, Review 2 packaging
+fixes), from the bundle jobs' logs and the uploaded artifact sizes.
 
 | OS | before | after | change |
 |---|---|---|---|
-| Linux x86_64 | 360.8 MB, 142.2 MB `.tar.gz`, 863 entries (local build: 362.2 / 143.1 MB, 862) | 262.5 MB, 103.6 MB `.tar.gz`, 684 entries (local) | -28 % folder, -28 % archive |
-| Windows amd64 | 195.6 MB, 88.5 MB `.zip`, 570 entries | about 213 MB predicted: -55 MB of trims, +73 MB for OR-Tools' DLLs, which were missing | +9 % (about 140 MB, -28 %, without OR-Tools) |
-| macOS arm64 | 203.1 MB, 83.5 MB `.tar.gz`, 1029 entries | about 187 MB predicted | -8 % |
+| Linux x86_64 | 360.8 MB, 142.2 MB `.tar.gz`, 863 entries | 276.3 MB, 105.1 MB `.tar.gz` | -23 % folder, -26 % archive (wheel-vendored `*.libs` stay unstripped) |
+| Windows amd64 | 195.6 MB, 88.5 MB `.zip`, 570 entries | 213.1 MB, 88.3 MB `.zip` | +9 %: -55 MB of trims, +73 MB for OR-Tools' DLLs, which were missing before |
+| macOS arm64 | 203.1 MB, 83.5 MB `.tar.gz`, 1029 entries | 187.2 MB, 77.7 MB `.tar.gz` | -8 % |
 
 What was removed and why (`packaging/bundle_config.py` has the rules and the reasons):
 

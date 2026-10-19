@@ -218,7 +218,9 @@ deliberately out of scope for now.
 - ☐ streamer: no automatic full GC during jobs, heartbeat from its own thread (motion bound kept)
 - ☐ native smoother/curve tables/crtmath, packed arrays from the C kernel, parallel compile per
   chain (bit-identical), ring sort O(n log n)
-- ☐ packaging: ortools.dll on Windows, no host CUPS/gnutls in the Linux bundle, size trims
+- ☑ packaging: ortools.dll on Windows, no host CUPS/gnutls in the Linux bundle, size trims
+  (green Package run 39344495395; OR-Tools also fixed on Linux/macOS; Linux glibc floor 2.34;
+  sizes in docs/dev/RELEASE.md)
 - ☐ tests: pytest-xdist in CI (timing tests grouped), `.python-version` 3.12, README numbers
 
 ### Wave C: shop workflow (quoting excluded)
