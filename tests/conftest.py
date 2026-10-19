@@ -20,6 +20,11 @@ import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
+    import faulthandler
+    _FAULT_LOG = open(os.environ["MLASER_FAULT_LOG"], "w")  # noqa: SIM115 - open for the session
+    faulthandler.enable(file=_FAULT_LOG, all_threads=True)
+
 import pytest  # noqa: E402
 
 # modules (file stems under tests/) that build Qt widgets
