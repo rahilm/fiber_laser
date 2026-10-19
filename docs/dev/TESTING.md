@@ -30,6 +30,59 @@ Windows and macOS, plus `tools/native_parity.py` (kernel vs Python port on all g
 exact). The CI test job sets `MLASER_NATIVE=1`, so a platform where the kernel did not build
 or fails its self-check fails instead of silently testing the Python port.
 
+## Goldens on Windows and macOS
+
+The goldens are bit-exact on the reference platform: Linux x86-64, glibc, CPython 3.12. CI also
+runs them on Windows and macOS (3.12, kernel on and off), where they are **reported, not
+fatal**: the platform's C math library returns different last bits for some `sin`, `cos`, ...
+results, and the Python port passes them on. Everything else is the same on every OS:
+`tools/native_parity.py` (kernel = Python port on that platform, all 326 golden jobs, fatal
+everywhere) and the default suite.
+
+Measured on the CI runners (2026-10-19, CPython 3.12.10; Windows Server 2025 x64 UCRT, macOS 26.6
+arm64 on Apple M2 Pro VMs) with `tools/golden_libm.py record` there and `replay` on the
+reference platform. "Differ" counts the distinct calls (arguments) the golden computations
+make whose result is not bit-identical to glibc's:
+
+| function | distinct calls | differ on Windows | differ on macOS | size |
+|---|---:|---:|---:|---|
+| `math.sin` | ~1 178 000 | 33 836 | 40 469 | 1 ulp |
+| `math.cos` | ~1 193 000 | 35 565 | 48 124 | 1 ulp |
+| `math.tan` | 568 | 41 | 227 | 1 ulp (macOS: some 2 ulp) |
+| `math.acos` | ~15 780 | 179 | 1 064 | 1 ulp |
+| `math.atan2` | ~15 760 | 35 | 53 | 1 ulp |
+| `math.pow` (the planner's cube root) | ~2 975 | 1 | 4 | 1 ulp |
+| `a ** b` (C `pow`, e.g. `v ** 3` in the spline radius) | ~37 000 | 37 | 53 | 1 ulp |
+| `math.atan`, `math.fmod` | 14 | 0 | 0 | |
+| `math.hypot`, `math.dist`, `math.sqrt` (CPython's own / correctly rounded) | ~1 360 000 | 0 | 0 | |
+
+Golden records that differ from the frozen ones there (`make_goldens.py --check`; orders and chf
+are identical everywhere):
+
+| group | Windows | macOS |
+|---|---|---|
+| jobs_samples (26 cases) | 1: `dxf/r12_polyline#bands_nosmooth_ppm1000` (wire, frames, approx) | 2: the same and `dxf/inserts#bands_nosmooth_ppm1000` |
+| jobs_random (300) | 1: `seed196` (wire, frames, approx) | 1: `seed185` (wire, frames, items, steps, cut_blocks) |
+| motion (189) | 94: 89 planner cases (xy of the sampled path, 13 also samples / point_vel), 5 smoothing node sets | 105: 91 planner cases (29 also samples / point_vel), 14 node sets |
+
+So a 1-ulp `sin` can move a sampled point across a step quantisation boundary and change a wire
+item: the goldens cannot be bit-exact across C libraries, and the reference stays Linux.
+
+**Proof that nothing else differs.** `tools/golden_libm.py replay` recomputes every golden group
+on the reference platform with the recorded platform's results of the functions above
+substituted (numpy, shapely / GEOS, CPython's hypot / dist / sqrt computed locally): every
+record of the Windows run and of the macOS run is reproduced bit for bit, with no call missing
+from the recordings. The investigation found one difference that was **not** libm and fixed it:
+`numpy.linalg.solve` in the short-line spline fit (`smooth._fit_polyline`) returned different
+bits on macOS (numpy's arm64 wheels use Apple Accelerate, the others OpenBLAS; 17 records); the
+fit now uses its own Gaussian elimination in Python floats (`smooth._solve`).
+
+To repeat the measurement: run CI with workflow_dispatch (`gh workflow run ci.yml --ref <branch>`;
+the "Golden libm recording" step then uploads `golden-libm-Windows` / `golden-libm-macOS`), and
+on the reference platform `python tools/golden_libm.py replay golden-libm-macOS.json.gz`
+(`record --trace jobs_random/seedNNN` keeps the ordered calls of chosen cases; `replay` then
+prints where a replay first diverges).
+
 ## Test data and the original's files
 
 The repository contains no file from the original's install (docs/ASSETS.md). The test data is
@@ -80,4 +133,16 @@ Two rules keep those assertions meaningful on busy CI or development hosts:
   proves the simulator value never leaks to a real connection.
 - **Tests of the real 150 ms deadline may rerun once.** They are marked `@pytest.mark.flaky(reruns=1)`
   (pytest-rerunfailures). A test that fails twice is a real failure. Bounds are never loosened to
-  make a test pass.
+  make a test pass. (The link-loss test `[False]` failed twice on the CI runners: the streamer
+  prepared a 28 000-item job inside the 150 ms after the last poll; `JobStreamer.prepare` now does
+  it before the streaming deadline applies, docs/SAFETY.md §7.)
+- **Simulator speed leaves real-time margin.** A test that streams to the in-process simulator at
+  `time_scale` k has 1.2 s / k of real time in the FIFO; at 5-50x a stall of the test process
+  (CI runners) let the card run dry. Streaming tests use 1-2x (10x for the synthetic captures of
+  `mlaser.parity.synth`).
+- **Platform clocks.** On Windows before Python 3.13 `time.monotonic()` / `time.time()` tick in
+  15.6 ms steps: measure short intervals with `time.perf_counter()` and select logged requests by
+  position, not by timestamp. The macOS runners are VMs whose timers fire late (a 2 ms sleep
+  takes ~10 ms, a 50 ms wait 80-100 ms; measured in CI 2026-10-19): the safety monitor wakes
+  early for heartbeat edges by the lateness it measures (`tests/safety/test_arming_and_preflight.py`
+  `test_heartbeat_keeps_its_rate_with_late_timers`).

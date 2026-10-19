@@ -62,43 +62,20 @@ jobs:
       - name: C kernel check
         run: uv run --locked python tools/build_native.py --check
 
-      - name: "DEBUG (temporary): timer latency on macOS"
-        if: runner.os == 'macOS'
-        run: |
-          cat > "$RUNNER_TEMP/lat.py" <<'PY'
-          import ctypes, sys, threading, time, statistics as S
-          def probe(tag):
-              e = threading.Event()
-              for name, fn, want in (("sleep 2ms", lambda: time.sleep(0.002), 0.002),
-                                     ("sleep 10ms", lambda: time.sleep(0.01), 0.01),
-                                     ("Event.wait 50ms", lambda: e.wait(0.05), 0.05)):
-                  d = []
-                  for _ in range(30):
-                      t = time.perf_counter(); fn(); d.append(time.perf_counter() - t - want)
-                  print(f"{tag} {name}: late by median {S.median(d)*1e3:.2f} ms, max {max(d)*1e3:.2f} ms")
-          probe("default")
-          libc = ctypes.CDLL(None)
-          for qos, nm in ((0x21, "USER_INTERACTIVE"), (0x19, "USER_INITIATED")):
-              def run(q=qos, n=nm):
-                  r = libc.pthread_set_qos_class_self_np(q, 0)
-                  probe(f"thread qos {n} (rc {r})")
-              t = threading.Thread(target=run); t.start(); t.join()
-          PY
-          uv run --locked python "$RUNNER_TEMP/lat.py"
-          sysctl -n hw.ncpu machdep.cpu.brand_string || true
-
       - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
+        # macOS: -v names the running test, and a native crash leaves its Python stacks and the
+        # last command of the command-coverage test in files shown by the next step (an
+        # intermittent crash in test_command_coverage_for_draw_commands, 2026-10-19)
         env:
           MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
         run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
-      - name: "DEBUG (temporary): macOS crash report"
+      - name: Crash diagnostics (macOS)
         if: failure() && runner.os == 'macOS'
         run: |
           echo "== fault log"; cat "$RUNNER_TEMP/fault.log" || true
           echo "== coverage trace (last commands)"; tail -5 "$RUNNER_TEMP/coverage.log" || true
-          uv run --locked python -c "import PySide6, sys; print(PySide6.__file__)"
           ls -lt ~/Library/Logs/DiagnosticReports/ | head -5 || true
           f=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
           if [ -n "$f" ]; then echo "== $f"; uv run --locked python - "$f" <<'PY'
@@ -125,9 +102,10 @@ jobs:
         run: uv run --locked python tools/native_parity.py
 
       # The goldens are bit-exact on CPython 3.12 (tests/golden/test_goldens.py skips on other
-      # minor versions), checked with the C kernel forced on and forced off. Windows and macOS
-      # libm may differ from Linux in the last bit (in the Python port too); until a first green
-      # run proves they don't, a golden difference there is reported, not fatal.
+      # minor versions), checked with the C kernel forced on and forced off. On Windows and
+      # macOS the C library's sin / cos / tan / acos / atan2 / pow differ from glibc by 1-2 ulp
+      # and a few records with them (measured and proven libm-only: docs/dev/TESTING.md,
+      # "Goldens on Windows and macOS"), so a difference there is reported, not fatal.
       - name: Golden check (C kernel, MLASER_NATIVE=1)
         if: matrix.python == '3.12'
         continue-on-error: ${{ runner.os != 'Linux' }}
@@ -145,14 +123,13 @@ jobs:
       # Where do this platform's golden differences come from?  Every libm / LAPACK result the
       # golden computations use, and this platform's golden records, for
       # `tools/golden_libm.py replay` on the reference platform (docs/dev/TESTING.md)
+      # (manual runs only: about 1.5 min and a 40-70 MB artifact per job)
       - name: Golden libm recording (Windows, macOS)
-        if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true
-        run: >-
-          uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
-          --trace jobs_random/seed019 jobs_random/seed105 jobs_random/seed113 jobs_random/seed256
+        run: uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
       - uses: actions/upload-artifact@v4
-        if: matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true
         with:
           name: golden-libm-${{ runner.os }}

@@ -48,6 +48,37 @@ simulator, and the main window.
 
 ## Install
 
+### From a release
+
+Each release on the GitHub release page carries:
+
+| asset | for |
+|---|---|
+| `mlaser-<version>-<os>-<arch>.zip` / `.tar.gz` | the one-folder program (PyInstaller, Python and Qt included): Windows x64, Linux x86_64, macOS Apple silicon |
+| `mlaser-<version>-cp312/cp313-...whl` | `pip install` into your own Python 3.12 / 3.13: manylinux x86_64 and aarch64, Windows AMD64, macOS arm64 |
+| `mlaser-<version>.tar.gz` | the source distribution (builds the C kernel when a compiler is present) |
+
+```bash
+pip install mlaser-0.1.0-cp312-cp312-win_amd64.whl      # the wheel for your Python and OS; PySide6 etc. from PyPI
+python -m mlaser._native                                 # the C emitter kernel is active
+mlaser --demo
+```
+
+Platform notes:
+
+* **macOS: Apple silicon (arm64) only.** There is no Intel macOS build. The bundle and the wheels
+  are not signed unless the release says so: the first start of an unsigned `mlaser.app` needs
+  right-click > Open (or `xattr -dr com.apple.quarantine mlaser.app`).
+* **Linux:** the wheels are tagged manylinux_2_17 (the C kernel needs nothing newer), but PySide6
+  6.12 itself needs glibc 2.34 (x86_64) / 2.39 (aarch64), e.g. Ubuntu 22.04 / 24.04 or newer. The
+  one-folder bundle is built on Ubuntu 22.04 and runs on glibc 2.35 or newer; it needs the X11 /
+  Wayland and EGL libraries of a desktop install (`libegl1 libxkbcommon-x11-0 libxcb-cursor0`).
+* **Windows:** 64-bit only. An unsigned bundle shows a SmartScreen warning on first start.
+* The one-folder bundles include the optional OR-Tools, spyrrow and Ruckig; a wheel installs them
+  with the extras (`pip install "mlaser-....whl[modern]"`).
+
+### From the source
+
 ```bash
 cd rebuild
 uv sync --locked                        # .venv from uv.lock: the package (with its C emitter kernel
