@@ -184,6 +184,10 @@ def test_missing_qt_imports():
     mac = [("PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore", "/m/core", "BINARY"),
            ("PySide6/QtCore.abi3.so", "/m/b", "EXTENSION")]
     assert cfg.missing_qt_imports(mac, lambda s: ["@rpath/QtCore.framework/Versions/A/QtCore"]) == []
+    assert cfg.missing_qt_imports(mac, lambda s: ["@rpath/QtCore", "@rpath/libshiboken6.abi3.6.12.dylib"]) == []
+    assert cfg.missing_qt_imports(mac, lambda s: ["@rpath/QtNetwork"]) == [
+        ("PySide6/Qt/lib/QtCore.framework/Versions/A/QtCore", "qtnetwork"),
+        ("PySide6/QtCore.abi3.so", "qtnetwork")]
 
 
 def test_bundle_manifest():

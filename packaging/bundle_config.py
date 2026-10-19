@@ -229,9 +229,16 @@ def missing_qt_imports(binaries: list, imports_of) -> list[tuple[str, str]]:
         except Exception:
             continue
         for n in names:
-            if qt_module_of(n) and _base(n) not in have and _qt_framework_base(n) not in have:
+            if _is_qt_import(n) and _base(n) not in have and _qt_framework_base(n) not in have:
                 out.append((b[0], _base(n)))
     return out
+
+
+def _is_qt_import(name: str) -> bool:
+    """A link-time import of a Qt library: libQt6Gui.so.6, Qt6Gui.dll, or on macOS
+    @rpath/QtGui.framework/Versions/A/QtGui and the bindings' bare @rpath/QtGui."""
+    bare = name.replace("\\", "/").startswith("@") and re.fullmatch(r"qt[a-z0-9]+", _base(name))
+    return bool(qt_module_of(name) or bare)
 
 
 def _qt_framework_base(name: str) -> str:

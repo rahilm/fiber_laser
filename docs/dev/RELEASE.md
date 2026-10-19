@@ -83,7 +83,10 @@ comes from PySide6 6.12's manylinux_2_34 wheels: `libQt6Core.so.6` is the newest
 (GLIBC_2.34, GLIBCXX_3.4.29, CXXABI_1.3.13). `build.py` reads the version references of every
 ELF file (`symbol_floor` in `build-info.json`), and CI fails when a file needs more than 2.34
 (`--glibc-floor 2.34`). The bundle is built on `ubuntu-22.04`, the oldest GitHub runner
-(20.04 was retired), so the few host libraries it keeps come from the oldest release.
+(20.04 was retired), so the few host libraries it keeps come from the oldest release. On
+22.04 they need glibc 2.14 at most. On a newer host they can need more: Ubuntu 24.04's
+`libxcb-cursor.so.0` needs GLIBC_2.38, so a local `--glibc-floor 2.34` build there fails. That
+is intended: build the bundles you publish on 22.04.
 
 PyInstaller copies every library the bundled binaries link to, including the host's. Following
 PyInstaller (no glibc, GL or libxcb), the manylinux policy (no C/C++ runtime, X11 core, glib)
