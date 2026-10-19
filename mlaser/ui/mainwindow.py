@@ -342,7 +342,10 @@ class MainWindow(QMainWindow):
         if self._job_locked("new document"):      # safety: the document is locked while a job runs
             return
         for li in sorted({p.craft.layer for p in doc.parts}):
-            doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name()))
+            # safety: a layer the file does not define is shown with defaults but marked as a
+            # placeholder; the pre-flight check refuses to cut it until its parameters are set
+            doc.layers.setdefault(li, LayerParams(index=li, color=layer_color(li).name(),
+                                                  extra={"placeholder": True}))
         self.document = doc
         self.path = path
         self.canvas.set_document(doc)
@@ -446,8 +449,10 @@ class MainWindow(QMainWindow):
             self._edit(docops.set_layer, layer)
 
     def edit_layer(self, layer: int) -> None:
-        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name()))
+        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
+                                                                extra={"placeholder": True}))
         if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
+            lp.extra.pop("placeholder", None)        # parameters confirmed: the layer is defined
             self.layer_panel.refresh()
 
     def _kerf_width(self) -> float:
