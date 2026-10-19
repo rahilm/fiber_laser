@@ -74,7 +74,8 @@ Platform notes:
 * **macOS: Apple silicon (arm64) only.** There is no Intel macOS build. The bundle and the wheels
   are not signed unless the release says so: the first start of an unsigned `mlaser.app` needs
   right-click > Open (or `xattr -dr com.apple.quarantine mlaser.app`).
-* **Linux:** the wheels are tagged manylinux_2_17 (the C kernel needs nothing newer), but PySide6
+* **Linux:** the wheels are tagged manylinux_2_5 (x86_64) and manylinux_2_17 (aarch64), as the C kernel
+  needs nothing newer, but PySide6
   6.12 itself needs glibc 2.34 (x86_64) / 2.39 (aarch64), e.g. Ubuntu 22.04 / 24.04 or newer. The
   one-folder bundle is built on Ubuntu 22.04 and runs on glibc 2.35 or newer; it needs the X11 /
   Wayland and EGL libraries of a desktop install (`libegl1 libxkbcommon-x11-0 libxcb-cursor0`).
