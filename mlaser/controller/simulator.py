@@ -798,10 +798,13 @@ class CardSimulator:
 
     # ------------------------------------------------------------------ motion
     def _motion_loop(self):
-        last = time.monotonic()
+        # perf_counter, not monotonic: on Windows before Python 3.13 time.monotonic() ticks in
+        # 15.6 ms steps (GetTickCount64), so most 2 ms ticks saw dt == 0 (and a division by it
+        # in advance() ended this thread: no axis ever moved again)
+        last = time.perf_counter()
         while not self._stop.is_set():
             time.sleep(0.002)
-            now = time.monotonic()
+            now = time.perf_counter()
             dt = (now - last) * self.time_scale
             last = now
             with self.lock:
@@ -809,6 +812,8 @@ class CardSimulator:
 
     def advance(self, dt: float) -> None:
         """Advance the machine by ``dt`` seconds (also callable directly in tests)."""
+        if not dt > 0.0:
+            return
         st = self.state
         prev = (st.axes[0].pos, st.axes[1].pos)
         for ax in st.axes:

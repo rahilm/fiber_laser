@@ -50,9 +50,10 @@ def test_fault_injection_api():
             assert sim.faults.dropped >= 1
             sim.clear_faults()
             sim.inject(latency_ms=20)
-            t0 = time.monotonic()
+            # perf_counter: time.monotonic() ticks in 15.6 ms steps on Windows before 3.13
+            t0 = time.perf_counter()
             mc.read_reg(1001)
-            assert time.monotonic() - t0 >= 0.02
+            assert time.perf_counter() - t0 >= 0.02
     finally:
         sim.stop()
 
