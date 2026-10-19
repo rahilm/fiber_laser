@@ -16,9 +16,9 @@ Output goes to `packaging/build/` (git-ignored, through the `build/` rule in `.g
 
 | Path | Content |
 |---|---|
-| `dist/mlaser/` | the bundle: `mlaser` (GUI), `mlaser-console` (same program with a console), `_internal/`, `LICENSES/` |
+| `dist/mlaser/` | the bundle: `mlaser` (GUI), `mlaser-console` (same program with a console; a symlink to `mlaser` on Linux), `_internal/`, `LICENSES/` |
 | `dist/mlaser.app` | macOS only: the application bundle (`Contents/Resources/LICENSES`) |
-| `build-info.json` | size report, bundled distributions, LGPL check, smoke-test output |
+| `build-info.json` | size report, bundled distributions, LGPL check, smoke-test output; on Linux also the strip savings, the host libraries left and the glibc/libstdc++ symbol floor |
 | `mlaser-<version>-<os>-<arch>.tar.gz/.zip` | with `--archive` (keeps symlinks and executable bits) |
 
 Files in this folder:
@@ -26,7 +26,8 @@ Files in this folder:
 | File | Purpose |
 |---|---|
 | `mlaser.spec` | PyInstaller spec (onedir, two executables, macOS `BUNDLE`) |
-| `bundle_config.py` | what goes in: package data, hidden imports, excluded modules, dropped Qt libraries and plugins, GPL-only Qt check, orphan-library pruning |
+| `bundle_config.py` | what goes in: package data, hidden imports, excluded modules, dropped Qt libraries, plugins and other files, Linux host-library policy, GPL-only Qt check, orphan-library pruning, the bundle manifest |
+| `hooks/hook-ortools.py` | PyInstaller hook: OR-Tools' Windows DLLs (`ortools/.libs`) and the routing modules pywrapcp imports lazily |
 | `build.py` | build driver: PyInstaller, then licences, checks, sizes, smoke test, archive |
 | `gen_licenses.py` | writes `LICENSES/` from the installed distributions' licence metadata |
 | `licenses/` | verbatim LGPL-3.0 and GPL-3.0 texts (FSF) |
@@ -37,8 +38,11 @@ launcher options in `mlaser/__main__.py`:
 
 * `--selftest [--probe] [--json]`: the network self-test (below), then exit;
 * `--smoke-test SECONDS`: start normally and quit cleanly after SECONDS (exit code 0);
-* `--bundle-check [FILE.dxf ...]`: import every bundled library, read the package data, import
-  the given drawings, then exit (0 = everything required is present).
+* `--bundle-check [FILE.dxf ...]`: import every bundled library, run each optional backend the
+  bundle ships on a small problem (OR-Tools, spyrrow, Ruckig, hidapi, pyserial, the C kernel;
+  listed in `_internal/mlaser/bundle_manifest.json`, which makes them required), check
+  svgelements and the bundled fonts, read the package data, import the given drawings, then
+  exit (0 = everything required is present and works).
 
 On Windows use `mlaser-console.exe` for these: the GUI executable has no console, so output and
 exit codes are not visible there.
@@ -57,28 +61,34 @@ exit codes are not visible there.
   The help documents (`docs/user`, `docs/dev`, `docs/re` and the top-level `SAFETY.md`,
   `ASSETS.md`, `ROADMAP.md`) go to `mlaser/help/docs` (`bundle_config.help_datas`), where
   `diag/helpdocs.py` finds them; `docs/review` and `docs/re/history` stay out.
-* Libraries: PySide6 (QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport, and QtDBus/QtNetwork,
-  which the bindings pull in), numpy, shapely (GEOS), ezdxf with its fonts and resources,
+* Libraries: PySide6 (QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport; on Linux also the
+  `libQt6DBus` library that `libQt6Gui` links), numpy, shapely (GEOS), ezdxf with its fonts and resources,
   svgelements, pyclipper, uharfbuzz, fontTools, segno, Pillow, platformdirs. When they are
   installed, the build also includes hidapi and pyserial (devices) and OR-Tools, spyrrow and
   Ruckig (modern options).
-* Left out: QtWebEngine, Qt Quick/QML, Qt3D, Multimedia, PDF, Charts and the other unused Qt
-  modules. Also left out: the GTK3 platform theme (it would ship the build host's GTK, cairo and
-  pango), the TLS and network-information plugins (no OpenSSL; nothing uses QtNetwork), and
-  matplotlib, pytest, hypothesis and tkinter. Every Qt module that is GPL-only in Qt 6 open source
+* Left out: QtWebEngine, Qt Quick/QML, Qt3D, Multimedia, PDF, Charts, QtNetwork, the QtDBus
+  binding and the other unused Qt modules. Also left out: the GTK3 platform theme (it would ship
+  the build host's GTK, cairo and pango), the TLS and network-information plugins, PySide6's
+  OpenSSL copy, the TUIO/VNC and embedded-Linux plugins (eglfs, linuxfb, evdev ...),
+  `qdirect2d`, the Qt image formats nothing reads through Qt (TIFF, WebP, TGA, WBMP),
+  `opengl32sw.dll` (software OpenGL; the app paints without OpenGL), Qt's translations,
+  Pillow's AVIF codec, and matplotlib, pytest, hypothesis and tkinter. On Linux, the build
+  host's system libraries are left out too (see "Linux system libraries"), and the shared
+  libraries outside PySide6/shiboken6 are stripped (`--no-strip` keeps the symbols). The
+  reasons for each rule are in `bundle_config.py`. The spec fails when a kept binary still
+  links a dropped Qt library. Every Qt module that is GPL-only in Qt 6 open source
   (Charts, Data Visualization, Graphs, Quick 3D, Virtual Keyboard, Lottie, Network Authorization,
   Designer, HTTP Server ...) is removed. If one of them slips in, `build.py` fails.
 
-## Size (Linux x86_64, Python 3.13, PySide6 6.12.0, local build 2026-10-18)
+## Size
 
-| Build | Folder size | Archive |
-|---|---|---|
-| default, with all extras (`--all-extras`) | 357 MB, 657 files | 139 MB `.tar.gz` |
-| `--slim` (no OR-Tools / spyrrow / Ruckig) | 281 MB | 111 MB `.tar.gz` |
+Per OS, before and after the Review 2 trims: [RELEASE.md](../docs/dev/RELEASE.md#bundle-size).
+Linux x86_64, local build (Python 3.13, PySide6 6.12.0, 2026-10-19), with all extras: 262.5 MB
+folder, 684 entries, 103.6 MB `.tar.gz` (before the trims: 362.2 MB, 143.1 MB).
 
-The largest parts are the Qt libraries (74 MB), OR-Tools (71 MB with its absl/protobuf/SCIP
-libraries), libpython (32 MB), OpenBLAS in numpy (28 MB), numpy (14 MB), ezdxf (12 MB) and
-Pillow's image libraries (12 MB). CI builds with all extras. Use `--slim` for a smaller
+The largest parts are the Qt libraries with ICU (71 MB), OR-Tools (60 MB with its
+absl/protobuf/SCIP libraries), libpython (31 MB), OpenBLAS in numpy (26 MB) and numpy (14 MB).
+CI builds with all extras. Use `--slim` for a smaller
 download if the optional modern options (OR-Tools sort mode, spyrrow nester, Ruckig profiles) are
 not needed.
 
@@ -121,10 +131,16 @@ archive). For each one it records the name, version and licence (`License-Expres
 `License` or the classifiers) and copies the licence files from its `.dist-info`. hidapi is
 dual-licensed and is used under its BSD option.
 
-On Linux, PyInstaller also copies the system libraries the Qt plugins link to from the build
-host. They are mostly X11/xcb, fontconfig, freetype, glib, dbus and cups: MIT, LGPL or similar.
-`THIRD_PARTY_NOTICES.txt` does not list them. If a Linux release is published as an archive,
-add a note about them, or build an AppImage on top of this folder.
+## Linux system libraries
+
+PyInstaller copies every library the bundled binaries link to, including the build host's
+system libraries. The spec drops all of them (`bundle_config.is_host_system_lib`): CUPS and its
+crypto chain, OpenSSL, fontconfig, freetype, glib, D-Bus, systemd, libstdc++ and the X11/xcb
+core come from the target. Only the xcb-util helpers and `libxkbcommon-x11` stay (MIT/X11
+licences), because a minimal desktop may lack them. `build.py` fails if any other host library
+remains, and it records the glibc/libstdc++ floor. The floor (glibc 2.34) and the packages the
+target needs are in [RELEASE.md](../docs/dev/RELEASE.md#linux-glibc-floor-and-target-libraries).
+`THIRD_PARTY_NOTICES.txt` does not list the xcb helpers.
 
 ## Network and firewall self-test
 
