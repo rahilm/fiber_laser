@@ -379,15 +379,26 @@ class SafetySupervisor:
 
     def _monitor(self) -> None:
         next_retry = 0.0
-        while not self._mon_stop.wait(self.monitor_s):
+        next_tick = time.monotonic() + self.monitor_s
+        while True:
+            # wake for the link / retry tick (monitor_s) and for each heartbeat edge: the edges
+            # used to wait for the next 50 ms tick, so a 10 Hz heartbeat ran at 6-7 Hz
+            due = next_tick
+            if self.heartbeat_output and self.heartbeat_hz > 0 and self._hb_next > 0.0:
+                due = min(due, self._hb_next)
+            if self._mon_stop.wait(max(0.0, due - time.monotonic())):
+                break
             try:
-                self._tick_link()
                 now = time.monotonic()
-                if self._retry is not None and now >= next_retry:
-                    next_retry = now + self.halt_retry_s
-                    reason, pause = self._retry
-                    self.safe_halt(f"{reason} (repeat)", pause, latch=False)
-                self._tick_heartbeat(now)
+                if now >= next_tick:
+                    next_tick = now + self.monitor_s
+                    self._tick_link()
+                    now = time.monotonic()
+                    if self._retry is not None and now >= next_retry:
+                        next_retry = now + self.halt_retry_s
+                        reason, pause = self._retry
+                        self.safe_halt(f"{reason} (repeat)", pause, latch=False)
+                self._tick_heartbeat(time.monotonic())
             except Exception:  # noqa: BLE001 - the monitor must keep running
                 log.exception("safety monitor")
 
@@ -424,7 +435,10 @@ class SafetySupervisor:
                 self._heartbeat_write(False)
             return
         if now >= self._hb_next:
-            self._hb_next = now + 1.0 / (2.0 * self.heartbeat_hz)
+            half = 1.0 / (2.0 * self.heartbeat_hz)
+            # phase-locked (the edges keep the configured rate however late a wake-up is),
+            # resynchronised after a stall of more than half a period
+            self._hb_next = self._hb_next + half if now - self._hb_next < half else now + half
             self._heartbeat_write(not self._hb_state)
 
     def _heartbeat_write(self, on: bool) -> None:
