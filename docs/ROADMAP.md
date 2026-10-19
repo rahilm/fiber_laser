@@ -142,10 +142,15 @@ Measurements before → after: [docs/dev/PERFORMANCE.md](dev/PERFORMANCE.md); li
 - ◐ task workspaces Design → Process → Nest → Run → Report (+ Machine), a persistent run bar,
   a Ctrl+K command palette, and an optional classic ribbon (☑ Machine workspace:
   `ui/workspaces/machine.py`, monitors as panels, typed hardware settings, alarm history)
-- ☐ material/technology database: material × thickness × gas × nozzle; versioned; diff against
-  factory values
-- ☐ properties panel instead of modal dialogs; units; live previews
-- ☐ preview with a scrubber, plus a time and cost card
+- ☑ material/technology database: material × thickness × gas × nozzle (× power class); versioned;
+  diff against factory values; JSON and LayerPara.xml import/export; a labelled example set
+  (`services/technology.py`, Process workspace `ui/workspaces/process.py`, docs/user/process.md);
+  applying a technology compiles exactly like typing the values (tests/test_technology.py)
+- ☑ properties panel instead of modal dialogs; units; live previews (`ui/properties/`: transform,
+  layer, leads with a live diagram, kerf, micro-joints, start point, cooling points; every edit
+  one undo step; the dialogs stay reachable)
+- ☑ preview with a scrubber, plus a time and cost card (`services/preview.py` over the PlannedJob
+  Start streams, `services/costing.py`, `ui/preview_scrubber.py`)
 - ◐ touch-first Run screen; Operator, Engineer and Service modes (☑ Run screen:
   `ui/workspaces/run.py`, docs/user/run.md; ☐ the modes)
 - ☑ graphical nest workspace; job queue; production reports; remnant stock

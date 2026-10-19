@@ -242,6 +242,9 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
 | `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
 | `AlarmHistory` (`alarm_history.py`) | alarms and faults with raise / clear times, persisted | the alarm tab's log lines |
+| `TechnologyStore` (`technology.py`, `technology_examples.py`) | technology records (material × thickness × gas × nozzle × power class → GP.* layer parameters, craft defaults, rules) in SQLite per machine profile; versions, diff against factory values, revert; JSON and LayerPara.xml import/export; `apply_to_layer` fills a layer exactly as the layer dialog does | nothing (Wave 3 Process track; docs/user/process.md) |
+| `Timeline` (`preview.py`) | the preview scrubber's time axis, built from the PlannedJob's wire (step items = servo periods, process items = the encoder's card time): position, laser state and wire index at any time | the canvas simulation over the toolpath |
+| `cost_card` (`costing.py`) | time and cost card of a plan: measured times and lengths, labelled estimates (gas, energy, material, cost) from configurable rates | the estimate log line |
 
 ### Undo
 

@@ -9,18 +9,14 @@ whose catalogue text is ``Group.Label``), section (the category: ``ManuParam``, 
 from __future__ import annotations
 
 from mlaser.services.config import Setting, registry_settings
+from mlaser.services.technology import CORE_FIELDS as LAYER_FIELD_MAP  # noqa: F401 - re-exported
 
 from .i18n import Translator
 
-# Which LayerParams attribute a GP.* layer parameter maps to (model.LayerParams).
-LAYER_FIELD_MAP = {
-    "GP.CutSpeed": "speed",
-    "GP.CutPower": "power_pct",
-    "GP.CutFreq": "frequency_hz",
-    "GP.CutGasType": "gas",
-    "GP.CutAirPressure": "gas_pressure",
-    "GP.CutHeight": "cut_height",
-}
+# Which LayerParams attribute a GP.* layer parameter maps to (model.LayerParams): the mapping the
+# job compiler uses (parity_ports.mainapp.layer.LayerView): duty_pct = GP.CutPower (PWM duty),
+# power_pct = GP.CutPeakCurrent (laser power).  It used to map GP.CutPower to power_pct, so a
+# "Cut Power" typed in the dialog became the peak current.
 
 # Sections offered in the "Options"/"Hardware" dialogs (others are internal).
 OPTION_SECTIONS = {
