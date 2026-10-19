@@ -173,7 +173,7 @@ jobs:
           FILES=$(ls tests/test_*.py tests/safety/test_*.py | sort | awk '$0 <= "tests/test_draw_tools.py"' | tr '\n' ' ')
           for i in 1 2 3; do
             echo "=== attempt $i"
-            lldb --batch -o "process handle -p true -s true -n false SIGSEGV SIGBUS" -o run \
+            lldb --batch -o "settings set target.process.stop-on-exec false" -o "process handle -p true -s true -n false SIGSEGV SIGBUS" -o run \
               -k "thread backtrace all -c 40" -k "quit 1" -- "$PY" -m pytest -q -x -p no:cacheprovider $FILES \
               > lldb.txt 2>&1 || true
             grep -nE "stop reason|EXC_|signal SIG" lldb.txt | head -5 || true
