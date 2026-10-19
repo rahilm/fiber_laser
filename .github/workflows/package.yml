@@ -112,7 +112,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Linux on the oldest supported runner: the bundle runs on that glibc or newer
+        # Linux on the oldest GitHub runner (22.04, glibc 2.35; 20.04 was retired in 2025): the
+        # few X11 helper libraries the bundle takes from the host come from the oldest release
         os: [ubuntu-22.04, windows-latest, macos-latest]
     env:
       PYTHONUTF8: "1"
@@ -152,8 +153,11 @@ jobs:
           MLASER_NATIVE: "1"
         run: uv run --locked python tools/build_native.py --check
 
+      # Linux: the bundle takes no system libraries from this host except the X11 helpers
+      # (bundle_config.HOST_LIB_KEEP), and no bundled file may need a newer glibc than the
+      # documented floor 2.34 (PySide6's manylinux_2_34; docs/dev/RELEASE.md)
       - name: Build (PyInstaller onedir)
-        run: uv run --locked python packaging/build.py
+        run: uv run --locked python packaging/build.py ${{ runner.os == 'Linux' && '--glibc-floor 2.34' || '' }}
 
       - name: Sign (Windows, Azure Trusted Signing)
         if: runner.os == 'Windows' && env.HAVE_WIN_SIGNING == 'true'
@@ -179,13 +183,16 @@ jobs:
         run: ./packaging/sign_macos.sh packaging/build/dist/mlaser.app
 
       # frozen app, MLASER_NATIVE=1: bundle check (imports + package data + the C kernel's
-      # self-check + a DXF import), the GUI with --demo for 5 s offscreen, and the self-test
-      # (kernel line + network, informative); then pack the archive
+      # self-check + every optional backend the bundle ships, run on a small problem: OR-Tools,
+      # spyrrow, Ruckig, the fonts, svgelements + a DXF import), the GUI with --demo for 5 s
+      # offscreen, and the self-test (kernel line + network, informative); then pack the
+      # archive.  Sizes, symbol floor and the smoke output go to the job summary.
       - name: Smoke test and archive
+        shell: bash                    # also on Windows ($GITHUB_STEP_SUMMARY)
         env:
           QT_QPA_PLATFORM: offscreen
           MLASER_NATIVE: "1"
-        run: uv run --locked python packaging/build.py --skip-build --smoke --archive
+        run: uv run --locked python packaging/build.py --skip-build --smoke --archive --summary "$GITHUB_STEP_SUMMARY"
 
       - uses: actions/upload-artifact@v4
         with:

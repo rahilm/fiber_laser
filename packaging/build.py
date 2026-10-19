@@ -106,6 +106,77 @@ def size_report(lay: dict, top: int = 15) -> dict:
             "largest": [{"path": k, "bytes": v} for k, v in biggest]}
 
 
+def _is_elf(p: Path) -> bool:
+    try:
+        with open(p, "rb") as fh:
+            return fh.read(4) == b"\x7fELF"
+    except OSError:
+        return False
+
+
+def _elf_files(root: Path) -> list[Path]:
+    return sorted(f for f in root.rglob("*") if f.is_file() and not f.is_symlink() and _is_elf(f))
+
+
+def strip_linux(contents: Path) -> dict:
+    """``strip --strip-unneeded`` the shared libraries and extension modules (Linux; about 43 MB of
+    symbol tables and debug info, Review 2 P2-8).  Not touched: the executables (the bootloader
+    carries the appended archive), PySide6/shiboken6 (Qt and its bindings stay the unmodified
+    LGPL libraries, packaging/README.md) and files with a .hmac/.chk companion (PyInstaller's
+    own rule: checksummed libraries)."""
+    before = after = n = 0
+    for f in _elf_files(contents):
+        rel = f.relative_to(contents).parts
+        if rel[0] in ("PySide6", "shiboken6") or f.with_name(f.name + ".hmac").exists() \
+                or f.with_suffix(".chk").exists():
+            continue
+        size = f.stat().st_size
+        subprocess.run(["strip", "--strip-unneeded", str(f)], check=True)
+        before += size
+        after += f.stat().st_size
+        n += 1
+    return {"files": n, "bytes_before": before, "bytes_saved": before - after}
+
+
+_VER = __import__("re").compile(r"\b(GLIBC|GLIBCXX|CXXABI)_(\d+(?:\.\d+)*)\b")
+
+
+def symbol_floor(root: Path) -> dict:
+    """Linux: the newest glibc / libstdc++ symbol versions any ELF file in the bundle requires
+    (``objdump -p`` version references), with one file that needs each.  The bundle runs on a
+    target whose glibc and libstdc++ provide these (docs/dev/RELEASE.md, "glibc floor")."""
+    best: dict[str, tuple] = {}
+    for f in _elf_files(root):
+        p = subprocess.run(["objdump", "-p", str(f)], capture_output=True, text=True)
+        refs = p.stdout.split("Version References:", 1)
+        if len(refs) < 2:
+            continue
+        for lib, ver in _VER.findall(refs[1]):
+            key = tuple(int(x) for x in ver.split("."))
+            if lib not in best or key > best[lib][0]:
+                best[lib] = (key, str(f.relative_to(root)))
+    return {lib: {"version": ".".join(map(str, k)), "file": f} for lib, (k, f) in sorted(best.items())}
+
+
+def host_libs(work: Path) -> list[str]:
+    """Libraries in the final bundle that PyInstaller took from the build host's system
+    directories (Linux; should be only bundle_config.HOST_LIB_KEEP)."""
+    toc = work / "mlaser" / "COLLECT-00.toc"
+    if not toc.is_file():
+        return []
+    import ast
+
+    def walk(o):
+        if isinstance(o, (list, tuple)):
+            if len(o) == 3 and all(isinstance(x, str) for x in o):
+                yield o
+            else:
+                for x in o:
+                    yield from walk(x)
+    return sorted({d for d, src, ty in walk(ast.literal_eval(toc.read_text(encoding="utf-8")))
+                   if ty in ("BINARY", "EXTENSION") and src.startswith(cfg.HOST_LIB_DIRS)})
+
+
 def smoke(lay: dict, out: Path, seconds: float = 5.0) -> list[dict]:
     exe = lay["console"]
     # the C emitter kernel must be in the bundle and pass its self-check (bundle check FAIL
@@ -135,6 +206,10 @@ def archive(lay: dict, out: Path) -> Path:
     return Path(shutil.make_archive(str(base), fmt, root_dir=src.parent, base_dir=src.name))
 
 
+def _vkey(v: str) -> tuple:
+    return tuple(int(x) for x in v.split("."))
+
+
 def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--out", type=Path, default=HERE / "build", help="build folder (git-ignored)")
@@ -143,6 +218,12 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--smoke", action="store_true", help="run the frozen smoke test and self-test")
     ap.add_argument("--archive", action="store_true", help="pack the bundle into an archive")
     ap.add_argument("--skip-build", action="store_true", help="use the existing build as it is (after signing): only check, smoke-test, archive")
+    ap.add_argument("--no-strip", action="store_true", help="Linux: keep the symbol tables")
+    ap.add_argument("--glibc-floor", metavar="X.Y",
+                    help="Linux: fail when a bundled file needs a newer glibc than X.Y")
+    ap.add_argument("--summary", type=Path, metavar="FILE",
+                    help="append a Markdown summary (sizes, backends, smoke results) to FILE, "
+                         "e.g. $GITHUB_STEP_SUMMARY")
     a = ap.parse_args(argv)
 
     out = a.out.resolve()
@@ -154,6 +235,10 @@ def main(argv: Optional[list[str]] = None) -> int:
         run_pyinstaller(dist, work, clean=not a.no_clean)
     build_s = time.perf_counter() - t0
     lay = layout(dist)
+    stripped = None
+    if not a.skip_build and sys.platform.startswith("linux") and not a.no_strip:
+        stripped = strip_linux(lay["contents"])
+        print(f"strip: {stripped['files']} files, {stripped['bytes_saved'] / 1e6:.1f} MB saved")
 
     if a.skip_build:
         # after signing: never touch the bundle again (it would break the signature)
@@ -180,20 +265,61 @@ def main(argv: Optional[list[str]] = None) -> int:
     print(f"bundle: {info['size']['root']}  {total / 1e6:.1f} MB, build {build_s:.0f} s")
     for item in info["size"]["largest"]:
         print(f"  {item['bytes'] / 1e6:8.1f} MB  {item['path']}")
-    rc = 1 if problems else 0
+    linux_problems: list[str] = []
+    if sys.platform.startswith("linux"):
+        info["strip"] = stripped
+        info["host_libs"] = host_libs(work)
+        info["symbol_floor"] = floor = symbol_floor(lay["folder"])
+        print("host system libraries in the bundle:", ", ".join(info["host_libs"]) or "none")
+        print("symbol floor: " + ", ".join(f"{k} {v['version']} ({v['file']})" for k, v in floor.items()))
+        unexpected = [h for h in info["host_libs"] if not cfg.HOST_LIB_KEEP.match(Path(h).name)]
+        if unexpected:
+            linux_problems.append(f"host system libraries in the bundle: {unexpected}")
+        need = floor.get("GLIBC", {}).get("version")
+        if a.glibc_floor and need and _vkey(need) > _vkey(a.glibc_floor):
+            linux_problems.append(f"the bundle needs glibc {need} ({floor['GLIBC']['file']}), "
+                                  f"newer than the floor {a.glibc_floor}")
+        for p in linux_problems:
+            print("BUNDLE CHECK:", p, file=sys.stderr)
+        info["linux_problems"] = linux_problems
+    info["files"] = sum(1 for f in (lay["app"] or lay["folder"]).rglob("*") if not f.is_dir())
+    rc = 1 if problems or linux_problems else 0
     if a.smoke:
         info["smoke"] = smoke(lay, out)
         if any(r["rc"] != 0 for r in info["smoke"][:2]):   # the self-test may fail offline
             rc = 1
     if a.archive:
-        info["archive"] = str(archive(lay, out))
-        print("archive:", info["archive"])
+        arc = archive(lay, out)
+        info["archive"] = str(arc)
+        info["archive_bytes"] = arc.stat().st_size
+        print(f"archive: {arc}  {arc.stat().st_size / 1e6:.1f} MB")
     if a.skip_build and (out / "build-info.json").is_file():
         prev = json.loads((out / "build-info.json").read_text(encoding="utf-8"))
         info["build_seconds"] = prev.get("build_seconds", info["build_seconds"])
         info["distributions"] = prev.get("distributions", names)
+        if prev.get("strip") is not None:
+            info["strip"] = prev["strip"]
     (out / "build-info.json").write_text(json.dumps(info, indent=1), encoding="utf-8")
+    if a.summary:
+        with open(a.summary, "a", encoding="utf-8") as fh:
+            fh.write(summary_markdown(info))
     return rc
+
+
+def summary_markdown(info: dict) -> str:
+    """The numbers docs/dev/RELEASE.md tracks per OS, for the CI job summary."""
+    mb = lambda b: f"{b / 1e6:.1f} MB" if b else "-"      # noqa: E731
+    rows = [("OS", info["os"]), ("folder", mb(info["size"]["total_bytes"])),
+            ("files", str(info.get("files", "-"))), ("archive", mb(info.get("archive_bytes")))]
+    if "symbol_floor" in info:
+        rows.append(("symbol floor", ", ".join(f"{k} {v['version']}" for k, v in info["symbol_floor"].items())))
+        rows.append(("host libraries", ", ".join(info.get("host_libs") or []) or "none"))
+    out = [f"### mlaser bundle ({info['os']})", "", "| | |", "|---|---|"]
+    out += [f"| {k} | {v} |" for k, v in rows]
+    for r in info.get("smoke", []):
+        out += ["", f"`{' '.join(r['args'])}` -> exit {r['rc']}", "", "```",
+                (r["stdout"] + r["stderr"]).strip()[-3000:], "```"]
+    return "\n".join(out) + "\n\n"
 
 
 if __name__ == "__main__":

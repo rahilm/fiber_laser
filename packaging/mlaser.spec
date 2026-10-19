@@ -12,7 +12,7 @@ the program (``_internal/PySide6/Qt/lib`` on Linux, ``_internal/PySide6`` on Win
 Two executables share one folder:
 * ``mlaser``: the GUI (windowed on Windows/macOS: no console window);
 * ``mlaser-console``: the same program with a console, for ``--selftest`` / ``--smoke-test``
-  output and exit codes (on Linux both behave the same).
+  output and exit codes (on Linux a symlink to ``mlaser``: both would behave the same).
 
 Environment knobs:
 * ``MLASER_BUNDLE_MODERN=0``: leave out the optional modern libraries (OR-Tools ~45 MB, spyrrow,
@@ -34,6 +34,7 @@ import bundle_config as cfg               # noqa: E402  (packaging/bundle_config
 
 APP = "mlaser"
 IS_WIN, IS_MAC = sys.platform.startswith("win"), sys.platform == "darwin"
+IS_LINUX = not (IS_WIN or IS_MAC)
 
 
 def have(mod: str) -> bool:
@@ -62,10 +63,28 @@ for pkg in cfg.DATA_PACKAGES:
 # ------------------------------------------------------------------ hidden imports
 hiddenimports = collect_submodules("mlaser", filter=cfg.keep_mlaser_module)
 hiddenimports += [m for m in cfg.HIDDEN_IMPORTS if have(m.split(".")[0])]
-if os.environ.get("MLASER_BUNDLE_MODERN", "1") != "0":
+MODERN = os.environ.get("MLASER_BUNDLE_MODERN", "1") != "0"
+DEVICES = os.environ.get("MLASER_BUNDLE_DEVICES", "1") != "0"
+if MODERN:
     hiddenimports += [m for m in cfg.MODERN_IMPORTS if have(m.split(".")[0])]
-if os.environ.get("MLASER_BUNDLE_DEVICES", "1") != "0":
+if DEVICES:
     hiddenimports += [m for m in cfg.DEVICE_IMPORTS if have(m)]
+
+# the manifest of the optional backends this build ships: the frozen --bundle-check requires
+# each of them to load and work (bundle_config.OPTIONAL_BACKENDS)
+_shipped = {k: have(mod.split(".")[0]) if k not in ("native_kernel",) else have(mod)
+            for k, mod in cfg.OPTIONAL_BACKENDS.items()}
+for k in ("ortools", "spyrrow", "ruckig"):
+    _shipped[k] = _shipped[k] and MODERN
+for k in ("hid", "serial"):
+    _shipped[k] = _shipped[k] and DEVICES
+_manifest = Path(workpath) / cfg.MANIFEST_NAME   # noqa: F821 (set by PyInstaller)
+_manifest.parent.mkdir(parents=True, exist_ok=True)
+import json                                         # noqa: E402
+
+_manifest.write_text(json.dumps(cfg.manifest(_shipped, cfg.version(ROOT)), indent=1), encoding="utf-8")
+datas += [(str(_manifest), "mlaser")]
+print(f"mlaser.spec: optional backends shipped: {sorted(k for k, v in _shipped.items() if v)}")
 
 a = Analysis(                              # noqa: F821
     [str(ROOT / "mlaser" / "__main__.py")],
@@ -73,7 +92,7 @@ a = Analysis(                              # noqa: F821
     binaries=[],
     datas=datas,
     hiddenimports=hiddenimports,
-    hookspath=[],
+    hookspath=[str(HERE / "hooks")],      # hook-ortools.py (Windows DLLs)
     hooksconfig={},
     runtime_hooks=[],
     excludes=cfg.excludes(),
@@ -85,9 +104,21 @@ a = Analysis(                              # noqa: F821
 # the TLS plugins)
 from PyInstaller.depend import bindepend   # noqa: E402
 
-a.binaries, _removed = cfg.prune_binaries(
-    list(a.binaries), lambda src: [n for n, _ in bindepend.get_imports(src)])
+def _imports(src):
+    return [n for n, _ in bindepend.get_imports(src)]
+
+
+# Linux: also the build host's system libraries (bundle_config.is_host_system_lib)
+a.binaries, _removed = cfg.prune_binaries(list(a.binaries), _imports)
 print(f"mlaser.spec: removed {len(_removed)} unused binaries")
+if IS_WIN:
+    a.binaries, _dupes = cfg.dedupe_package_libs(list(a.binaries))
+    print(f"mlaser.spec: removed {len(_dupes)} top-level copies of package DLLs: "
+          f"{sorted(b[0] for b in _dupes)}")
+_missing = cfg.missing_qt_imports(list(a.binaries), _imports)
+if _missing:
+    raise SystemExit("mlaser.spec: a dropped Qt library is still needed: "
+                     + ", ".join(f"{b} -> {lib}" for b, lib in _missing))
 a.datas = [d for d in a.datas if not cfg.drop_data(d[0])]
 
 pyz = PYZ(a.pure)                          # noqa: F821
@@ -117,12 +148,20 @@ def _exe(name: str, console: bool):
 
 
 gui = _exe(APP, console=not (IS_WIN or IS_MAC))
-cli = _exe(APP + "-console", console=True)
+# Linux: both executables would be the same console program (11.6 MB each, the PYZ is
+# embedded); mlaser-console is a symlink to mlaser there (the bootloader finds _internal through
+# the resolved path).  Windows/macOS need two builds (windowed GUI + console).
+cli = None if IS_LINUX else _exe(APP + "-console", console=True)
 
 coll = COLLECT(                            # noqa: F821
-    gui, cli, a.binaries, a.datas,
+    *[e for e in (gui, cli) if e is not None], a.binaries, a.datas,
     strip=False, upx=False, upx_exclude=[], name=APP,
 )
+if IS_LINUX:
+    _link = Path(DISTPATH) / APP / (APP + "-console")   # noqa: F821 (set by PyInstaller)
+    if _link.is_symlink() or _link.exists():
+        _link.unlink()
+    _link.symlink_to(APP)
 
 if IS_MAC:
     app = BUNDLE(                          # noqa: F821

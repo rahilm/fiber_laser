@@ -76,22 +76,132 @@ def main(argv: list[str] | None = None) -> int:
     return int(rc or 0)
 
 
-# (module, required): required ones are runtime dependencies, the others optional extras
+# (module, required): required ones are runtime dependencies, the others optional extras.  In a
+# frozen bundle the optional backends it ships (its manifest, :func:`_bundle_manifest`) become
+# required, and each must also pass its working check (:data:`_BACKEND_CHECKS`).
 _BUNDLE_MODULES = [
     ("PySide6.QtCore", True), ("PySide6.QtGui", True), ("PySide6.QtWidgets", True),
     ("PySide6.QtSvg", True), ("PySide6.QtPrintSupport", True), ("numpy", True), ("shapely", True),
     ("ezdxf", True), ("svgelements", True), ("pyclipper", True), ("uharfbuzz", True),
-    ("fontTools.ttLib", True), ("segno", True), ("PIL.Image", True),
-    ("ortools.constraint_solver.pywrapcp", False), ("spyrrow", False), ("ruckig", False),
-    ("hid", False), ("serial", False), ("platformdirs", False),
+    ("fontTools.ttLib", True), ("segno", True), ("PIL.Image", True), ("platformdirs", False),
 ]
 
 
+def _bundle_manifest() -> dict | None:
+    """``mlaser/bundle_manifest.json``: written by packaging/mlaser.spec into a bundle, it names
+    the optional backends the build shipped (``{"shipped": {"ortools": true, ...}}``).  None when
+    running from a source checkout or a wheel."""
+    import json
+    import os
+    import mlaser
+    path = os.path.join(os.path.dirname(os.path.abspath(mlaser.__file__)), "bundle_manifest.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return None
+
+
+def _check_ortools() -> str:
+    """Sort mode 20's OR-Tools backend, through the app's own entry point
+    (:func:`mlaser.cam.order_ortools.shortest_path_ortools` without its fallback): the native
+    library must load and the routing modules it imports must be bundled."""
+    import ortools
+
+    from mlaser.cam.order_ortools import shortest_path_ortools
+    from mlaser.cam.ordering import Node
+    pts = [(30.0, 0.0), (10.0, 0.0), (20.0, 10.0), (0.0, 10.0), (5.0, 5.0)]
+    nodes = [Node(contour=None, key=i, entry=p, exit=p, bbox=(p[0], p[1], p[0] + 1, p[1] + 1),
+                  area=1.0) for i, p in enumerate(pts)]
+    out = shortest_path_ortools(nodes, fallback=False, time_limit=0.2)
+    if sorted(n.key for n in out) != list(range(len(pts))):
+        raise RuntimeError(f"bad order {[n.key for n in out]}")
+    return f"{ortools.__version__}, {len(pts)}-contour order solved"
+
+
+def _check_spyrrow() -> str:
+    """The sparrow nester: pack two squares into a strip (constructive only)."""
+    import spyrrow
+    sq = [(0.0, 0.0), (5.0, 0.0), (5.0, 5.0), (0.0, 5.0)]
+    inst = spyrrow.StripPackingInstance("check", 10.0, [spyrrow.Item("a", sq, demand=2,
+                                                                     allowed_orientations=[0.0])])
+    sol = inst.solve(spyrrow.StripPackingConfig(early_termination=True, total_computation_time=None,
+                                                exploration_time=0, compression_time=0, seed=0))
+    if len(sol.placed_items) != 2:
+        raise RuntimeError(f"{len(sol.placed_items)} of 2 items placed")
+    return f"{getattr(spyrrow, '__version__', '')}, 2 items placed, strip {sol.width:g}".lstrip(", ")
+
+
+def _check_ruckig() -> str:
+    """Ruckig: one jerk-limited trajectory."""
+    import ruckig
+    inp = ruckig.InputParameter(1)
+    inp.current_position, inp.target_position = [0.0], [1.0]
+    inp.max_velocity, inp.max_acceleration, inp.max_jerk = [1.0], [1.0], [1.0]
+    traj = ruckig.Trajectory(1)
+    res = ruckig.Ruckig(1).calculate(inp, traj)
+    if res != ruckig.Result.Working:
+        raise RuntimeError(f"ruckig returned {res}")
+    return f"{getattr(ruckig, '__version__', '')}, trajectory {traj.duration:.3f} s".lstrip(", ")
+
+
+def _check_import(mod: str):
+    def run() -> str:
+        import importlib
+        return str(getattr(importlib.import_module(mod), "__version__", ""))
+    return run
+
+
+#: manifest key -> (what is reported, check returning a detail line; raises when broken)
+_BACKEND_CHECKS = {
+    "ortools": ("OR-Tools (sort mode 20)", _check_ortools),
+    "spyrrow": ("spyrrow nester", _check_spyrrow),
+    "ruckig": ("Ruckig motion profiles", _check_ruckig),
+    "hid": ("hidapi (devices)", _check_import("hid")),
+    "serial": ("pyserial (devices)", _check_import("serial")),
+}
+
+
+def _check_svgelements() -> str:
+    """SVG import's parser on a two-element drawing."""
+    import io
+
+    import svgelements
+    svg = ('<svg xmlns="http://www.w3.org/2000/svg" width="20mm" height="20mm" viewBox="0 0 20 20">'
+           '<rect x="1" y="1" width="8" height="8"/><circle cx="15" cy="15" r="4"/></svg>')
+    shapes = [e for e in svgelements.SVG.parse(io.StringIO(svg)).elements()
+              if isinstance(e, svgelements.Shape)]
+    if len(shapes) != 2:
+        raise RuntimeError(f"{len(shapes)} of 2 shapes parsed")
+    return f"{getattr(svgelements, 'SVGELEMENTS_VERSION', '')}, 2 shapes parsed".lstrip(", ")
+
+
+def _check_fonts() -> str:
+    """The bundled cutting-text fonts (mlaser/cad/fontdata): each file present and shaping text
+    into outlines (fontTools + uharfbuzz)."""
+    import os
+
+    from mlaser.cad import fonts, text
+    out = []
+    for family, name in fonts.BUNDLED_FONTS:
+        path = os.path.join(fonts.BUNDLED_DIR, name)
+        if not os.path.isfile(path):
+            raise RuntimeError(f"{name} missing in {fonts.BUNDLED_DIR}")
+        sample = "مرحبا" if "Arabic" in family else "Aé中"
+        polys, _ = text.text_outlines(sample, font_file=path)
+        if not polys:
+            raise RuntimeError(f"{name}: no outlines for {sample!r}")
+        out.append(f"{name} ({len(polys)} contours)")
+    return ", ".join(out)
+
+
 def bundle_check(files: list[str]) -> int:
-    """Import the libraries and read the package data; print one line per item."""
+    """Import the libraries, run the backends and read the package data; print one line per item."""
     import importlib
     import os
     failed = 0
+    manifest = _bundle_manifest()
+    shipped = (manifest or {}).get("shipped", {})
 
     def line(ok: bool, what: str, detail: str = "", required: bool = True) -> None:
         nonlocal failed
@@ -99,13 +209,29 @@ def bundle_check(files: list[str]) -> int:
         tag = "ok" if ok else ("FAIL" if required else "missing")
         print(f"  [{tag:7}] {what}{': ' + detail if detail else ''}")
 
+    def run(what: str, fn, required: bool) -> None:
+        try:
+            line(True, what, fn(), required)
+        except BaseException as e:  # ImportError, a broken native library, a Rust panic
+            if isinstance(e, (KeyboardInterrupt, SystemExit)):
+                raise
+            line(False, what, f"{type(e).__name__}: {e}", required)
+
     print("mlaser bundle check" + (" (frozen)" if getattr(sys, "frozen", False) else ""))
+    if manifest is not None:
+        names = sorted(k for k, v in shipped.items() if v)
+        print(f"  bundle manifest: ships {', '.join(names) or 'no optional backends'} "
+              "(each one required)")
     for mod, required in _BUNDLE_MODULES:
         try:
             m = importlib.import_module(mod)
             line(True, mod, str(getattr(m, "__version__", "")), required)
         except Exception as e:  # ImportError, or a broken native library
             line(False, mod, f"{type(e).__name__}: {e}", required)
+    for key, (what, fn) in _BACKEND_CHECKS.items():
+        run(what, fn, bool(shipped.get(key)))
+    run("svgelements (SVG import)", _check_svgelements, True)
+    run("bundled fonts (cutting text)", _check_fonts, True)
     try:
         from PySide6.QtCore import QLibraryInfo, qVersion
         line(True, "Qt", f"{qVersion()}, libraries in "
@@ -154,7 +280,9 @@ def bundle_check(files: list[str]) -> int:
         # the C emitter kernel: optional (the Python port runs without it) unless MLASER_NATIVE=1
         from mlaser.parity_ports import kernel_status
         st = kernel_status()
-        line(st.native, "emitter kernel (mlaser._native)", st.text(), required=st.mode == "on")
+        # required with MLASER_NATIVE=1, and in a bundle that ships it (unless MLASER_NATIVE=0)
+        need = st.mode == "on" or (bool(shipped.get("native_kernel")) and st.mode != "off")
+        line(st.native, "emitter kernel (mlaser._native)", st.text(), required=need)
     except Exception as e:
         line(False, "emitter kernel (mlaser._native)", f"{type(e).__name__}: {e}", required=False)
     for path in files:
