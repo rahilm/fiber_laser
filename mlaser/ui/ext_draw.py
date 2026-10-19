@@ -1,6 +1,6 @@
 """Draw tab and CAD editing commands (phase 3, agent F).
 
-``register(ctx)`` (PluginContext) binds these ribbon commands (see docs/draw.md for the evidence):
+``register(ctx)`` (PluginContext) binds these ribbon commands (see docs/re/draw.md for the evidence):
 
 * drawing tools ``draw.point/line/pline/rect/round_rect/circle/circle3/arc3/scan_arc/
   ellipse/polygon/star/curve`` -> interactive tools from :mod:`mlaser.cad.tools`, driven

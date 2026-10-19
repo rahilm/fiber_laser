@@ -6,7 +6,7 @@ the font name at app+0xb474 and the height (int) at app+0xb490, then calls
 ICADModule+0x84(13, text, &height, font).  CADModule builds a CGlyText (0x100ab590 /
 0x100aca20) whose glyphs come from CTextGlyphAdapter::GetGlyph (0x100f51c0):
 ``CreateFontA(height, 0, 0, 0, 500, ...)`` (0x100e1e30, weight 500) and
-``GetGlyphOutlineW(GGO_BEZIER)`` (format 3) - cubic Bezier outlines, advance = gmCellIncX (docs/cam.md §1, FUN_100f51c0).
+``GetGlyphOutlineW(GGO_BEZIER)`` (format 3) - cubic Bezier outlines, advance = gmCellIncX (docs/re/cam.md §1, FUN_100f51c0).
 Default face: gp79 (宋体 / "Segoe UI"); the rebuild defaults to the bundled Noto Sans SC subset
 (:data:`DEFAULT_FONT`, machine-independent).
 

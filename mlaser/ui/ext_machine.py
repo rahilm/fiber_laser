@@ -463,31 +463,52 @@ class MachineExtension:
         if t.is_break:
             self.w.ctl.resume_saved(doc, str(self.ops.temp_dir))
 
+    def autosave_store(self):
+        """The autosave of the File folder (mlaser.project.Autosave: autosave.mlz + autosave.chf)."""
+        from mlaser.project import Autosave
+        if getattr(self, "_autosave", None) is None or self._autosave.dir != self.ops.file_dir:
+            self._autosave = Autosave(self.ops.file_dir)
+        return self._autosave
+
     def autosave(self, doc) -> None:
-        """FUN_004804a0 / FUN_00457de0: File\\autosave.chf when a job is prepared."""
-        from mlaser.formats.chf import save_chf
+        """FUN_004804a0 / FUN_00457de0: File\\autosave.chf when a job is prepared; the rebuild also
+        writes the whole project as File\\autosave.mlz (docs/dev/project-format.md)."""
+        from mlaser.project import Project
+        cur = self.w.hooks.provider("project.current") if hasattr(self.w, "hooks") else None
         try:
-            self.ops.file_dir.mkdir(parents=True, exist_ok=True)
-            from mlaser.cam.raster_engraving import expand_document
-            save_chf(expand_document(doc), str(self.ops.file_dir / "autosave.chf"))
+            pr = cur() if cur is not None else Project()
+            pr.document = doc                     # the document of the job being prepared
+            self.autosave_store().save(pr)
         except Exception as e:  # noqa: BLE001
-            self.log(f"autosave.chf not written: {e}")
+            self.log(f"autosave not written: {e}")
 
     def recovery(self, confirm: bool = True) -> None:
-        """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.chf and the
-        AutosaveParam breakpoint (FUN_00480860), mf169."""
-        p = self.ops.file_dir / "autosave.chf"
-        if not p.exists():
-            self.log(f"mf138: no {p}")
+        """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.mlz (else
+        File\\autosave.chf) and the AutosaveParam breakpoint (FUN_00480860), mf169."""
+        store = self.autosave_store()
+        p = store.available()
+        if p is None:
+            self.log(f"mf138: no {self.ops.file_dir / 'autosave.chf'}")
             return
         if confirm and not self._ask(_tr(self.w, "mf138", "System Recovery"),
                                      _tr(self.w, "mf167", "Recover the last state?")):
             return
-        from mlaser.formats.chf import load_chf
-        doc = load_chf(str(p))
+        try:
+            rec = store.recover()
+        except Exception as e:  # noqa: BLE001 - the project and the .chf are unreadable
+            self.log(f"mf138: {e}")
+            return
+        if rec is None:
+            return
+        for n in rec.notes:
+            self.log(n)
+        doc = rec.document
         self._set_doc(doc, "system recovery")
+        proj = self.w.extension("ext_project") if hasattr(self.w, "extension") else None
+        if proj is not None:
+            proj.apply(rec.project)
         resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
-        self.log(f"mf169: system recovered from {p.name}" + (" (resuming breakpoint)" if resumed else ""))
+        self.log(f"mf169: system recovered from {rec.path.name}" + (" (resuming breakpoint)" if resumed else ""))
 
     def startup_homing(self, ctl) -> None:
         """After the card connected: FUN_00596320's red light off, go-origin prompt (mp119,
@@ -575,6 +596,7 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
     for i in range(1, 7):
         binds[f"coord.tool{i}"] = lambda n=i: ext.select_coord(n)
     ctx.register_commands(binds)
+    ctx.provide("project.autosave", ext.autosave_store)
     ctx.on_controller_changed(lambda _ctl: ext.attach())
     ext.attach()
     ext.startup_check()

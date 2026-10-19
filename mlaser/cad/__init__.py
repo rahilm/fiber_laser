@@ -2,7 +2,7 @@
 
 Pure Python on top of :mod:`mlaser.model`, no Qt (text outlines come from fontTools +
 uharfbuzz).  Evidence for every function is cited in its
-docstring and collected in ``docs/draw.md``.
+docstring and collected in ``docs/re/draw.md``.
 
 Modules
 -------

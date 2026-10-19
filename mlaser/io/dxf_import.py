@@ -1,6 +1,6 @@
 """DXF import that reproduces what the original's "import drawing" command builds.
 
-Two stages of the original are modelled (docs/cam.md §1):
+Two stages of the original are modelled (docs/re/cam.md §1):
 
 1. **DxfParseDllvc100.dll** v1.4.93 (``newDxfFileParse`` 0x10004390, entity factory
    FUN_1000a4b0) reads the ENTITIES section in file order and expands INSERTs.
@@ -48,7 +48,7 @@ open contours; :func:`mlaser.cam.ordering.import_sort` is a statement-level port
 entities before their Bezier cut (FUN_10008e60).  TEXT outlines follow GetGlyphOutlineW
 (GGO_BEZIER) records: segment glyphs and one cubic spline glyph per off-curve run
 (:func:`_tt_text_contours`).  With these, the .chf written for every non-TEXT parity sample is
-byte-identical to MainApp's import + Save As except uninitialised ints (docs/parity.md D-12).
+byte-identical to MainApp's import + Save As except uninitialised ints (docs/re/parity.md D-12).
 """
 from __future__ import annotations
 

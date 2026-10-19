@@ -25,11 +25,8 @@ MOVED["docs/BRIEF.md"] = "docs/re/history/BRIEF.md"
 #: the parity fence is changed only together with a Wine parity re-run, and the other files
 #: belong to tracks working in parallel; each line is removed when the file is updated
 OLD_PATH_ALLOWED = (
-    "mlaser/parity_ports/",
-    "mlaser/model.py", "mlaser/formats/", "mlaser/i18n/", "mlaser/cad/", "mlaser/ui/i18n.py",
-    "mlaser/project/", "tools/i18n_keys.py", "tools/build_bundled_fonts.py",
-    "mlaser/ui/mainwindow.py", "mlaser/ui/ribbon_spec.py",
-    "mlaser/io/dxf_import.py", "mlaser/ui/ext_draw.py", "tests/test_io_dxf_sort.py",
+    "mlaser/parity_ports/",                                  # frozen ports: changed only with a parity re-run
+    "mlaser/ui/mainwindow.py", "mlaser/ui/ribbon_spec.py",   # Shell track files (Wave 3)
 )
 #: docs/review/ux.md shows the review screenshots, which live outside the repository
 #: (work/review/shots, docs/review/REVIEW.md)

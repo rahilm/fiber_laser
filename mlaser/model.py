@@ -700,7 +700,12 @@ class Contour:
             return NotImplemented
         return (self.segments == other.segments and self.closed == other.closed
                 and self.craft == other.craft and self.glyphs == other.glyphs
-                and self.glyph_key == other.glyph_key and dict.__eq__(self.extra, other.extra))
+                and (self.glyphs is None or self.glyphs_current() == other.glyphs_current())
+                and dict.__eq__(self.extra, other.extra))
+
+    def glyphs_current(self) -> bool:
+        """True when the attached glyphs still describe ``segments`` (see :meth:`source_glyphs`)."""
+        return self.glyph_key is not None and self.glyph_key == segment_key(self.segments)
 
     __hash__ = None  # type: ignore[assignment]
 
@@ -733,7 +738,7 @@ class Contour:
         """The attached source glyphs, or None when there are none or ``segments`` has been
         changed since they were attached (the glyphs no longer describe the geometry)."""
         g = self.glyphs
-        if g and self.glyph_key is not None and self.glyph_key == segment_key(self.segments):
+        if g and self.glyphs_current():
             return g
         return None
 

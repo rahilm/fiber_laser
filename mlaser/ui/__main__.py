@@ -89,7 +89,9 @@ def main(argv=None) -> int:
                       "(no fallback to the demo controller with --real)", file=sys.stderr)
                 return 2
             print(f"real controller unavailable ({exc}); using the demo controller", file=sys.stderr)
-    win = MainWindow(ctl or DemoController(laser_enabled=not args.laser_off), tr, extensions=EXTENSIONS,
+    # ext_project (.mlz projects, autosave): until the Shell lists it in EXTENSIONS
+    exts = EXTENSIONS if "ext_project" in EXTENSIONS else EXTENSIONS + ("ext_project",)
+    win = MainWindow(ctl or DemoController(laser_enabled=not args.laser_off), tr, extensions=exts,
                      entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params

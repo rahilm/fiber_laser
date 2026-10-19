@@ -1,5 +1,5 @@
 """Import sort (FUN_100b57c0 -> 0x1003f010 mode 5, small first), INSERT-level ellipses, glyph-based
-start points and TrueType text glyphs (docs/cam.md §1 / §8.4, docs/parity.md D-12 / D-16 / D-19)."""
+start points and TrueType text glyphs (docs/re/cam.md §1 / §8.4, docs/re/parity.md D-12 / D-16 / D-19)."""
 from __future__ import annotations
 
 import math
