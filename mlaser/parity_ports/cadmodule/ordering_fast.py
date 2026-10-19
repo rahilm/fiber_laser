@@ -199,8 +199,8 @@ class _Route:
     def __init__(self):
         self.items: list[SortElem] = []
         cap = 64
-        self.P = np.zeros((cap, 4))           # start x, start y, exit x, exit y
-        self.G = np.zeros((cap, 5))           # gap: mx, my, |bx - mx|, |by - my|, |b - a| / 2
+        self.P = np.zeros((4, cap))           # rows: start x, start y, exit x, exit y
+        self.G = np.zeros((5, cap))           # rows per gap: mx, my, |bx - mx|, |by - my|, |b - a| / 2
 
     def __len__(self) -> int:
         return len(self.items)
@@ -209,17 +209,17 @@ class _Route:
         return self.items[k]
 
     def _grow(self, need: int) -> None:
-        if need > self.P.shape[0]:
-            cap = max(need, 2 * self.P.shape[0])
-            P = np.zeros((cap, 4)); P[:self.P.shape[0]] = self.P; self.P = P
-            G = np.zeros((cap, 5)); G[:self.G.shape[0]] = self.G; self.G = G
+        if need > self.P.shape[1]:
+            cap = max(need, 2 * self.P.shape[1])
+            P = np.zeros((4, cap)); P[:, :self.P.shape[1]] = self.P; self.P = P
+            G = np.zeros((5, cap)); G[:, :self.G.shape[1]] = self.G; self.G = G
 
     def _gap(self, k: int) -> None:
         a = self.items[k - 1].exit
         b = self.items[k].start
         mx, my = (b[0] + a[0]) * 0.5, (b[1] + a[1]) * 0.5
         hx, hy = abs(b[0] - mx), abs(b[1] - my)
-        self.G[k - 1] = (mx, my, hx, hy, math.hypot(hx, hy) * (1 + _REL) + _ABS)
+        self.G[:, k - 1] = (mx, my, hx, hy, math.hypot(hx, hy) * (1 + _REL) + _ABS)
 
     def insert(self, pos: int, e: SortElem) -> None:
         m = len(self.items)
@@ -227,12 +227,12 @@ class _Route:
         self.items.insert(pos, e)
         s, x = e.start, e.exit
         if pos < m:
-            self.P[pos + 1:m + 1] = self.P[pos:m].copy()
-        self.P[pos] = (s[0], s[1], x[0], x[1])
+            self.P[:, pos + 1:m + 1] = self.P[:, pos:m].copy()
+        self.P[:, pos] = (s[0], s[1], x[0], x[1])
         # gaps (gap k at index k-1): old gaps k >= pos+1 move to k+1, old gap k = pos is split
         # into the new gaps pos and pos+1
         if pos <= m - 2:
-            self.G[pos + 1:m] = self.G[pos:m - 1].copy()
+            self.G[:, pos + 1:m] = self.G[:, pos:m - 1].copy()
         for k in (pos, pos + 1):
             if 1 <= k <= m:
                 self._gap(k)
@@ -259,17 +259,17 @@ class _Route:
         m = len(items)
         pos = m
         if m >= 2:
-            G = self.G[:m - 1]
+            G = self.G[:, :m - 1]
             px, py = float(p[0]), float(p[1])
-            lx = np.abs(px - G[:, 0]) - G[:, 2]
-            ly = np.abs(py - G[:, 1]) - G[:, 3]
+            lx = np.abs(px - G[0]) - G[2]
+            ly = np.abs(py - G[1]) - G[3]
             sel = np.flatnonzero((lx < best) & (ly < best))
             if sel.size > 8:
                 lb = np.maximum(lx[sel], ly[sel])
-                ub = np.hypot(px - G[sel, 0], py - G[sel, 1]) + G[sel, 4]
+                ub = np.hypot(px - G[0, sel], py - G[1, sel]) + G[4, sel]
                 U = float(ub.min()) if np.isfinite(ub).all() else math.inf
                 ks = sel[~(lb > U * (1 + _REL) + _ABS)] + 1
-                dn = _seg_dist_np(px, py, self.P[ks - 1, 2:4], self.P[ks, 0:2])
+                dn = _seg_dist_np(px, py, self.P[2:4, ks - 1].T, self.P[0:2, ks].T)
                 tk = ks[~(dn > float(dn.min()) * (1 + _REL) + _ABS)].tolist() if np.isfinite(dn).all() else None
                 res = self._fast_pick(p, tk, best) if tk else None
                 if res is None:

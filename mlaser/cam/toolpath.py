@@ -246,6 +246,59 @@ def prepare_contour(c: Contour, craft: Craft, depth: int, prm: CamParams) -> Opt
                            lead_in_count=len(lin), lead_in_line=bool(lin) and craft.lead_in.kind == 1)
 
 
+# ----------------------------------------------------------------------------- prepare cache
+# build_toolpath runs after every edit; most contours are unchanged, so their prepared form is
+# reused.  An entry is used only when the contour object is the same and its segment values,
+# closed flag and extra entries (by identity) are unchanged, the craft equals a snapshot taken
+# when the entry was made, and depth, CamParams, the kerf fallback default and the active
+# ParityProfile are the same.  Hits return a copy (build_toolpath sets part / index).
+PREPARE_CACHE = True
+_PREP: dict = {}
+_PREP_MAX = 200_000
+
+
+def _contour_state(c: Contour):
+    from ..geom.curves import _fingerprint
+    fp = _fingerprint(c.segments)
+    if fp is None:
+        return None
+    ex = c.extra if isinstance(c.extra, dict) else {}
+    return (fp, bool(c.closed), tuple((k, id(v)) for k, v in ex.items()))
+
+
+def prepare_cached(c: Contour, craft: Craft, depth: int, prm: CamParams) -> Optional[PreparedContour]:
+    """:func:`prepare_contour` through the per-contour cache described above."""
+    if not PREPARE_CACHE:
+        return prepare_contour(c, craft, depth, prm)
+    import copy
+    import dataclasses
+    import weakref
+    from . import kerf as _kerf
+    from ..parity_ports import active_profile
+    state = _contour_state(c)
+    if state is None:
+        return prepare_contour(c, craft, depth, prm)
+    env = (depth, dataclasses.astuple(prm), _kerf.DEFAULT_FALLBACK, active_profile().name)
+    key = id(c)
+    hit = _PREP.get(key)
+    if hit is not None:
+        ref, st, env0, craft_id, craft_snap, pc = hit
+        if ref() is c and st == state and env0 == env and craft_id == id(craft) and craft_snap == craft:
+            return None if pc is None else dataclasses.replace(
+                pc, pieces=list(pc.pieces), cool_at=list(pc.cool_at), curves=list(pc.curves))
+    pc = prepare_contour(c, craft, depth, prm)
+    if len(_PREP) >= _PREP_MAX:
+        _PREP.clear()
+    try:
+        ref = weakref.ref(c, lambda _r, k=key: _PREP.pop(k, None))
+    except TypeError:
+        return pc
+    snap = copy.deepcopy(craft)
+    _PREP[key] = (ref, state, env, id(craft), snap, None if pc is None else dataclasses.replace(
+        pc, pieces=list(pc.pieces), cool_at=list(pc.cool_at), curves=list(pc.curves)))
+    return pc
+
+
 def _with_start(s: Segment, p: Point) -> Segment:
     return Line(p, s.end) if isinstance(s, Line) else Arc(p, s.end, s.center, s.ccw)
 
@@ -413,7 +466,23 @@ def _as_params(mp) -> CamParams:
 
 
 def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
-    """Turn a Document into an ordered MotionItem stream (see module doc)."""
+    """Turn a Document into an ordered MotionItem stream (see module doc).
+
+    The cyclic garbage collector is paused while it runs: the build allocates hundreds of
+    thousands of small objects, and in a large session each collection walks every live
+    object (about 20% of the build at 2,000 parts).  Nothing here creates reference cycles
+    that must be collected before the build ends."""
+    import gc
+    was = gc.isenabled()
+    gc.disable()
+    try:
+        return _build_toolpath(doc, machine_params)
+    finally:
+        if was:
+            gc.enable()
+
+
+def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     prm = _as_params(machine_params)
     from .flycut import scan_motion_items, scan_paths_of_part
     scan_parts = {pi for pi, part in enumerate(doc.parts) if scan_paths_of_part(part)}
@@ -434,7 +503,7 @@ def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     def prepare(n: Node) -> None:
         pi, ci = n.key
         craft = crafts[id(n)]
-        pc = prepare_contour(n.contour, craft, n.depth, prm)
+        pc = prepare_cached(n.contour, craft, n.depth, prm)
         prepared.pop(id(n), None)
         if pc is None:
             return
