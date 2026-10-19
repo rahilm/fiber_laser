@@ -78,8 +78,8 @@ runs the same call.  Conditions: a coordinate that is not a float (or an int bel
 positive finite number, a duty / frequency that is not an int below 2^62, a `power` override,
 an exception in a callback, a non-list `wire`.  So NaN / inf coordinates, oversize steps and
 odd types raise exactly the port's exception.  `STATS` counts kernel and port calls; over the
-326 golden jobs (2026-10-19): 1144 of 1144 `emit_samples` runs, 447930 of 447930 `to` calls
-and all 1258 non-empty `dwell` calls ran in C (an earlier data set had one NaN rapid, which
+326 golden jobs (2026-10-19): 1208 of 1208 `emit_samples` runs, 456048 of 456048 `to` calls
+and all 1322 non-empty `dwell` calls ran in C (an earlier data set had one NaN rapid, which
 the kernel handed to the port and which raised the port's ValueError).
 
 ## What the kernel computes, operation by operation
@@ -165,7 +165,7 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
   profiles; compares `Job.wire`, `Job.frames()`, the group starts, markers, cut blocks,
   ManuItem indexes, steps, overspeed, start / end pulses, end position, and **exactly**
   (`float.hex`) `pulse_carry` and `laser_on_length_mm`, or the same exception.  Result:
-  326 jobs, 3 213 541 steps, 0 differences (about 45 s; 2026-10-19, with the default profile
+  326 jobs, 3 045 237 steps, 0 differences (about 45 s; 2026-10-19, with the default profile
 on the kernel against `original-python`).  Also a `golden`-marked test.
 * `tests/test_native_kernel.py`: hypothesis streams of `emit_samples` / `to` / `dwell` /
   repositioning calls on random machines (ppm 0.5 .. 2e5, also 1000 int, 2500/3), carries at
@@ -187,12 +187,12 @@ on the kernel against `original-python`).  Also a `golden`-marked test.
 
 x86-64 (container, gcc 13.3, CPython 3.13), best of 5, `smooth=False`
 (`python tools/bench_native.py --repeat 5`, 2026-10-19, on a shared host: load average about
-240 on 64 cores; PERFORMANCE.md §5 has the end-to-end compile times):
+233 on 64 cores; PERFORMANCE.md §5 has the end-to-end compile times):
 
 | job | steps | compile_items Python | compile_items native | emitter alone Python | emitter alone native |
 |---|---|---|---|---|---|
-| tests/data/autosave.chf | 235 537 | 0.95 s (4.02 us/step) | 0.47 s (1.98 us/step) | 2.38 us/step | 0.17 us/step |
-| synthetic 300 parts (2 contours each) | 904 525 | 3.25 s (3.59 us/step) | 1.66 s (1.83 us/step) | 2.72 us/step | 0.17 us/step |
+| tests/data/chf/sample_v9.chf | 142 155 | 0.62 s (4.34 us/step) | 0.33 s (2.28 us/step) | 2.37 us/step | 0.15 us/step |
+| synthetic 300 parts (2 contours each) | 904 525 | 3.26 s (3.60 us/step) | 1.65 s (1.82 us/step) | 2.71 us/step | 0.18 us/step |
 
 "Emitter alone" replays the job's recorded `emit_samples` calls on a fresh emitter (the
 target was about 0.1 s per million steps; the kernel is at 0.15-0.17 s/M, about 15-22x the

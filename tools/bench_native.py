@@ -3,7 +3,7 @@
 
 Usage::
 
-    python tools/bench_native.py [tests/data/autosave.chf] [--parts 300] [--repeat 3]
+    python tools/bench_native.py [tests/data/chf/sample_v9.chf] [--parts 300] [--repeat 3]
 
 For each job (a .chf file and an N-part synthetic job as tools/bench/bench_large_compile.py
 builds it) it prints
@@ -138,7 +138,7 @@ def bench(name: str, doc, repeat: int) -> None:
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    ap.add_argument("chf", nargs="?", default=str(ROOT / "tests" / "data" / "autosave.chf"))
+    ap.add_argument("chf", nargs="?", default=str(ROOT / "tests" / "data" / "chf" / "sample_v9.chf"))
     ap.add_argument("--parts", type=int, default=300)
     ap.add_argument("--repeat", type=int, default=3)
     a = ap.parse_args(argv)

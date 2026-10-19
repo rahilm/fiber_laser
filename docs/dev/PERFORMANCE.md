@@ -122,23 +122,23 @@ own `math.hypot` called back. **The default profile `"original"` uses it** after
 self-check against the Python port at first use (about 25 ms); without a compiler, or if the
 check fails, the Python port runs with a logged warning. `MLASER_NATIVE=0` forces the port,
 `=1` requires the kernel. `tools/native_parity.py` (port vs the default on the kernel): 326
-golden jobs (26 samples + 300 random), 3,213,541 steps, 0 differences. Details in
+golden jobs (26 samples + 300 random), 3,045,237 steps, 0 differences. Details in
 [NATIVE_KERNEL.md](NATIVE_KERNEL.md).
 
-Compile time of `tests/data/autosave.chf` (235,537 steps), x86-64 container, gcc 13.3, CPython
+Compile time of `tests/data/chf/sample_v9.chf` (142,155 steps), x86-64 container, gcc 13.3, CPython
 3.13, `smooth=False`, 2026-10-19 (`python tools/bench_native.py --repeat 5`, best of 5; the host
-was shared, load average about 240 on 64 cores, so absolute times are pessimistic, the ratios
+was shared, load average about 233 on 64 cores, so absolute times are pessimistic, the ratios
 held over repeated runs):
 
 | Default emitter | `compile_job` (document -> job) | first compile in a fresh process (incl. selection + self-check) |
 |---|---|---|
-| Python port (`MLASER_NATIVE=0`) | 0.95 s | 1.08 s |
-| C kernel (default) | 0.47 s (2.0x faster) | 0.64 s |
+| Python port (`MLASER_NATIVE=0`) | 0.64 s | 0.79 s |
+| C kernel (default) | 0.35 s (1.8x faster) | 0.55 s |
 
 | Job | compile_items, Python | native | emitter alone, Python | native |
 |---|---|---|---|---|
-| autosave.chf (235,537 steps) | 0.95 s (4.02 µs/step) | 0.47 s (1.98 µs/step) | 2.38 µs/step | 0.17 µs/step |
-| 300 parts (904,525 steps) | 3.25 s (3.59 µs/step) | 1.66 s (1.83 µs/step) | 2.72 µs/step | 0.17 µs/step |
+| sample_v9.chf (142,155 steps) | 0.62 s (4.34 µs/step) | 0.33 s (2.28 µs/step) | 2.37 µs/step | 0.15 µs/step |
+| 300 parts (904,525 steps) | 3.26 s (3.60 µs/step) | 1.65 s (1.82 µs/step) | 2.71 µs/step | 0.18 µs/step |
 
 What remains of `compile_items` with the kernel is planning, `geom.at` sampling and the process
 items, not the emitter.
