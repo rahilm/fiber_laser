@@ -72,7 +72,7 @@ def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
 # --------------------------------------------------------------------------- layout helpers
 # the layouts are the responsive ones (docs/dev/RESPONSIVE.md): FlowLayout, ResponsiveForm and
 # the collapsible sections of a ColumnsPanel
-from .responsive import LIST_PROP, CollapsibleSection, ColumnsPanel, FlowLayout, ResponsiveForm  # noqa: E402
+from .responsive import LIST_PROP, CollapsibleSection, ColumnsPanel, FlowLayout, ResponsiveForm, WrapCheckBox  # noqa: E402
 from . import style  # noqa: E402
 
 
@@ -226,7 +226,7 @@ class TechField:
             kind = None                   # stored in MPa: no conversion from bar
         w: QWidget
         if d.type_name == "bool":
-            w = QCheckBox()
+            w = WrapCheckBox()          # a long option wraps in a narrow form
             w.toggled.connect(lambda _v: on_change())
         elif d.type_name == "enum" and ("GasType" in key or key.endswith("_GasType")):
             from mlaser.ui.params import GAS_KEYS
@@ -575,6 +575,7 @@ class TechForm(QWidget):
             if not groups or groups[-1][1][0].group != f.group:
                 g = QLabel(f"<b>{f.group}</b>")
                 g.setObjectName("techform_group")
+                g.setWordWrap(True)           # a long group name wraps in a narrow form
                 form.addRow(g)
                 groups.append((g, []))
             groups[-1][1].append(f)

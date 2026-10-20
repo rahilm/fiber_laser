@@ -32,8 +32,8 @@ from typing import Callable, Iterable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import (QFrame, QGridLayout, QLabel, QLayout, QLayoutItem, QScrollArea, QSizePolicy,
-                               QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget, QWidgetItem)
+from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QLabel, QLayout, QLayoutItem, QScrollArea, QSizePolicy,
+                               QStackedWidget, QStyle, QStyleOptionButton, QToolButton, QVBoxLayout, QWidget, QWidgetItem)
 
 #: property names used by the helpers and read by the layout harness
 STATE_PROP = "responsive_state"
@@ -514,6 +514,72 @@ class ResponsiveForm(QWidget):
         super().resizeEvent(ev)
 
 
+# --------------------------------------------------------------------------- wrapping check box
+class WrapCheckBox(QCheckBox):
+    """A check box whose text wraps onto more lines when it is narrower than the text (a long
+    option in a narrow form: "Stay down on short moves" made the technology form scroll
+    sideways at 220 px with the macOS fonts).  It still carries its own text (DESIGN.md §3);
+    its minimum width is the indicator plus the longest word, its height follows its width."""
+
+    def _parts(self, width: int) -> tuple[QRect, QRect]:
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        opt.rect = QRect(0, 0, width, max(self.height(), 1))
+        ind = self.style().subElementRect(QStyle.SE_CheckBoxIndicator, opt, self)
+        gap = self.style().pixelMetric(QStyle.PM_CheckBoxLabelSpacing, opt, self)
+        text = QRect(ind.right() + 1 + gap, 0, max(1, width - ind.right() - 1 - gap), opt.rect.height())
+        return ind, text
+
+    def _text_h(self, width: int) -> int:
+        _ind, text = self._parts(width)
+        r = self.fontMetrics().boundingRect(QRect(0, 0, text.width(), 1 << 16), int(Qt.TextWordWrap),
+                                            self.text().replace("&&", "\0").replace("&", "").replace("\0", "&"))
+        return r.height()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        full = super().minimumSizeHint()
+        words = self.text().replace("&", "").split() or [""]
+        longest = max(self.fontMetrics().horizontalAdvance(w) for w in words)
+        ind, text = self._parts(full.width())
+        w = min(full.width(), text.x() + longest + 2)
+        return QSize(w, max(full.height(), self.heightForWidth(w)))
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        ind, _text = self._parts(width)
+        return max(super().sizeHint().height(), ind.height(), self._text_h(width) + 2)
+
+    def hitButton(self, pos) -> bool:  # noqa: N802 - Qt API
+        return self.rect().contains(pos)
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        from PySide6.QtGui import QPainter
+        if self.fontMetrics().horizontalAdvance(self.text()) <= self._parts(self.width())[1].width():
+            super().paintEvent(ev)           # one line: exactly the style's own check box
+            return
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        ind, text = self._parts(self.width())
+        p = QPainter(self)
+        o = QStyleOptionButton(opt)
+        o.rect = QRect(ind.x(), (self.height() - ind.height()) // 2 if self.height() < 2 * ind.height() else ind.y(),
+                       ind.width(), ind.height())
+        self.style().drawPrimitive(QStyle.PE_IndicatorCheckBox, o, p, self)
+        t = QStyleOptionButton(opt)
+        t.rect = text
+        self.style().drawItemText(p, text, int(Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap), self.palette(),
+                                  self.isEnabled(), self.text().replace("&", ""), QPalette.WindowText)
+        if self.hasFocus():
+            from PySide6.QtWidgets import QStyleOptionFocusRect
+            fr = QStyleOptionFocusRect()
+            fr.initFrom(self)
+            fr.rect = text
+            self.style().drawPrimitive(QStyle.PE_FrameFocusRect, fr, p, self)
+        p.end()
+
+
 # --------------------------------------------------------------------------- collapsible section
 class ElidedToolButton(QToolButton):
     """A tool button whose text is cut with "…" to the width it gets (the full text in the
@@ -978,6 +1044,19 @@ class ColumnsPanel(QWidget):
         lo = self._col_min()
         return max(lo, self.column_min()) if self.column_min is not None else lo
 
+    def _exp_min(self, expanded: dict) -> int:
+        """The column width the column count is computed from, for this expansion: a folded
+        section needs only its header's width, so a panel whose sections are all folded sets
+        their headers side by side (Process's technology form: six folded headers stacked
+        one per row kept the page taller than a 1280 x 800 window with the Windows fonts)."""
+        ws = [s.min_width() if expanded.get(id(s), True) else s.header.minimumSizeHint().width()
+              for s in self.sections if not s.isHidden()]
+        ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
+        lo = max(ws, default=0)
+        if self.column_min is not None and any(expanded.get(id(s), True) for s in self.sections if not s.isHidden()):
+            lo = max(lo, self.column_min())
+        return lo
+
     def _col_min(self) -> int:
         ws = [s.min_width() for s in self.sections if not s.isHidden()]
         ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
@@ -1039,7 +1118,7 @@ class ColumnsPanel(QWidget):
         columns, default: as many as the width allows)."""
         sp = self.spacing()
         secs = [s for s in self.sections if not s.isHidden()]
-        n = n or columns_for(W, self._count_min(), sp, self.max_columns)
+        n = n or columns_for(W, self._exp_min(expanded), sp, self.max_columns)
         n = max(1, min(n, len(secs))) if secs else 1
         cw = (W - (n - 1) * sp) // n
         top = self._pinned_h(W)
@@ -1084,7 +1163,7 @@ class ColumnsPanel(QWidget):
 
     def _cols(self, W: int, H: int, exp: dict) -> int:
         """Columns to use: all the width allows, or (``grow``) the fewest that fit the height."""
-        most = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
+        most = columns_for(W, self._exp_min(exp), self.spacing(), self.max_columns)
         if not self.grow:
             return most
         for n in range(1, most + 1):
@@ -1173,7 +1252,7 @@ class ColumnsPanel(QWidget):
         secs = [s for s in self.sections if not s.isHidden()]
         exp = {id(s): not s.collapsible for s in secs}
         W = max(1, width - 2 * self.margins())
-        n = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
+        n = columns_for(W, self._exp_min(exp), self.spacing(), self.max_columns)
         return self._plan(W, 1 << 20, exp, n)[2] - self.spacing() + 2 * self.margins()
 
     def needed_height(self, width: int) -> int:
@@ -1409,5 +1488,5 @@ class FitArea(QScrollArea):
         return w.sizeHint() if w is not None else super().sizeHint()
 
 
-__all__ = ["TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
+__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
            "CompactWhenNarrow", "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]

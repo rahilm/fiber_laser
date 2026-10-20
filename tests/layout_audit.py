@@ -209,6 +209,12 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
             if w.text() and need > room + TOL:
                 add("clipped", w, f"text needs {need} px, has {room}")
                 continue
+        elif isinstance(w, QAbstractButton) and w.hasHeightForWidth() and w.text():
+            # a button whose text wraps (responsive.WrapCheckBox): the lines must fit its height
+            need = w.heightForWidth(w.width())
+            if need > size.height() + TOL:
+                add("clipped", w, f"wrapped text needs {need} px high, has {size.height()}")
+                continue
         elif isinstance(w, QAbstractButton):
             sh = w.sizeHint()
             if sh.width() > size.width() + TOL and w.text():

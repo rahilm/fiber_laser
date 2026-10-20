@@ -358,3 +358,52 @@ def test_columns_panel_size_hint_stays_comfortable_while_compact(app):
     _pump(app)
     assert "compact" not in str(p.property(R.STATE_PROP)) and p.sizeHint() == sh0
     p.close()
+
+
+def test_folded_sections_sit_side_by_side(app):
+    """A folded section needs only its header's width: when every section of a panel is folded,
+    the headers share a row instead of one per row (Process's technology form kept the page
+    taller than a 1280 x 800 window with the Windows fonts)."""
+    p = R.ColumnsPanel(max_columns=3)
+    for i in range(6):
+        body = QWidget()
+        v = QVBoxLayout(body)
+        wide = QPushButton(f"A wide row of section {i} " * 3)
+        v.addWidget(wide)
+        v.addWidget(QPushButton("b"))
+        p.add_section(R.CollapsibleSection(f"S{i}", body, priority=i))
+    p.ensurePolished()
+    width = max(s.min_width() for s in p.sections) + 20          # one expanded column
+    header = p.sections[0].collapsed_height()
+    stacked = 6 * header
+    assert p.folded_height(width) < stacked * 2 // 3
+    p.resize(width, p.folded_height(width))
+    p.show()
+    _pump(app)
+    assert not any(s.expanded() for s in p.sections)
+    assert "col" in p.property(R.STATE_PROP) and not p.property(R.STATE_PROP).startswith("1 col")
+    xs = {s.x() for s in p.sections}
+    assert len(xs) >= 2
+    for s in p.sections:                                          # each header readable, inside
+        assert p.rect().contains(s.geometry()), s.geometry()
+    p.close()
+
+
+def test_wrap_check_box_wraps_instead_of_widening(app):
+    """A long option in a narrow form wraps onto two lines (the technology form scrolled
+    sideways at 220 px with the macOS fonts); one line when there is room."""
+    box = QWidget()
+    lay = QVBoxLayout(box)
+    cb = R.WrapCheckBox("Stay down on short moves between contours of a part")
+    lay.addWidget(cb)
+    one = cb.sizeHint()
+    assert cb.minimumSizeHint().width() < one.width() // 2
+    narrow = cb.minimumSizeHint().width() + 10
+    assert cb.heightForWidth(narrow) > cb.heightForWidth(one.width())
+    box.resize(narrow + 20, lay.totalHeightForWidth(narrow + 20))
+    box.show()
+    _pump(app)
+    assert cb.height() >= cb.heightForWidth(cb.width())
+    cb.click()
+    assert cb.isChecked()
+    box.close()
