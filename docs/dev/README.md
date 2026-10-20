@@ -4,6 +4,7 @@
 |---|---|
 | [Architecture](ARCHITECTURE.md) | package layers, import rules, the parity fence, services |
 | [Plugins](PLUGINS.md) | writing a plugin: `PluginContext`, workspaces, docks, commands, hooks |
+| [Automation API](API.md) | the local REST + WebSocket API: resources, events, queue intake, why there is no remote control |
 | [Performance](PERFORMANCE.md) | measurements, the optional native kernel ([NATIVE_KERNEL.md](NATIVE_KERNEL.md)) |
 | [Testing](TESTING.md) | test suites and markers, goldens, the contract checked on every commit |
 | [Parity](PARITY.md) | how behaviour is kept identical to the original, profiles, the Wine harness |

@@ -34,7 +34,7 @@ import tempfile
 import threading
 import time
 import uuid
-from dataclasses import asdict, dataclass, field, fields
+from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
@@ -179,10 +179,13 @@ class IntakeStore:
     production data directory (``<data>/production``)."""
 
     def __init__(self, directory: os.PathLike | str, clock: Callable[[], float] = time.time,
-                 max_pending: int = MAX_PENDING, audit: Optional[Callable[..., None]] = None) -> None:
+                 max_pending: Optional[int] = None, audit: Optional[Callable[..., None]] = None,
+                 owner: bool = True) -> None:
+        """``owner``: this process keeps the pending list (the application).  A submitter that is
+        not the owner (the CLI) only reads ``pending.json`` (for the cap) and never rewrites it."""
         self.dir = Path(directory)
         self.clock = clock
-        self.max_pending = int(max_pending)
+        self.max_pending = int(MAX_PENDING if max_pending is None else max_pending)
         self.pending: list[PendingJob] = []
         self.listeners: list[Callable[[], None]] = []
         self.errors: list[str] = []           # inbox files that were refused (newest last)
@@ -191,6 +194,7 @@ class IntakeStore:
             from mlaser.machine.audit import audit as _audit
             audit = _audit
         self._audit = audit
+        self.owner = bool(owner)
         self.load()
 
     # ------------------------------------------------------------------ paths
@@ -214,13 +218,15 @@ class IntakeStore:
             self.pending = [PendingJob.from_json(d) for d in items if isinstance(d, dict) and d.get("path")]
         except FileNotFoundError:
             self.pending = []
-        except (OSError, ValueError, TypeError) as exc:
+        except (OSError, ValueError, TypeError, AttributeError) as exc:
+            self.pending = []
+            if not self.owner:
+                return
             log.warning("intake: %s unreadable (%s); kept as .bad", self.pending_path, exc)
             try:
                 os.replace(self.pending_path, str(self.pending_path) + ".bad")
             except OSError:
                 pass
-            self.pending = []
 
     def save(self) -> None:
         data = {"format": FORMAT, "saved": self.clock(), "pending": [p.to_json() for p in self.pending]}
@@ -265,20 +271,8 @@ class IntakeStore:
         return job
 
     def store_upload(self, filename: str, content: bytes) -> str:
-        """Save an uploaded drawing under ``inbox/files`` (a fresh name; the extension must be a
-        queue drawing).  Returns the stored path for :meth:`submit`."""
-        base = os.path.basename(str(filename or "")).strip()
-        stem, ext = os.path.splitext(base)
-        if ext.lower() not in QUEUE_SUFFIXES:
-            raise IntakeError(f"filename: only {', '.join(QUEUE_SUFFIXES)} drawings can be queued", "unsupported")
-        if len(content) > MAX_FILE_BYTES:
-            raise IntakeError(f"file larger than {MAX_FILE_BYTES // (1024 * 1024)} MB", "too_large")
-        if not content:
-            raise IntakeError("the file is empty")
-        stem = (_SAFE_NAME.sub("_", stem)[:60] or "job").strip(" .") or "job"
-        path = self.files_dir / f"{uuid.uuid4().hex[:8]}_{stem}{ext.lower()}"
-        _atomic_write(path, content)
-        return str(path)
+        """Save an uploaded drawing under ``inbox/files``; see :func:`store_upload`."""
+        return store_upload(self.dir, filename, content)
 
     # ------------------------------------------------------------------ owner
     def scan(self) -> list[PendingJob]:
@@ -370,25 +364,29 @@ class IntakeStore:
             return False
 
 
+def store_upload(directory: os.PathLike | str, filename: str, content: bytes) -> str:
+    """Save a drawing under ``<directory>/inbox/files`` with a fresh name (the extension must be a
+    queue drawing; the name is reduced to safe characters).  Returns the stored path."""
+    base = os.path.basename(str(filename or "").replace("\\", "/")).strip()
+    stem, ext = os.path.splitext(base)
+    if ext.lower() not in QUEUE_SUFFIXES:
+        raise IntakeError(f"filename: only {', '.join(QUEUE_SUFFIXES)} drawings can be queued", "unsupported")
+    if len(content) > MAX_FILE_BYTES:
+        raise IntakeError(f"file larger than {MAX_FILE_BYTES // (1024 * 1024)} MB", "too_large")
+    if not content:
+        raise IntakeError("the file is empty")
+    stem = (_SAFE_NAME.sub("_", stem)[:60] or "job").strip(" .") or "job"
+    path = Path(directory) / INBOX / FILES / f"{uuid.uuid4().hex[:8]}_{stem}{ext.lower()}"
+    _atomic_write(path, content)
+    return str(path)
+
+
 def submit_offline(directory: os.PathLike | str, request: dict, source: str = "cli", client: str = "",
                    allowed_roots: Optional[Iterable[str]] = None) -> PendingJob:
-    """Submit without an owner (the CLI): validates and writes the inbox file only; the running
-    application (or the next start) picks it up."""
-    store = IntakeStore.__new__(IntakeStore)
-    store.dir = Path(directory)
-    store.clock = time.time
-    store.max_pending = MAX_PENDING
-    store.listeners, store.errors = [], []
-    store._lock = threading.Lock()
-    from mlaser.machine.audit import audit as _audit
-    store._audit = _audit
-    try:
-        data = json.loads(store.pending_path.read_text("utf-8"))
-        store.pending = [PendingJob.from_json(d) for d in data.get("pending", []) if isinstance(d, dict)]
-    except (OSError, ValueError, TypeError, AttributeError):
-        store.pending = []
-    return store.submit(request, source, client, allowed_roots)
+    """Submit without being the owner (the CLI): validates and writes the inbox file only; the
+    running application (or its next start) picks it up."""
+    return IntakeStore(directory, owner=False).submit(request, source, client, allowed_roots)
 
 
-__all__ = ["IntakeStore", "PendingJob", "IntakeError", "validate", "submit_offline", "QUEUE_SUFFIXES",
+__all__ = ["IntakeStore", "PendingJob", "IntakeError", "validate", "submit_offline", "store_upload", "QUEUE_SUFFIXES",
            "MAX_PENDING", "MAX_FILE_BYTES", "FORMAT"]

@@ -231,9 +231,14 @@ deliberately out of scope for now.
 - ☐ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
   cut-up, remnant separation cut
 - ☐ lead-in collision check, automatic lead placement, tip-avoiding cut order
-- ☐ simulator/practice runs excluded from production statistics; guided practice mode
-- ☐ CLI (compile, nest, estimate) and an automation API whose queued jobs need operator approval
-- ☐ notifications (sheet done, alarm, waiting for sheet, maintenance due): ntfy / e-mail / webhook
-- ☐ part labels, part-ID etching, QR job tickets, remnant labels
+- ☑ simulator/practice runs excluded from production statistics (job source on every record,
+  Runs filter, counters real-only); guided practice mode (six lessons, docs/user/practice.md)
+- ☑ CLI (compile, estimate, nest, validate, convert, queue add/list) and an automation API
+  (read-only REST + WebSocket, queue intake whose jobs need operator approval;
+  docs/user/automation.md, docs/dev/API.md)
+- ☑ notifications (sheet done, alarm, waiting for sheet, job finished, maintenance due): ntfy /
+  e-mail / webhook (docs/user/notifications.md)
+- ☑ part labels, part-ID etching, QR job tickets, remnant labels (docs/user/labels.md); open:
+  scanning a ticket's QR on the Run screen to select the queue entry
 - ☐ project hygiene: SECURITY.md (safety reports), CONTRIBUTING, CHANGELOG, CODEOWNERS, CI guard on
   golden and parity-port changes; command palette "no matches"

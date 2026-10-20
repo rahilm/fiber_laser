@@ -18,6 +18,10 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [Nest](nest.md) | placing parts on sheets, remnants, the nest project |
 | [Run](run.md) | connecting, framing, dry runs, cutting, pause and resume |
 | [Report](report.md) | production reports, logs and statistics |
+| [Practice](practice.md) | guided lessons on the simulator: load a sheet, frame, cut, hold, alarms, resume |
+| [Labels and marking](labels.md) | part labels, QR job tickets, remnant labels, part-ID etching |
+| [Notifications](notifications.md) | sheet done, queue waiting, alarms, maintenance: ntfy, e-mail, webhook |
+| [Automation](automation.md) | the command line (compile, estimate, nest, validate, convert, queue) and the automation API |
 | [Machine](machine.md) | homing, jogging, outputs, follower, calibration and diagnostics |
 | [FAQ](faq.md) | common questions and problems |
 

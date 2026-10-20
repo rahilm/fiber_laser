@@ -71,3 +71,12 @@ part is saved as a remnant (see nest.md), and a remnant sheet is marked *used*.
 Settings: `plugin.run.remnant_auto`, `remnant_min_width` (mm), `remnant_min_area` (mm²).
 
 The command `queue.add_current` adds the open (saved) document to the queue.
+
+### Jobs submitted from outside
+
+Jobs from the command line (`mlaser queue add`) or the [automation API](automation.md) never go
+into the queue by themselves. They appear above the queue table under *submitted from outside*,
+with where they came from, the file, quantity, material and the note; the queue card says how
+many wait. **Approve** adds the job to the queue (it still runs only after **Run queue** and
+**Sheet loaded: start**); **Reject** removes it. While the automation API runs, the header shows
+**Automation API ON** with its address.

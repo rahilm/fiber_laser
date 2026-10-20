@@ -166,9 +166,11 @@ include_external_packages = true
 name = "Dependencies point downward only"
 type = "layers"
 layers = [
-    "mlaser.ui | mlaser.parity | mlaser.cli",
+    "mlaser.ui | mlaser.parity",
+    "mlaser.cli",                 # the GUI launcher hands subcommands to it (mlaser.ui.__main__)
     "mlaser.services",
-    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web | mlaser.api | mlaser.notify | mlaser.labels",
+    "mlaser.api",                 # reuses the LAN monitor's hardened server (mlaser.web)
+    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web | mlaser.notify | mlaser.labels",
     "mlaser.controller",
     "mlaser.devices | mlaser.machine",
     "mlaser.ops",

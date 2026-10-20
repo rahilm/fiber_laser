@@ -158,7 +158,7 @@ def test_palette_says_when_nothing_matches(win, app):
     sh = win.shell
     sh.open_palette()
     pal = sh.palette
-    for q in ("quote", "label", "zzqxj"):
+    for q in ("quote", "zzqxj"):          # "label" matches the label commands since review 2
         pal.edit.setText(q)
         assert pal.matches() == [] and pal.list.count() == 0
         assert pal.empty.isVisibleTo(pal) and not pal.list.isVisibleTo(pal)

@@ -13,6 +13,8 @@ Options handled here, before the GUI starts; everything else goes to
 * ``--bundle-check [FILE.dxf|FILE.svg ...]``: import every bundled library, read the package
   data (icons, translations, parameter registry) and optionally import the given drawings, then
   exit (0 = all required parts present).  For checking a frozen build without a display.
+* ``compile`` / ``estimate`` / ``nest`` / ``validate`` / ``convert`` / ``queue``: the headless
+  command-line tools (:mod:`mlaser.cli`, docs/user/automation.md); no GUI, no card connection.
 * first run: the first time a user starts the app the self-test runs once without card
   traffic, in a background thread that holds startup for at most 1 s; the result is printed to
   stderr and saved in the user config directory (``mlaser.netcheck.last_result()``).  Set
@@ -40,6 +42,11 @@ def main(argv: list[str] | None = None) -> int:
     import argparse
 
     args = list(sys.argv[1:] if argv is None else argv)
+    from mlaser.cli import is_subcommand
+    if is_subcommand(args):
+        # headless tools (compile, estimate, nest, validate, convert, queue): no GUI, no card
+        from mlaser.cli import main as cli_main
+        return cli_main(args)
     ap = argparse.ArgumentParser(add_help=False)
     ap.add_argument("--selftest", action="store_true")
     ap.add_argument("--smoke-test", type=float, metavar="SECONDS")

@@ -434,7 +434,16 @@ class OperatorScreen(QWidget):
         self.monitor_chip.setObjectName("run_monitor_chip")
         self.monitor_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
         self.monitor_chip.setVisible(False)
-        hl.addWidget(self.monitor_chip, 1, 2, alignment=Qt.AlignRight)
+        # the automation API (mlaser.ui.ext_automation): read-only, queue intake needs approval
+        self.api_chip = QLabel()
+        self.api_chip.setObjectName("run_api_chip")
+        self.api_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        self.api_chip.setVisible(False)
+        chips = QHBoxLayout()
+        chips.addStretch(1)
+        chips.addWidget(self.api_chip)
+        chips.addWidget(self.monitor_chip)
+        hl.addLayout(chips, 1, 2)
         self.progress = QProgressBar()
         self.progress.setObjectName("run_progress")
         self.progress.setRange(0, 1000)
@@ -735,6 +744,14 @@ class OperatorScreen(QWidget):
         if mon is not None and mon.running:
             h, port = mon.address
             self.monitor_chip.setText(tr(w, "run.monitor_on", "LAN monitor ON {host}:{port}", host=h, port=port))
+        hooks = getattr(w, "hooks", None)
+        api_fn = hooks.provider("automation.server") if hooks is not None else None
+        api = api_fn() if api_fn is not None else None
+        on = api is not None and api.running
+        self.api_chip.setVisible(on)
+        if on:
+            h, port = api.address
+            self.api_chip.setText(tr(w, "run.api_on", "Automation API ON {host}:{port}", host=h, port=port))
         # canvas
         doc, sheet = self.ws.view_document()
         self.canvas.set_document(doc, sheet)

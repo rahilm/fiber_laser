@@ -2970,7 +2970,193 @@
   "report.source.practice": "practice",
   "report.source.real": "real",
   "report.source.simulator": "simulator",
-  "run.queue.pending": "{n} submitted job(s) wait for approval (Queue tab)"
+  "run.queue.pending": "{n} submitted job(s) wait for approval (Queue tab)",
+  "api.dlg.copy": "Copy",
+  "api.dlg.folders_hint": "folders a job may be named from, ; separated",
+  "api.dlg.new_token": "New token",
+  "api.dlg.note": "Read-only status and events for the shop's own tools, and optional queue intake. Jobs from the API wait for your approval on the Run screen. The API cannot start, stop, hold, arm or move the machine.",
+  "api.dlg.off": "Not running (command: Automation API on/off)",
+  "api.dlg.on": "Running: {url}",
+  "api.dlg.show": "Show",
+  "api.dlg.title": "Automation API",
+  "api.log.failed": "Automation API could not start on {host}:{port}: {err}",
+  "api.log.intake": ", queue intake with approval",
+  "api.log.started": "Automation API ON (read-only{intake}): {url}",
+  "api.log.stopped": "Automation API stopped",
+  "api.set.host": "Listen on (address)",
+  "api.set.job_folders": "Job folders",
+  "api.set.port": "Port",
+  "api.set.queue_intake": "Accept jobs for the queue (operator approval)",
+  "api.set.token": "Token",
+  "api.set.uploads": "Accept uploaded drawings",
+  "api.warn.intake": ", and accepts jobs for the queue, which wait for your approval on the Run screen",
+  "api.warn.text": "The automation API serves the machine status and events on {host}:{port} to programs that have its token{intake}. It cannot start, stop, hold, arm or move the machine. Keep it on this PC (127.0.0.1) unless the shop network is trusted.\n\nEnable it?",
+  "api.warn.title": "Enable the automation API",
+  "run.api_on": "Automation API ON {host}:{port}",
+  "notify.btn.test": "Send test",
+  "notify.cmd.settings": "Notification settings...",
+  "notify.cmd.test": "Send a test notification",
+  "notify.event.alarm": "Alarm or fault",
+  "notify.event.job_finished": "Job finished or stopped",
+  "notify.event.maintenance_due": "Maintenance due",
+  "notify.event.queue_waiting": "Queue waits for the next sheet",
+  "notify.event.sheet_done": "Sheet done",
+  "notify.group.email": "E-mail (SMTP)",
+  "notify.group.events": "Events (channels: all, or a list such as ntfy, email)",
+  "notify.group.general": "General",
+  "notify.group.limits": "Limits and quiet hours",
+  "notify.group.ntfy": "ntfy",
+  "notify.group.webhook": "Webhook",
+  "notify.intro": "Messages about the machine to a phone or a mailbox. They only inform: nothing can be controlled by a notification or a reply.",
+  "notify.msg.alarm": "Alarm {code}: {text}. Check the machine; reset it at the machine.",
+  "notify.msg.alarm.title": "Alarm {code}",
+  "notify.msg.fault": "Fault: {fault}. The machine stopped; reset it at the machine.",
+  "notify.msg.fault.title": "FAULT latched",
+  "notify.msg.job_done": "{name} finished ({minutes} min).",
+  "notify.msg.job_done.title": "Job finished",
+  "notify.msg.job_stopped": "{name} stopped: {reason}.",
+  "notify.msg.job_stopped.title": "Job stopped",
+  "notify.msg.maintenance": "Maintenance due: {item} ({status}).",
+  "notify.msg.maintenance.title": "Maintenance due",
+  "notify.msg.no_channel": "Notifications: no channel is enabled",
+  "notify.msg.queue_waiting": "The queue waits for the next sheet: {name} (sheet {n}/{total}) {details}. Load it and confirm at the machine.",
+  "notify.msg.queue_waiting.title": "Load the next sheet",
+  "notify.msg.sheet_done": "{name}: sheet {done}/{total} cut.",
+  "notify.msg.sheet_done.title": "Sheet done",
+  "notify.msg.test": "Notifications work. This message was sent from the machine PC; nothing can be controlled by replying.",
+  "notify.msg.test.title": "mlaser test notification",
+  "notify.msg.test_queued": "Notifications: test sent (see the result in Notification settings)",
+  "notify.result.failed": "FAILED",
+  "notify.result.none": "No notification sent yet.",
+  "notify.result.ok": "sent",
+  "notify.secret.email": "SMTP password",
+  "notify.secret.ntfy": "ntfy access token",
+  "notify.secret.stored": "(stored: leave empty to keep)",
+  "notify.secret.webhook": "Webhook signing secret",
+  "notify.secret.where": "Secrets are kept in: {where}",
+  "notify.security.none": "None (local relay only)",
+  "notify.security.ssl": "SSL/TLS",
+  "notify.security.starttls": "STARTTLS",
+  "notify.set.channels_alarm": "Channels: Alarm or fault",
+  "notify.set.channels_job_finished": "Channels: Job finished or stopped",
+  "notify.set.channels_maintenance_due": "Channels: Maintenance due",
+  "notify.set.channels_queue_waiting": "Channels: Queue waits for the next sheet",
+  "notify.set.channels_sheet_done": "Channels: Sheet done",
+  "notify.set.email_enabled": "E-mail",
+  "notify.set.email_from": "Sender address",
+  "notify.set.email_to": "Recipients (comma separated)",
+  "notify.set.enabled": "Send notifications",
+  "notify.set.event_alarm": "Notify: Alarm or fault",
+  "notify.set.event_job_finished": "Notify: Job finished or stopped",
+  "notify.set.event_maintenance_due": "Notify: Maintenance due",
+  "notify.set.event_queue_waiting": "Notify: Queue waits for the next sheet",
+  "notify.set.event_sheet_done": "Notify: Sheet done",
+  "notify.set.include_simulator": "Include simulator, dry-run and practice runs",
+  "notify.set.machine_name": "Machine name (title prefix)",
+  "notify.set.max_per_hour": "At most per hour (all notifications)",
+  "notify.set.min_interval_s": "Same notification at most every",
+  "notify.set.ntfy_enabled": "ntfy",
+  "notify.set.ntfy_server": "ntfy server",
+  "notify.set.ntfy_topic": "ntfy topic",
+  "notify.set.quiet_alarms": "Alarms also during quiet hours",
+  "notify.set.quiet_end": "Quiet until (HH:MM)",
+  "notify.set.quiet_start": "Quiet from (HH:MM, empty: off)",
+  "notify.set.smtp_host": "SMTP server",
+  "notify.set.smtp_port": "SMTP port",
+  "notify.set.smtp_security": "Connection security",
+  "notify.set.smtp_user": "SMTP user (empty: no login)",
+  "notify.set.webhook_enabled": "Webhook",
+  "notify.set.webhook_url": "Webhook URL",
+  "notify.title": "Notifications",
+  "labels.cmd.etch_part_ids": "Etch part IDs",
+  "labels.cmd.job_tickets": "Job tickets (PDF)...",
+  "labels.cmd.part_labels": "Part labels (PDF)...",
+  "labels.cmd.remnant_labels": "Remnant labels (PDF)...",
+  "labels.cmd.remove_marking": "Remove part ID marking",
+  "labels.msg.etched": "Part IDs etched on layer {layer}: {n} part(s), {skipped} without room",
+  "labels.msg.fallback": "No marking technology for {material}: the marking layer uses EXAMPLE low-power values; verify them before cutting",
+  "labels.msg.layer_used": "Layer {layer} is used for cutting: choose another marking layer (Options: labels mark_layer)",
+  "labels.msg.no_parts": "No parts to label",
+  "labels.msg.no_queue": "The queue has no job for a ticket",
+  "labels.msg.no_remnants": "No remnant to label",
+  "labels.msg.remnant_auto": "Remnant label written: {path}",
+  "labels.msg.tickets": "{n} job ticket(s) written: {path}",
+  "labels.msg.written": "{n} label(s) written: {path}",
+  "labels.set.label_size": "Part label size",
+  "labels.set.mark_layer": "Marking layer",
+  "labels.set.mark_margin": "Marking clearance from edges and holes",
+  "labels.set.mark_max_height": "Largest marking text height",
+  "labels.set.mark_min_height": "Smallest marking text height",
+  "labels.set.remnant_auto": "Write a remnant label PDF when a remnant is saved",
+  "labels.set.remnant_size": "Remnant label size",
+  "labels.set.ticket_page": "Job ticket page size",
+  "labels.undo.etch": "Etch part IDs",
+  "labels.undo.remove": "Remove part ID marking",
+  "practice.ask_connect": "Practice runs on the simulator only. Connect the simulator now? (The real machine is disconnected.)",
+  "practice.attempts": "{n} attempt(s)",
+  "practice.best": "best {time}",
+  "practice.btn.abort": "Abort the lesson",
+  "practice.btn.connect": "Connect the simulator",
+  "practice.btn.load": "Load the practice sheet",
+  "practice.btn.next": "Next",
+  "practice.btn.run": "Run",
+  "practice.btn.start": "Start the lesson",
+  "practice.cmd.open": "Practice (simulator)...",
+  "practice.error.busy": "Finish or abort the running lesson first.",
+  "practice.error.load_failed": "The practice sheet could not be opened (a job may be running).",
+  "practice.error.no_injection": "This simulator cannot simulate an alarm.",
+  "practice.error.not_simulator": "Practice runs only on the simulator. Connect the simulator first (Machine > Connect simulator); the real machine is never used.",
+  "practice.lesson.alarm": "Handle an alarm",
+  "practice.lesson.first_cut": "Arm and start a cut",
+  "practice.lesson.frame": "Frame the job",
+  "practice.lesson.hold": "Hold and continue",
+  "practice.lesson.load_sheet": "Load a sheet",
+  "practice.lesson.resume": "Resume from the breakpoint",
+  "practice.none": "Choose a lesson and press Start.",
+  "practice.set.progress": "Practice progress",
+  "practice.state.aborted": "Lesson aborted (the simulator was stopped).",
+  "practice.state.done": "Lesson passed in {time}.",
+  "practice.state.failed": "Lesson not passed: {detail}",
+  "practice.state.watching": "Your turn: do it on the Run screen. This panel checks it.",
+  "practice.step.alarm_read.text": "The state is FAULT. Read the alarm list on the Run screen: what happened and the remedy. Find the cause before you reset. On the real machine you would now release the e-stop; the lesson releases it for you.",
+  "practice.step.alarm_read.title": "Read the alarm",
+  "practice.step.alarm_wait.text": "Start the cut (arm first). During the cut the lesson presses the simulator's emergency stop: the machine stops and latches a FAULT.",
+  "practice.step.alarm_wait.title": "Wait for the alarm",
+  "practice.step.arm.text": "Press Arm laser and confirm. Armed means the laser can fire on START: the state banner turns red.",
+  "practice.step.arm.title": "Arm the laser",
+  "practice.step.continue.text": "Press START / CONTINUE (or a Resume button). The head goes back to the breakpoint with the laser off, pierces again and the job goes on.",
+  "practice.step.continue.title": "Continue",
+  "practice.step.done_alarm.text": "Well done. Press Stop to drop the stopped job, or practise resuming it in the next lesson.",
+  "practice.step.done_alarm.title": "Alarm handled",
+  "practice.step.finish.text": "Let the job run to the end. After the last part the machine is idle again.",
+  "practice.step.finish.title": "Wait for the end of the job",
+  "practice.step.frame.text": "Press Frame on the Run screen. The head travels around the job outline with the laser off, so you can see that the job fits on the sheet.",
+  "practice.step.frame.title": "Frame",
+  "practice.step.hold.text": "While the job cuts, press HOLD (or Space). The machine stops on the path and keeps a breakpoint: the job is not lost.",
+  "practice.step.hold.title": "Hold",
+  "practice.step.intro_sim": "This lesson runs on the simulator: nothing moves and no laser fires. Use the normal Run screen buttons; this panel tells you what to do and checks it.",
+  "practice.step.load.text": "Press Load to open the practice sheet: three parts on a 300 x 200 mm sheet. Look at it in the live view: the parts, their holes and the start points.",
+  "practice.step.load.title": "Load the practice sheet",
+  "practice.step.loaded.text": "The practice sheet is open with cutting parameters on every layer. On the real machine you would now put the sheet on the table and check the material.",
+  "practice.step.loaded.title": "Sheet loaded",
+  "practice.step.pass.text": "You did every step of this lesson.",
+  "practice.step.pass.title": "Lesson passed",
+  "practice.step.reset.text": "Press Reset alarm. The machine comes back disarmed, with the breakpoint of the stopped job kept.",
+  "practice.step.reset.title": "Reset",
+  "practice.step.resume.text": "Arm again, then press Resume: Here (exactly where it stopped) or Contour start (from the start of that contour). The job must finish.",
+  "practice.step.resume.title": "Resume from the breakpoint",
+  "practice.step.start.text": "Press START. The pre-flight check runs first; then the job is cut. Watch the progress and the parts turning grey in the live view.",
+  "practice.step.start.title": "Start the cut",
+  "practice.summary": "{passed} of {n} lessons passed. Practice jobs never count as production.",
+  "practice.title": "Practice (simulator)",
+  "practice.undo.load": "practice: load the sheet",
+  "api.cmd.settings": "Automation API settings...",
+  "api.cmd.toggle": "Automation API on/off",
+  "api.set.enabled": "Automation API on",
+  "api.set.max_upload_mb": "Largest upload (MB)",
+  "practice.welcome_button": "Start practice",
+  "practice.welcome_text": "New to the machine? Six short guided lessons on the built-in simulator: load a sheet, frame, the first cut, hold, alarm handling and resuming from a breakpoint. Nothing is cut and practice runs are not counted as production.",
+  "practice.welcome_title": "Practice on the simulator"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -3530,6 +3716,132 @@
   ],
   "wizard.error.dry_run_unavailable": [
    "detail"
+  ],
+  "api.dlg.on": [
+   "url"
+  ],
+  "api.log.failed": [
+   "err",
+   "host",
+   "port"
+  ],
+  "api.log.started": [
+   "intake",
+   "url"
+  ],
+  "api.warn.text": [
+   "host",
+   "intake",
+   "port"
+  ],
+  "approval.confirm.text": [
+   "file",
+   "name",
+   "qty",
+   "source"
+  ],
+  "approval.msg.approved": [
+   "name"
+  ],
+  "approval.msg.failed": [
+   "err"
+  ],
+  "approval.msg.rejected": [
+   "name"
+  ],
+  "approval.msg.submitted": [
+   "name",
+   "src"
+  ],
+  "approval.reject.text": [
+   "name"
+  ],
+  "approval.title": [
+   "n"
+  ],
+  "report.note.hidden": [
+   "n"
+  ],
+  "run.api_on": [
+   "host",
+   "port"
+  ],
+  "run.queue.pending": [
+   "n"
+  ],
+  "notify.msg.alarm": [
+   "code",
+   "text"
+  ],
+  "notify.msg.alarm.title": [
+   "code"
+  ],
+  "notify.msg.fault": [
+   "fault"
+  ],
+  "notify.msg.job_done": [
+   "minutes",
+   "name"
+  ],
+  "notify.msg.job_stopped": [
+   "name",
+   "reason"
+  ],
+  "notify.msg.maintenance": [
+   "item",
+   "status"
+  ],
+  "notify.msg.queue_waiting": [
+   "details",
+   "n",
+   "name",
+   "total"
+  ],
+  "notify.msg.sheet_done": [
+   "done",
+   "name",
+   "total"
+  ],
+  "notify.secret.where": [
+   "where"
+  ],
+  "labels.msg.etched": [
+   "layer",
+   "n",
+   "skipped"
+  ],
+  "labels.msg.fallback": [
+   "material"
+  ],
+  "labels.msg.layer_used": [
+   "layer"
+  ],
+  "labels.msg.remnant_auto": [
+   "path"
+  ],
+  "labels.msg.tickets": [
+   "n",
+   "path"
+  ],
+  "labels.msg.written": [
+   "n",
+   "path"
+  ],
+  "practice.attempts": [
+   "n"
+  ],
+  "practice.best": [
+   "time"
+  ],
+  "practice.state.done": [
+   "time"
+  ],
+  "practice.state.failed": [
+   "detail"
+  ],
+  "practice.summary": [
+   "n",
+   "passed"
   ]
  },
  "legacy": {

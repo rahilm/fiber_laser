@@ -156,6 +156,8 @@ class WelcomeSheet(QDialog):
             v.addWidget(box)
 
         section("shell.welcome.sim_title", "shell.welcome.sim_text", [("shell.welcome.sim_button", "hw.connect_sim")])
+        # Review 2: guided practice on the simulator (mlaser.ui.ext_practice)
+        section("practice.welcome_title", "practice.welcome_text", [("practice.welcome_button", "practice.open")])
         section("shell.welcome.import_title", "shell.welcome.import_text",
                 [("shell.welcome.import_params", "shell.import_params"),
                  ("shell.welcome.import_lang", "app.import_language")])

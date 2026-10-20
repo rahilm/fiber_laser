@@ -42,6 +42,8 @@ UI_MODULES = {
     "test_report_window", "test_ui", "test_ui_lead", "test_help_browser", "test_project_ui",
     "test_machine_workspace", "test_ws_run", "test_partlist_cache", "test_run_controls_visible",
     "test_import_worker_ui",
+    # Review 2 shop floor (automation track)
+    "test_notify_ui", "test_labels", "test_marking", "test_practice", "test_runsource",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -51,6 +53,7 @@ SIM_MODULES = {
     "test_integration", "test_machine_edgeseek", "test_machine_manual", "test_machine_ops",
     "test_parity_capture", "test_process_compile", "test_ui", "test_procedures",
     "test_machine_workspace", "test_ws_run",
+    "test_practice",          # lessons on the card simulator (real-time waits)
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)

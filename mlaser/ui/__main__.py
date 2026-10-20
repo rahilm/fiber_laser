@@ -1,5 +1,8 @@
 """``mlaser [file] [--demo] [--sim] [--host H --port P | --ini ipAdd.ini] [--lang en]``.
 
+``mlaser compile|estimate|nest|validate|convert|queue ...`` runs the headless command-line tools
+instead (:mod:`mlaser.cli`, docs/user/automation.md): no window, no card connection.
+
 * ``--demo``: load the sample document and connect to the in-process MCC100 simulator through
   the real protocol stack (``mlaser.controller.ui_adapter.UiController``); falls back to the
   dependency-free ``DemoController`` if that fails (with a message).
@@ -45,6 +48,12 @@ def main(argv=None) -> int:
     # a frozen Windows build re-runs the executable for the streaming child (spawn): let
     # multiprocessing take over there instead of starting a second GUI
     multiprocessing.freeze_support()
+    from mlaser.cli import is_subcommand
+    words = list(sys.argv[1:] if argv is None else argv)
+    if is_subcommand(words):
+        # ``mlaser compile ...`` etc.: the headless tools (mlaser.cli), never the GUI
+        from mlaser.cli import main as cli_main
+        return cli_main(words)
     ap = argparse.ArgumentParser(prog="mlaser")
     ap.add_argument("file", nargs="?", help=".chf / .dxf / .svg / .nc to open")
     ap.add_argument("--lang", default="en", help="language code (en; zh, ru, de, es, pt, fr, it, pl, vi, tr "

@@ -118,7 +118,7 @@ class NotifyPlugin:
 
     def attach(self) -> None:
         ctl = getattr(self.window, "ctl", None)
-        self.wiring.attach_bus(getattr(ctl, "events", None))
+        self.wiring.attach_bus(ctl.events)
         hooks = getattr(self.window, "hooks", None)
         fn = hooks.provider("queue_runner") if hooks is not None else None
         try:
