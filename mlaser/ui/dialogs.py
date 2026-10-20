@@ -33,6 +33,8 @@ class _Base(QDialog):
         self.tr_ = tr
         self.setWindowTitle(tr.tr(title_key))
         self.lay = QVBoxLayout(self)
+        self.lay.setContentsMargins(16, 16, 16, 16)     # DESIGN.md: dialog margins SP3
+        self.lay.setSpacing(8)
         self.form = QFormLayout()
         self.lay.addLayout(self.form)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -165,41 +167,75 @@ from .layer_params_dialog import LayerParamDialog  # noqa: E402,F401 - re-export
 
 
 class LeadDialog(_Base):
-    """mf205 "Lead line parameters": pd315 Type, pd316 Angle, pd317 Length, pd599 Radius,
-    pd318 start point mode, pd319 start point position, pd320 only closed, pd321 only selected,
-    pd322 "outer layer is inside cut". Separate lead-in / lead-out (``Craft.lead_in/out``)."""
-
-    KINDS = ["mf123:-", "mf45", "mf48", "mf87"]   # none, line, arc, line+arc (labels; kind ints per model)
+    """mf205 Lead: lead-in and lead-out (``Craft.lead_in/out``), side by side when the dialog is
+    wide enough, with the live lead / kerf diagram; "only closed contours" and "only the
+    selected parts" (with nothing selected the leads go to every part, the main window says
+    so).  Lengths and angles are QuantitySpinBox fields (units in the suffix)."""
 
     def __init__(self, tr: Translator, lead_in, lead_out, parent=None):
         super().__init__(tr, "mf205", parent)
+        from .properties.lead_diagram import LeadDiagram
+        from .quantity import quantity
+        from .techform import FlowLayout, ResponsiveForm, Section
+
+        t = tr.tr
         self._w = {}
-        tabs = QTabWidget()
-        self.lay.insertWidget(0, tabs)
-        for name, lead, title in (("in", lead_in, "Lead in"), ("out", lead_out, "Lead out")):
-            page = QWidget()
-            f = QFormLayout(page)
+        intro = QLabel(t("leaddlg.intro"))
+        intro.setWordWrap(True)
+        self.lay.insertWidget(0, intro)
+        pages = QWidget()
+        flow = FlowLayout(pages, 16)
+        for name, lead, title in (("in", lead_in, "props.lead_in"), ("out", lead_out, "props.lead_out")):
+            form = ResponsiveForm()
+            f = form.form
             kind = QComboBox()
-            kind.addItems([tr.tr("mp123"), tr.tr("mf45"), tr.tr("mv6"), tr.tr("mf45") + "+" + tr.tr("mv6")])
+            kind.addItems([t(k) for k in ("props.lead.none", "props.lead.line", "props.lead.arc",
+                                          "props.lead.line_arc")])
             kind.setCurrentIndex(max(0, min(3, lead.kind)))
-            ang = _spin(0, 180, lead.angle_deg, 1)
-            ln = _spin(0, 1000, lead.length, 3, 0.5)
-            rad = _spin(0, 1000, lead.radius, 3, 0.5)
-            corner = QCheckBox()
+            ang = quantity("angle", 0.0, 180.0, 1)
+            ang.setValue(lead.angle_deg)
+            ln = quantity("length", 0.0, 1000.0, 3, 0.5)
+            ln.setValue(lead.length)
+            rad = quantity("length", 0.0, 1000.0, 3, 0.5)
+            rad.setValue(lead.radius)
+            corner = QCheckBox(t("leaddlg.at_corner"))
             corner.setChecked(lead.at_corner)
-            f.addRow(tr.tr_param("pd315")[1], kind)
-            f.addRow(tr.tr_param("pd316")[1], ang)
-            f.addRow(tr.tr_param("pd317")[1], ln)
-            f.addRow(tr.tr_param("pd599")[1], rad)
-            f.addRow(tr.tr_param("pd318")[1], corner)
+            corner.setToolTip(t("leaddlg.at_corner_tip"))
+            for key, w in (("props.lead_kind", kind), ("props.lead_length", ln), ("props.lead_angle", ang),
+                           ("props.lead_radius", rad)):
+                lab = QLabel(t(key))
+                lab.setBuddy(w)
+                w.setAccessibleName(f"{t(title)} {t(key)}")
+                f.addRow(lab, w)
+            f.addRow(corner)
+            for w in (ang, ln, rad):
+                w.valueChanged.connect(lambda *_a: self._preview())
+            kind.currentIndexChanged.connect(lambda *_a: self._preview())
             self._w[name] = (lead, kind, ang, ln, rad, corner)
-            tabs.addTab(page, title)
-        self.only_closed = self.row("pd320", QCheckBox())
+            flow.addWidget(Section(f"lead_{name}", t(title), form))
+        self.lay.insertWidget(1, pages)
+        self.diagram = LeadDiagram()
+        self.lay.insertWidget(2, self.diagram)
+        self.only_closed = QCheckBox(t("leaddlg.only_closed"))
         self.only_closed.setChecked(True)
-        self.only_selected = self.row("pd321", QCheckBox())
+        self.only_selected = QCheckBox(t("leaddlg.only_selected"))
         self.only_selected.setChecked(True)
+        self.only_selected.setToolTip(t("leaddlg.only_selected_tip"))
+        self.form.addRow(self.only_closed)
+        self.form.addRow(self.only_selected)
         self.finish()
         self.accepted.connect(self._store)
+        self._preview()
+
+    def _preview(self) -> None:
+        from mlaser.model import LeadParams
+
+        vals = []
+        for name in ("in", "out"):
+            _lead, kind, ang, ln, rad, _corner = self._w[name]
+            vals.append(LeadParams(kind=kind.currentIndex(), angle_deg=ang.value(), length=ln.value(),
+                                   radius=rad.value()))
+        self.diagram.set_leads(*vals)
 
     def _store(self):
         for lead, kind, ang, ln, rad, corner in self._w.values():
@@ -211,15 +247,37 @@ class LeadDialog(_Base):
 
 
 class KerfDialog(_Base):
-    """mf486 "Set Compensate": pd506 Compensate Type (inside/outside), pd507 width."""
+    """mf113 Kerf compensation: side (inside for holes, outside for parts) and the kerf width
+    (QuantitySpinBox), with the lead / kerf diagram."""
 
     def __init__(self, tr: Translator, kerf_comp: int = 1, width: float = 0.1, parent=None):
         super().__init__(tr, "mf113", parent)
-        self.kind = self.row("pd506", QComboBox())
-        self.kind.addItems([tr.tr("mf98"), tr.tr("mf99")])   # 0 inner (阴切), 1 outer (阳切)
+        from .properties.lead_diagram import LeadDiagram
+        from .quantity import quantity
+
+        t = tr.tr
+        intro = QLabel(t("tech.h.kerf_side"))
+        intro.setWordWrap(True)
+        self.lay.insertWidget(0, intro)
+        self.kind = QComboBox()
+        self.kind.addItems([t("props.kerf.inner"), t("props.kerf.outer")])   # 0 inner, 1 outer
         self.kind.setCurrentIndex(0 if kerf_comp == 0 else 1)
-        self.width = self.row("pd507", _spin(0, 10, width, 3, 0.05))
+        self.form.addRow(t("props.kerf_side"), self.kind)
+        self.width = quantity("small_length", 0.0, 10.0, 3, 0.05)
+        self.width.setValue(width)
+        self.form.addRow(t("props.kerf_width"), self.width)
+        from mlaser.model import LeadParams
+
+        self.diagram = LeadDiagram()
+        self.diagram.set_leads(LeadParams(kind=0), LeadParams(kind=0))
+        self.form.addRow(self.diagram)
+        self.kind.currentIndexChanged.connect(lambda *_a: self._preview())
+        self.width.valueChanged.connect(lambda *_a: self._preview())
+        self._preview()
         self.finish()
+
+    def _preview(self) -> None:
+        self.diagram.set_kerf(self.kind.currentIndex(), self.width.value())
 
     def result_values(self) -> tuple[int, float]:
         return self.kind.currentIndex(), self.width.value()
