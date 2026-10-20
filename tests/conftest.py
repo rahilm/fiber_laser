@@ -169,8 +169,8 @@ def pytest_runtest_setup(item):
 
 
 def close_leftover_windows() -> int:
-    """Close and delete every top-level widget the previous modules left (their module and
-    function fixtures are torn down by now).  Returns how many there were.
+    """Close and delete every window (parentless top-level widget) the previous modules left
+    (their module and function fixtures are torn down by now).  Returns how many there were.
 
     Most tests build windows and never close them: by the end of a CI worker's share there were
     hundreds of main windows and ~10^5 widgets alive, and everything that reaches every widget
@@ -188,7 +188,9 @@ def close_leftover_windows() -> int:
     app = QApplication.instance()
     if app is None:
         return 0
-    tops = app.topLevelWidgets()
+    # the parentless windows only: a window with a parent (a menu, a combo box's popup, a
+    # dialog) goes with it; deleting one of those by itself leaves its owner a dangling pointer
+    tops = [w for w in app.topLevelWidgets() if w.parent() is None]
     for w in tops:
         try:
             w._test_no_dialogs = True
