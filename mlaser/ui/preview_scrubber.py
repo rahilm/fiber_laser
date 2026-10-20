@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QGraphicsEllipseItem, QGraphicsItem,
                                QGraphicsPathItem, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
@@ -122,6 +122,26 @@ class PreviewOverlay:
         self._head.setBrush(QBrush(QColor(HEAD_ON)) if on else QBrush(Qt.NoBrush))
 
 
+class _TimeLabel(QLabel):
+    """The "elapsed / total" label: at least as wide as "00:00 / 00:00" in its own font (no
+    fixed pixel width: a larger font or the macOS / Windows fonts made 110 px too narrow), so
+    the row does not jump while the time runs."""
+
+    TEMPLATE = "00:00 / 00:00"
+
+    def _template_w(self) -> int:
+        m = self.contentsMargins()
+        return self.fontMetrics().horizontalAdvance(self.TEMPLATE) + 2 * self.margin() + m.left() + m.right() + 2
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        return QSize(max(s.width(), self._template_w()), s.height())
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().sizeHint()
+        return QSize(max(s.width(), self._template_w()), s.height())
+
+
 class ScrubberWidget(QWidget):
     """Timeline control (see the module docstring).  ``timeChanged(t)`` on every move."""
 
@@ -156,8 +176,7 @@ class ScrubberWidget(QWidget):
         self.slider.setPageStep(1000)
         self.slider.setSingleStep(100)
         row.addWidget(self.slider, 1)
-        self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setMinimumWidth(110)
+        self.time_label = _TimeLabel("00:00 / 00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         f = QFont(self.time_label.font())
         f.setStyleHint(QFont.Monospace)
