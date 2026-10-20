@@ -180,25 +180,39 @@ def _blob_ids(doc: Document) -> set[int]:
     return ids
 
 
-def inputs_hash(req: JobRequest) -> str:
+def inputs_hash(req: JobRequest, codec: Any = None) -> str:
     """sha256 of every input of the compile.  Unpicklable inputs fall back to a per-object key
-    (no cache hit, still correct)."""
+    (no cache hit, still correct).
+
+    The document is hashed per part: the request without its parts, then each part's digest
+    (``planproc.part_digest``: the same value-based pickle as before, part by part; the pickler
+    keeps no memo, so this carries the same information as one pickle of the whole document).
+    ``codec`` (the JobService's ``PlanCodec``) caches the digests of the planner snapshot's
+    part copies, which are shared between plans while a part is unchanged: after a one-part
+    edit only that part is pickled (review 2 P1-3; 297 ms at 2,000 parts, 1.7 s at 10,000)."""
+    from .planproc import part_digest
+
     h = hashlib.sha256()
     buf = io.BytesIO()
     try:
-        _KeyPickler(buf, _blob_ids(req.document)).dump(
+        doc = req.document
+        head = Document(parts=[], layers=doc.layers, version=doc.version, extra=doc.extra)
+        _KeyPickler(buf, _blob_ids(head)).dump(
             (
                 req.mode,
-                req.document,
+                head,
                 req.machine,
                 tuple(req.start),
                 _plain(req.cam_params),
                 req.layers,
                 bool(req.dry_run),
                 req.profile,
+                len(doc.parts),
             )
         )
         h.update(buf.getvalue())
+        for p in doc.parts:
+            h.update(codec.digest(p) if codec is not None else part_digest(p))
     except Exception:  # noqa: BLE001 - see docstring
         h.update(repr((id(req), time.time())).encode())
     return h.hexdigest()[:32]
@@ -299,7 +313,12 @@ class JobService:
         schedule: Callable[[float, Callable[[], None]], Callable[[], None]] = _timer_schedule,
         debounce_s: float = 0.15,
         cache_size: int = 6,
+        process: Optional[bool] = None,
     ) -> None:
+        if process is None:
+            # the plan process by default for the application's own worker; a caller that passes
+            # its own executor (tests, tools) compiles in-thread unless it asks for the process
+            process = executor is None and process_compile_default()
         self.executor = executor or ThreadPoolExecutor(max_workers=1, thread_name_prefix="mlaser-plan")
         self.post = post
         self.schedule = schedule
@@ -319,6 +338,23 @@ class JobService:
         self._cancel_timer: Optional[Callable[[], None]] = None
         self._closed = False
         self._lock = threading.Lock()
+        from .planproc import PlanCodec, PlanProcess
+        self.codec = PlanCodec()
+        self.planproc: Optional[PlanProcess] = None
+        if process:
+            try:
+                self.planproc = PlanProcess()
+                self.planproc.start()           # spawn now: the first plan does not wait for it
+            except Exception as exc:  # noqa: BLE001 - no processes here: compile in-thread
+                log.warning("plan process unavailable, compiling in a thread: %s", exc)
+                self.planproc = None
+        self.stats["process_compiles"] = 0
+        self.stats["thread_compiles"] = 0
+
+    @property
+    def process_mode(self) -> bool:
+        """True while compiles go to the plan process (``planproc``)."""
+        return self.planproc is not None
 
     # ------------------------------------------------------------------ preview (debounced)
     def schedule_preview(
@@ -393,7 +429,7 @@ class JobService:
         try:
             if t.cancelled:
                 raise Cancelled()
-            t.key = key = inputs_hash(t.request)
+            t.key = key = inputs_hash(t.request, self.codec)
             with self._lock:
                 hit = self.cache.get(key)
                 if hit is not None:
@@ -429,12 +465,32 @@ class JobService:
                 self.post(lambda: self._deliver_error(t, err))
 
     def _compile(self, t: JobTicket, deliver: bool) -> PlannedJob:
-        from mlaser.nc.compiler import compile_items, frame_items, placed_document, plan_toolpath
-        from mlaser.parity_ports import active_profile, use_profile
+        """Compile ``t``: in the plan process when there is one (``planproc``), else in this
+        thread on a private copy of the request with the GIL switch interval lowered."""
+        from .planproc import ChildLost, ChildSetupError
 
-        req = t.request
         t0 = time.perf_counter()
+        pp = self.planproc
+        if pp is not None and not self._closed:
+            try:
+                plan = self._compile_process(t, deliver, pp, t0)
+                self.stats["process_compiles"] += 1
+                return plan
+            except (ChildLost, ChildSetupError) as exc:
+                if t.cancelled:
+                    raise Cancelled() from exc
+                if isinstance(exc, ChildLost) and pp.failures >= 3:
+                    log.warning("plan process failed %d times, compiling in a thread from now on: %s",
+                                pp.failures, exc)
+                    self.planproc = None
+                    pp.close()
+                else:
+                    log.warning("plan process: %s; this plan is compiled in a thread", exc)
+        plan = self._compile_thread(t, deliver, t0)
+        self.stats["thread_compiles"] += 1
+        return plan
 
+    def _progress_fn(self, t: JobTicket, deliver: bool) -> Callable[[float], None]:
         def progress(frac: float) -> None:
             if t.cancelled:
                 raise Cancelled()
@@ -446,26 +502,19 @@ class JobService:
                         fn(t, f)
 
                 self.post(report)
+        return progress
 
-        ctx = use_profile(req.profile) if active_profile().name != req.profile else _null()
-        with ctx:
-            if req.mode == "frame":
-                placed = placed_document(req.document)
-                items = frame_items(placed.bbox(), req.machine.frame_speed)
-                start = (float(req.start[0]), float(req.start[1]))
-                t.toolpath, t.placed = list(items), placed
-                t.toolpath_event.set()
-                job = compile_items(items, req.machine, start, dry_run=True, progress=progress)
-            else:
-                placed, prm, items = plan_toolpath(req.document, req.cam_params, req.start, req.layers)
-                start = prm.origin
-                t.toolpath, t.placed = items, placed
-                t.toolpath_event.set()
-                if deliver:
-                    self._deliver_toolpath(t)
-                if t.cancelled:
-                    raise Cancelled()
-                job = compile_items(items, req.machine, start, placed, req.dry_run, progress=progress)
+    def _set_toolpath(self, t: JobTicket, items: list, placed: Document, deliver: bool) -> None:
+        t.toolpath, t.placed = items, placed
+        t.toolpath_event.set()
+        if deliver and t.request.mode != "frame":
+            self._deliver_toolpath(t)
+        if t.cancelled:
+            raise Cancelled()
+
+    def _finish(self, t: JobTicket, job, start, placed: Document, t0: float, bounds=None,
+                cut_bounds=None) -> PlannedJob:
+        req = t.request
         dt = time.perf_counter() - t0
         self.stats["compiles"] += 1
         self.stats["last_compile_s"] = dt
@@ -475,15 +524,67 @@ class JobService:
             toolpath=tuple(job.toolpath),
             job=job,
             start=(float(start[0]), float(start[1])),
-            bounds=toolpath_bounds(job.toolpath),
+            bounds=bounds if bounds is not None else toolpath_bounds(job.toolpath),
             estimate=dict(job.estimate or {}),
             profile=req.profile,
             document=placed,
             source=req.source,
             compile_s=dt,
             selected_only=req.selected_only,
-            cut_bounds=toolpath_bounds(job.toolpath, ("CutLine", "CutArc")),
+            cut_bounds=cut_bounds if cut_bounds is not None else toolpath_bounds(job.toolpath, ("CutLine", "CutArc")),
         )
+
+    def _compile_thread(self, t: JobTicket, deliver: bool, t0: float) -> PlannedJob:
+        from mlaser.controller.stream import responsive_gil
+
+        from .planproc import run_compile
+
+        req = t.request
+        try:
+            # a private copy: the planner snapshot's parts are shared between plans
+            # (DocumentService.plan_snapshot) and the compile may cache derived data in them
+            r = self.codec.decode_local(self.codec.encode(req))
+        except Exception:  # noqa: BLE001 - unpicklable inputs: compile the request itself
+            r = {"document": req.document, "mode": req.mode, "machine": req.machine, "start": req.start,
+                 "cam_params": req.cam_params, "layers": req.layers, "dry_run": req.dry_run,
+                 "profile": req.profile}
+        box: list = []
+
+        def on_toolpath(items: list, placed: Document) -> None:
+            # as in the plan process: a placement that changed no part gives the request's parts
+            # (the private copies may carry derived caches the compile added, e.g. scan paths)
+            placed = _placed_in_request(req.document, r["document"], placed)
+            box.append(placed)
+            self._set_toolpath(t, list(items) if req.mode == "frame" else items, placed, deliver)
+
+        with responsive_gil():
+            items, _placed, start, job = run_compile(r, self._progress_fn(t, deliver), on_toolpath)
+        return self._finish(t, job, start, box[0], t0)
+
+    def _compile_process(self, t: JobTicket, deliver: bool, pp, t0: float) -> PlannedJob:
+        from .planproc import placed_from_info
+
+        req = t.request
+        pp.ensure_ready()
+        msg = self.codec.encode(req, have=pp.have)
+        if t.cancelled:
+            raise Cancelled()
+        placed_box: list = []
+
+        def on_toolpath(items: list, info: dict) -> None:
+            placed = placed_from_info(req.document, info)
+            placed_box.append(placed)
+            self._set_toolpath(t, items, placed, deliver)
+
+        info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath)
+        if info.get("toolpath") is None:
+            job.toolpath = list(t.toolpath or [])
+        else:
+            tp: list = []
+            for ch in info["toolpath"]:
+                tp.extend(pickle.loads(ch))
+            job.toolpath = tp
+        return self._finish(t, job, info["start"], placed_box[0], t0, info["bounds"], info["cut_bounds"])
 
     # ------------------------------------------------------------------ delivery (owner thread)
     def _deliver_toolpath(self, t: JobTicket) -> None:
@@ -609,6 +710,31 @@ class JobService:
             self.executor.shutdown(wait=False, cancel_futures=True)
         except TypeError:
             self.executor.shutdown(wait=False)
+        pp, self.planproc = self.planproc, None
+        if pp is not None:
+            pp.close()
+
+
+def _placed_in_request(req_doc: Document, copy_doc: Document, placed: Document) -> Document:
+    """``placed`` (compiled from ``copy_doc``, a private copy of ``req_doc``) with the request's
+    own part objects and ``extra`` where the placement kept those of the copy."""
+    if copy_doc is req_doc:
+        return placed
+    same = placed.parts is copy_doc.parts or (
+        len(placed.parts) == len(copy_doc.parts) and all(a is b for a, b in zip(placed.parts, copy_doc.parts)))
+    if not same and placed.extra is not copy_doc.extra:
+        return placed
+    return Document(parts=list(req_doc.parts) if same else placed.parts, layers=placed.layers,
+                    version=placed.version, extra=req_doc.extra if placed.extra is copy_doc.extra else placed.extra)
+
+
+def process_compile_default() -> bool:
+    """Whether the application's JobService compiles in the plan process: on, unless the
+    environment says ``MLASER_PLAN_PROCESS=0`` (the test suite does, except where it tests the
+    process path; tools that patch the compiler in-process need it too)."""
+    import os
+
+    return os.environ.get("MLASER_PLAN_PROCESS", "1").strip().lower() not in ("0", "false", "no", "off", "")
 
 
 class _null:
@@ -640,7 +766,8 @@ def build_request(mode: str, docs, ctl, machine, cam_params, selected_only: bool
         start = (float(st.x), float(st.y))
     except Exception:  # noqa: BLE001 - no controller state: machine origin
         start = (0.0, 0.0)
-    source = docs.snapshot(doc)
+    snap = getattr(docs, "plan_snapshot", None) or docs.snapshot
+    source = snap(doc)
     place = getattr(ctl, "place", None)
     placed = place(source) if callable(place) else source
     if placed is not source:

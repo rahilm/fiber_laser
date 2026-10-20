@@ -74,31 +74,82 @@ class StreamFault(ControllerError):
 
 _gc_lock = threading.Lock()
 _gc_depth = [0]
+_gc_saved: list = []
+#: generation-2 threshold while a job streams: no automatic full collection (CPython counts gen-1
+#: collections against it; 2**30 of them do not happen within any job)
+NO_FULL_GC_THRESHOLD = 1 << 30
 
 
 @contextlib.contextmanager
 def quiet_gc():
-    """While a job streams, the cyclic GC does not rescan the heap that existed before it.
+    """While a job streams, the cyclic GC never runs a full (generation 2) collection.
 
-    A full (generation 2) collection holds the GIL for the whole scan: 0.4-0.6 s with ~2 million
-    live objects (measured in the test process; a GUI with a large drawing gets there too), and
-    every thread of the process stops meanwhile: the in-thread streamer runs the card's FIFO
-    dry, the parent's watch of the streaming child sees it silent.  ``gc.freeze()`` moves the
-    existing objects to the permanent generation, so collections during the job scan only what
-    the job allocates; ``gc.unfreeze()`` gives them back afterwards (unless something else, e.g.
-    the test harness, had frozen the heap already).  Nested / concurrent uses share one freeze."""
+    A full collection holds the GIL for the whole scan: 0.4-1.3 s with a large drawing's
+    ~2-3 million live objects (review 2 §3.1), and every thread of the process stops meanwhile:
+    the in-thread streamer runs the card's FIFO dry, the parent's heartbeat to the streaming
+    child stops.  Two measures, both undone afterwards:
+
+    * ``gc.freeze()`` moves the existing objects to the permanent generation, so no collection
+      during the job scans them;
+    * the generation-2 threshold is raised to :data:`NO_FULL_GC_THRESHOLD`: CPython's automatic
+      full collection is triggered by the objects allocated *after* the freeze (an edit of a
+      large drawing allocates millions), and after a freeze it is triggered *more* often.  The
+      young generations (0 and 1) keep their automatic collections: each one scans only what was
+      allocated since the last one (milliseconds), so cyclic garbage stays bounded.
+
+    Used by the in-thread streamer, the streaming child and the parent of a process streamer.
+    Nested / concurrent uses share one freeze; the freeze is only undone when it was ours (not
+    when e.g. the test harness had frozen the heap already)."""
     with _gc_lock:
         _gc_depth[0] += 1
         if _gc_depth[0] == 1:
             _gc_depth.append(gc.get_freeze_count() == 0)    # ours to undo (nobody else froze)
             gc.freeze()
+            th = gc.get_threshold()
+            _gc_saved[:] = [th]
+            gc.set_threshold(th[0], th[1], max(th[2], NO_FULL_GC_THRESHOLD))
     try:
         yield
     finally:
         with _gc_lock:
             _gc_depth[0] -= 1
-            if _gc_depth[0] == 0 and _gc_depth.pop():
-                gc.unfreeze()
+            if _gc_depth[0] == 0:
+                if _gc_saved:
+                    gc.set_threshold(*_gc_saved.pop())
+                if _gc_depth.pop():
+                    gc.unfreeze()
+
+
+_si_lock = threading.Lock()
+_si_state: list = [0, 0.0]          # [depth, saved interval]
+#: GIL switch interval while a job streams or a compile runs in a thread (CPython's default is
+#: 5 ms): a thread that wakes up (the heartbeat, the relay loop, the GUI thread) waits at most
+#: this long for a CPU-bound Python thread to hand over the interpreter (review 2 §1.3, P1-2)
+RESPONSIVE_SWITCH_S = 0.0005
+
+
+@contextlib.contextmanager
+def responsive_gil(interval_s: float = RESPONSIVE_SWITCH_S):
+    """Lower ``sys.setswitchinterval`` to ``interval_s`` for the duration (process-wide; nested
+    and concurrent uses share it; the previous value comes back when the last one ends).
+
+    With the default 5 ms a thread that needs the GIL waits up to 5 ms behind every CPU-bound
+    thread at each hand-over, and under contention it often loses the hand-over: measured with
+    ``tools/bench_stream.py --load 2`` (two CPU-bound threads), the parent's heartbeat thread
+    went up to 544 ms without running at 5 ms, 58 ms at 0.5 ms."""
+    import sys
+    with _si_lock:
+        if _si_state[0] == 0:
+            _si_state[1] = sys.getswitchinterval()
+            sys.setswitchinterval(min(_si_state[1], interval_s))
+        _si_state[0] += 1
+    try:
+        yield
+    finally:
+        with _si_lock:
+            _si_state[0] -= 1
+            if _si_state[0] == 0:
+                sys.setswitchinterval(_si_state[1])
 
 
 @dataclass
@@ -229,7 +280,7 @@ class JobStreamer(FifoStreamer):
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.01, timeout_s: Optional[float] = None) -> StreamStats:
-        with quiet_gc():
+        with quiet_gc(), responsive_gil():
             return self._run_job(job, progress, cancel, hold, poll_s, timeout_s)
 
     def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
@@ -598,8 +649,32 @@ class ProcessStreamer:
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.02, timeout_s: Optional[float] = None) -> StreamStats:
-        with quiet_gc():
+        with quiet_gc(), responsive_gil():
             return self._run_job(job, progress, cancel, hold, poll_s, timeout_s)
+
+    #: period of the parent heartbeat thread (the child halts after ``parent_timeout_s`` 0.3 s)
+    HEARTBEAT_S = 0.02
+
+    def _heartbeat(self, flags: dict, relay: list, stop: threading.Event, cancel: threading.Event,
+                   hold: Callable[[], bool]) -> None:
+        """Bump the heartbeat counter the child watches from a thread of its own (review 2 P1-2):
+        the relay loop unpickles and dispatches every status message, so under GUI load (GIL
+        convoy) it reached the child's 0.3 s far more often than this small loop does.
+
+        The counter still means "the relay loop is alive": it is only bumped while the relay
+        loop has iterated within ``parent_timeout_s`` (the child's own bound), so a parent whose
+        relay loop is stuck stops the heartbeat as before.  Cancel and hold are mirrored into
+        the shared flags here too, so a Stop reaches the child without waiting for the relay."""
+        limit = float(self.policy.get("parent_timeout_s", 0.3))
+        while not stop.wait(self.HEARTBEAT_S):
+            if cancel.is_set():
+                flags["cancel"].value = 1
+            try:
+                flags["hold"].value = 1 if hold() else 0
+            except Exception:  # noqa: BLE001 - the relay loop reads it too
+                pass
+            if time.monotonic() - relay[0] <= limit:
+                flags["hb"].value += 1
 
     def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
@@ -620,8 +695,14 @@ class ProcessStreamer:
         deadline = time.monotonic() + (timeout_s if timeout_s is not None else max(60.0, 4 * dur + 60.0))
         t_start = time.monotonic()
         last_msg = None
+        relay = [time.monotonic()]          # the relay loop's last iteration (heartbeat thread)
+        hb_stop = threading.Event()
+        hb = threading.Thread(target=self._heartbeat, args=(self.flags, relay, hb_stop, cancel, hold),
+                              name="mlaser-stream-heartbeat", daemon=True)
+        hb.start()
         try:
             while True:
+                relay[0] = time.monotonic()
                 self.flags["hb"].value += 1
                 if cancel.is_set():
                     self.flags["cancel"].value = 1
@@ -679,6 +760,7 @@ class ProcessStreamer:
                 elif self.on_event is not None:
                     self.on_event(*ev)
         finally:
+            hb_stop.set()
             if self.proc is not None:
                 self.flags["cancel"].value = 1
                 self.proc.join(timeout=5.0)

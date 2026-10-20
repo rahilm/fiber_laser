@@ -24,6 +24,10 @@ import gc
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# the application's JobService compiles in a plan process (services/planproc.py); the suite's
+# many windows compile in their worker thread instead (one process per window would cost an
+# interpreter start each).  tests/test_plan_process.py tests the process path explicitly.
+os.environ.setdefault("MLASER_PLAN_PROCESS", "0")
 
 if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
     import faulthandler
@@ -41,7 +45,7 @@ UI_MODULES = {
     "test_integration", "test_lead_hooks", "test_machine_ops", "test_nest_ui_project",
     "test_report_window", "test_ui", "test_ui_lead", "test_help_browser", "test_project_ui",
     "test_machine_workspace", "test_ws_run", "test_partlist_cache", "test_run_controls_visible",
-    "test_import_worker_ui",
+    "test_import_worker_ui", "test_plan_process",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -50,7 +54,7 @@ SIM_MODULES = {
     "test_devices_follower", "test_devices_laser", "test_devices_ui", "test_diag_monitors",
     "test_integration", "test_machine_edgeseek", "test_machine_manual", "test_machine_ops",
     "test_parity_capture", "test_process_compile", "test_ui", "test_procedures",
-    "test_machine_workspace", "test_ws_run",
+    "test_machine_workspace", "test_ws_run", "test_plan_process",
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)

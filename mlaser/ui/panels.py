@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox,
                                QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
@@ -227,10 +227,7 @@ class PartListPanel(QTreeWidget):
                     it.setData(1, Qt.ForegroundRole, None)
         if new_items:
             self.addTopLevelItems(new_items)
-        for i, p in enumerate(parts):
-            it = self.topLevelItem(i)
-            if it.isSelected() != p.selected:
-                it.setSelected(p.selected)
+        self._apply_selection([p.selected for p in parts])
         if len(self._bbox_cache) > 2 * max(len(live), 64):
             self._bbox_cache = {u: v for u, v in self._bbox_cache.items() if u in live}
         self._sync = False
@@ -239,11 +236,36 @@ class PartListPanel(QTreeWidget):
         if self.document is None:
             return
         self._sync = True
-        for i in range(self.topLevelItemCount()):
-            it = self.topLevelItem(i)
-            idx = it.data(0, Qt.UserRole)
-            it.setSelected(self.document.parts[idx].selected)
-        self._sync = False
+        try:
+            parts = self.document.parts
+            n = min(self.topLevelItemCount(), len(parts))
+            self._apply_selection([parts[i].selected for i in range(n)])
+        finally:
+            self._sync = False
+
+    def _apply_selection(self, flags: list) -> None:
+        """Select the rows whose flag is set, all in one ``QItemSelectionModel.select`` call
+        (contiguous rows as one range).
+
+        ``QTreeWidgetItem.setSelected`` per row went through the selection model once per item
+        and its cost grew with the selection: select-all of 10,000 parts took 222 s (review 2
+        §1.4, P1-8).  The rows are item ``i`` = part ``i`` (``refresh`` reuses items by
+        position); rows beyond ``flags`` are deselected."""
+        model = self.model()
+        n = min(len(flags), self.topLevelItemCount())
+        last_col = self.columnCount() - 1
+        sel = QItemSelection()
+        start = None
+        for i in range(n):
+            if flags[i]:
+                if start is None:
+                    start = i
+            elif start is not None:
+                sel.select(model.index(start, 0), model.index(i - 1, last_col))
+                start = None
+        if start is not None:
+            sel.select(model.index(start, 0), model.index(n - 1, last_col))
+        self.selectionModel().select(sel, QItemSelectionModel.ClearAndSelect)
 
     def _sel_changed(self):
         if self._sync:

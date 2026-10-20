@@ -310,6 +310,8 @@ class CanvasView(QGraphicsView):
         self._items: list[tuple[int, int, QGraphicsPathItem, list]] = []   # (part, contour, item, pts)
         self._overlay: list[QGraphicsItem] = []
         self._raster_items: list[tuple[int, _RasterItem]] = []   # (part, item) of raster parts
+        self._item_styles: list = []       # the pen key set on each of _items (refresh_styles)
+        self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # part uid -> (segments, bbox)
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
         self._press_pos = None
@@ -400,6 +402,7 @@ class CanvasView(QGraphicsView):
         for _, rit in self._raster_items:
             self._scene.removeItem(rit)
         self._items.clear()
+        self._item_styles.clear()
         self._overlay.clear()
         self._raster_items.clear()
         doc = self.document
@@ -494,21 +497,37 @@ class CanvasView(QGraphicsView):
             self._track.setPath(self._track_path)
 
     def refresh_styles(self) -> None:
+        """Pens of the contour items; an item whose style (colour, selected) is unchanged is not
+        touched (a selection change of a few parts does not re-pen 25,000 items)."""
         doc = self.document
         if doc is None:
             return
-        for pi, ci, it, _ in self._items:
+        pens: dict = {}
+        styles = self._item_styles
+        if len(styles) != len(self._items):
+            styles[:] = [None] * len(self._items)
+        sel_rgba = _cc("selected").rgba()
+        for k, (pi, ci, it, _) in enumerate(self._items):
             part = doc.parts[pi]
-            c = part.contours[ci]
-            color = display_layer_color(part.craft.layer)
-            if self.options.unclosed_red and not c.closed:
-                color = _cc("unclosed")
-            pen = QPen(color, 0)
-            pen.setCosmetic(True)
             if part.selected:
-                pen = QPen(_cc("selected"), 1.5, Qt.DashLine)
+                key = (True, sel_rgba)
+            else:
+                c = part.contours[ci]
+                color = _cc("unclosed") if self.options.unclosed_red and not c.closed else \
+                    display_layer_color(part.craft.layer)
+                key = (False, color.rgba())
+            if styles[k] == key:
+                continue
+            pen = pens.get(key)
+            if pen is None:
+                if key[0]:
+                    pen = QPen(_cc("selected"), 1.5, Qt.DashLine)
+                else:
+                    pen = QPen(QColor.fromRgba(key[1]), 0)
                 pen.setCosmetic(True)
+                pens[key] = pen
             it.setPen(pen)
+            styles[k] = key
         for pi, rit in self._raster_items:
             part = doc.parts[pi]
             color = display_layer_color(part.craft.layer)
@@ -679,12 +698,27 @@ class CanvasView(QGraphicsView):
             return []
         return [i for i, p in enumerate(self.document.parts) if p.selected]
 
+    def part_bbox(self, part) -> tuple:
+        """``part.bbox()``, cached by uid while the part's segment objects are the same (the
+        PartListPanel scheme: edits replace segment objects, they never mutate them)."""
+        segs = tuple(sg for c in part.contours for sg in c.segments)
+        hit = self._bbox_cache.get(part.uid)
+        if hit is not None and len(hit[0]) == len(segs) and all(a is b for a, b in zip(hit[0], segs)):
+            return hit[1]
+        bb = part.bbox()
+        self._bbox_cache[part.uid] = (segs, bb)
+        return bb
+
     def _rubber_select(self, r: QRectF, crossing: bool, add: bool) -> None:
         hits = []
-        for i, part in enumerate(self.document.parts):
+        parts = self.document.parts
+        if len(self._bbox_cache) > 2 * max(len(parts), 64):
+            live = {p.uid for p in parts}
+            self._bbox_cache = {u: v for u, v in self._bbox_cache.items() if u in live}
+        for i, part in enumerate(parts):
             if not part.contours:
                 continue
-            x0, y0, x1, y1 = part.bbox()
+            x0, y0, x1, y1 = self.part_bbox(part)
             pr = QRectF(QPointF(x0, y0), QPointF(x1, y1)).normalized()
             if (crossing and r.intersects(pr)) or (not crossing and r.contains(pr)):
                 hits.append(i)

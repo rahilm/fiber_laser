@@ -232,8 +232,12 @@ class DrawExtension:
     def t(self, key, default=None):
         return self.w.tr_.tr(key, default)
 
-    def edit(self, fn, label: str = "draw"):
-        return self.ctx.edit(fn, label)
+    def edit(self, fn, label: str = "draw", parts=None):
+        """One undoable transaction.  ``parts`` is its scope: the parts ``fn`` changes in place
+        (DocumentService.edit copies only those for undo; None = every part).  Each command
+        below passes the parts it touches, normally the selection (review 2 P1-3: a one-part
+        nudge copied all 2,000 parts, 5.2 s)."""
+        return self.ctx.edit(fn, label, parts=parts)
 
     def _sync_selection(self):
         self.w.canvas.refresh_styles()
@@ -277,7 +281,7 @@ class DrawExtension:
                 doc.parts.append(Part(contours=copy.deepcopy(cs), craft=Craft(layer=self.new_layer),
                                       name=name, selected=True))
             doc.extra.pop("order", None)
-        self.edit(do)
+        self.edit(do, parts=self._selected())      # in place: only the deselected parts
 
     def draw_tool(self, cmd: str) -> None:
         cls = T.TOOLS[cmd]
@@ -386,7 +390,7 @@ class DrawExtension:
             return len(new)
         if not self._selected():
             return
-        self.log(f"mf251: {self.edit(do)}")
+        self.log(f"mf251: {self.edit(do, parts=self._selected())}")
 
     def advert_text(self) -> None:
         """广告字 (0x3440): worker mode 1 -> ICADModule+0x100 -> CFillCircle 0x100ce2d0 with
@@ -425,7 +429,7 @@ class DrawExtension:
                 new += fill_circles(n.contour, holes, p, layer=parts[0].craft.layer)
             doc.parts.extend(new)
             return len(new)
-        n = self.edit(do)
+        n = self.edit(do, parts=sel)
         self.log(f"mf254: {n}" if n else self.t("A251103_0"))
 
     # ------------------------------------------------------------ trim / extend / split
@@ -466,7 +470,7 @@ class DrawExtension:
             doc.parts = out
             doc.extra.pop("order", None)
             return n
-        self.log(f"mf85: {self.edit(do)}")
+        self.log(f"mf85: {self.edit(do, parts=sel)}")
 
     def merge_dialog(self):
         p = self.merge
@@ -489,12 +493,12 @@ class DrawExtension:
             doc.parts[idx:idx] = merged
             doc.extra.pop("order", None)
             return len(merged)
-        self.log(f"mf84: {self.edit(do)}")
+        self.log(f"mf84: {self.edit(do, parts=sel)}")
 
     # ------------------------------------------------------------ align / size
     def align_left(self):
         if len(self._selected()) >= 2:
-            self.edit(lambda doc: AR.align(self._selected(doc), 0))
+            self.edit(lambda doc: AR.align(self._selected(doc), 0), parts=self._selected())
 
     def size_dialog(self):
         sel = self._selected() or list(self.w.document.parts)
@@ -520,7 +524,7 @@ class DrawExtension:
         def do(doc):
             parts = self._selected(doc) or list(doc.parts)
             return AR.resize(parts, p.width, p.height, p.lock, p.anchor)
-        self.edit(do)
+        self.edit(do, parts=sel)
 
     # ------------------------------------------------------------ selection
     def select_similar(self):
@@ -535,12 +539,13 @@ class DrawExtension:
     # ------------------------------------------------------------ groups
     def group(self):
         if len([q for q in self._selected() if q.contours]) >= 2:
-            self.edit(AR.group)
+            self.edit(AR.group, parts=self._selected())
 
     def explode_group(self, selected_only: bool):
         doc = self.w.document
-        if any(AR.is_group(q) and (q.selected or not selected_only) for q in doc.parts):
-            self.edit(lambda d: AR.explode_group(d, selected_only))
+        groups = [q for q in doc.parts if AR.is_group(q) and (q.selected or not selected_only)]
+        if groups:
+            self.edit(lambda d: AR.explode_group(d, selected_only), parts=groups)
 
     def select_groups(self):
         AR.select_groups(self.w.document)
@@ -594,7 +599,7 @@ class DrawExtension:
         if not self._selected():
             return
         s = self.step_for(dx, dy)
-        self.edit(lambda doc: AR.translate(self._selected(doc), dx * s, dy * s))
+        self.edit(lambda doc: AR.translate(self._selected(doc), dx * s, dy * s), parts=self._selected())
 
 
 # --------------------------------------------------------------------------- wiring
