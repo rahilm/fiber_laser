@@ -402,3 +402,45 @@ class QuantityLabel(QLabel):
         s = U.current().fmt(self._value, self._kind, decimals=self._decimals, trim=self._trim,
                             missing=self._missing)
         self.setText(self._template.format(s))
+
+
+# --------------------------------------------------------------------------- schema settings
+def kind_for(unit: str) -> Optional[str]:
+    """The quantity kind of a schema / registry unit string ("mm", "mm / s", "bar"), or None."""
+    return U.kind_for_unit(unit)
+
+
+def range_text(lo: Optional[float], hi: Optional[float], unit: str = "", kind: Optional[str] = None) -> str:
+    """ "0 … 50 mm" for a range given in the internal ``unit`` (converted when it has a kind)."""
+    k = kind or kind_for(unit)
+    if lo is None or hi is None:
+        return ""
+    if k is None:
+        return f"{lo:g} … {hi:g} {unit}".rstrip()
+    u = U.current()
+    return f"{u.to_display(lo, k):.{u.decimals(k)}g} … {u.to_display(hi, k):.{max(u.decimals(k), 4)}g} {u.suffix(k)}"
+
+
+def spin_for_unit(unit: str, lo: float, hi: float, decimals: int = 3, step: float = 1.0,
+                  parent: Optional[QWidget] = None) -> QAbstractSpinBox:
+    """A spin box for a value stored in ``unit``: a :class:`QuantitySpinBox` when the unit
+    converts (mm, mm/s, bar ...), else a QDoubleSpinBox with the unit as its suffix (%, Hz, ms)."""
+    k = kind_for(unit)
+    if k is not None:
+        return QuantitySpinBox(k, parent, minimum=lo, maximum=hi, decimals=decimals, step=step)
+    from PySide6.QtWidgets import QDoubleSpinBox
+    s = QDoubleSpinBox(parent)
+    s.setRange(lo, hi)
+    s.setDecimals(decimals)
+    s.setSingleStep(step)
+    if unit:
+        s.setSuffix(f" {unit}")
+    return s
+
+
+def spin_for_setting(setting, parent: Optional[QWidget] = None, decimals: int = 3) -> QAbstractSpinBox:
+    """:func:`spin_for_unit` for a ConfigService :class:`~mlaser.services.config.Setting`
+    (float kinds; the value it holds stays in the setting's own unit)."""
+    lo = setting.min if setting.min is not None else -1e9
+    hi = setting.max if setting.max is not None else 1e9
+    return spin_for_unit(setting.unit, lo, hi, decimals, 1.0, parent)

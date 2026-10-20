@@ -58,7 +58,8 @@ UI_MODULES = {
     # Review 2 plugin manager
     "test_plugin_manager_ui",
     # display units (units track)
-    "test_units_ui", "test_units_sweep",
+    "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
+    "test_units_sweep_machine", "test_units_onshape",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
