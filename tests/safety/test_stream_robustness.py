@@ -84,23 +84,28 @@ def test_responsive_gil_nests_and_restores():
 def test_process_streamer_survives_cpu_bound_threads_in_the_parent():
     """``tools/bench_stream.py --load 2`` as a test: two CPU-bound Python threads in the parent
     (a busy GUI, a nesting thread).  Before: ``parent_lost`` after a few seconds in 10 of 10 runs
-    (the relay loop that bumped the heartbeat waited for the GIL for more than 0.3 s)."""
-    sim = CardSimulator().start()
+    (the relay loop that bumped the heartbeat waited for the GIL for more than 0.3 s).
+
+    The card simulator runs in a process of its own (as bench_stream does): in this process it
+    would be starved by the same threads and answer late (Windows CI: ``link_lost`` 172 ms from
+    the simulator's replies, not the streamer).  The claim is about the streaming child and its
+    parent."""
+    from safety_helpers import SimProcess
     stop = threading.Event()
     hogs = [threading.Thread(target=_hog, args=(stop,), daemon=True) for _ in range(2)]
-    try:
-        ps = ProcessStreamer(TransportConfig(host="127.0.0.1", port=sim.port), 1000.0,
-                             policy={"armed": True}, watchdog_ms=40.0)
-        for h in hogs:
-            h.start()
-        stats = ps.run_job(_job(5000), timeout_s=60)
-        assert stats is not None and ps.exec_index >= 4999
-        assert ps.halted is None
-    finally:
-        stop.set()
-        for h in hogs:
-            h.join(2)
-        sim.stop()
+    with SimProcess() as port:
+        try:
+            ps = ProcessStreamer(TransportConfig(host="127.0.0.1", port=port), 1000.0,
+                                 policy={"armed": True}, watchdog_ms=40.0)
+            for h in hogs:
+                h.start()
+            stats = ps.run_job(_job(5000), timeout_s=60)
+            assert stats is not None and ps.exec_index >= 4999
+            assert ps.halted is None
+        finally:
+            stop.set()
+            for h in hogs:
+                h.join(2)
 
 
 @pytest.mark.flaky(reruns=1)

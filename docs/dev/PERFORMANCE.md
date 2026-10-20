@@ -392,7 +392,12 @@ canvas and part list at 10,000 parts (bound 8 s per operation; before, it took m
 
 `CanvasView.rebuild` keeps the items of contours whose cached display path is unchanged. The
 toolpath overlay is cached per toolpath, and arcs are drawn with `arcTo` instead of 0.5 mm
-polylines. At 2,000 parts the rebuild in a one-part nudge is 49 ms (143 ms before this track's
+polylines. The overlay (the toolpath paths and each contour's start dot, label and arrow) is
+built at most 12 ms per event-loop turn, and the rest follows in later turns
+(`finish_overlay()` completes it at once). Each label also had its own `QFont("Sans")`; now one
+font serves all labels. At 500 parts the GUI thread's share when a new toolpath arrives fell from
+96 ms to about 35 ms. That share is what macOS CI's 3-vCPU runners spent too long on in the
+latency test (12–15 of the ~90 samples were left outside the drawing window). At 2,000 parts the rebuild in a one-part nudge is 49 ms (143 ms before this track's
 canvas changes).
 
 ### Import dialog
