@@ -412,3 +412,23 @@ def test_wrap_check_box_wraps_instead_of_widening(app):
     cb.click()
     assert cb.isChecked()
     box.close()
+
+
+def test_comfortable_width_counts_whole_titles(app):
+    """A panel's preferred width does not depend on how narrow it has been: an elided title
+    counts with its whole text (live resizing ended with the Properties dock 45 px wider)."""
+    p = R.ColumnsPanel(max_columns=1)
+    body = QWidget()
+    QVBoxLayout(body).addWidget(QPushButton("x"))
+    s = R.CollapsibleSection("A section title that is long enough to be cut", body, fit_title=True)
+    body.setMinimumWidth(s.header.full_width() * 2 // 3)       # the title: wider than the body
+    p.add_section(s)
+    p.resize(p.sizeHint())
+    p.show()
+    _pump(app)
+    cw0 = p.comfortable_width()
+    p.resize(p.minimumSizeHint().width(), p.height())
+    _pump(app)
+    assert s.header.text() != s.title()                    # cut while narrow
+    assert p.comfortable_width() == cw0
+    p.close()

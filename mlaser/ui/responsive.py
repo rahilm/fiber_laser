@@ -1054,17 +1054,18 @@ class ColumnsPanel(QWidget):
         return max(lo, self.column_min()) if self.column_min is not None else lo
 
     def _exp_min(self, expanded: dict) -> int:
-        """The column width the column count is computed from, for this expansion: a folded
-        section needs only its header's width, so a panel whose sections are all folded sets
-        their headers side by side (Process's technology form: six folded headers stacked
-        one per row kept the page taller than a 1280 x 800 window with the Windows fonts)."""
-        ws = [s.min_width() if expanded.get(id(s), True) else s.header.minimumSizeHint().width()
-              for s in self.sections if not s.isHidden()]
+        """The column width the column count is computed from, for this expansion: when every
+        section is folded only their headers need room, so they sit side by side (Process's
+        technology form: six folded headers stacked one per row kept the page taller than a
+        1280 x 800 window with the Windows fonts)."""
+        shown = [s for s in self.sections if not s.isHidden()]
+        if any(expanded.get(id(s), True) for s in shown):
+            # a section open: the columns are those of the open panel (they do not change
+            # while sections fold one by one, so folding stays monotonic)
+            return self._count_min()
+        ws = [s.header.minimumSizeHint().width() for s in shown]
         ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
-        lo = max(ws, default=0)
-        if self.column_min is not None and any(expanded.get(id(s), True) for s in self.sections if not s.isHidden()):
-            lo = max(lo, self.column_min())
-        return lo
+        return max(ws, default=0)
 
     def _col_min(self) -> int:
         ws = [s.min_width() for s in self.sections if not s.isHidden()]
@@ -1107,9 +1108,20 @@ class ColumnsPanel(QWidget):
     #: sections' own preferred widths ask for that much), so rows of buttons need fewer lines
     COMFORT = 1.6
 
+    @staticmethod
+    def _section_want(s: "CollapsibleSection") -> int:
+        """The width a section asks for, with its whole title: an elided title's hint is the
+        cut text's, so the panel's preferred width depended on how narrow it had been (live
+        resizing ended with the Properties dock 45 px wider than it started)."""
+        w = s.sizeHint().width()
+        h = s.header
+        if isinstance(h, ElidedToolButton):
+            w = max(w, h.full_width())
+        return w
+
     def comfortable_width(self) -> int:
         lo = self._col_min()
-        want = max((s.sizeHint().width() for s in self.sections if not s.isHidden()), default=lo)
+        want = max((self._section_want(s) for s in self.sections if not s.isHidden()), default=lo)
         return max(lo, self._count_min(), min(want, int(lo * self.COMFORT)))
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
