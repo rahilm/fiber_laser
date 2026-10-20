@@ -190,6 +190,8 @@ def test_listener_errors_do_not_stop_others():
 def test_kind_for_unit():
     assert U.kind_for_unit("mm") == "length" and U.kind_for_unit("mm / s") == "speed"
     assert U.kind_for_unit("mm/s2") == "accel" and U.kind_for_unit("bar") == "pressure"
+    assert U.kind_for_unit("/m") == "per_long_length" and U.kind_for_unit("/m²") == "per_large_area"
+    assert IMP.to_display(10.0, U.kind_for_unit("/m²")) == pytest.approx(10.0 * 0.09290304)
     assert U.kind_for_unit("%") is None and U.kind_for_unit("p/mm") is None and U.kind_for_unit("") is None
 
 
@@ -199,3 +201,95 @@ def test_convert():
     with pytest.raises(ValueError):
         U.convert(1, "in", "psi")
     assert math.isclose(U.convert(1, "ft²", "in²"), 144.0)
+
+
+def test_compiled_jobs_identical_in_imperial(tmp_path):
+    """The planner / wire never see the display units: the golden job records of a few seeded
+    random jobs are identical with the system bound to imperial (tools/make_goldens.py --check
+    proves the same for every golden)."""
+    import importlib.util
+    from pathlib import Path
+
+    spec = importlib.util.spec_from_file_location(
+        "make_goldens", Path(__file__).resolve().parents[1] / "tools" / "make_goldens.py")
+    mg = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mg)
+    seeds = (0, 1, 5, 17)
+    metric = [mg.random_case(s)[0] for s in seeds]
+    assert all("wire" in r for r in metric), metric
+    cfg = ConfigService(tmp_path / "c.json", load=False)
+    U.bind(cfg)
+    try:
+        cfg.set("units.system", "imperial")
+        cfg.set("units.speed", "ipm")
+        imperial = [mg.random_case(s)[0] for s in seeds]
+    finally:
+        U.reset()
+    assert imperial == metric
+
+
+def test_preflight_messages_follow_units():
+    from mlaser.machine.preflight import TravelLimits, check
+
+    t = TravelLimits((0.0, 1270.0), (0.0, 635.0))
+    rep = check("move", target=(2540.0, 0.0), travel=t)
+    assert any("(2540.0, 0.0) mm" in i.message for i in rep.issues)
+    U.set_current(IMP)
+    try:
+        rep = check("move", target=(2540.0, 0.0), travel=t)
+        msg = [i.message for i in rep.issues if i.code == "out_of_travel"][0]
+        assert "(100.000, 0.000) in" in msg and "X 0.000..50.000 in" in msg and "mm" not in msg
+    finally:
+        U.reset()
+    assert "mm" in TravelLimits((0, 1), (0, 1)).describe()
+
+
+def test_service_messages_follow_units_and_stay_exact_in_metric():
+    """Messages built below the UI (remnants, parts, material check, tipping): exactly the old
+    metric text in metric, display units in imperial."""
+    from mlaser.cam.tipping import TipPiece
+    from mlaser.services.material_check import SheetSpec
+    from mlaser.services.remnants import Remnant
+
+    rem = Remnant([[(0.0, 0.0), (1219.2, 0.0), (1219.2, 609.6), (0.0, 609.6)]], "S235", 3.0, id="R1")
+    tip = TipPiece((0, 1), False, "tips", size=(50.8, 25.4))
+    sheet = SheetSpec("S235", 3.175)
+    assert rem.label() == "R1 1219x610 mm S235 3 mm"
+    assert tip.message.startswith("part part 1 contour 2 (51 x 25 mm)")
+    assert sheet.label() == "S235 3.175 mm"
+    assert U.mm_text(0.2, ".3f", "small_length") == "0.200 mm"
+    U.set_current(IMP)
+    try:
+        assert rem.label() == "R1 48.00x24.00 in S235 0.118 in"
+        assert "(2.00 x 1.00 in)" in tip.message
+        assert sheet.label() == "S235 0.125 in"
+        assert U.mm_text(0.2, ".3f", "small_length") == "0.0079 in"
+        with U.using(MET):
+            assert sheet.label() == "S235 3.175 mm"
+        assert U.current() is IMP
+    finally:
+        U.reset()
+    assert tip.message.startswith("part part 1 contour 2 (51 x 25 mm)")
+
+
+def test_original_unit_rows_map_onto_units_settings(tmp_path):
+    """MC.UnitType / UN.SpeedUnit / UN.AccUnit / UN.GasPressureUnit (the original's rows) are
+    copied onto units.* once, when set and the target is not: one units setting per quantity."""
+    cfg = ConfigService(tmp_path / "c.json", load=False)
+    cfg.set("UN.SpeedUnit", 3)                 # Inch/min
+    cfg.set("UN.GasPressureUnit", 1)           # MPa
+    cfg.set("units.accel", "g")
+    cfg.set("UN.AccUnit", 2)                   # target already set: kept
+    U.bind(cfg)
+    try:
+        assert cfg.get("units.speed") == "in/min" and cfg.get("units.pressure") == "MPa"
+        assert cfg.get("units.accel") == "g" and not cfg.is_set("units.system")
+        assert U.current().unit("speed") == "in/min" and U.current().unit("pressure") == "MPa"
+        assert cfg.get("UN.GasPressureUnit") == 1  # its storage meaning stays
+        cfg.set("MC.UnitType", 1)                  # e.g. an import later
+        assert cfg.get("units.system") == "imperial" and U.current().imperial
+        cfg.set("units.pressure", "psi")           # the units.* setting is the editor from now on
+        cfg.set("UN.GasPressureUnit", 0)
+        assert cfg.get("units.pressure") == "psi"
+    finally:
+        U.reset()

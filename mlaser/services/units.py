@@ -152,6 +152,9 @@ _UNIT_KIND = {
     "mm/s2": "accel", "mm / s2": "accel", "mm/s²": "accel", "mm/s^2": "accel", "mm/s3": "jerk", "mm/s³": "jerk",
     "mm²": "area", "mm2": "area", "m²": "large_area", "m2": "large_area", "bar": "pressure", "MPa": "pressure",
     "l/min": "flow", "kg": "mass", "g/cm³": "density", "°": "angle", "s": "time",
+    # prices (a rate per unit: per m, per m², per m³, per kg)
+    "/m": "per_long_length", "/m²": "per_large_area", "/m2": "per_large_area", "/m³": "per_volume",
+    "/kg": "per_mass",
 }
 
 
@@ -464,12 +467,66 @@ def set_current(u: Units) -> None:
     if u == _state["units"]:
         return
     _state["units"] = u
+    _install_text_formats(u)
     for fn in list(_listeners):
         try:
             fn(u)
         except Exception:  # noqa: BLE001 - one broken listener must not stop the others
             import logging
             logging.getLogger("mlaser.units").exception("units listener failed")
+
+
+#: the original's unit rows (ManuPara.xml) -> the one units.* setting each maps onto, by option
+#: index.  ``UN.GasPressureUnit`` also says in which unit the layers' pressures are *stored*
+#: (0 bar, 1 MPa): that meaning stays (technology / costing / the layer table read it); only its
+#: display preference is taken over by ``units.pressure``.
+LEGACY_UNIT_ROWS: dict[str, tuple[str, tuple[str, ...]]] = {
+    "MC.UnitType": ("units.system", ("metric", "imperial")),
+    "UN.SpeedUnit": ("units.speed", ("mm/s", "m/min", "in/s", "in/min")),
+    "UN.AccUnit": ("units.accel", ("mm/s²", "g", "in/s²")),
+    "UN.GasPressureUnit": ("units.pressure", ("bar", "MPa")),
+}
+
+
+def migrate_legacy(cfg: Any) -> list[str]:
+    """Copy the original's unit rows onto the ``units.*`` settings: a row the user (or an
+    imported ``ManuPara.xml``) set is copied when its ``units.*`` target is not set yet, so there
+    is one units setting per quantity.  Returns the keys written."""
+    out: list[str] = []
+    is_set = getattr(cfg, "is_set", None)
+    if is_set is None:
+        return out
+    for src, (dst, opts) in LEGACY_UNIT_ROWS.items():
+        try:
+            if not is_set(src) or is_set(dst):
+                continue
+            i = int(cfg.get(src))
+        except (KeyError, TypeError, ValueError):
+            continue
+        if 0 <= i < len(opts):
+            cfg.set(dst, opts[i])
+            out.append(dst)
+    return out
+
+
+def _install_text_formats(u: Units) -> None:
+    """Lower layers that build messages with lengths (the pre-flight) take formatters from here."""
+    from mlaser.cam import tipping
+    from mlaser.machine import preflight
+
+    if u.unit("length") == "mm":
+        preflight.set_text_format(None, None)
+        tipping.SIZE_TEXT[0] = tipping._mm_size
+        return
+    tipping.SIZE_TEXT[0] = lambda w, h: mm_size(w, h, sep=" x ", units=u)
+
+    def rng(lo: float, hi: float, _fmt: str = "g") -> str:
+        return f"{u.number(lo, 'length')}..{u.number(hi, 'length')} {u.suffix('length')}"
+
+    def pt(x: float, y: float) -> str:
+        return f"({u.number(x, 'length')}, {u.number(y, 'length')}) {u.suffix('length')}"
+
+    preflight.set_text_format(rng, pt)
 
 
 def bind(cfg: Any) -> None:
@@ -486,8 +543,11 @@ def bind(cfg: Any) -> None:
     if cfg is None:
         set_current(_METRIC)
         return
+    migrate_legacy(cfg)
     if hasattr(cfg, "subscribe"):
         def changed(key: str) -> None:
+            if key == "*" or key in LEGACY_UNIT_ROWS:
+                migrate_legacy(cfg)          # an imported ManuPara.xml carries the original's rows
             if key == "*" or key.startswith("units."):
                 set_current(Units.from_config(cfg))
         _state["unsub"] = cfg.subscribe(changed)
@@ -529,3 +589,62 @@ def from_display(value: float, kind: str = "length") -> float:
 
 def parse(text: str, kind: str = "length") -> float:
     return current().parse(text, kind)
+
+
+class using:
+    """``with units.using(Units("metric")):`` - these units for the block, without telling the
+    listeners (message keys, tests).  Not for the UI thread's display."""
+
+    def __init__(self, u: Units) -> None:
+        self._u = u
+        self._prev: Optional[Units] = None
+
+    def __enter__(self) -> Units:
+        self._prev = _state["units"]
+        _state["units"] = self._u
+        return self._u
+
+    def __exit__(self, *exc: Any) -> None:
+        _state["units"] = self._prev
+
+
+class messages_in:
+    """``with units.messages_in(u):`` - the lower layers' messages (pre-flight, tipping) and the
+    services' message helpers use ``u`` for the block, then go back (the CLI's text output)."""
+
+    def __init__(self, u: Units) -> None:
+        self._u = u
+        self._using = using(u)
+
+    def __enter__(self) -> Units:
+        self._using.__enter__()
+        _install_text_formats(self._u)
+        return self._u
+
+    def __exit__(self, *exc: Any) -> None:
+        self._using.__exit__(*exc)
+        _install_text_formats(_state["units"])
+
+
+def _metric_shown(u: Units, kind: str) -> bool:
+    return u.unit(kind) == KINDS[kind].internal
+
+
+def mm_text(value: float, spec: str = "g", kind: str = "length", units: Optional[Units] = None) -> str:
+    """Message text for a value in internal units: exactly ``f"{value:{spec}} mm"`` when the
+    display unit is the internal one (metric messages stay byte for byte as they were), else
+    the display units (``0.118 in``).  For services that build messages (repair, parts,
+    material check, remnants)."""
+    u = units or current()
+    if _metric_shown(u, kind):
+        return f"{value:{spec}} {u.suffix(kind)}"
+    return u.fmt(value, kind, trim=spec.endswith("g"))
+
+
+def mm_size(w: float, h: float, spec: str = ".0f", sep: str = " × ", units: Optional[Units] = None) -> str:
+    """``"3000 × 1500 mm"`` in metric (``spec`` as given), ``"118.11 × 59.06 in"`` in imperial."""
+    u = units or current()
+    if _metric_shown(u, "length"):
+        return f"{w:{spec}}{sep}{h:{spec}} {u.suffix('length')}"
+    dec = 2 if spec in (".0f", "g") else None
+    return f"{u.number(w, 'length', dec)}{sep}{u.number(h, 'length', dec)} {u.suffix('length')}"
