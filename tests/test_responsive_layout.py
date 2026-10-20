@@ -90,15 +90,16 @@ def win(app, tmp_path_factory):
     mp.setattr(QMessageBox, "exec", lambda self, *a: QMessageBox.Ok)
     for n in ("information", "warning", "critical", "question"):
         mp.setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
-    # the offscreen screen is 800 × 800: pages must not be capped to it (FitArea's screen cap is
-    # tested on its own, test_fit_area_takes_the_page_minimum_capped_by_the_screen).  On a real
-    # window server (the native-check CI runners) the real screen applies, cap included.
-    if not real_screen():
-        try:
-            from mlaser.ui.responsive import FitArea
-            mp.setattr(FitArea, "_cap", lambda self, size: size)
-        except ImportError:          # a checkout before the responsive layout (the baseline run)
-            pass
+    # the sample sizes are measured whatever the screen (the offscreen one is 800 × 800, a CI
+    # runner's 1024 × 768): pages are not capped to it here (FitArea's screen cap is tested on its
+    # own; test_fits_this_screen checks the real screen on a window server)
+    real_cap = None
+    try:
+        from mlaser.ui.responsive import FitArea
+        real_cap = FitArea._cap
+        mp.setattr(FitArea, "_cap", lambda self, size: size)
+    except ImportError:          # a checkout before the responsive layout (the baseline run)
+        pass
     w = real_window(config=ConfigService())
     onshape = _load_onshape(w)
     w.shell.host.refresh_mode()
@@ -112,6 +113,7 @@ def win(app, tmp_path_factory):
     w.show()
     _pump(app, 0.3)
     w.onshape_loaded = onshape and "onshape" in w.shell.host.specs
+    w.real_fitarea_cap = real_cap
     yield w
     w.close()
     w.deleteLater()
@@ -139,13 +141,19 @@ def _screen_size(win) -> QSize:
 
 def _fit(win, app, size) -> QSize:
     """Resize to ``size`` (never below the window's own minimum, which is what the content needs)."""
-    s = QSize(*size)
-    if real_screen():                # a sample larger than this screen is measured at its size
-        frame = win.frameGeometry().size() - win.size()
-        s = s.boundedTo(_screen_size(win) - frame)
-    s = s.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
-    win.resize(s)
-    _pump(app, rounds=8)          # a page that needs more height when narrower grows the window
+    want = QSize(*size)
+    settle = 0.03 if real_screen() else 0.0     # a window server answers a resize asynchronously
+    stable = 0
+    for _ in range(8):            # a page that needs more room at this size raises the minimum
+        s = want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
+        if win.size() != s:
+            win.resize(s)
+            stable = 0
+        _pump(app, settle, rounds=8)
+        if win.size() == want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize()):
+            stable += 1
+            if stable >= (2 if settle else 1):
+                break
     return win.size()
 
 
@@ -337,6 +345,38 @@ def test_sample_sizes(win, app):
     assert not text, text
 
 
+#: the workspaces every screen the application supports must show without scrolling
+CORE = ("design", "run", "machine")
+
+
+def test_fits_this_screen(win, app):
+    """On a window server (the native-check runners: macOS, Windows, X11), the core workspaces
+    fit the real screen: their minimum is within its available area and, at that size, nothing
+    scrolls or clips (the screen cap of the page wrapper included)."""
+    if not real_screen():
+        pytest.skip("needs a window server (QT_QPA_PLATFORM=cocoa / windows / xcb)")
+    from mlaser.ui.responsive import FitArea
+    mp = pytest.MonkeyPatch()
+    mp.setattr(FitArea, "_cap", win.real_fitarea_cap)          # the real screen cap
+    avail = _screen_size(win)
+    rep = Report()
+    bad = []
+    for ws in CORE:
+        win.shell.host.activate(ws)
+        _pump(app, rounds=8)
+        frame = win.frameGeometry().size() - win.size()
+        m = win.minimumSizeHint().expandedTo(win.minimumSize())
+        if m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height():
+            bad.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()}")
+        s = _fit(win, app, (avail.width() - frame.width(), avail.height() - frame.height()))
+        rep.add("screen", s, ws, A.audit(win))
+        rep.shot(win, s, f"screen_{ws}")
+    mp.undo()
+    rep.write("this_screen")
+    text = _fail_text(rep.rows)
+    assert not text and not bad, text + "\n" + "\n".join(bad)
+
+
 def test_imperial_sample_sizes(win, app):
     """Imperial display units (longer texts: "0.3937 in", "393.70 in/min"): no scroll bar, no
     clipped widget either."""
@@ -389,10 +429,9 @@ def _sweep_sizes(win):
     m = win.minimumSizeHint().expandedTo(win.minimumSize())
     w0 = max(m.width(), 1)
     heights = sorted({max(m.height(), h) for h in (m.height(), *SWEEP_HEIGHTS)})
-    top = min(MAX_W, _screen_size(win).width()) if real_screen() else MAX_W
-    widths = list(range(w0, max(top, w0) + 1, STEP))
-    if widths[-1] != top and top > w0:
-        widths.append(top)
+    widths = list(range(w0, MAX_W + 1, STEP))
+    if widths[-1] != MAX_W:
+        widths.append(MAX_W)
     return widths, heights
 
 
