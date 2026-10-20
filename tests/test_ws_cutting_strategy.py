@@ -72,8 +72,9 @@ def test_nest_options_strategy_and_queue(win, app, tmp_path):
     assert run is not None and run.placed == 16
     p = run.job.params
     assert p.part_in_part and p.scrap_cut == "grid" and p.remnant_cut
-    assert ws.compare.columnCount() == 7 and float(ws.compare.item(0, 4).text()) > 0
-    assert int(ws.compare.item(0, 5).text()) == run.pierces > 0
+    assert ws.compare.columnCount() == 6 and float(ws.compare.item(0, 3).text()) > 0
+    assert int(ws.compare.item(0, 4).text()) == run.pierces > 0
+    assert "raster" in ws.compare.item(0, 0).toolTip()
     pump(app, 0.2)
     kinds = {k for _a, _b, k in ws.view.lines}
     assert kinds == {"scrap", "remnant_cut"}  # the sheet view shows the strategy lines

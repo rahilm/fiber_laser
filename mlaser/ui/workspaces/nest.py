@@ -22,10 +22,11 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListView, QListWidget, QListWidgetItem, QProgressBar,
-                               QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListView, QListWidget,
+                               QListWidgetItem, QProgressBar, QPushButton, QSizePolicy, QSpinBox,
+                               QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QToolButton,
+                               QVBoxLayout, QWidget)
 
 from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT,
                          GRAVITY_RIGHT, GRAVITY_TOP, NestJob, NestSheet)
@@ -194,8 +195,9 @@ class NestWorkspace(QWidget):
     PART_COLS = (("nestws.col.part", "Part"), ("nestws.col.qty", "Qty"), ("nestws.col.max", "Max"),
                  ("nestws.col.priority", "Priority"), ("nestws.col.rotation", "Rotation"),
                  ("nestws.col.mirror", "Mirror"))
-    COMPARE_COLS = (("nestws.col.run", "Run"), ("nestws.col.engine", "Engine"), ("nestws.col.sheets", "Sheets"),
-                    ("nestws.col.util", "Util."), ("nestws.col.cut", "Cut m"), ("nestws.col.pierces", "Pierces"),
+    # the engine and the options of a run are the Run cell's tooltip (the column is narrow)
+    COMPARE_COLS = (("nestws.col.run", "Run"), ("nestws.col.sheets", "Sheets"), ("nestws.col.util", "Util."),
+                    ("nestws.col.cut", "Cut m"), ("nestws.col.pierces", "Pierces"),
                     ("nestws.col.unplaced", "Unplaced"))
 
     def __init__(self, ctx: Any) -> None:
@@ -375,7 +377,7 @@ class NestWorkspace(QWidget):
         self.main_btn = self._button("nestws.btn.to_drawing", "Copy sheet to drawing", self.to_drawing)
         rv.addWidget(self.main_btn)
         split.addWidget(right)
-        split.setSizes([330, 560, 330])
+        split.setSizes([300, 540, 380])
         split.setStretchFactor(1, 1)
         self._update_buttons()
 
@@ -436,14 +438,16 @@ class NestWorkspace(QWidget):
                                   (SCRAP_GAPS, "nestws.scrap.gaps", "in the gaps")), "nestws_scrap")
         self.scrap_pitch = self._spin(10, 10000, 500.0, " mm", 0)
         self.scrap_pitch.setToolTip(tr(w, "nestws.opt.scrap_pitch", "largest scrap piece"))
-        self.remnant_cut = self._check("nestws.opt.remnant_cut", "Remnant separation cut", "nestws_remnant_cut")
+        self.remnant_cut = self._check("nestws.opt.remnant_cut", "Remnant separation cut",
+                                       "nestws_remnant_cut")
         self.remnant_min = self._spin(1, 10000, 100.0, " mm", 0)
         self.remnant_min.setToolTip(tr(w, "nestws.opt.remnant_min", "narrowest remnant worth separating"))
         self.lead_fix = self._check("nestws.opt.lead_fix", "Fix lead collisions", "nestws_lead_fix")
         self.tip_check = self._check("nestws.opt.tip_check", "Tip-avoiding order", "nestws_tip_check")
         self.tip_strategy = self._combo((("joint", "nestws.tip.joint", "micro-joint"),
                                          ("last", "nestws.tip.last", "cut last"),
-                                         ("avoid", "nestws.tip.avoid", "rapids avoid")), "nestws_tip_strategy")
+                                         ("avoid", "nestws.tip.avoid", "rapids avoid")),
+                                        "nestws_tip_strategy")
         sg.addWidget(QLabel(tr(w, "nestws.opt.scrap", "Skeleton cut-up")), 0, 0)
         sg.addWidget(self.scrap, 0, 1)
         sg.addWidget(self.scrap_pitch, 0, 2)
@@ -813,11 +817,18 @@ class NestWorkspace(QWidget):
         self.compare.setRowCount(len(runs))
         best = self.service.best()
         for r, run in enumerate(runs):
-            vals = [f"{run.number}{' ★' if run is best else ''}", run.engine, str(run.sheets),
+            vals = [f"{run.number}{' ★' if run is best else ''}", str(run.sheets),
                     f"{100 * run.utilisation:.1f} %", f"{run.cut_length_mm / 1000.0:.1f}", str(run.pierces),
                     str(run.unplaced)]
+            p = run.job.params
+            tip = tr(self.window_, "nestws.run_tip",
+                     "{engine}, spacing {spacing:g} mm, common line {cl}, part in part {pip}",
+                     engine=run.engine, spacing=p.spacing, cl="✓" if p.common_line else "–",
+                     pip="✓" if p.part_in_part else "–")
             for c, v in enumerate(vals):
-                self.compare.setItem(r, c, QTableWidgetItem(v))
+                it = QTableWidgetItem(v)
+                it.setToolTip(tip)
+                self.compare.setItem(r, c, it)
             if run is self.run:
                 self.compare.selectRow(r)
         self.compare.blockSignals(False)

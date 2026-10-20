@@ -465,3 +465,20 @@ def test_nest_run_compares_cut_length_and_pierces():
     assert run.pierces == 8 and run.cut_length_mm == pytest.approx(8 * 640.0)
     s = run.summary()
     assert s["pierces"] == 8 and "cut_length_mm" in s
+
+
+def test_untagged_documents_keep_the_default_toolpath():
+    """The strategy hook of build_toolpath is a no-op without its tags (the goldens pin the rest):
+    phase-0 / false tags give the same items as no tags."""
+    parts = [rect(0, 0, 60, 40), rect(100, 0, 300, 300), rect(0, 60, 60, 40)]
+    parts[1].contours.append(rect(150, 100, 70, 50).contours[0])
+    doc = Document(parts=parts)
+    ref = build_toolpath(doc, CamParams())
+    tagged = copy.deepcopy(doc)
+    for p in tagged.parts:
+        p.extra["cut_phase"] = 0
+        p.extra["tip_risk"] = False
+    assert build_toolpath(tagged, CamParams()) == ref
+    assert build_toolpath(copy.deepcopy(doc), CamParams(avoid_cut=True)) == build_toolpath(
+        doc, CamParams(avoid_cut=True)
+    )

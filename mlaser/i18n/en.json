@@ -3028,7 +3028,8 @@
   "cutstrat.prefer.tip": "automatic: a corner on parts with sharp corners, else the longest straight segment",
   "cutstrat.bed.offset_unknown": "unknown",
   "cutstrat.bed.along_y": "slats along Y",
-  "cutstrat.bed.along_x": "slats along X"
+  "cutstrat.bed.along_x": "slats along X",
+  "nestws.run_tip": "{engine}, spacing {spacing:g} mm, common line {cl}, part in part {pip}"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -3620,6 +3621,12 @@
   ],
   "cutstrat.msg.leads": [
    "n"
+  ],
+  "nestws.run_tip": [
+   "engine",
+   "spacing",
+   "cl",
+   "pip"
   ]
  },
  "legacy": {
