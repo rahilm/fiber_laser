@@ -314,16 +314,17 @@ class CuttingStrategyPanel(QWidget):
         self.ctx.edit(fn, tr(self.window_, "cutstrat.undo.place", "place lead-ins"))
         n = box[0] if box else 0
         rep = box[1] if len(box) > 1 else collision.FixReport()
-        self._show(
-            tr(
-                self.window_,
-                "cutstrat.msg.placed",
-                "{n} starts placed; {left} lead-ins still collide",
-                n=n,
-                left=len({i.key for i in rep.remaining}),
-            ),
-            [i.message for i in rep.remaining],
+        summary = tr(
+            self.window_,
+            "cutstrat.msg.placed",
+            "{n} starts placed; {left} lead-ins still collide",
+            n=n,
+            left=len({i.key for i in rep.remaining}),
         )
+        if n == 0 and not _has_lead_in(self._doc()):
+            # place_leads only moves the start of contours that have a lead-in
+            summary += " " + tr(self.window_, "craft.msg.no_leads", "No contour has a lead-in yet.")
+        self._show(summary, [i.message for i in rep.remaining])
         return n
 
     # ------------------------------------------------------------------ tipping
@@ -387,3 +388,11 @@ def install(ctx: Any, tabs: Any) -> CuttingStrategyPanel:
 
 
 __all__ = ["CuttingStrategyPanel", "augment_preflight", "bed_of", "install"]
+
+
+def _has_lead_in(doc: Any) -> bool:
+    for p in getattr(doc, "parts", None) or []:
+        crafts = [p.craft] + [c.craft for c in p.contours if c.craft is not None]
+        if any(getattr(cr.lead_in, "kind", 0) for cr in crafts):
+            return True
+    return False

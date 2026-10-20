@@ -153,6 +153,24 @@
   "bed.set.tip_min_size": "Tip check: smallest piece",
   "cam.set.preflight_lead_check": "Pre-flight: check lead-in collisions",
   "cam.set.preflight_tip_check": "Pre-flight: check tipping on the slats",
+  "canvas.cmd.fit_table": "Fit Table",
+  "canvas.cmd.toolpath": "Toolpath",
+  "canvas.fit_drawing": "Fit drawing",
+  "canvas.fit_drawing_tip": "Zoom to the drawing (F); the view keeps fitting when the window or a panel is resized, until you zoom or pan",
+  "canvas.fit_table": "Fit table",
+  "canvas.fit_table_tip": "Zoom to the whole machine table",
+  "canvas.hud.toolpath": "Toolpath",
+  "canvas.hud.toolpath_tip": "Show the planned toolpath on the drawing: lead-ins and lead-outs, the kerf-compensated path, micro-joint gaps, pierce points, cut direction and rapids",
+  "canvas.legend.gap": "Gap",
+  "canvas.legend.kerf": "Kerf path",
+  "canvas.legend.lead_in": "Lead-in",
+  "canvas.legend.lead_out": "Lead-out",
+  "canvas.legend.rapid": "Rapid",
+  "canvas.legend.tip": "Colours of the planned toolpath. The drawing keeps its layer colour underneath; a ring marks each pierce point.",
+  "canvas.plan.failed": "Toolpath failed: see the log",
+  "canvas.plan.planning": "Computing toolpath…",
+  "canvas.plan.sim_none": "Nothing to simulate: the plan has no toolpath.",
+  "canvas.plan.sim_wait": "Computing the toolpath before simulating…",
   "cmd.app.about": "About",
   "cmd.app.exit": "Exit",
   "cmd.app.help": "Help",
@@ -414,6 +432,13 @@
   "cost.rates": "Rates and assumptions…",
   "cost.rates_note": "Rates of 0 are treated as not set. The efficiency and discharge coefficient are assumptions: adjust them to your machine.",
   "cost.title": "Estimate",
+  "craft.msg.kerf": "Kerf compensation set on {n} parts ({where}).",
+  "craft.msg.leads": "Leads applied to {n} parts ({where}).",
+  "craft.msg.no_leads": "No contour has a lead-in yet: add leads first (Lead dialog, Properties panel or a technology).",
+  "craft.msg.none_changed": "No part was changed (leads apply to closed contours only while \"Only closed\" is ticked).",
+  "craft.msg.scope_all": "all parts",
+  "craft.msg.scope_selection": "the selection",
+  "craft.msg.select_first": "Select the parts first: this command changes the selected parts only.",
   "cutstrat.bed": "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where}",
   "cutstrat.bed.along_x": "slats along X",
   "cutstrat.bed.along_y": "slats along Y",
@@ -3425,6 +3450,14 @@
   "aux.burn_in_progress": [
    "done",
    "total"
+  ],
+  "craft.msg.kerf": [
+   "n",
+   "where"
+  ],
+  "craft.msg.leads": [
+   "n",
+   "where"
   ],
   "help.not_packaged": [
    "target"
