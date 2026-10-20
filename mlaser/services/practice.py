@@ -341,9 +341,14 @@ class Lesson(Procedure):
                 evs = p.events.since(p._mark)
                 if not _started(evs, "process", resume=False):
                     return False
-                t0 = next(e.t for e in evs if isinstance(e, EV.JobStarted) and e.mode == "process")
-                prog = [e.fraction for e in evs if isinstance(e, EV.JobProgress) and e.mode == "process"]
-                return (prog and max(prog) >= 0.15) or time.time() - t0 > 1.5
+                # the card is cutting: the e-stop comes mid-cut, never during the host's
+                # preparation of the job (on a slow PC that took longer than the 1.5 s the
+                # fallback used to count from JobStarted, and the stop came before the cut)
+                prog = [(e.t, e.fraction) for e in evs
+                        if isinstance(e, EV.JobProgress) and e.mode == "process" and e.fraction > 0]
+                if not prog:
+                    return False
+                return max(f for _t, f in prog) >= 0.15 or time.time() - prog[0][0] > 1.5
             p.wait(running_long_enough, p.task_timeout_s, "alarm_wait")
             p.inject_estop()
             p.wait(lambda: _fault(p.events.since(p._mark)), 30.0, "fault")

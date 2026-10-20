@@ -129,6 +129,14 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
   children of the window. A crash only on one OS is usually such a lifetime bug: CI's macOS jobs
   print faulthandler's stacks and the command trace of the coverage test after a crash, and
   `lldb` on the runner (SIP is disabled there) gives the native backtrace.
+* Windows a test builds do not outlive it: `tests/wiring.py`'s `dispose(w)` closes a window as
+  the application does and deletes it now, and `tests/conftest.py` closes and deletes every
+  parentless window an earlier module left (only parentless ones: a menu or a combo box's
+  popup deleted on its own leaves its owner a dangling pointer, a segfault). Without that a CI
+  worker kept hundreds of windows alive, and everything that reaches every widget slowed down
+  with them: a style change (`test_native_style_per_platform`, 31 min on macOS CI), the display
+  units signal (6 min), every `processEvents`, and their timers and compile threads starved
+  the timing tests.
 * Screenshots of new screens: offscreen, at 1280×800 and at 150 % of 1920×1080, light and dark.
 
 

@@ -738,8 +738,15 @@ class MainWindow(QMainWindow):
     def toolpath(self) -> list:
         """The toolpath of the current plan (waits for the toolpath stage of a pending plan;
         the compile itself keeps running in the worker)."""
-        if self.jobs.pending or (self.jobs.preview is not None and not self.jobs.preview.toolpath_event.is_set()):
+        for _ in range(5):        # a newer preview replaced (cancelled) the one waited for: its turn
+            tk = self.jobs.preview
+            # done is not enough: the worker may have finished while its delivery to this
+            # window still waits in the event queue (Sim then said "no toolpath": macOS CI)
+            if not self.jobs.pending and (tk is None or tk.cancelled or tk.toolpath_delivered):
+                break
             self.jobs.settle(toolpath_only=True)
+            if self.jobs.preview is tk and not self.jobs.pending:
+                break
         return self._toolpath
 
     @toolpath.setter

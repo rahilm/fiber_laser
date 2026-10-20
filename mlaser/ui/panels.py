@@ -121,12 +121,18 @@ class LayerPanel(QWidget):
         avail = tb.viewport().width() if tb.isVisible() else tb.width()
         fm = tb.fontMetrics()
         hh = tb.horizontalHeader()
-        need0 = max([fm.horizontalAdvance(hh.model().headerData(0, Qt.Horizontal) or "") + 24] +
+        # no section is narrower than the header's minimum, the stretched layer column neither:
+        # Qt's default minimum is the font's WIDEST glyph plus margins (QHeaderView::
+        # minimumSectionSize), which for Segoe UI on Windows is wider than a value column, so the
+        # sections took more room than counted here and the table scrolled sideways (windows11)
+        hh.setMinimumSectionSize(max(16, 2 * fm.averageCharWidth() + 8))
+        least = hh.minimumSectionSize()
+        need0 = max([least, fm.horizontalAdvance(hh.model().headerData(0, Qt.Horizontal) or "") + 24] +
                     [fm.horizontalAdvance(tb.item(r, 0).text()) + 36 for r in range(tb.rowCount())
                      if tb.item(r, 0) is not None])
         used = need0
         for c in range(1, tb.columnCount()):
-            w = max(fm.horizontalAdvance(str(hh.model().headerData(c, Qt.Horizontal) or "")) + 16,
+            w = max(least, fm.horizontalAdvance(str(hh.model().headerData(c, Qt.Horizontal) or "")) + 16,
                     tb.sizeHintForColumn(c) + 8)
             show = c in self.pinned or used + w <= avail
             tb.setColumnHidden(c, not show)

@@ -115,8 +115,12 @@ def win(app, tmp_path_factory):
     w.onshape_loaded = onshape and "onshape" in w.shell.host.specs
     w.real_fitarea_cap = real_cap
     yield w
-    w.close()
-    w.deleteLater()
+    try:
+        from wiring import dispose
+    except ImportError:          # an older checkout (the baseline run)
+        w.close()
+    else:
+        dispose(w)
     _pump(app)
     mp.undo()
 

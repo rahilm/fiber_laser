@@ -32,7 +32,8 @@ def win(app, monkeypatch):
     w.show()
     app.processEvents()
     yield w
-    w.close()
+    from wiring import dispose
+    dispose(w)
 
 
 def _pump(app, n: int = 5) -> None:

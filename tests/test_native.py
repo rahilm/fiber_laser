@@ -43,8 +43,8 @@ def win(app, monkeypatch):
     app.processEvents()
     yield w
     w.shell.set_theme("light", persist=False)
-    w._test_no_dialogs = True
-    w.close()
+    from wiring import dispose
+    dispose(w)
 
 
 def _walk(menu: QMenu, out: list, path: str = "") -> None:

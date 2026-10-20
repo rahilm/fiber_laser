@@ -532,6 +532,21 @@ class _Scroll(QScrollArea):
         """The narrowest the page can reflow to (every row stacked), not its wide layout."""
         return QSize(self.page.narrow_width(), 0)
 
+    # The page reflows for the width the viewport gives it, before the scroll area sizes it:
+    # reflowing from the page's own resize could not stack its rows once it was wider than the
+    # viewport (a page laid out wide cannot shrink below the minimum of that wide layout, so it
+    # stayed wide and scrolled sideways after the window shrank or another page was shown).
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt
+        self.page.reflow(self.viewport().width())
+        super().resizeEvent(ev)
+        if self.page.width() > self.viewport().width():
+            self.page.reflow(self.viewport().width())
+            super().resizeEvent(ev)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt
+        self.page.reflow(self.viewport().width())
+        super().showEvent(ev)
+
 
 class SettingsDialog(QDialog):
     """See the module docstring."""

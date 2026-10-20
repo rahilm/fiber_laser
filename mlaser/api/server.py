@@ -150,6 +150,25 @@ class _ApiHandler(_Handler):
                             "move or approval. Start and stop at the machine; the e-stop chain is hardware.")
         return None
 
+    def _discard_body(self) -> None:
+        """Read a refused request's body (up to the body cap) before the answer.  The connection
+        closes after a refusal; closing a socket with unread bytes makes the OS reset it
+        (Windows: at once), and the client then loses the answer, 403 / 405 and its reason, to
+        a ``ConnectionAbortedError`` (WinError 10053, Windows CI).  A larger, chunked or
+        unreadable body is not read: the client gets the reset then, as before."""
+        if getattr(self, "_body_read", None) is self.headers or self.headers.get("Transfer-Encoding"):
+            return
+        try:
+            n = int(self.headers.get("Content-Length", "0") or 0)
+        except ValueError:
+            return
+        if 0 < n <= self.monitor.max_body:
+            try:
+                self.rfile.read(n)
+            except OSError:            # a client that sends less: the socket timeout ends it
+                pass
+        self._body_read = self.headers          # this request's (one handler serves a connection)
+
     # ------------------------------------------------------------------ verbs
     def _refuse_method(self) -> None:          # PUT, PATCH, DELETE, OPTIONS, TRACE, CONNECT
         try:
@@ -161,6 +180,7 @@ class _ApiHandler(_Handler):
         except ApiError as err:
             self.monitor.refused += 1
             self.close_connection = True
+            self._discard_body()
             self._error(err)
 
     do_PUT = do_PATCH = do_DELETE = do_OPTIONS = do_TRACE = do_CONNECT = _refuse_method
@@ -176,6 +196,7 @@ class _ApiHandler(_Handler):
             self._post()
         except ApiError as e:
             self.close_connection = True       # an unread body must not be taken for a request
+            self._discard_body()
             self._error(e)
 
     def _get(self) -> None:
@@ -245,6 +266,7 @@ class _ApiHandler(_Handler):
         if ctype != "application/json":
             raise ApiError(415, "unsupported_media_type", "send application/json")
         raw = self.rfile.read(n) if n else b""
+        self._body_read = self.headers
         if len(raw) < n:
             raise ApiError(400, "bad_request", "the body ended early")
         try:

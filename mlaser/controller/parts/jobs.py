@@ -588,6 +588,12 @@ class JobRunnerPart:
             if self.fsm.faulted:
                 self._log(f"resume refused: a fault is latched ({self.fsm.fault})")
                 return
+            if self._cancel.is_set() and not self._pausing:
+                # a Stop (or a disarm, which stops a laser job) is ending the held job: turning
+                # the hold into a breakpoint now would keep the place the operator dropped
+                # (it raced with the stop: the stop's worker join decided which one won)
+                self._log("resume refused: the job is being stopped")
+                return
             if self.pause_mode == "fifo" and not self._pausing:
                 self._log("resume from the FIFO hold: continuing through a breakpoint (re-pierce)")
                 self._pause_to_breakpoint(blocking=True)
@@ -710,7 +716,10 @@ class JobRunnerPart:
             finally:
                 done.set()
 
-        threading.Thread(target=do_stop, name="mlaser-stop", daemon=True).start()
+        # never waits for the thread to start (threading.Thread.start did: 10-60 ms with busy
+        # threads in the process, while the caller - the GUI's Stop - waited)
+        from ..._sched import start_now
+        start_now(do_stop, "mlaser-stop")
         if wait:
             done.wait(15.0)
         return done

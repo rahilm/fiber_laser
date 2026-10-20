@@ -27,7 +27,8 @@ def win(app, tmp_path, monkeypatch):
     w.show()
     app.processEvents()
     yield w
-    w.close()
+    from wiring import dispose
+    dispose(w)
 
 
 def _pump(app, n=5):
@@ -118,8 +119,8 @@ def test_machine_ops_shadow_copies_are_merged_on_start(app, tmp_path, monkeypatc
         assert cfg.get("machine_ops.param_dir") == str(tmp_path)
         assert w.extension("ext_machine").ops.coords.kind == 3
     finally:
-        w._test_no_dialogs = True
-        w.close()
+        from wiring import dispose
+        dispose(w)
 
 
 def test_edge_seek_wizard_edits_are_saved(win, app):

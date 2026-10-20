@@ -46,6 +46,7 @@ import re
 import secrets
 import select
 import socket
+import socketserver
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -200,6 +201,15 @@ class _Server(ThreadingHTTPServer):
     monitor: "MonitorServer"
 
     _lingering: Optional[list] = None        # [(sock, close-by)] refused connections
+
+    def server_bind(self) -> None:
+        """Bind without HTTPServer's ``socket.getfqdn(host)``: a reverse DNS lookup that no
+        timeout covers, 35 s on macOS CI for 127.0.0.1, while the caller (the window starting
+        its monitor or automation API) waited.  The name is only informative (CGI)."""
+        socketserver.TCPServer.server_bind(self)
+        host, port = self.server_address[:2]
+        self.server_name = str(host)
+        self.server_port = int(port)
 
     def process_request(self, request: Any, client_address: Any) -> None:
         m = self.monitor

@@ -271,6 +271,12 @@ class JobTicket:
     def cancelled(self) -> bool:
         return self.cancel_event.is_set()
 
+    @property
+    def toolpath_delivered(self) -> bool:
+        """The toolpath went to the ``on_toolpath`` listeners (queued or by :meth:`JobService.settle`)."""
+        with self._lock:
+            return "toolpath" in self._delivered
+
     def wait(self, timeout: Optional[float] = None) -> Optional[PlannedJob]:
         self.done_event.wait(timeout)
         return self.plan
