@@ -74,6 +74,14 @@ Rules:
 * Long work belongs in a worker; use `ctx.jobs` for anything that compiles a job, and run a cut
   only through `window.run_job(mode)` so it is the planned job.
 
+**Trust.** A plugin is trusted code with machine authority: it runs in the application process
+and Python cannot sandbox it ([SAFETY.md §3a](../SAFETY.md#3a-plugin-trust-boundary)).
+`ctx.controller` is a read-only view of the controller (the `MachineAPI` members only): no
+supervisor, no transport, no writable safety setting. `ctx.controller.arm(reason)`, `reset_fault()`,
+`operator_action()` and `configure_safety()` are audited under `plugin:<name>` and are refused
+unless the operator's plugin policy allows them. `ctx.replace_document` is refused while a job is
+active (running, paused or kept at a breakpoint).
+
 ## 4. Testing
 
 ```python

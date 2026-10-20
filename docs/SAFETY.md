@@ -14,6 +14,8 @@ hardware watchdog relay (§11) and the machine's own e-stop chain are required.
 | `SafetyFSM`, command policy | `machine/safety.py` | state machine; classifies every card request |
 | `SafetySupervisor` | `controller/supervisor.py` | the **only** holder of the card transport; guard, halt channel, link monitor, heartbeat |
 | pre-flight check | `machine/preflight.py` | structured report before Start / Frame / Dry run / Resume / moves |
+| start gate | `controller/parts/gate.py` | the last check before anything moves: no Stop since the request, card idle, head at the job's start (§5a) |
+| plugin view | `controller/plugin_view.py` | what a plugin sees of the controller; the plugin policy (§3a) |
 | interlock monitor | `controller/interlocks.py` | follower, gas, laser source, door (50 ms) |
 | streamer | `controller/stream.py` | buffered-motion cap, no auto-restart, child supervision |
 | exit paths | `machine/lifecycle.py` | atexit, SIGINT/SIGTERM, `sys.excepthook`, `threading.excepthook` |
@@ -42,7 +44,13 @@ OFFLINE --connect--> DISARMED --arm--> ARMED --start--> RUNNING <--> PAUSED
   `reset_fault()` (operator). The reset clears the card alarms (`[9999, 5, 0, 0]`), reads the
   status back, checks the interlocks, and leaves the machine **disarmed**. A breakpoint taken at
   the fault is kept, so the operator arms and presses Resume (laser-off rapid back, re-pierce,
-  rest of the wire: `nc.resume`).
+  rest of the wire: `nc.resume`). With a breakpoint the reset goes to **PAUSED** (disarmed),
+  not DISARMED: the job stays active (`job_active()`), so the document stays locked (no File >
+  Open / New, no queue load, no plugin `replace_document`) until Resume or Stop. The breakpoint
+  remembers the document's key (`nc.resume.document_key`): Resume / Start with another open
+  document is refused instead of continuing the old job on it.
+* The queue disarms the machine when its last sheet is done (`QueueRunner(disarm=)`): the
+  machine never stays armed unattended after a queue.
 
 Faults are raised by: link loss, a card alarm during a job, a stream fault (unexpected idle,
 underrun, child died/stalled/lost its parent), a refused command inside a job, an interlock, an
@@ -74,12 +82,60 @@ valves and the other process outputs can be switched by hand while disarmed (the
 switched off by every halt); the beam cannot come on without arming because PWM, DA, laser
 sync, step duty and the shutter all need it.
 
+**Output numbering (all 26 outputs):** outputs 1..10 are on the base board and go out as
+`[9999, 2, mask, value]` (bit k = output k+1); outputs 11..26 are on the extended IO board,
+`[9999, 13, mask, value]` (bit k = output 11+k). One helper, `protocol.frames.output_bit(port)`,
+numbers them for the classifier, the halt, the guarded and process masks, the heartbeat and the
+simulator; masks in the rebuild have bit n-1 = output n. A guarded output on any port 1..26 is
+EMISSION class whether it is sent through the mailbox or as a FIFO item (`wire_emits`), and sub-2
+bits 10..15 (no output on the base board) are classified as outputs 11..16 so the check fails
+closed (`tests/safety/test_extended_io.py`, every port).
+
+**The guarded mask fails closed:** an unreadable laser parameter (`LGP.DOLaser*`) or a failing
+mask function guards every output except the heartbeat; with no laser output configured at all
+(the default machine) every output that is not a named non-laser output (gas, red light,
+dedust, lube, follow) is guarded. It is never 0.
+
 Refusals raise `CommandRefused` (a `ControllerError`, code 9101) and are written to the audit
 log. The UI, diag and devices get `ctl.card()`, a `CardHandle` without access to the socket,
 the guard or `close`; `ctl.mc` is a deprecated alias of it. The streaming child applies the same
 policy to its own socket (no emission unless the job was started armed; nothing after a cancel).
-The laser source (`devices.laser`: `emission(True)`, `EMON`, `ELE`) is refused unless the
-connected controller is armed.
+The laser source (`devices.laser`: `emission(True)`, `EMON`, `EMOD`, `ELE`) is refused unless the
+machine is armed: every connected controller registers its own check and **all** must allow (a
+second controller, such as the procedures' simulator rig, which does not register at all, can
+never make a real source fire while the real machine is disarmed); a source can be bound to its
+controller (`bind_guard`). `send()` checks the whole payload for an emission-on command, and the
+raw `IpgLaser.query` takes one command only (CR, LF, `;` and control characters are refused) and
+also guards the aiming laser (`ABN`, `EEABC`).
+
+## 3a. Plugin trust boundary
+
+Plugins are ordinary Python code in the application process: **they are trusted code with
+machine authority**. Python cannot sandbox them (private attributes, `gc`, `ctypes`), and the card
+protocol is unauthenticated, so a plugin (or any program on the PC or the machine network) can
+open its own socket to the card. The command policy protects against *bugs* in trusted code, not
+against hostile code; the wiring, the e-stop chain and the watchdog relay (§11) do.
+
+What the software does guarantee is that **no public (non-underscore) route weakens the guard**,
+so a well-meaning plugin stays on the supported, audited path:
+
+* `PluginContext.controller` is `controller.plugin_view`: the `MachineAPI` members only,
+  read-only (every assignment refused), no `fsm`, no supervisor;
+* the supervisor is private (`_sup`); a channel's guard is sealed (set once, never replaced or
+  removed); the card handle returns plain forwarding functions (no bound methods, whose
+  `__self__` was the raw channel) and holds the supervisor in a closure;
+* `laser_enabled` and `require_homed` are read-only, `fsm.dry_run` can never be lifted again, and
+  the safety tunables (`max_buffer_ms`, heartbeat output and rate, jog dead-man, child timeouts,
+  the interlock configuration) change only through `configure_safety()` (bounded: a value
+  outside the bounds is refused, never clamped; refused during a job; audited);
+* `arm(reason=, source=)` is audited with its source. A plugin's arm (`source="plugin:<name>"`),
+  fault reset, `operator_action` (it clears the halt latch) and `configure_safety` need the
+  controller's **plugin policy** (`set_plugin_policy(fn(source, action, reason))`, installed by
+  the plugin allowlist UI); without one, or when it fails, they are refused and audited.
+  Everything that moves still passes the start gate (§5a), the pre-flight and the guard.
+
+`tests/safety/test_plugin_trust.py` registers the review's "evil" plugin and checks every public
+route it used is closed and nothing emits while disarmed.
 
 ## 4. `safe_halt()`
 
@@ -89,7 +145,9 @@ of the original's program stop (parity `test_stop_sequence`):
 
 1. decelerated stop `[1, 0x1f, 2, decel, 200000]`
 2. PWM off `[9999, 3, LC.PtLaserFreq, 0, 0]`, `[9999, 17, ...]`
-3. process outputs off `[9999, 2, mask, 0]` (+ `[9999, 13, ...]`)
+3. process and laser outputs off: `[9999, 2, mask, 0]` for outputs 1..10 and `[9999, 13, mask,
+   0]` for the extended IO outputs 11..26 (gas valves, the process laser DO, the shutter/gate and
+   the laser DOs; never the heartbeat)
 4. follower stop `[118, 5, 0]`
 5. FIFO stop (103 := 3), FIFO clear (103 := 1) (not for a pause)
 
@@ -117,6 +175,44 @@ first on the document to show the dialog.
 | `out_of_travel` (card soft limits read back at connect, else `MAC*.SoftLimitMaxLen`) | error |
 | `bad_geometry` (NaN/inf) | error |
 | `open_contour`, `zero_length`, `travel_unknown`, `homed_unknown` | warning |
+| `start_gate` (the start gate refused it, §5a) | error |
+
+The extent of a compiled job is translated to the head: the wire is relative steps, so from a
+head away from the job's start it would run shifted by (head - start).
+
+## 5a. The start gate
+
+Every motion start goes through one check in the controller (`controller/parts/gate.py`) right
+before the card gets the first command: Start, Dry run, Frame, laser test, Resume,
+Backward/Forward, a planned job (`start_job`: the JobService's plan, the queue's sheets, the
+procedures) and the absolute moves (`move_to`, `move_by`, Return-to-zero). It refuses when:
+
+1. **a Stop or a halt happened since the request.** `start_generation()` changes on every Stop,
+   halt (any path), fault, disarm, connect and disconnect. The `ControllerSubmitter` reads it when
+   the operator presses Start and passes it to `start_job(plan, generation=)`, so a Stop while
+   the plan still compiles cancels the start. `_run_job` checks it once more after making the
+   job's cancel flag, and Stop always sets the current flag: a Stop racing with a start never
+   lets the job run;
+2. the controller is not connected, a fault is latched, a job worker runs, a jog or Go Origin is
+   in progress, or the card, **read back at gate time**, is not idle (machine state 0, X/Y
+   velocity 0) or reports an alarm;
+3. **the head is not at the job's start** (0.05 mm, read back from the card): a plan made from a
+   stale head position (a jog or a move during the compile) is refused, never run offset. Start,
+   Frame, Resume and the laser test compile from the head read back from the card;
+4. a breakpoint is pending and the start is a new job, not its Resume (plain moves stay allowed
+   while paused: Resume rapids back from wherever the head is);
+5. an interlock holds that would trip in the started state (door / gas for a cut, follower and
+   laser alarm while armed), or the job fires the beam and the machine is not armed.
+
+Backward/Forward begin with a laser-off rapid from the head (read back) to the breakpoint, so a
+jog or a move while paused never shifts them, and they are pre-flighted on their whole extent.
+`pause_mode="fifo"`: an alarm (e-stop) while held latches a FAULT, and Resume never releases the
+hold in place; the hold becomes a breakpoint and the resume goes through the gate and the
+re-pierce. The re-pierce uses the layer values the job was compiled with (`Job.layers`: the
+document's merged with the machine layer table).
+
+A refusal is logged, audited (`start_refused`) and becomes `last_preflight` (code `start_gate`),
+which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`).
 
 ## 6. Streaming
 
@@ -173,7 +269,11 @@ long jobs on slow hosts.
 
 `CardSimulator(pessimistic=True)`: after a FIFO stop or a decelerated stop the card keeps
 executing buffered items for `halt_lag_ms`; the beam keeps its state until an explicit PWM off;
-a FIFO start is accepted while an alarm is latched. `sim.inject(...)` / `SimFaults`: `link_down`,
+a FIFO start is accepted while an alarm is latched; a jog or move decelerates over v²/2a after a
+decelerated stop instead of stopping dead. In every mode the simulator models the output boards
+exactly (sub 2 reaches outputs 1..10 only, sub 13 outputs 11..26) and reports a jog in progress
+(machine state 2, axis velocity, live position), so it cannot hide a halt that misses the
+extended board or a start during a jog. `sim.inject(...)` / `SimFaults`: `link_down`,
 `request_loss`, `reply_loss`, `latency_ms`, `jitter_ms`, `duplicate_writes`. The safety tests use
 the pessimistic mode. A halt completes the step being executed (the 1-pulse resume flake).
 
@@ -218,7 +318,9 @@ machine (architecture review P0-3 risk: underrun tuning).
 * The card's own link-loss reaction is unknown; the buffered motion (≤ 1.2 s) runs out.
 * Whether a FIFO stop holds the beam on the real card is INFERRED; the halt sends PWM off
   explicitly.
-* Compile still runs on the GUI thread (Services track, `PlannedJob`).
+* The application compiles in the JobService worker; only a direct `ctl.start()` (scripts,
+  MachineAPI users) compiles on the caller's thread.
+* Plugins are trusted code (§3a); the guard cannot stop hostile code in the process.
 * Follower status bit layout is unknown: any non-zero alarm word trips.
 
 ## 14. Guided procedures (Wave 3)

@@ -659,9 +659,19 @@ class CardSimulator:
             # [1, mask] / [1, 0x1f, 2, decel, jerk] (FUN_10054900): stop axes; with the
             # decelerating form the running program (FIFO) stops too.
             mask = p[0] if p else 0x1F
+            decel = _s32(p[2]) if len(p) >= 3 else 0
             for a, ax in enumerate(st.axes):
-                if mask >> a & 1:
-                    ax.target, ax.vel, ax.mode = None, 0.0, 0
+                if not mask >> a & 1:
+                    continue
+                if self.pessimistic and decel > 0 and ax.target is not None and ax.mode in (3, 5):
+                    # pessimistic: a jog / move decelerates (v^2 / 2a at its speed) instead of
+                    # stopping dead, so the head is still moving for a moment after the stop
+                    # (the start gate must see it)
+                    left = ax.target - ax.pos
+                    d = min(abs(left), ax.speed * ax.speed / (2.0 * decel * self.ppm))
+                    ax.target = ax.pos + (d if left > 0 else -d)
+                    continue
+                ax.target, ax.vel, ax.mode = None, 0.0, 0
             if len(p) >= 2:
                 self._halt_fifo()
         elif op == F.OP_STOP:

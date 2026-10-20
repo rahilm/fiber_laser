@@ -267,3 +267,32 @@ def test_concurrent_stop_never_lets_a_start_through(ctl):
         ctl.wait_job(10)
         time.sleep(0.05)
         assert not ctl._busy() and not ctl.sim.state.fifo_running
+
+
+# ----------------------------------------------------------------------------- simulator fidelity
+def test_simulator_reports_a_jog_in_progress_and_the_live_head(ctl):
+    ctl.jog_start("X", +1, fast=True)
+    assert wait_until(lambda: abs(ctl.sim.state.axes[0].vel) > 0, 2) is not None
+    card = ctl.card()
+    a = card.read_status()
+    time.sleep(0.05)
+    b = card.read_status()
+    assert a.machine_state() == 2 and b.machine_state() == 2            # manual motion
+    assert b.axes[0].velocity > 0 and b.axes[0].position > a.axes[0].position
+    assert b.axes[0].position / b.pulses_per_mm == pytest.approx(head_mm(ctl.sim)[0], abs=5.0)
+    ctl.jog_stop("X")
+    assert wait_until(lambda: stopped(ctl.sim), 5) is not None
+    assert card.read_status().machine_state() == 0
+
+
+def test_pessimistic_simulator_decelerates_a_jog_after_the_stop(make_ctl):
+    ctl = make_ctl(arm=False, jog_deadman_s=None)       # pessimistic simulator
+    ctl.jog_start("X", +1, fast=True)
+    assert wait_until(lambda: abs(ctl.sim.state.axes[0].vel) > 0, 2) is not None
+    time.sleep(0.2)
+    ctl.card().stop_motion(200)                         # a gentle deceleration: it coasts on
+    ctl._jog_active, ctl._jogging = False, None         # the controller thinks the jog is over
+    assert not stopped(ctl.sim)
+    ctl.dry_run(rect_doc(0, 0, 50, 50))                 # refused: the card still moves
+    assert not ctl._busy() and "start_gate" in ctl.last_preflight.codes()
+    assert wait_until(lambda: stopped(ctl.sim), 10) is not None
