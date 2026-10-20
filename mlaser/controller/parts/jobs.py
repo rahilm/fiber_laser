@@ -588,6 +588,12 @@ class JobRunnerPart:
             if self.fsm.faulted:
                 self._log(f"resume refused: a fault is latched ({self.fsm.fault})")
                 return
+            if self._cancel.is_set() and not self._pausing:
+                # a Stop (or a disarm, which stops a laser job) is ending the held job: turning
+                # the hold into a breakpoint now would keep the place the operator dropped
+                # (it raced with the stop: the stop's worker join decided which one won)
+                self._log("resume refused: the job is being stopped")
+                return
             if self.pause_mode == "fifo" and not self._pausing:
                 self._log("resume from the FIFO hold: continuing through a breakpoint (re-pierce)")
                 self._pause_to_breakpoint(blocking=True)

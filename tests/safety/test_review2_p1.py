@@ -106,21 +106,40 @@ def test_fifo_pause_latches_an_estop_and_resumes_through_a_breakpoint(make_ctl):
 
 
 def test_fifo_resume_goes_through_the_gate_and_repierces(make_ctl):
+    """A resume from the FIFO hold is not a release in place: the hold becomes a breakpoint and
+    the resume job passes the start gate (here: refused for another document, the place kept),
+    then runs from the breakpoint with a re-pierce."""
     ctl = make_ctl(pause_mode="fifo", pessimistic=False)
-    start_and_run(ctl, rect_doc(), 0.5)
+    doc = rect_doc()
+    start_and_run(ctl, doc, 0.5)
     ctl.pause()
     assert wait_until(lambda: not ctl.sim.state.fifo_running, 2) is not None
-    ctl.disarm("test")                     # arming is checked again by the resume
-    ctl.resume()                           # refused: disarmed; the held job ends as a breakpoint
-    # the job thread records the breakpoint asynchronously (a slow runner saw None here)
-    assert wait_until(lambda: ctl.breakpoint is not None and not ctl._busy(), 10) is not None
+    ctl.resume(document=rect_doc(w=80.0))   # refused by the gate: not the paused job's document
+    assert ctl.breakpoint is not None and not ctl._busy()
     assert not ctl.sim.state.fifo_running
-    assert ctl.arm()
-    ctl.resume()
+    ctl.resume(document=doc)
     assert wait_until(lambda: ctl._busy() and ctl.sim.state.fifo_running, 10) is not None
     rj = ctl._run_job_obj
     assert getattr(rj, "resume_from", None) is not None             # a breakpoint resume job
     ctl.stop(wait=True)
+
+
+@pytest.mark.parametrize("rep", range(3))
+def test_disarm_during_the_fifo_hold_stops_and_a_resume_cannot_revive_it(make_ctl, rep):
+    """Disarm stops a held laser job (UiController.disarm); a Resume right after it used to race
+    with that stop: when it won, the hold became a breakpoint again (the job stayed active, the
+    place the operator dropped was kept), when the stop won there was none (Windows CI)."""
+    ctl = make_ctl(pause_mode="fifo", pessimistic=False)
+    start_and_run(ctl, rect_doc(), 0.5)
+    ctl.pause()
+    assert wait_until(lambda: not ctl.sim.state.fifo_running, 2) is not None
+    ctl.disarm("test")
+    ctl.resume()                           # refused: the job is being stopped
+    assert ctl.wait_job(10)
+    assert wait_until(lambda: ctl.fsm.state == SafetyState.DISARMED, 10) is not None
+    time.sleep(0.3)                        # the stop thread has finished: nothing comes back
+    assert ctl.breakpoint is None and not ctl._busy() and not ctl.job_active()
+    assert not ctl.sim.state.fifo_running and not ctl.sim.state.laser
 
 
 # ----------------------------------------------------------------------------- P1-7 resume layers
