@@ -257,6 +257,72 @@ def windows_dark_title_bar(win, dark: bool) -> bool:
     return False
 
 
+def windows_icon_file() -> Optional[str]:
+    """``mlaser.ico`` in the user data directory, rendered once from the SVG (source runs have
+    no executable carrying the icon)."""
+    try:
+        from mlaser.services.config import data_dir
+        path = os.path.join(str(data_dir()), "mlaser.ico")
+        if os.path.isfile(path) and os.path.getmtime(path) >= os.path.getmtime(icon_path()):
+            return path
+        import io
+
+        from PIL import Image
+        from PySide6.QtCore import QBuffer, QByteArray, QIODevice
+        ba = QByteArray()
+        buf = QBuffer(ba)
+        buf.open(QIODevice.WriteOnly)
+        app_icon().pixmap(256, 256).toImage().save(buf, "PNG")
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        Image.open(io.BytesIO(bytes(ba.data()))).convert("RGBA").save(
+            path, sizes=[(n, n) for n in (16, 24, 32, 48, 64, 128, 256)])
+        return path
+    except Exception as exc:  # noqa: BLE001
+        log.info("no .ico for the taskbar: %s", exc)
+        return None
+
+
+def windows_window_identity(win, relaunch: Optional[str] = None, icon: Optional[str] = None) -> bool:
+    """The taskbar identity of the window (``SHGetPropertyStoreForWindow``): the AppUserModelID
+    and, for a source run, the relaunch command, name and icon.  Without them the taskbar shows
+    a source run's button with a generic icon (python.exe has no mlaser icon)."""
+    if not sys.platform.startswith("win"):
+        return False
+    try:
+        store = ctypes.c_void_p()
+        iid = _GUID.of("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99")
+        hr = ctypes.windll.shell32.SHGetPropertyStoreForWindow(  # type: ignore[attr-defined]
+            ctypes.c_void_p(int(win.winId())), ctypes.byref(iid), ctypes.byref(store))
+        if hr != 0 or not store.value:
+            return False
+
+        class _PROPKEY(ctypes.Structure):
+            _fields_ = [("fmtid", _GUID), ("pid", ctypes.c_uint32)]
+
+        class _PROPVAR(ctypes.Structure):
+            _fields_ = [("vt", ctypes.c_ushort), ("r1", ctypes.c_ushort), ("r2", ctypes.c_ushort),
+                        ("r3", ctypes.c_ushort), ("p", ctypes.c_void_p), ("p2", ctypes.c_void_p)]
+        fmt = "9F4C2855-9F79-4B39-A8D0-E1D42DE1D5F3"           # PKEY_AppUserModel_*
+        values = [(5, WINDOWS_AUMID)]                            # ID
+        if relaunch and icon:
+            values += [(2, relaunch), (4, DISPLAY_NAME), (3, icon + ",0")]  # RelaunchCommand, name, icon
+        keep = []
+        ok = True
+        for pid, text in values:
+            key = _PROPKEY(_GUID.of(fmt), pid)
+            buf = ctypes.create_unicode_buffer(text)
+            keep.append(buf)
+            var = _PROPVAR(31, 0, 0, 0, ctypes.cast(buf, ctypes.c_void_p), None)   # VT_LPWSTR
+            ok = _com_call(store.value, 6, ctypes.c_long, (ctypes.c_void_p, ctypes.addressof(key)),
+                           (ctypes.c_void_p, ctypes.addressof(var))) == 0 and ok
+        _com_call(store.value, 7, ctypes.c_long)                                   # Commit
+        _com_call(store.value, 2, ctypes.c_ulong)
+        return ok
+    except Exception as exc:  # noqa: BLE001
+        log.info("window identity not set: %s", exc)
+        return False
+
+
 class _GUID(ctypes.Structure):
     _fields_ = [("d1", ctypes.c_uint32), ("d2", ctypes.c_uint16), ("d3", ctypes.c_uint16),
                 ("d4", ctypes.c_ubyte * 8)]
@@ -585,6 +651,11 @@ class NativeIntegration:
         if self.plat == WINDOWS:
             # the title bar of the theme chosen in mlaser (Qt follows only the system's)
             self.color_scheme_changed(self._dark())
+            if getattr(sys, "frozen", False):
+                windows_window_identity(self.w)
+            else:
+                exe = sys.executable.replace("python.exe", "pythonw.exe")
+                windows_window_identity(self.w, f'"{exe}" -m mlaser', windows_icon_file())
         self.w.raise_()
         self.w.activateWindow()
 
