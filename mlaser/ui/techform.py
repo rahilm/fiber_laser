@@ -510,7 +510,7 @@ class TechForm(QWidget):
         outer.addWidget(bar)
         self.scroll = FormScroll()
         self.scroll.setObjectName("techform_scroll")
-        self.panel = ColumnsPanel(max_columns=3, scroll_overflow=True)
+        self.panel = ColumnsPanel(max_columns=3, compact=False, scroll_overflow=True)
         self.panel.setObjectName("techform_panel")
         self.panel.column_min = lambda: beside_width(self.panel)
         self.scroll.setWidget(self.panel)

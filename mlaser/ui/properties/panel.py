@@ -116,10 +116,11 @@ class PropertiesPanel(QScrollArea):
         self.setFrameShape(QFrame.NoFrame)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)   # rows reflow instead
         self.setObjectName("properties_panel")
-        self.panel = ColumnsPanel(max_columns=2, scroll_overflow=True)
+        self.panel = ColumnsPanel(max_columns=2, compact=False, scroll_overflow=True)
         self.panel.setObjectName("props_columns")
         self.panel.column_min = lambda: beside_width(self.panel)
-        self.panel.layoutChanged.connect(self.updateGeometry)     # its minimum width is the dock's
+        self._min_w = 0
+        self.panel.layoutChanged.connect(self._min_changed)       # its minimum width is the dock's
         self.setWidget(self.panel)
         self._updating = False
         self._preview_timer = QTimer(self)
@@ -333,6 +334,14 @@ class PropertiesPanel(QScrollArea):
         if self.verticalScrollBar().isVisible():
             w += self.verticalScrollBar().sizeHint().width()
         return QSize(max(base.width(), w), base.height())
+
+    def _min_changed(self) -> None:
+        """The dock follows a wider minimum at once (a re-filled combo); a narrower one waits
+        for the next layout (no relayout of the window for a few pixels it can keep)."""
+        w = self.minimumSizeHint().width()
+        if w > self._min_w:
+            self.updateGeometry()
+        self._min_w = w
 
     # ---------------------------------------------------------------- helpers
     def _t(self, key: str) -> str:

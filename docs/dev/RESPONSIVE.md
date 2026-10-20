@@ -66,16 +66,18 @@ or "two columns of the widest section no longer fit".
 
   | Workspace | Minimum (logical px) |
   |---|---|
-  | Design | 939 × 446 |
-  | Process (no drawing / a drawing) | 881 × 641 / 881 × 718 |
-  | Process › Library | 881 × 644 |
+  | Design | 946 × 446 |
+  | Process (no drawing / a drawing, a part selected) | 891 × 641 / 999 × 722 |
+  | Process › Library | 881 × 648 |
   | Nest | 881 × 765 |
   | Run | 881 × 658 |
   | Report | 968 × 716 |
   | Machine | 881 × 564 |
 
   (Design's minimum grew from 404 when the layer legend's swatches moved to the responsive
-  `FlowLayout`, whose minimum counts the rows it wraps to.)
+  `FlowLayout`, whose minimum counts the rows it wraps to. The Properties dock's minimum width
+  is its sections' own, so it is never squeezed below a field; with a selection that is wider
+  than the empty panel's.)
 
   A minimum height can grow when the window gets narrower, because rows that wrap need more
   height. The page wrapper reports this and the window follows.

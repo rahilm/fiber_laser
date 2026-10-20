@@ -361,3 +361,20 @@ def test_responsive_form_rows(app):
     assert f.minimumSizeHint().height() < h0                     # a hidden row takes no room
     assert span.width() > a.width()                               # the heading spans
     f.close()
+
+
+def test_docks_settle_at_the_window_minimum(win, app, doc):
+    """At the window's minimum the Properties dock keeps one width (a compact / comfortable
+    flip of its panel made it alternate by a pixel, and the canvas re-fitted on every turn)."""
+    win.shell.host.activate("design")
+    win.resize(800, 600)                      # below the minimum: the window takes its minimum
+    pump(app, 0.2)
+    dock = win.extension("ext_process").props_dock
+    vp = win.canvas.viewport()
+    seen = set()
+    for _ in range(12):
+        app.processEvents()
+        seen.add((dock.width(), vp.width()))
+    assert len(seen) == 1, seen
+    win.resize(1280, 800)
+    pump(app, 0.1)
