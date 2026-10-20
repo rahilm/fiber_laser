@@ -588,10 +588,14 @@ class CanvasHud(QFrame):
         self.legend.setVisible(self.view.options.show_toolpath)
         lay = self.layout()
         lay.activate()
-        w = min(max(self.layout().itemAt(0).sizeHint().width() + 12, 0), avail)
+        # what surrounds the row: the layout's margins and the frame's own (the style sheet's
+        # border), so the buttons get their full size hint
+        lm, fm = lay.contentsMargins(), self.contentsMargins()
+        pad = lm.left() + lm.right() + fm.left() + fm.right()
+        w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
         if self.legend.isVisible():
             # the legend wraps to the bar's width; it goes when even a short line does not fit
-            w = min(max(w, self.legend.sizeHint().width() + 12), avail)
+            w = min(max(w, self.legend.sizeHint().width() + pad), avail)
         h = self.layout().heightForWidth(w) if self.layout().hasHeightForWidth() else self.sizeHint().height()
         if self.legend.isVisible() and h > self.view.height() // 3:
             self.legend.setVisible(False)

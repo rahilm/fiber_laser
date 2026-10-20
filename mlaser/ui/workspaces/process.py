@@ -34,7 +34,8 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 from mlaser.model import LeadParams
 from mlaser.services import technology as T
 from mlaser.ui.techform import quantity
-from mlaser.ui.techform import FlowLayout, ResponsiveForm, TechForm
+from mlaser.ui.responsive import FlowLayout, ResponsiveForm
+from mlaser.ui.techform import TechForm
 
 from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label, thickness_label  # noqa: F401
 
@@ -115,6 +116,22 @@ class TechnologyEditor(QWidget):
             ("", self.corner_on, t("tech.h.corner_cool"), False),
             (t("tech.corner_angle"), self.corner_angle, t("tech.h.corner_angle"), False),
         ])
+        # the cutting-strategy rules (Process › Cutting strategy shows them read-only)
+        from .cutting_strategy import PREFER, TIP
+        self.prefer = QComboBox()
+        for data, key, _text in PREFER:
+            self.prefer.addItem(t(key), data)
+        self.min_feature = quantity("length", 0.0, 1000.0, 1)
+        self.clearance = quantity("small_length", 0.0, 50.0, 2)
+        self.tip_strategy = QComboBox()
+        for data, key, _text in TIP:
+            self.tip_strategy.addItem(t(key), data)
+        self.form.add_section("strategy", t("techform.sec.strategy"), [
+            (t("cutstrat.prefer"), self.prefer, t("tech.h.prefer"), False),
+            (t("cutstrat.min_feature"), self.min_feature, t("tech.h.min_feature"), False),
+            (t("cutstrat.clearance"), self.clearance, t("tech.h.clearance"), False),
+            (t("tech.tip_strategy"), self.tip_strategy, t("tech.h.tip_strategy"), False),
+        ])
         self.flow = quantity("flow", 0.0, 100000.0, 1)
         self.flow.setSpecialValueText(t("tech.flow_unknown"))
         self.density = quantity("density", 0.0, 30.0, 3)
@@ -129,7 +146,8 @@ class TechnologyEditor(QWidget):
         ], expanded=False)
         for w in (self.lead_kind, self.lead_len, self.lead_ang, self.lead_rad, self.lout_kind, self.lout_len,
                   self.kerf_kind, self.kerf_w, self.mj_count, self.mj_len, self.sf_size, self.sf_lead,
-                  self.corner_on, self.corner_angle, self.flow, self.density, self.verified, self.notes):
+                  self.corner_on, self.corner_angle, self.prefer, self.min_feature, self.clearance,
+                  self.tip_strategy, self.flow, self.density, self.verified, self.notes):
             for sig in ("valueChanged", "currentIndexChanged", "toggled"):
                 if hasattr(w, sig):
                     getattr(w, sig).connect(lambda *_a: self._edited())
@@ -147,6 +165,8 @@ class TechnologyEditor(QWidget):
         for vid, w in (("rules.small_feature.max_size_mm", self.sf_size),
                        ("rules.small_feature.lead_length_mm", self.sf_lead),
                        ("rules.corner.cool_points", self.corner_on), ("rules.corner.max_angle_deg", self.corner_angle),
+                       ("rules.lead_place.prefer", self.prefer), ("rules.lead_place.min_feature_mm", self.min_feature),
+                       ("rules.lead_check.clearance_mm", self.clearance), ("rules.tip.strategy", self.tip_strategy),
                        ("gas_flow_l_min", self.flow), ("density_g_cm3", self.density),
                        ("verified", self.verified), ("notes", self.notes)):
             bind_editor(w, f"recipe.{vid}")
@@ -200,6 +220,12 @@ class TechnologyEditor(QWidget):
             co = (tech.rules or {}).get("corner") or {}
             self.corner_on.setChecked(bool(co.get("cool_points", False)))
             self.corner_angle.setValue(float(co.get("max_angle_deg", 90.0)))
+            from .cutting_strategy import recipe_rules
+            r = recipe_rules(tech)
+            self.prefer.setCurrentIndex(max(0, self.prefer.findData(r[("lead_place", "prefer")])))
+            self.min_feature.setValue(float(r[("lead_place", "min_feature_mm")]))
+            self.clearance.setValue(float(r[("lead_check", "clearance_mm")]))
+            self.tip_strategy.setCurrentIndex(max(0, self.tip_strategy.findData(r[("tip", "strategy")])))
             self.flow.setValue(float(tech.gas_flow_l_min or 0.0))
             self.density.setValue(float(tech.density_g_cm3 or 0.0))
             self.verified.setChecked(bool(tech.verified))
@@ -253,6 +279,16 @@ class TechnologyEditor(QWidget):
         rules["small_feature"] = sf
         rules["corner"] = {**(rules.get("corner") or {}), "cool_points": self.corner_on.isChecked(),
                            "max_angle_deg": round(self.corner_angle.value(), 6)}
+        from .cutting_strategy import RULE_DEFAULTS
+        new = {("lead_place", "prefer"): str(self.prefer.currentData()),
+               ("lead_place", "min_feature_mm"): round(self.min_feature.value(), 6),
+               ("lead_check", "clearance_mm"): round(self.clearance.value(), 6),
+               ("tip", "strategy"): str(self.tip_strategy.currentData())}
+        for (g, k), v in new.items():
+            grp = dict(rules.get(g) or {})
+            if k in grp or not T._same(v, RULE_DEFAULTS[(g, k)]):     # only what the record sets
+                grp[k] = v
+                rules[g] = grp
         flow = self.flow.value() or None
         dens = self.density.value() or None
         return replace(self.tech, params=params, craft=craft, rules=rules, gas_flow_l_min=flow,
@@ -323,8 +359,8 @@ class TechCompareDialog(QDialog):
             combo.currentIndexChanged.connect(lambda _i: self.refresh())
         if b is None and self.b.count() > 1 and self.b.currentIndex() == self.a.currentIndex():
             self.b.setCurrentIndex((self.a.currentIndex() + 1) % self.b.count())
-        pick.form.addRow(QLabel(t("tech.compare.a")), self.a)
-        pick.form.addRow(QLabel(t("tech.compare.b")), self.b)
+        pick.addRow(QLabel(t("tech.compare.a")), self.a)
+        pick.addRow(QLabel(t("tech.compare.b")), self.b)
         lay.addWidget(pick)
         row = QHBoxLayout()
         self.search = QLineEdit()
@@ -469,7 +505,7 @@ class LibraryPage(QWidget):
         self.tree.currentItemChanged.connect(lambda cur, _prev: self._tree_picked(cur))
         lv.addWidget(self.tree, 1)
         brow = QWidget()
-        bfl = FlowLayout(brow, 6)
+        bfl = FlowLayout(brow, justify=False, hspacing=6, vspacing=6)
         for key, fn in (("tech.import", self.import_file), ("tech.export", self.export_file),
                         ("tech.compare", self.compare)):
             b = QPushButton(t(key))
@@ -498,7 +534,7 @@ class LibraryPage(QWidget):
         bind_transient(self.comment, "library.comment")
         el.addWidget(self.comment)
         arow = QWidget()
-        afl = FlowLayout(arow, 6)
+        afl = FlowLayout(arow, justify=False, hspacing=6, vspacing=6)
         self.save_btn = QPushButton(t("tech.save"))
         self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self.save_version)
@@ -522,7 +558,7 @@ class LibraryPage(QWidget):
         self.diff_mode.setMinimumContentsLength(8)
         self.diff_mode.currentIndexChanged.connect(lambda _i: self.refresh_diff())
         bind_transient(self.diff_mode, "view.diff_mode")
-        df.form.addRow(QLabel(t("process.diff.mode")), self.diff_mode)
+        df.addRow(QLabel(t("process.diff.mode")), self.diff_mode)
         dl.addWidget(df)
         self.diff = QTreeWidget()
         self.diff.setColumnCount(4)
@@ -812,7 +848,9 @@ class ProcessWorkspace(QWidget):
 
     def __init__(self, ctx: Any, store: T.TechnologyStore, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QButtonGroup, QFrame, QScrollArea, QStackedWidget
+        from PySide6.QtWidgets import QButtonGroup, QFrame, QScrollArea
+
+        from mlaser.ui.responsive import CurrentPageStack
 
         from mlaser.ui.preview_scrubber import CostCardWidget
 
@@ -839,9 +877,11 @@ class ProcessWorkspace(QWidget):
             b.setObjectName(f"process_page_{i}")
             self.page_buttons.addButton(b, i)
             sw.addWidget(b)
-        self.page_buttons.idClicked.connect(self.show_page)
+        # the layout harness visits the Library page too (tests/test_responsive_layout.py)
+        self.page_buttons.button(1).setProperty("responsive_views", True)
+        self.page_buttons.idToggled.connect(lambda i, on: self.show_page(i) if on else None)
         root.addLayout(sw)
-        self.pages = QStackedWidget()
+        self.pages = CurrentPageStack()       # sized by the page shown (the Library is taller)
         root.addWidget(self.pages, 1)
         # ---- Drawing page
         drawing = QWidget()
@@ -915,10 +955,25 @@ class ProcessWorkspace(QWidget):
 
     # ---------------------------------------------------------------- pages
     def show_page(self, i: int) -> None:
+        """0: Drawing (beside the canvas), 1: Library (the whole width of the workspace: the
+        canvas makes room; it comes back with the Drawing page)."""
         self.pages.setCurrentIndex(int(i))
         b = self.page_buttons.button(int(i))
         if b is not None and not b.isChecked():
             b.setChecked(True)
+        self._canvas_room(int(i) == 0)
+
+    def _canvas_room(self, canvas: bool) -> None:
+        page = self.parentWidget()
+        while page is not None and not hasattr(page, "canvas_slot"):
+            page = page.parentWidget()
+        slot = getattr(page, "canvas_slot", None) if page is not None else None
+        if slot is not None and slot.isHidden() == canvas:
+            slot.setVisible(canvas)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._canvas_room(self.pages.currentIndex() == 0)
 
     # ---------------------------------------------------------------- proxies (picker, library)
     @property

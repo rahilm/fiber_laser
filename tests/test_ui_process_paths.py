@@ -489,19 +489,18 @@ def test_panels_never_scroll_sideways(app, width):
 
 
 def test_properties_panel_reflows(win, app):
-    from PySide6.QtWidgets import QFormLayout
-
     pp = win.extension("ext_process").properties
     dock = win.extension("ext_process").props_dock
     win.canvas.select_parts([0])
-    for width in (230, 600):
+    for width in (200, 600):
         dock.setFloating(True)
-        dock.resize(width, 700)
+        dock.resize(width, 900)
         pump(app, 0.05)
         assert pp.horizontalScrollBar().maximum() == 0
-        forms = [s.body for s in pp.sections]
-        wrapped = [f.form.rowWrapPolicy() == QFormLayout.WrapAllRows for f in forms]
-        assert any(wrapped) if width == 230 else not any(wrapped)
+        assert not pp.verticalScrollBar().isVisible()            # it folds instead (RESPONSIVE.md)
+        forms = [s.body for s in pp.sections if s.isVisible() and s.expanded()]
+        above = [not f.beside() for f in forms]
+        assert any(above) if width == 200 else not any(above)
     dock.setFloating(False)
 
 

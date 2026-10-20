@@ -31,6 +31,7 @@ from __future__ import annotations
 from typing import Callable, Iterable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
+from PySide6.QtGui import QPalette
 from PySide6.QtWidgets import (QFrame, QGridLayout, QLabel, QLayout, QLayoutItem, QScrollArea, QSizePolicy,
                                QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget, QWidgetItem)
 
@@ -301,6 +302,12 @@ def flow(widgets: Iterable[QWidget], uniform: bool = False, justify: bool = True
 
 
 # --------------------------------------------------------------------------- responsive form
+def _hidden(w: QWidget) -> bool:
+    """Hidden on purpose (``hide()`` / ``setVisible(False)``), not merely not shown yet: a
+    widget created without a parent reports ``isHidden()`` until it is shown with one."""
+    return w.isHidden() and w.testAttribute(Qt.WA_WState_ExplicitShowHide)
+
+
 class ResponsiveForm(QWidget):
     """Rows of (label, field): the label beside the field when the widest label plus the widest
     field minimum fit the width, above it otherwise.  Its minimum width is the stacked one, so a
@@ -314,33 +321,73 @@ class ResponsiveForm(QWidget):
         self._grid.setSizeConstraint(QLayout.SetNoConstraint)
         self._rows: list[tuple[Optional[QWidget], QWidget]] = []
         self._beside = True
+        self._placing = False
         self.setProperty(STATE_PROP, "beside")
 
     def layout_grid(self) -> QGridLayout:
         return self._grid
 
-    def addRow(self, label, field: QWidget) -> Optional[QWidget]:  # noqa: N802 - like QFormLayout
+    def addRow(self, label, field: Optional[QWidget] = None) -> Optional[QWidget]:  # noqa: N802 - like QFormLayout
+        """A row: ``label`` (text or widget) and ``field``; ``addRow(widget)`` or a None label:
+        a row spanning both columns (a heading, a diagram, a row of buttons)."""
+        if field is None and isinstance(label, QWidget):
+            label, field = None, label
         if isinstance(label, str):
-            label = QLabel(label)
+            label = QLabel(label) if label else None
         if isinstance(label, QLabel) and label.buddy() is None:
             label.setBuddy(field)
+        assert field is not None
         self._rows.append((label, field))
+        field.installEventFilter(self)       # shown / hidden directly: the grid follows
         self._place()
         return label
 
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if ev.type() in (QEvent.ShowToParent, QEvent.HideToParent) and not self._placing:
+            for lab, f in self._rows:
+                if f is obj:
+                    if lab is not None and _hidden(lab) != _hidden(f):
+                        lab.setVisible(not _hidden(f))
+                    self._place()
+                    break
+        return False
+
     def rows(self) -> list[tuple[Optional[QWidget], QWidget]]:
         return list(self._rows)
+
+    def row_widgets(self, field: QWidget) -> tuple[Optional[QWidget], QWidget]:
+        for lab, f in self._rows:
+            if f is field or lab is field:
+                return lab, f
+        raise KeyError(field)
+
+    def set_row_visible(self, field: QWidget, on: bool) -> None:
+        """Show or hide the row of ``field`` (its label too); a hidden row takes no room."""
+        lab, f = self.row_widgets(field)
+        if _hidden(f) == (not on):
+            return
+        for w in (lab, f):
+            if w is not None:
+                w.setVisible(on)
+        self._place()
+
+    def is_row_visible(self, field: QWidget) -> bool:
+        return not _hidden(self.row_widgets(field)[1])
 
     def beside(self) -> bool:
         return self._beside
 
     def _label_w(self) -> int:
-        return max((lab.sizeHint().width() for lab, _ in self._rows if lab is not None and not lab.isHidden()),
-                   default=0)
+        return max((lab.sizeHint().width() for lab, f in self._rows
+                    if lab is not None and not _hidden(lab) and not _hidden(f)), default=0)
 
     def _field_min(self) -> int:
-        return max((max(f.minimumSizeHint().width(), f.minimumWidth()) for _, f in self._rows if not f.isHidden()),
-                   default=0)
+        return max((max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
+                    if not _hidden(f) and lab is not None), default=0)
+
+    def _span_min(self) -> int:
+        return max((max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
+                    if not _hidden(f) and lab is None), default=0)
 
     def needed_beside(self) -> int:
         m = self._grid.contentsMargins()
@@ -350,22 +397,35 @@ class ResponsiveForm(QWidget):
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         m = self._grid.contentsMargins()
-        w = max(self._label_w(), self._field_min()) + m.left() + m.right()
+        w = max(self._label_w(), self._field_min(), self._span_min()) + m.left() + m.right()
         return QSize(w, super().minimumSizeHint().height())
 
     def _place(self) -> None:
+        self._placing = True
+        try:
+            self._place_rows()
+        finally:
+            self._placing = False
+
+    def _place_rows(self) -> None:
         g = self._grid
         while g.count():
             g.takeAt(0)
-        for i, (lab, f) in enumerate(self._rows):
-            if self._beside:
-                if lab is not None:
-                    g.addWidget(lab, i, 0, Qt.AlignVCenter | Qt.AlignLeft)
-                g.addWidget(f, i, 1)
+        r = 0
+        for lab, f in self._rows:
+            if _hidden(f):
+                continue             # a hidden row takes no grid row (no spacing either)
+            if lab is None:
+                g.addWidget(f, r, 0, 1, 2 if self._beside else 1)
+                r += 1
+            elif self._beside:
+                g.addWidget(lab, r, 0, Qt.AlignVCenter | Qt.AlignLeft)
+                g.addWidget(f, r, 1)
+                r += 1
             else:
-                if lab is not None:
-                    g.addWidget(lab, 2 * i, 0)
-                g.addWidget(f, 2 * i + 1, 0)
+                g.addWidget(lab, r, 0)
+                g.addWidget(f, r + 1, 0)
+                r += 2
         g.setColumnStretch(0, 0 if self._beside else 1)
         g.setColumnStretch(1, 1 if self._beside else 0)
         self.updateGeometry()
@@ -382,26 +442,171 @@ class ResponsiveForm(QWidget):
 
 
 # --------------------------------------------------------------------------- collapsible section
+class ElidedToolButton(QToolButton):
+    """A tool button whose text is cut with "…" to the width it gets (the full text in the
+    tooltip and the accessible name): a long title never widens its panel."""
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
+        super().__init__(parent)
+        self._full = ""
+        self._tip_extra = ""
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        self._full = text
+        super().setText(text)
+        self.setAccessibleName(text)
+        self._fit()
+        self.updateGeometry()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def hint_for(self, text: str) -> QSize:
+        """The size the button needs to show ``text`` (as ``QToolButton.sizeHint`` computes it,
+        without its cache, which a font change after the text does not clear)."""
+        from PySide6.QtWidgets import QStyle, QStyleOptionToolButton
+        opt = QStyleOptionToolButton()
+        self.initStyleOption(opt)
+        fm = self.fontMetrics()
+        w = fm.horizontalAdvance(text) if text else 0
+        h = fm.height()
+        style = self.toolButtonStyle()
+        if style != Qt.ToolButtonTextOnly and (self.arrowType() != Qt.NoArrow or not self.icon().isNull()):
+            ic = self.iconSize()
+            if style == Qt.ToolButtonTextBesideIcon or not text:
+                w += ic.width() + (4 if text else 0)
+                h = max(h, ic.height())
+            elif style == Qt.ToolButtonTextUnderIcon:
+                w = max(w, ic.width())
+                h += ic.height() + 4
+        opt.rect = QRect(0, 0, w, h)
+        return self.style().sizeFromContents(QStyle.CT_ToolButton, opt, QSize(w, h), self)
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return self.hint_for(QToolButton.text(self))
+
+    def full_width(self) -> int:
+        """The width the whole text needs (the size hint is the shown, possibly cut, text's)."""
+        return self.hint_for(self._full).width()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return self.hint_for("M…" if self._full else "")
+
+    def _fit(self) -> None:
+        if self.width() > 0 and self.hint_for(self._full).width() > self.width():
+            room = max(0, self.width() - self.hint_for("").width())
+            text = self.fontMetrics().elidedText(self._full, Qt.ElideRight, room)
+            while text and self.hint_for(text).width() > self.width() and room > 0:
+                room -= 2
+                text = self.fontMetrics().elidedText(self._full, Qt.ElideRight, room)
+        else:
+            text = self._full
+        if text != QToolButton.text(self):
+            QToolButton.setText(self, text)
+        cut = text != self._full
+        tip = self._full if cut else ""
+        if self._tip_extra:
+            tip = (tip + "\n" if tip else "") + self._tip_extra
+        if self.toolTip() != tip:
+            self.setToolTip(tip)
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange):
+            self._fit()
+            self.updateGeometry()
+
+    def set_tip_extra(self, text: str) -> None:
+        self._tip_extra = text
+        self._fit()
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self._fit()
+
+    muted = False        # drawn in the palette's placeholder colour (a summary, not a title)
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if not self.muted:
+            super().paintEvent(ev)
+            return
+        from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QStylePainter
+        p = QStylePainter(self)
+        opt = QStyleOptionToolButton()
+        self.initStyleOption(opt)
+        c = opt.palette.color(QPalette.PlaceholderText)
+        for role in (QPalette.ButtonText, QPalette.WindowText, QPalette.Text):
+            opt.palette.setColor(role, c)
+        p.drawComplexControl(QStyle.CC_ToolButton, opt)
+
+
+class _HeaderRow(QWidget):
+    """The header of a section with ``fit_title``: the title (cut with "…" when narrow) and,
+    while the section is folded, its summary in the rest of the row (cut too, or hidden)."""
+
+    def __init__(self, title: ElidedToolButton, summary: ElidedToolButton):
+        super().__init__()
+        self.title_btn, self.summary_btn = title, summary
+        title.setParent(self)
+        summary.setParent(self)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def _gap(self) -> int:
+        return 4
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        w = self.title_btn.full_width()
+        if self.property("folded") is True and self.summary_btn.full_text():
+            w += self._gap() + self.summary_btn.full_width()
+        return QSize(w, max(self.title_btn.sizeHint().height(), self.summary_btn.sizeHint().height()))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return QSize(self.title_btn.minimumSizeHint().width(), self.sizeHint().height())
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self.place()
+
+    def place(self) -> None:
+        W, H = self.width(), self.height()
+        tw = min(self.title_btn.full_width(), W)
+        self.title_btn.setGeometry(0, 0, tw, H)
+        rest = W - tw - self._gap()
+        show = bool(self.summary_btn.full_text()) and rest >= self.summary_btn.minimumSizeHint().width() \
+            and self.property("folded") is True
+        self.summary_btn.setVisible(show)
+        if show:
+            self.summary_btn.setGeometry(tw + self._gap(), 0, rest, H)
+
+
 class CollapsibleSection(QWidget):
     """A titled section whose body folds away.  ``collapsible=False`` makes a plain titled
     section (the header is a label).  ``priority``: :class:`ColumnsPanel` folds the lowest
-    first."""
+    first.  ``fit_title``: the title is cut with "…" when the panel is narrow (full text in its
+    tooltip) and a folded section shows its :meth:`set_summary` line after the title."""
     toggled = Signal(bool)
+    _choices = 0          # order of the user's choices (the newest one stays open)
 
     def __init__(self, title: str = "", body: Optional[QWidget] = None, collapsible: bool = True,
-                 priority: int = 0, parent: Optional[QWidget] = None):
+                 priority: int = 0, parent: Optional[QWidget] = None, fit_title: bool = False):
         super().__init__(parent)
         self.collapsible = collapsible
         self.priority = priority
+        self.fit_title = fit_title and collapsible
         self.user_choice: Optional[bool] = None     # the user opened / closed it (None: automatic)
+        self.choice_order = 0
+        self._title = ""
+        self._summary = ""
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(2)
         # the header: a tool button with an arrow (keyboard and screen readers can open and
         # close it), a plain bold label when the section does not fold
         self.header: QWidget
+        self.summary_btn: Optional[ElidedToolButton] = None
         if collapsible:
-            hb = QToolButton()
+            hb = ElidedToolButton() if self.fit_title else QToolButton()
             hb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             hb.setAutoRaise(True)
             hb.setCheckable(True)
@@ -416,7 +621,19 @@ class CollapsibleSection(QWidget):
         f = self.header.font()
         f.setBold(True)
         self.header.setFont(f)
-        v.addWidget(self.header)
+        self.header_row: QWidget = self.header
+        if self.fit_title:
+            sb = ElidedToolButton()
+            sb.setObjectName("section_summary")
+            sb.setAutoRaise(True)
+            sb.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            sb.setFocusPolicy(Qt.NoFocus)            # the title button is the keyboard target
+            sb.muted = True
+            sb.clicked.connect(lambda: self._user_toggle(True))
+            self.summary_btn = sb
+            self.header_row = _HeaderRow(self.header, sb)   # type: ignore[arg-type]
+            self.header_row.setProperty("folded", False)
+        v.addWidget(self.header_row)
         self.frame = QFrame()
         self.frame.setObjectName("section_body")
         self.frame.setFrameShape(QFrame.StyledPanel)
@@ -429,16 +646,37 @@ class CollapsibleSection(QWidget):
         self.setTitle(title)
 
     def setTitle(self, text: str) -> None:  # noqa: N802 - like QGroupBox
+        self._title = text
         self.header.setText(text)
         self.header.setAccessibleName(text)
         self._tip()
 
     def title(self) -> str:
-        return self.header.text()
+        return self._title
+
+    def set_summary(self, text: str) -> None:
+        """One line of what the folded section holds ("line 3 mm · outside 0.2 mm"): shown
+        after the title while the section is folded (``fit_title`` sections)."""
+        self._summary = text
+        if self.summary_btn is not None:
+            self.summary_btn.setText(text)
+            self.header.setAccessibleDescription(text)
+            self.header_row.updateGeometry()
+            self.header_row.place()  # type: ignore[attr-defined]
+        self._tip()
+
+    def summary(self) -> str:
+        return self._summary
 
     def _tip(self) -> None:
-        if self.collapsible:
-            self.header.setToolTip(self.title() + (" (collapsed: click to show)" if not self.expanded() else ""))
+        if not self.collapsible:
+            return
+        extra = ("" if self.expanded() else
+                 (self._summary + "\n" if self._summary else "") + "(collapsed: click to show)")
+        if isinstance(self.header, ElidedToolButton):
+            self.header.set_tip_extra(extra)
+        else:
+            self.header.setToolTip(self.title() + (" " + extra if extra else ""))
 
     def expanded(self) -> bool:
         return not self.frame.isHidden()
@@ -450,12 +688,22 @@ class CollapsibleSection(QWidget):
         if isinstance(self.header, QToolButton):
             self.header.setChecked(on)
             self.header.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+        if self.fit_title:
+            self.header_row.setProperty("folded", not on)
+            self.header_row.place()  # type: ignore[attr-defined]
         self._tip()
         self.updateGeometry()
         self.toggled.emit(on)
 
+    def open_by_user(self) -> None:
+        """Open it as if the user had (an "Edit in …" link): it stays open."""
+        if not self.expanded() or self.user_choice is not True:
+            self._user_toggle(True)
+
     def _user_toggle(self, on: bool) -> None:
         self.user_choice = on
+        CollapsibleSection._choices += 1
+        self.choice_order = CollapsibleSection._choices
         self.set_expanded(on)
         p = self.parentWidget()
         while p is not None and not isinstance(p, ColumnsPanel):
@@ -464,7 +712,7 @@ class CollapsibleSection(QWidget):
             p.section_chosen(self)
 
     def collapsed_height(self) -> int:
-        return self.header.sizeHint().height()
+        return self.header_row.sizeHint().height()
 
     def height_for(self, width: int, expanded: Optional[bool] = None) -> int:
         """The section's height at ``width`` (expanded or not, default: as it is)."""
@@ -493,7 +741,7 @@ class CollapsibleSection(QWidget):
         if self.body is not None:
             body = max(self.body.minimumSizeHint().width(), self.body.minimumWidth())
         return max(body + m.left() + m.right() + 2 * self.frame.frameWidth(),
-                   self.header.minimumSizeHint().width())
+                   self.header_row.minimumSizeHint().width())
 
 
 # --------------------------------------------------------------------------- compact mode
@@ -569,9 +817,20 @@ class ColumnsPanel(QWidget):
     layoutChanged = Signal()
 
     def __init__(self, max_columns: int = 3, parent: Optional[QWidget] = None, compact: bool = True,
-                 grow: bool = False):
+                 grow: bool = False, scroll_overflow: bool = False):
         super().__init__(parent)
         self.max_columns = max_columns
+        #: ``scroll_overflow``: the panel sits in a scroll area; what does not fit once every
+        #: automatic section is folded (sections the user opened, or every section while
+        #: :attr:`fold` is off) raises its minimum height, so that area scrolls instead of the
+        #: newest section the user opened being folded again
+        self.scroll_overflow = scroll_overflow
+        #: ``fold`` off: no automatic folding (a searchable list of every field, say)
+        self.fold = True
+        #: the width a column needs before a second one is used (default: the narrowest
+        #: workable one, :meth:`_col_min`); a form passes the width its labels beside the
+        #: fields need, so two cramped columns never replace one comfortable one
+        self.column_min: Optional[Callable[[], int]] = None
         #: ``grow``: one column while the height allows, more (asking the parent for the width
         #: through ``sizeHint``) before anything folds; else as many columns as the width allows
         self.grow = grow
@@ -628,6 +887,11 @@ class ColumnsPanel(QWidget):
         self.relayout()
 
     # --- sizes
+    def _count_min(self) -> int:
+        """The column width the column count is computed from."""
+        lo = self._col_min()
+        return max(lo, self.column_min()) if self.column_min is not None else lo
+
     def _col_min(self) -> int:
         ws = [s.min_width() for s in self.sections if not s.isHidden()]
         ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
@@ -660,7 +924,7 @@ class ColumnsPanel(QWidget):
     def comfortable_width(self) -> int:
         lo = self._col_min()
         want = max((s.sizeHint().width() for s in self.sections if not s.isHidden()), default=lo)
-        return max(lo, min(want, int(lo * self.COMFORT)))
+        return max(lo, self._count_min(), min(want, int(lo * self.COMFORT)))
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
         m = 2 * self.margins()
@@ -677,7 +941,7 @@ class ColumnsPanel(QWidget):
         columns, default: as many as the width allows)."""
         sp = self.spacing()
         secs = [s for s in self.sections if not s.isHidden()]
-        n = n or columns_for(W, self._col_min(), sp, self.max_columns)
+        n = n or columns_for(W, self._count_min(), sp, self.max_columns)
         n = max(1, min(n, len(secs))) if secs else 1
         cw = (W - (n - 1) * sp) // n
         top = self._pinned_h(W)
@@ -705,7 +969,8 @@ class ColumnsPanel(QWidget):
             return
         W = self.width() - 2 * self.margins()
         H = self.height() - 2 * self.margins()
-        key = (W, H, tuple((id(s), s.user_choice, s.isHidden()) for s in self.sections), self.font().key())
+        key = (W, H, tuple((id(s), s.user_choice, s.isHidden()) for s in self.sections), self.font().key(),
+               self.fold)
         if key == self._last:
             return
         self._busy = True
@@ -721,7 +986,7 @@ class ColumnsPanel(QWidget):
 
     def _cols(self, W: int, H: int, exp: dict) -> int:
         """Columns to use: all the width allows, or (``grow``) the fewest that fit the height."""
-        most = columns_for(W, self._col_min(), self.spacing(), self.max_columns)
+        most = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
         if not self.grow:
             return most
         for n in range(1, most + 1):
@@ -758,19 +1023,46 @@ class ColumnsPanel(QWidget):
                 compact = True
                 W, H = self.width() - 2 * self.margins(), self.height() - 2 * self.margins()
         # fold automatic sections, lowest priority (then the last) first; then, if the user's
-        # own choices still do not fit, the sections the user opened, oldest choice last
+        # own choices still do not fit, the sections the user opened, oldest choice first (the
+        # newest one stays open in a panel that scrolls its overflow)
         order = sorted([s for s in secs if s.collapsible], key=lambda s: (s.priority, -secs.index(s)))
-        for s in [x for x in order if x.user_choice is None] + [x for x in order if x.user_choice]:
-            if self._fits(W, H, exp):
-                break
-            exp[id(s)] = False
+        chosen = sorted([x for x in order if x.user_choice], key=lambda s: s.choice_order)
+        if self.scroll_overflow and chosen:
+            chosen = chosen[:-1]
+        if self.fold:
+            for s in [x for x in order if x.user_choice is None] + chosen:
+                if self._fits(W, H, exp):
+                    break
+                exp[id(s)] = False
         for s in secs:
             s.set_expanded(exp[id(s)])
         n, cols, _ = self._plan(W, H, exp, self._cols(W, H, exp))
+        if self.scroll_overflow:
+            self._overflow(W, H, secs, exp)
         self._place(W, n, cols)
         folded = [s.title() for s in secs if not exp[id(s)]]
         self.setProperty(STATE_PROP, f"{n} col{'s' if n > 1 else ''}" + (" compact" if compact else "")
                          + (f" folded: {', '.join(folded)}" if folded else ""))
+
+    def _overflow(self, W: int, H: int, secs: list, exp: dict) -> None:
+        """``scroll_overflow``: the height the panel needs with every automatic section folded
+        (independent of the height it has, so the scroll area's resize cannot oscillate)."""
+        least = {id(s): exp[id(s)] if (s.user_choice or not self.fold or not s.collapsible) else False
+                 for s in secs}
+        need = self._plan(W, H, least, self._cols(W, H, least))[2] - self.spacing() + 2 * self.margins()
+        need = max(need, 0)
+        if need > self.minimumSizeHint().height():
+            if self.minimumHeight() != need:
+                self.setMinimumHeight(need)
+        elif self.minimumHeight():
+            self.setMinimumHeight(0)
+
+    def needed_height(self, width: int) -> int:
+        """The height every visible section needs open at ``width`` (a list that may scroll)."""
+        secs = [s for s in self.sections if not s.isHidden()]
+        exp = {id(s): s.user_choice is not False or not s.collapsible for s in secs}
+        W = width - 2 * self.margins()
+        return self._plan(W, 1 << 20, exp, self._cols(W, 1 << 20, exp))[2] - self.spacing() + 2 * self.margins()
 
     def _place(self, W: int, n: int, cols: list[list[CollapsibleSection]]) -> None:
         sp = self.spacing()
