@@ -236,7 +236,16 @@ class JobStreamer(FifoStreamer):
         streams the link deadline (``link_deadline_ms``, 150 ms) counts from the last reply of
         the card; preparing inside :meth:`run_job` let that time run out with no request
         outstanding and latched a spurious "link lost" at the start of a long job.
-        :meth:`run_job` uses the prepared data when it is given the same ``job``."""
+        :meth:`run_job` uses the prepared data when it is given the same ``job``.
+
+        It runs as :meth:`run_job` does, with the GIL switch interval lowered and no cyclic GC:
+        the timing and the frames are CPU-bound Python, and with the default 5 ms interval the
+        status poller lost the hand-overs meanwhile, so the card's last reply was already
+        stale when the streaming deadline took over (macOS CI: "link lost" after 224 ms)."""
+        with quiet_gc(), responsive_gil():
+            self._prepare(job)
+
+    def _prepare(self, job) -> None:
         wj = WireJob.of(job)
         cum, ctime = wire_timing(wj.wire, wj.period_ms)
         frames = wj.frames(0)                   # numbered from the card's sequence in run_job
