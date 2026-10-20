@@ -333,6 +333,8 @@ class MonitorServer:
         self.requests = 0
         self.refused = 0
         self.rejected = 0            # connections over a cap (503)
+        self.admitted = 0            # connections given a serving thread
+        self.peak_connections = 0    # most connections served at once (never above the cap)
         self.limited = 0             # requests over the rate limit (429)
         self.reaped = 0              # connections closed at the end of their lifetime
         self._conn_lock = threading.Lock()
@@ -371,6 +373,8 @@ class MonitorServer:
                 return False
             self._conns[id(sock)] = (sock, ip, time.monotonic())
             self._per_ip[ip] = self._per_ip.get(ip, 0) + 1
+            self.admitted += 1
+            self.peak_connections = max(self.peak_connections, len(self._conns))
             return True
 
     def _leave(self, ip: str, sock: Any) -> None:

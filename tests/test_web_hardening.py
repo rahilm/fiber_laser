@@ -53,21 +53,42 @@ def _wait(cond, timeout=5.0):
     return cond()
 
 
+def _gil_hog(stop: threading.Event) -> None:
+    while not stop.is_set():          # pure Python: holds the GIL for whole switch intervals
+        sum(range(2000))
+
+
 @pytest.mark.skipif(not LINUX_PROC, reason="counts file descriptors in /proc")
-def test_idle_clients_cannot_exhaust_threads_or_fds():
+@pytest.mark.parametrize("busy", [False, True], ids=["idle-process", "gil-busy-process"])
+def test_idle_clients_cannot_exhaust_threads_or_fds(busy):
+    """200 half-open requests against 8 slots.  ``gil-busy-process``: another thread of the
+    process keeps the GIL busy (the safety process is never idle), so every socket call of the
+    accept loop waits for a switch interval and the flood takes several seconds, longer than
+    the 2 s socket timeout: slots free up during the flood and later connections take them.
+    (CI 2026-10-20, Ubuntu 3.13: 168 of 200 rejected, the old ``rejected >= 192`` failed.)  The
+    caps hold either way: every connection is admitted or refused, never more than 8 at once."""
     s = MonitorServer("127.0.0.1", 0, new_token(), timeout_s=2.0, max_connection_s=10.0,
                       max_connections=8, max_per_client=100).start()
     socks = []
+    stop = threading.Event()
+    hog = threading.Thread(target=_gil_hog, args=(stop,), daemon=True)
     try:
         threads0, fds0 = threading.active_count(), _fds()
+        if busy:
+            hog.start()
         for _ in range(200):                      # half-open requests, never finished
-            c = socket.create_connection(s.address, timeout=2)
+            c = socket.create_connection(s.address, timeout=10)
             c.sendall(b"GET /status.json?t=")
             socks.append(c)
-        assert _wait(lambda: s.rejected >= 200 - 8)
-        # at most the cap of handler threads, at most the cap of server-side sockets
-        assert threading.active_count() - threads0 <= 8
+        # every connection was either given a slot or refused with a 503
+        assert _wait(lambda: s.rejected + s.admitted >= 200, 30.0), (s.rejected, s.admitted)
+        assert s.rejected + s.admitted == 200
+        # at most the cap of handler threads, at most the cap of server-side sockets, ever
+        assert s.peak_connections <= 8
+        assert threading.active_count() - threads0 - int(busy) <= 8
         assert _fds() - fds0 - len(socks) <= 8 + 2
+        if not busy:                              # an idle process accepts the flood at once
+            assert s.rejected >= 200 - 8
         # the over-cap connections were told so and closed
         rejected = 0
         for c in socks:
@@ -77,7 +98,8 @@ def test_idle_clients_cannot_exhaust_threads_or_fds():
                     rejected += 1
             except OSError:
                 pass
-        assert rejected >= 200 - 8 - 2
+        assert rejected >= s.rejected - 2
+        stop.set()
         # the idle ones time out: a real client is served again, new sockets and files open fine
         assert _wait(lambda: s.connections == 0, 6.0)
         assert _get(s, f"/status.json?t={s.token}")[0] == 200
@@ -86,6 +108,7 @@ def test_idle_clients_cannot_exhaust_threads_or_fds():
         with open(os.devnull, "rb"):
             pass
     finally:
+        stop.set()
         for c in socks:
             c.close()
         s.stop()
