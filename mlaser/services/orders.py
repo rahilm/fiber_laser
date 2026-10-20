@@ -55,6 +55,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "due": ("due", "duedate", "deadline", "date", "delivery", "termin"),
     "priority": ("priority", "prio"),
     "notes": ("notes", "note", "comment", "remarks"),
+    "part_number": ("partnumber", "pn", "partno", "pno", "articlenumber", "artikelnummer", "sachnummer"),
     "recognition": ("recognition", "mode", "partmode", "grouping"),
 }
 TEMPLATE_COLUMNS = ("file", "quantity", "material", "thickness", "customer", "order", "due", "priority")
@@ -82,6 +83,7 @@ class OrderLine:
     due: str = ""                    # ISO date (yyyy-mm-dd) or ""
     priority: int = 0
     notes: str = ""
+    part_number: str = ""            # the part's P/N (CSV column, CAD plugins); on labels
     recognition: str = ""            # "" = the Nest workspace's rule
     id: str = ""
     added: float = 0.0
@@ -101,10 +103,14 @@ class OrderLine:
         return material_key(self.material, self.thickness_mm)
 
     def ref(self) -> dict:
-        """What travels with the parts: customer, order, line id, due date, file."""
-        return {"customer": self.customer, "order": self.order, "line": self.id, "due": self.due,
-                "file": os.path.basename(self.file), "material": self.material,
-                "thickness_mm": self.thickness_mm}
+        """What travels with the parts: customer, order, line id, due date, file (and the P/N when
+        there is one)."""
+        ref = {"customer": self.customer, "order": self.order, "line": self.id, "due": self.due,
+               "file": os.path.basename(self.file), "material": self.material,
+               "thickness_mm": self.thickness_mm}
+        if self.part_number:
+            ref["part_number"] = self.part_number
+        return ref
 
     @classmethod
     def from_json(cls, d: dict) -> "OrderLine":
@@ -310,7 +316,7 @@ def _row_line(get: Callable[[str], str], base_dir: str, check_files: bool) -> Or
             raise ValueError(f"recognition {rec!r} is not one of {', '.join(MODES)}")
     return OrderLine(file=path, quantity=int(qty), material=" ".join(get("material").split()), thickness_mm=th,
                      customer=get("customer"), order=get("order"), due=_date(get("due")), priority=prio,
-                     notes=get("notes"), recognition=rec, added=time.time())
+                     notes=get("notes"), part_number=get("part_number"), recognition=rec, added=time.time())
 
 
 def lines_from_files(paths: Iterable[str], quantity: int = 1, material: str = "", thickness_mm: float = 0.0,
