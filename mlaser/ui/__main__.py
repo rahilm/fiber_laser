@@ -152,6 +152,8 @@ def main(argv=None) -> int:
     if logdir is not None:
         win.log_panel.log(f"log files: {logdir}")
     win.show()
+    from . import native_report
+    native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
     return app.exec()
 
