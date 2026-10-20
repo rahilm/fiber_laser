@@ -228,9 +228,11 @@ deliberately out of scope for now.
 - ☐ part recognition and DXF repair on import
 - ☐ order intake: multi-file and CSV (quantity, material, thickness, customer, due date)
 - ☐ material check against the technology, "load this sheet" card
-- ☐ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
-  cut-up, remnant separation cut
-- ☐ lead-in collision check, automatic lead placement, tip-avoiding cut order
+- ☑ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
+  cut-up, remnant separation cut, run comparison with cut length and pierces
+  ([cutting-strategy.md](user/cutting-strategy.md))
+- ☑ lead-in collision check, automatic lead placement, tip-avoiding cut order (slat-bed model in
+  ConfigService `bed.*`; pre-flight `lead_collision` / `tip_risk` warnings)
 - ☐ simulator/practice runs excluded from production statistics; guided practice mode
 - ☐ CLI (compile, nest, estimate) and an automation API whose queued jobs need operator approval
 - ☐ notifications (sheet done, alarm, waiting for sheet, maintenance due): ntfy / e-mail / webhook

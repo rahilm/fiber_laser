@@ -235,6 +235,30 @@ APP_SETTINGS: tuple[Setting, ...] = (
 )
 
 
+#: the cutting bed (slat grid) for the tip-avoiding cut order (``mlaser.cam.tipping.BedModel``)
+#: and the cutting-strategy checks (docs/user/cutting-strategy.md).  ``bed.slat_direction``: 0 =
+#: the slats run along Y (spaced along X), 1 = along X; ``bed.slat_offset`` < 0 = unknown (the
+#: check then assumes the worst position of the sheet on the slats).
+BED_SETTINGS: tuple[Setting, ...] = (
+    Setting("bed.slat_pitch", "float", 100.0, "mm", 5.0, 1000.0, label="bed.set.slat_pitch",
+            section="bed", source="app"),
+    Setting("bed.slat_direction", "enum", 0, options=("y", "x"), label="bed.set.slat_direction",
+            section="bed", source="app"),
+    Setting("bed.slat_offset", "float", -1.0, "mm", -1.0, 1000.0, label="bed.set.slat_offset",
+            section="bed", source="app"),
+    Setting("bed.slat_width", "float", 3.0, "mm", 0.5, 50.0, label="bed.set.slat_width",
+            section="bed", source="app"),
+    Setting("bed.tip_min_size", "float", 10.0, "mm", 0.0, 1000.0, label="bed.set.tip_min_size",
+            section="bed", source="app"),
+    Setting("bed.stability_margin", "float", 2.0, "mm", 0.0, 100.0, label="bed.set.stability_margin",
+            section="bed", source="app"),
+    Setting("cam.preflight_lead_check", "bool", True, label="cam.set.preflight_lead_check",
+            section="cam", source="app"),
+    Setting("cam.preflight_tip_check", "bool", False, label="cam.set.preflight_tip_check",
+            section="cam", source="app"),
+)
+
+
 # --------------------------------------------------------------------------- service
 @dataclass
 class MachineProfile:
@@ -251,7 +275,7 @@ class ConfigService:
 
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
         self.schema: dict[str, Setting] = dict(registry_settings())
-        self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS})
+        self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS + BED_SETTINGS})
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE

@@ -434,14 +434,17 @@ class CanvasView(QGraphicsView):
 
     def _toolpath_overlay(self) -> None:
         from mlaser.model import Arc
-        cut, gap, rap = QPainterPath(), QPainterPath(), QPainterPath()
+        cut, gap, rap, bad = QPainterPath(), QPainterPath(), QPainterPath(), QPainterPath()
         pos = None
         rasters = {pi for pi, _ in self._raster_items}
+        flagged = self._lead_flags()
         skip = False            # inside a raster part's block: its item shows the burn runs
+        cur = None
         for m in self.toolpath:
             name = type(m).__name__
             if name == "Marker":
                 skip = getattr(m, "part", -1) in rasters
+                cur = (getattr(m, "part", -1), getattr(m, "contour", -1))
                 continue
             if skip:
                 continue
@@ -451,6 +454,8 @@ class CanvasView(QGraphicsView):
                 pos = None
             elif name in ("CutLine", "CutArc"):
                 path = cut if getattr(m, "laser", True) else gap
+                if flagged and getattr(m, "lead", None) == "in" and cur in flagged:
+                    path = bad          # a lead-in the lead check flagged: red
                 path.moveTo(*m.start)
                 if name == "CutArc":
                     a = Arc(m.start, m.end, m.center, m.ccw)
@@ -461,6 +466,7 @@ class CanvasView(QGraphicsView):
                     path.lineTo(*m.end)
         for path, color, style, show in ((cut, CANVAS_COLORS["cut"], Qt.SolidLine, True),
                                          (gap, CANVAS_COLORS["gap"], Qt.SolidLine, True),
+                                         (bad, "#fc0000", Qt.SolidLine, True),
                                          (rap, CANVAS_COLORS["rapid"], Qt.DashLine, self.options.show_move_path)):
             if not show or path.isEmpty():
                 continue
@@ -470,6 +476,19 @@ class CanvasView(QGraphicsView):
             it.setPen(pen)
             it.setZValue(0.5)
             self._add_overlay(it)
+
+    def _lead_flags(self) -> set:
+        """(part, contour) keys whose lead-in carries the lead-check error mark
+        (``Craft.lead_error``, drawn red like the original's 0x100659e0)."""
+        doc = getattr(self, "document", None)
+        out: set = set()
+        for pi, part in enumerate(getattr(doc, "parts", None) or []):
+            pc = getattr(part, "craft", None)
+            for ci, c in enumerate(part.contours):
+                cr = c.craft if c.craft is not None else pc
+                if getattr(cr, "lead_error", False):
+                    out.add((pi, ci))
+        return out
 
     def add_track_point(self, x: float, y: float, cutting: bool) -> None:
         """Live machine track while a job runs (cut segments solid, moves skipped)."""

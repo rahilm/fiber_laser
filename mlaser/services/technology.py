@@ -162,7 +162,10 @@ class Technology:
     ``count``, ``distance`` mm, ``length`` mm, ``min_size`` mm).
     ``rules``: ``small_feature`` (``max_size_mm``: contours whose larger bbox side is below it
     get ``lead_kind`` / ``lead_length_mm`` and no micro-joints when ``no_joints``) and
-    ``corner`` (``cool_points``: cooling points at corners sharper than ``max_angle_deg``).
+    ``corner`` (``cool_points``: cooling points at corners sharper than ``max_angle_deg``),
+    ``lead_place`` (automatic start points, :class:`mlaser.cam.leadplace.LeadRules` fields, applied
+    when ``enabled``) and ``tip`` (``strategy`` joint / last / avoid, ``joint_width_mm``: the
+    tip-avoiding cut order of :mod:`mlaser.cam.tipping`; docs/user/cutting-strategy.md).
     ``gas_flow_l_min``: the nozzle's gas flow at the cut pressure when known (cost estimate).
     """
 
@@ -404,6 +407,10 @@ def apply_craft(doc: Document, tech: Technology, parts: Optional[Iterable[Part]]
         corner = (tech.rules or {}).get("corner") or {}
         if rules and corner.get("cool_points"):
             cool_auto(doc, CoolParams(sharp=True, max_angle=float(corner.get("max_angle_deg", 90.0))))
+        lp = (tech.rules or {}).get("lead_place") or {}
+        if rules and lp.get("enabled"):
+            from mlaser.cam.leadplace import LeadRules, place_leads
+            place_leads(doc, LeadRules.from_dict(lp), parts=targets)
     finally:
         for p, s in zip(doc.parts, sel):
             p.selected = s
