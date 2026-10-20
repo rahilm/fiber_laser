@@ -216,13 +216,21 @@ class _Restyle(QObject):
 
     def __init__(self, w: QWidget, build: Callable[[], str]):
         super().__init__(w)
+        self.setObjectName("style_restyle")
         self.build = build
+        self._busy = False
         self.apply(w)
 
     def apply(self, w: QWidget) -> None:
-        qss = self.build()
-        if w.styleSheet() != qss:
-            w.setStyleSheet(qss)
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            qss = self.build()
+            if w.styleSheet() != qss:
+                w.setStyleSheet(qss)
+        finally:
+            self._busy = False
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
         if ev.type() in self.EVENTS:
@@ -233,10 +241,11 @@ class _Restyle(QObject):
 def styled(widget: QWidget, build: Callable[[], str]) -> QWidget:
     """Give a *domain* widget (STOP, the run bar, banners, chips, canvas overlays: never a
     standard button, input, tab or list) the style sheet ``build()`` returns, built from
-    :func:`css` roles, and rebuild it when the theme or the palette changes."""
-    old = widget.findChild(_Restyle, "", Qt.FindDirectChildrenOnly)
-    if old is not None:
+    :func:`css` roles, and rebuild it when the theme or the palette changes.  A second call
+    replaces the first."""
+    for old in widget.findChildren(_Restyle, "style_restyle", Qt.FindDirectChildrenOnly):
         widget.removeEventFilter(old)
+        old.setParent(None)
         old.deleteLater()
     f = _Restyle(widget, build)
     widget.installEventFilter(f)

@@ -3364,6 +3364,7 @@
   "shell.welcome.docs_button": "Open the user docs",
   "shell.welcome.docs_text": "Every workspace, the user modes, themes and keys are described in the user guide (F1). Press Ctrl+K anywhere to find a command, Ctrl+F1 for the keyboard shortcuts.",
   "shell.welcome.docs_title": "Help",
+  "shell.welcome.get_started": "Get started",
   "shell.welcome.heading": "Welcome to mlaser",
   "shell.welcome.import_lang": "Import languages...",
   "shell.welcome.import_params": "Import parameters...",
@@ -3397,9 +3398,17 @@
   "shell.ws.report.desc": "Production, job statistics, costs and the alarm history",
   "shell.ws.run": "Run",
   "shell.ws.run.desc": "The operator screen: load a job, home, frame, cut, alarms and breakpoint resume",
+  "status.cursor": "Cursor X: {x}  Y: {y} {unit}",
+  "status.cursor_tip": "The pointer's position on the drawing",
+  "status.dev.follower": "Height follower",
+  "status.dev.laser": "Laser",
+  "status.dev.motion": "Motion card",
+  "status.head": "Head X: {x}  Y: {y}  Z: {z} {unit}",
+  "status.head_tip": "The machine head's position",
   "status.motion_alarm": "Motion card: ALARM {code}",
   "status.motion_fault": "Motion card: FAULT",
   "status.speed": "Speed{unit}: {speed:.1f}",
+  "status.speed_value": "Speed: {speed}",
   "tech.base.defaults": "the default values",
   "tech.base.factory": "the factory version",
   "tech.base.this_version": "the factory version (unchanged)",
@@ -4291,11 +4300,25 @@
   "safety.preflight.warnings": [
    "n"
   ],
+  "status.cursor": [
+   "x",
+   "y",
+   "unit"
+  ],
+  "status.head": [
+   "x",
+   "y",
+   "z",
+   "unit"
+  ],
   "status.motion_alarm": [
    "code"
   ],
   "status.speed": [
    "unit",
+   "speed"
+  ],
+  "status.speed_value": [
    "speed"
   ],
   "view.measure_result": [

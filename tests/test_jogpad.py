@@ -12,13 +12,19 @@ from wiring import dispose, real_window
 
 
 @pytest.fixture(scope="module")
-def win():
+def win(tmp_path_factory):
+    from PySide6.QtWidgets import QDialog, QMessageBox
     QApplication.instance() or QApplication([])
+    mp = pytest.MonkeyPatch()
+    mp.setenv("MLASER_DATA_DIR", str(tmp_path_factory.mktemp("jogpad") / "data"))
+    mp.setattr(QDialog, "exec", lambda self, *a: 0)
+    mp.setattr(QMessageBox, "exec", lambda self, *a: QMessageBox.Ok)
     w = real_window()
     w.resize(1512, 875)
     w.show()
     yield w
     dispose(w)
+    mp.undo()
 
 
 def _pump(n: int = 5) -> None:

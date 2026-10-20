@@ -8,12 +8,16 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QGroupBox,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QGroupBox,
                                QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+                               QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget,
+                               QTableWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
+
+from .. import style
+from ..responsive import flow, mark_list
+from ..style import Dialog
 
 #: the user documentation folder of a source checkout (docs/user); a packaged build shows the
 #: path it looked for
@@ -121,56 +125,98 @@ class ShortcutSheet(QDialog):
             self.table.setRowHidden(r, not hit)
 
 
-class WelcomeSheet(QDialog):
-    """First run: the simulator, importing the original's parameters and languages, the safety
-    model (disarmed by default) and where the user docs are."""
+class WelcomeSheet(Dialog):
+    """First run: practice on the simulator, importing the original's parameters and languages,
+    the safety model (disarmed by default) and where the user docs are.
+
+    One dialog frame (style.Dialog), plain sections (a heading and wrapped text, no group-box
+    frames), and the text reflows with the width: the sections sit in one vertical scroll area
+    whose labels take the height they need (heightForWidth), so nothing is clipped at any width
+    or font size; the sheet's size comes from its content, capped by the screen."""
 
     def __init__(self, shell, parent=None):
-        super().__init__(parent)
-        self.shell = shell
         tr = shell.tr
+        super().__init__(parent, tr.tr("shell.welcome.title"), buttons=QDialogButtonBox.Close)
+        self.shell = shell
         self.setObjectName("shell_welcome")
-        self.setWindowTitle(tr.tr("shell.welcome.title"))
-        v = QVBoxLayout(self)
-        head = QLabel(f"<h2>{tr.tr('shell.welcome.heading')}</h2><p>{tr.tr('shell.welcome.intro')}</p>")
-        head.setWordWrap(True)
-        v.addWidget(head)
-        self.buttons: dict[str, QPushButton] = {}
+        head = style.heading(tr.tr("shell.welcome.heading"), "display")
+        head.setObjectName("welcome_heading")
+        intro = QLabel(tr.tr("shell.welcome.intro"))
+        intro.setWordWrap(True)
+        self.body.addWidget(head)
+        self.body.addWidget(intro)
+        self.actions: dict[str, QPushButton] = {}
+        content = QWidget()
+        content.setObjectName("welcome_sections")
+        cv = style.vbox(content, sp=style.SP3)
 
-        def section(title_key: str, text_key: str, actions: list[tuple[str, str]]) -> None:
-            box = QGroupBox(tr.tr(title_key))
-            bl = QVBoxLayout(box)
-            lab = QLabel(tr.tr(text_key))
-            lab.setWordWrap(True)
-            lab.setTextFormat(Qt.RichText)
-            bl.addWidget(lab)
-            row = QHBoxLayout()
-            for key, cmd in actions:
-                b = QPushButton(tr.tr(key))
-                b.setMinimumHeight(36)
-                b.clicked.connect(lambda _=False, c=cmd: self._run(c))
-                row.addWidget(b)
-                self.buttons[cmd] = b
-            row.addStretch(1)
-            bl.addLayout(row)
-            v.addWidget(box)
+        def section(title_key: str, text_keys: list[str], actions: list[tuple[str, str]]) -> None:
+            sec, bl = style.section(tr.tr(title_key))
+            for tk in text_keys:
+                lab = QLabel(tr.tr(tk))
+                lab.setWordWrap(True)
+                lab.setTextFormat(Qt.RichText)
+                lab.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+                bl.addWidget(lab)
+            if actions:
+                btns = []
+                for key, cmd in actions:
+                    b = QPushButton(tr.tr(key))
+                    b.setMinimumHeight(style.TARGET)
+                    b.clicked.connect(lambda _=False, c=cmd: self._run(c))
+                    self.actions[cmd] = b
+                    btns.append(b)
+                bl.addWidget(flow(btns, justify=False))
+            cv.addWidget(sec)
 
-        section("shell.welcome.sim_title", "shell.welcome.sim_text", [("shell.welcome.sim_button", "hw.connect_sim")])
-        # Review 2: guided practice on the simulator (mlaser.ui.ext_practice)
-        section("practice.welcome_title", "practice.welcome_text", [("practice.welcome_button", "practice.open")])
-        section("shell.welcome.import_title", "shell.welcome.import_text",
+        # one practice section (the simulator and the guided lessons are the same idea)
+        section("practice.welcome_title", ["shell.welcome.sim_text", "practice.welcome_text"],
+                [("shell.welcome.sim_button", "hw.connect_sim"), ("practice.welcome_button", "practice.open")])
+        section("shell.welcome.import_title", ["shell.welcome.import_text"],
                 [("shell.welcome.import_params", "shell.import_params"),
                  ("shell.welcome.import_lang", "app.import_language")])
-        section("shell.welcome.safety_title", "shell.welcome.safety_text", [])
-        section("shell.welcome.docs_title", "shell.welcome.docs_text",
+        section("shell.welcome.safety_title", ["shell.welcome.safety_text"], [])
+        section("shell.welcome.docs_title", ["shell.welcome.docs_text"],
                 [("shell.welcome.docs_button", "shell.docs"), ("shell.welcome.keys_button", "shell.shortcuts")])
+        cv.addStretch(1)
+        self.scroll = QScrollArea()
+        self.scroll.setObjectName("welcome_scroll")
+        self.scroll.setFrameShape(QFrame.NoFrame)
+        self.scroll.setWidgetResizable(True)
+        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.scroll.setWidget(content)
+        mark_list(self.scroll)                 # a page of text: it may scroll vertically, never sideways
+        self.body.addWidget(self.scroll, 1)
         self.again = QCheckBox(tr.tr("shell.welcome.again"))
-        v.addWidget(self.again)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.close)
-        bb.button(QDialogButtonBox.Close).setText(tr.tr("shell.welcome.start"))
-        v.addWidget(bb)
-        self.resize(640, 640)
+        self.body.addWidget(self.again)
+        self.buttons.button(QDialogButtonBox.Close).setText(tr.tr("shell.welcome.get_started"))
+        self.buttons.rejected.connect(self.close)
+        self._content = content
+        self.fit()
+
+    def fit(self, width: int = 0) -> None:
+        """Size from the content at ``width`` (default: about 46 average characters a line),
+        capped by the available screen height."""
+        fm = self.fontMetrics()
+        w = width or max(fm.averageCharWidth() * 72, 420)
+        lay = self._content.layout()
+        inner = w - 2 * style.SP3 - self.scroll.verticalScrollBar().sizeHint().width()
+        need = lay.totalHeightForWidth(inner) if lay.hasHeightForWidth() else self._content.sizeHint().height()
+        chrome = self.sizeHint().height() - self.scroll.sizeHint().height()
+        h = need + chrome
+        scr = self.screen().availableGeometry() if self.screen() is not None else None
+        if scr is not None:
+            h = min(h, int(scr.height() * 0.9))
+            w = min(w, scr.width())
+        self.resize(w, h)
+
+    def sections_clipped(self) -> list[str]:
+        """Labels shorter than the height their text needs at their width (tests)."""
+        out = []
+        for lab in self._content.findChildren(QLabel):
+            if lab.isVisible() and lab.wordWrap() and lab.height() < lab.heightForWidth(lab.width()):
+                out.append(lab.text()[:40])
+        return out
 
     def _run(self, cmd: str) -> None:
         self.shell.w.run(cmd)

@@ -99,9 +99,9 @@ def test_canvas_rulers_and_status_follow_the_units(win, app):
     c.grab()                                              # paints the rulers (no exception)
     # coordinate readout in the status bar
     c.mouseMoved.emit(25.4, 50.8)
-    assert win.st_da.text() == "X: 1.000 Y: 2.000 in"
+    assert win.st_da.text() == "Cursor X: 1.000  Y: 2.000 in"
     win.config.set("units.system", "metric")
-    assert win.st_da.text() == "X: 25.40 Y: 50.80 mm"
+    assert win.st_da.text() == "Cursor X: 25.40  Y: 50.80 mm"
 
 
 # --------------------------------------------------------------------------- properties

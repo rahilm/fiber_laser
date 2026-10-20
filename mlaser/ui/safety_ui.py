@@ -743,20 +743,14 @@ class SafetyUI(QObject):
         lbl = getattr(self.w, "st_mc", None)
         if lbl is None:
             return
-        bg, fg = COLORS["ALARM"]
-        red = f"color:{fg}; background:{bg}; font-weight:bold; padding:0 {style.SP1}px;"
         if st is not None and st.banner == "FAULT":
-            lbl.setText(_tr(self.w, "status.motion_fault", "Motion card: FAULT"))
-            qss = red
+            text = _tr(self.w, "status.motion_fault", "Motion card: FAULT")
         elif alarms:
-            lbl.setText(_tr(self.w, "status.motion_alarm", "Motion card: ALARM {code}",
-                            code=getattr(alarms[0], 'code', '')))
-            qss = red
+            text = _tr(self.w, "status.motion_alarm", "Motion card: ALARM {code}",
+                       code=getattr(alarms[0], 'code', ''))
         else:
-            qss = ""
-        if qss != self._mc_style:
-            self._mc_style = qss
-            lbl.setStyleSheet(qss)
+            text = ""
+        lbl.set_alert(text)                      # the status-bar chip (mainwindow.StatusChip)
 
     # ------------------------------------------------------------------ actions
     def _log(self, msg: str) -> None:

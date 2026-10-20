@@ -497,8 +497,8 @@ class ControlPanel(QWidget):
         self.coord_sys.setWordWrap(True)
         homes.bind_mirror(self.coord_sys, "cfg:MSC.CoordSysType", tr)
         cv.addWidget(self.coord_sys)
+        # Go to origin is the jog pad's centre cell (one control per action on the panel)
         cv.addWidget(flow([self._text_button("mf514", self.ctl.set_origin),
-                           self._text_button("mp164", self.ctl.go_origin_point),
                            self._text_button("mf21", self.ctl.clear_alarms)], uniform=True))
         self.sec_coord = self._section("mf307", coord, priority=0)
         self._show_coord()

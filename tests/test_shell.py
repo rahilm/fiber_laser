@@ -412,7 +412,17 @@ def test_layout_fits_and_reset(win, app, size):
 
 def test_welcome_sheet(win, app):
     d = win.shell.show_welcome()
-    assert "hw.connect_sim" in d.buttons and "shell.import_params" in d.buttons and "app.import_language" in d.buttons
+    assert "hw.connect_sim" in d.actions and "shell.import_params" in d.actions and "app.import_language" in d.actions
+    assert "practice.open" in d.actions
+    # one frame: QDialogButtonBox, no group boxes, the text reflows and is never clipped
+    from PySide6.QtWidgets import QDialogButtonBox, QGroupBox
+    assert isinstance(d.buttons, QDialogButtonBox) and not d.findChildren(QGroupBox)
+    for width in (380, 520, 760, 1100):
+        d.fit(width)
+        _pump(app)
+        assert d.sections_clipped() == [], width
+        sc = d.scroll
+        assert not sc.horizontalScrollBar().isVisible()
     d.again.setChecked(False)
     d.close()
     assert win.config.get("shell.welcome_done") is True
