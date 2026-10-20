@@ -6,6 +6,7 @@ import copy
 import io
 import json
 import os
+import shutil
 import socket
 import subprocess
 import sys
@@ -116,6 +117,16 @@ def test_estimate_rates_from_the_config(dirs):
     assert line["value"] == pytest.approx(90.0 * res["time"]["total_s"] / 3600.0, rel=1e-3)
 
 
+def _drawing_next_to(d) -> str:
+    """A copy of the gear drawing under ``d``; its path relative to ``d`` (a CSV in ``d`` names
+    it so).  Not ``relpath(GEAR, tmp)``: on Windows the checkout and the temp folder can be on
+    different drives (CI: D: and C:), where no relative path exists."""
+    sub = d / "drawings"
+    sub.mkdir(exist_ok=True)
+    shutil.copy(GEAR, sub / "gear.dxf")
+    return os.path.join("drawings", "gear.dxf")
+
+
 def test_nest_parts_list_and_csv(dirs):
     out = dirs / "nest"
     code, res = run("nest", f"{GEAR}:6", f"{INSERTS}:10", "--sheet", "1000x500", "--tech", TECH,
@@ -131,7 +142,7 @@ def test_nest_parts_list_and_csv(dirs):
     assert code == 0 and "warnings" not in comp and comp["job"]["pierces"] >= 16
     # a CSV parts list (relative paths, ; separated), more than fits: exit 1 with the unplaced parts
     csvp = dirs / "parts.csv"
-    rel = os.path.relpath(GEAR, dirs)
+    rel = _drawing_next_to(dirs)
     csvp.write_text(f"file;quantity;name;rotation\n{rel};40;big gear;90\n", encoding="utf-8")
     code, res = run("nest", str(csvp), "--sheet", "300x200", "--time-limit", "5")
     assert code == C.EXIT_CHECK
@@ -142,12 +153,12 @@ def test_nest_csv_is_the_nest_workspace_format(dirs):
     """The CLI reads parts lists with the Nest workspace's parser (services.orders): Windows-1252,
     ``;``, a decimal comma and loose header names; a refused row is exit 3 with its line."""
     from mlaser.cli.commands import _read_csv
-    rel = os.path.relpath(GEAR, dirs)
+    rel = _drawing_next_to(dirs)
     p = dirs / "w.csv"
     p.write_bytes(f"Datei;Menge;Material;Stärke;Kunde;rotation\n{rel};3;Edelstahl;1,5;Müller;90\n".encode("cp1252"))
     (row,) = _read_csv(str(p))
     assert row["quantity"] == 3 and row["thickness_mm"] == 1.5 and row["rotation"] == 90.0
-    assert row["order"]["customer"] == "Müller" and os.path.samefile(row["file"], GEAR)
+    assert row["order"]["customer"] == "Müller" and os.path.samefile(row["file"], dirs / rel)
     bad = dirs / "bad.csv"
     bad.write_text(f"file,quantity\n{rel},2\n{rel},zwei\n", encoding="utf-8")
     code, res = run("nest", str(bad), "--sheet", "300x200")

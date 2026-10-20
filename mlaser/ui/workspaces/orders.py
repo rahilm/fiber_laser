@@ -501,6 +501,9 @@ class OrdersPlugin:
         ctx.register_command("orders.add_files", self.add_files, label="orders.cmd.files")
         ctx.register_command("orders.template", self.save_template, label="orders.cmd.template")
         ctx.register_command("orders.to_nest", self.to_nest, label="orders.cmd.to_nest")
+        # for plugins (a command is called without arguments): load one material x thickness
+        # group, ``fn(key, replace=None) -> list`` of the nest parts added
+        ctx.provide("orders.load_group", self.to_nest)
         ctx.register_command("workspace.orders", lambda: show_workspace(ctx, "orders", self.workspace,
                                                                           tr(w, "ws.orders", "Orders")),
                              label="ws.orders")

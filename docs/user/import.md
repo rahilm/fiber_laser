@@ -91,6 +91,7 @@ CSV file; **Template...** saves a template to fill in. Columns:
 | `due` | due date, deadline, date | `yyyy-mm-dd` or `dd.mm.yyyy` |
 | `priority` | prio | a whole number (higher is nested first) or `low` / `normal` / `high` / `urgent` |
 | `notes` | comment | optional |
+| `part_number` | P/N, part no. | optional; printed on the part labels |
 | `recognition` | mode | optional: `nested`, `layer`, `block`, `file` or `none` for this file |
 
 The separator may be `,`, `;` or a tab; the file may be UTF-8 or Windows-1252 (Excel's "CSV"

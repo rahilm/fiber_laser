@@ -178,7 +178,12 @@ def test_webhook_json_and_signature(http):
     assert h["x-mlaser-event"] == "sheet_done"
 
 
-def test_email_through_a_local_smtp_server():
+def test_email_through_a_local_smtp_server(monkeypatch):
+    # macOS CI: smtplib's EHLO name and make_msgid's domain came from socket.getfqdn(), a reverse
+    # DNS lookup outside every timeout (tens of seconds there); the sender must not call it
+    fqdn_calls: list = []
+    real_getfqdn = socket.getfqdn
+    monkeypatch.setattr(socket, "getfqdn", lambda *a: fqdn_calls.append(a) or real_getfqdn(*a))
     srv = FakeSMTP()
     n = _notifier({"email_enabled": True, "smtp_host": "127.0.0.1", "smtp_port": srv.port, "smtp_security": 2,
                    "email_from": "laser@shop.example", "email_to": "a@shop.example, b@shop.example"})
@@ -195,6 +200,8 @@ def test_email_through_a_local_smtp_server():
     assert msg["Subject"] == "Maintenance due" and msg["X-Mlaser-Event"] == "maintenance_due"
     assert "Lens cleaning" in msg.get_payload()
     assert n.results[-1].ok, n.results[-1]
+    assert not fqdn_calls, "socket.getfqdn() (a reverse DNS lookup) on the send path"
+    assert msg["Message-ID"].endswith("@shop.example>")
 
 
 def test_failure_is_recorded_not_raised():

@@ -171,3 +171,12 @@ def test_lines_from_files_and_folders(drawings):
     out = O.lines_from_files([str(drawings / "gear.dxf"), str(drawings)], quantity=3, material="S235")
     assert [x.name for x in out] == ["gear", "basic_r2000", "gear", "inserts"]
     assert all(x.quantity == 3 and x.material == "S235" for x in out)
+
+
+def test_part_number_column_reaches_the_order_reference(tmp_path):
+    from mlaser.services import orders as O
+    (tmp_path / "a.dxf").write_text("0\nEOF\n")
+    res = O.parse_parts_csv("file,qty,P/N\na.dxf,2,FRC-0042\n", base_dir=str(tmp_path))
+    (line,) = res.lines
+    assert line.part_number == "FRC-0042" and line.ref()["part_number"] == "FRC-0042"
+    assert O.OrderLine.from_json({"file": "x.dxf", "part_number": "P1"}).part_number == "P1"
