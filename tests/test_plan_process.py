@@ -267,35 +267,56 @@ def test_plan_finishing_after_a_stop_never_starts(monkeypatch):
 def _latency_while(app, busy: callable, period_s: float = 0.02, max_s: float = 300.0) -> list:
     """Post a call to the GUI thread every ``period_s`` from another thread (the path a Stop
     takes, QtDispatcher) and record post -> run, while ``busy()``; the GUI thread runs its event
-    loop meanwhile."""
-    from PySide6.QtCore import QEventLoop, QTimer
+    loop meanwhile.
+
+    The poster is a QThread with its own event loop and a ``Qt.PreciseTimer``, not a Python
+    thread calling ``time.sleep``: on the macOS CI runners ``time.sleep(0.02)`` returns after
+    a median 55-85 ms and up to 106 ms, in any thread and with App Nap opted out (measured
+    2026-10-20, macos-26-arm64, a process that is not a foreground application gets its sleeps
+    coalesced), so the old poster sent ~11 posts a second and the test saw 21-40 samples instead
+    of the > 50 it needs; Qt's own timers kept their 10 ms there (median 10.1 ms)."""
+    from PySide6.QtCore import QEventLoop, QObject, Qt, QThread, QTimer
 
     from mlaser.ui.qtbridge import QtDispatcher
     disp = QtDispatcher()
     lat: list = []
-    stop = threading.Event()
+    gui = threading.current_thread()
 
-    def poster():
-        disp(lambda: None)                   # warm-up: the dispatcher's first cross-thread post
-        time.sleep(period_s)
-        while not stop.is_set():
+    class Poster(QObject):
+        def start(self) -> None:
+            assert threading.current_thread() is not gui
+            disp(lambda: None)               # warm-up: the dispatcher's first cross-thread post
+            self.timer = QTimer(self)
+            self.timer.setTimerType(Qt.PreciseTimer)
+            self.timer.setInterval(round(period_s * 1000))
+            self.timer.timeout.connect(self.post)
+            self.timer.start()
+
+        def stop(self) -> None:              # in the poster thread, as its loop ends
+            self.timer.stop()
+
+        def post(self) -> None:
             t0 = time.perf_counter()
             disp(lambda t0=t0: lat.append((t0, (time.perf_counter() - t0) * 1e3)))
-            time.sleep(period_s)
+
+    thread = QThread()
+    poster = Poster()
+    poster.moveToThread(thread)
+    thread.started.connect(poster.start)
+    thread.finished.connect(poster.stop, Qt.DirectConnection)
     loop = QEventLoop()
     timer = QTimer()
+    timer.setTimerType(Qt.PreciseTimer)
     timer.setInterval(10)
     t_end = time.monotonic() + max_s
     timer.timeout.connect(lambda: loop.quit() if not busy() or time.monotonic() > t_end else None)
     app.processEvents()                  # what was queued before (layout, paint) is not measured
-    th = threading.Thread(target=poster, daemon=True)
-    QTimer.singleShot(0, th.start)       # posting starts once the event loop runs
+    QTimer.singleShot(0, thread.start)   # posting starts once the event loop runs
     timer.start()
     loop.exec()
     timer.stop()
-    stop.set()
-    if th.ident is not None:
-        th.join(2)
+    thread.quit()                        # the poster's timer stops with its event loop
+    thread.wait(2000)
     app.processEvents()
     return lat
 
@@ -306,6 +327,18 @@ def _p99(xs):
 
 
 @pytest.mark.flaky(reruns=1)
+def test_latency_sampler_keeps_its_rate():
+    """The sampler of the next test posts every 20 ms whatever the platform's sleep precision
+    (macOS CI: ``time.sleep(0.02)`` took 55-106 ms, the samples were too few to judge)."""
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    t_end = time.monotonic() + 1.5
+    lat = _latency_while(app, lambda: time.monotonic() < t_end)
+    assert len(lat) >= 0.6 * 1.5 / 0.02, len(lat)          # 75 expected; ~16 with time.sleep
+    ts = [t for t, _ms in lat]
+    assert all(b > a for a, b in zip(ts, ts[1:]))
+
+
 def test_gui_event_loop_stays_responsive_during_a_heavy_compile(monkeypatch):
     """Event-loop latency (post -> run on the GUI thread) while a multi-second compile runs.
     Before (compile in the GUI process's worker thread): the loop waited up to 19 s and
