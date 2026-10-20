@@ -2139,6 +2139,52 @@
   "pitch.positive_measured": "Positive Measured",
   "pitch.precision_compensate": "Precision Compensate",
   "pitch.save": "Save",
+  "plugin_manager.browse_hint": "Select a plugin to see its permissions and requirements.",
+  "plugin_manager.cancelled": "Cancelled.",
+  "plugin_manager.check_updates": "Check for updates",
+  "plugin_manager.confirm_authority": "{name} asks for the machine controller. Grant it machine authority (it may then arm, reset faults and change the safety configuration through the controller's audited interface)?",
+  "plugin_manager.confirm_enable": "Enable {name}?\n\nIt declares:\n{permissions}\n\n{warning}",
+  "plugin_manager.confirm_install": "Install {name} {version}?\n\nIt declares:\n{permissions}\n\nsha256 {sha256}\n\nInstalling does not enable it.",
+  "plugin_manager.confirm_uninstall": "Uninstall {name}? Its settings and data folder are kept.",
+  "plugin_manager.confirm_update_perms": "{name} {version} declares different permissions:\n{permissions}\n\nUpdate? It will be disabled until you enable it again.",
+  "plugin_manager.disable": "Disable",
+  "plugin_manager.disabled": "{name} disabled (at the next start).",
+  "plugin_manager.enable": "Enable...",
+  "plugin_manager.enabled": "{name} enabled (at the next start).",
+  "plugin_manager.homepage": "Homepage",
+  "plugin_manager.install": "Install...",
+  "plugin_manager.install_file": "Install from file...",
+  "plugin_manager.install_url": "Install from URL...",
+  "plugin_manager.installed": "{name} {version} installed. Enable it on the Installed tab; it loads at the next start.",
+  "plugin_manager.legacy_warning": "This plugin has no manifest (legacy): nothing limits what it does through mlaser's interfaces.",
+  "plugin_manager.needs_enable": "Its entry point or permissions changed: it is disabled until you enable it again.",
+  "plugin_manager.needs_service": "Needs Service mode",
+  "plugin_manager.none": "No third-party plugin is installed.",
+  "plugin_manager.origin_env": "Python environment",
+  "plugin_manager.origin_site": "plugin manager",
+  "plugin_manager.refresh": "Refresh",
+  "plugin_manager.repo_add": "Add",
+  "plugin_manager.repo_added": "Repository added: {url}",
+  "plugin_manager.repo_hint": "An index URL (https://.../mlaser-plugin-index.json) or github:owner/repo (the latest release of that GitHub repository).",
+  "plugin_manager.repo_remove": "Remove",
+  "plugin_manager.restart": "Restart mlaser to apply the plugin changes.",
+  "plugin_manager.search": "Search plugins",
+  "plugin_manager.service_only": "Viewing only: installing, enabling and removing plugins needs Service mode.",
+  "plugin_manager.tab_browse": "Browse",
+  "plugin_manager.tab_installed": "Installed",
+  "plugin_manager.tab_repositories": "Repositories",
+  "plugin_manager.title": "Plugin manager",
+  "plugin_manager.uninstall": "Uninstall...",
+  "plugin_manager.uninstalled": "{name} uninstalled.",
+  "plugin_manager.unverified": "No checksum was given for this download: compare the sha256 above with the one the author publishes before you continue.",
+  "plugin_manager.up_to_date": "Every plugin is up to date.",
+  "plugin_manager.update": "Update",
+  "plugin_manager.updated": "{name} updated to {version}.",
+  "plugin_manager.updates_found": "{n} update(s) available.",
+  "plugin_manager.url_prompt": "https://.../plugin.whl#sha256=... or github:owner/repo",
+  "plugin_manager.warning": "A plugin is program code that runs inside mlaser with your user account's rights. The permissions it declares are enforced on mlaser's own interfaces (network hosts, credentials, the drawing, orders, the queue, the machine), but they are not a sandbox. Enable only plugins you trust, from a source you trust. Changes take effect at the next start.",
+  "plugin_manager.working": "Working...",
+  "plugins.accepted": "Accepted plugin permissions",
   "plugins.allowlist": "Enabled third-party plugins",
   "plugins.authority": "Plugins with machine authority",
   "plugins.col_authority": "Machine authority",
@@ -2149,6 +2195,7 @@
   "plugins.col_target": "Entry point",
   "plugins.confirm": "Enable {names}?\n\n{warning}",
   "plugins.none": "No third-party plugin is installed.",
+  "plugins.repositories": "Plugin repositories",
   "plugins.title": "Plugins",
   "plugins.warning": "A plugin is program code that runs inside mlaser with your user account's rights and the machine's authority: it can read and write your files, use the network and command the motion card. The safety guard stops accidents, not a hostile plugin. Enable only plugins you trust, from a source you trust. Changes take effect at the next start.",
   "practice.ask_connect": "Practice runs on the simulator only. Connect the simulator now? (The real machine is disconnected.)",
@@ -4198,6 +4245,51 @@
   "practice.summary": [
    "n",
    "passed"
+  ],
+  "plugin_manager.confirm_enable": [
+   "name",
+   "permissions",
+   "warning"
+  ],
+  "plugin_manager.enabled": [
+   "name"
+  ],
+  "plugin_manager.disabled": [
+   "name"
+  ],
+  "plugin_manager.updated": [
+   "name",
+   "version"
+  ],
+  "plugin_manager.confirm_install": [
+   "name",
+   "permissions",
+   "sha256",
+   "version"
+  ],
+  "plugin_manager.repo_added": [
+   "url"
+  ],
+  "plugin_manager.confirm_authority": [
+   "name"
+  ],
+  "plugin_manager.confirm_uninstall": [
+   "name"
+  ],
+  "plugin_manager.confirm_update_perms": [
+   "name",
+   "permissions",
+   "version"
+  ],
+  "plugin_manager.updates_found": [
+   "n"
+  ],
+  "plugin_manager.uninstalled": [
+   "name"
+  ],
+  "plugin_manager.installed": [
+   "name",
+   "version"
   ]
  },
  "legacy": {

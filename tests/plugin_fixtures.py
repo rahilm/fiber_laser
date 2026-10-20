@@ -75,7 +75,7 @@ def build_wheel(dest: Path, *, dist: str = "mlaser_demo", version: str = "0.1.0"
     }
     for k, v in (extra_files or {}).items():
         files[k] = v if isinstance(v, bytes) else str(v).encode()
-    meta = [f"Metadata-Version: 2.1", f"Name: {dist.replace('_', '-')}", f"Version: {version}",
+    meta = ["Metadata-Version: 2.1", f"Name: {dist.replace('_', '-')}", f"Version: {version}",
             "Requires-Python: >=3.12"] + [f"Requires-Dist: {r}" for r in requires]
     files[f"{di}/METADATA"] = ("\n".join(meta) + "\n").encode()
     files[f"{di}/WHEEL"] = (f"Wheel-Version: 1.0\nGenerator: test\nRoot-Is-Purelib: {'true' if purelib else 'false'}\n"

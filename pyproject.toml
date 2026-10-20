@@ -146,7 +146,8 @@ ignore = ["E702", "E731", "E741"]
 python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/_native", "mlaser/nc", "mlaser/services",
          "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py",
-         "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels"]
+         "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels",
+         "mlaser/ui/plugin_manager.py"]   # the Plugin manager dialog (Review 2)
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true

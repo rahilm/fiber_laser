@@ -608,6 +608,17 @@ def compare_with_index(info: WheelInfo, entry: IndexVersion, plugin_id: str = ""
     return errs
 
 
+@dataclass
+class Prepared:
+    """A verified wheel, ready for :meth:`PluginManager.commit`."""
+
+    info: WheelInfo
+    data: bytes
+    origin: dict
+    replacing: Optional[str] = None
+    verified_hash: bool = True      # False: a wheel URL whose hash the user confirms
+
+
 # ----------------------------------------------------------------------------- environment
 def _dist_version(name: str, extra_paths: Iterable[str] = ()) -> Optional[str]:
     try:
@@ -1070,6 +1081,16 @@ class PluginManager:
         """Install from a repository id, ``github:``, a wheel URL or a local wheel (see the module
         docstring).  ``confirm(info)`` sees the verified wheel (permissions) before anything is
         written; returning False cancels.  Returns the installed record."""
+        prep = self.prepare(source, version=version, sha256=sha256, plugin_id=plugin_id, pre=pre,
+                            confirm_hash=confirm_hash, _update_of=_update_of)
+        if confirm is not None and not confirm(prep.info):
+            raise PluginError("cancelled", "cancelled")
+        return self.commit(prep)
+
+    def prepare(self, source: str, *, version: str = "", sha256: str = "", plugin_id: str = "",
+                pre: bool = False, confirm_hash: Optional[Callable[[str, int], bool]] = None,
+                _update_of: Optional[str] = None) -> "Prepared":
+        """Download and verify everything; nothing is written (:meth:`commit` installs it)."""
         try:
             data, filename, entry, origin = self._obtain(source, version=version, sha256=sha256,
                                                          plugin_id=plugin_id, pre=pre, confirm_hash=confirm_hash)
@@ -1083,9 +1104,13 @@ class PluginManager:
         except RefusedError as exc:
             _audit("plugin_refused", source=_short_url(source), reason=str(exc), code=exc.code)
             raise
-        if confirm is not None and not confirm(info):
-            raise PluginError("cancelled", "cancelled")
-        return self._unpack(info, data, origin, replacing=_update_of)
+        return Prepared(info, data, origin, _update_of, verified_hash=entry is not None or bool(sha256)
+                        or "sha256=" in source or origin.get("kind") == "file")
+
+    def commit(self, prep: "Prepared") -> dict:
+        # the environment may have changed between prepare and commit (another install)
+        self.check_environment(prep.info, replacing=prep.replacing)
+        return self._unpack(prep.info, prep.data, prep.origin, replacing=prep.replacing)
 
     def _obtain(self, source: str, *, version: str, sha256: str, plugin_id: str, pre: bool,
                 confirm_hash: Optional[Callable[[str, int], bool]]

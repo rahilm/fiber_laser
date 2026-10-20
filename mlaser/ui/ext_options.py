@@ -10,9 +10,12 @@ The optional engines of the performance and libraries track, as typed plugin set
 * ``craft.kerf_clipper`` (checkable): ``CamParams.kerf_fallback = "clipper"`` when the analytic
   kerf offset fails (pyclipper + CircleFit).
 * ``app.netcheck``: the network self-test (``mlaser.netcheck``): the last result, and a run.
-* ``app.plugins``: the installed third-party plugins (``mlaser.plugins`` entry points) and which
-  of them are enabled (the allowlist ``plugins.allowlist``; Service mode; takes effect at the next
-  start).  Plugins run with full user privileges and machine authority (docs/dev/PLUGINS.md §6).
+* ``app.plugin_manager``: the Plugin manager (:mod:`mlaser.ui.plugin_manager`): installed plugins
+  with their permissions, enable / disable (Service mode), install from the repositories, a
+  ``github:`` shortcut, a wheel file or URL, update and uninstall (docs/user/plugins.md).
+* ``app.plugins``: the compact allowlist of the installed entry points (``plugins.allowlist``,
+  ``plugins.authority``; Service mode; takes effect at the next start).  Plugins run with full
+  user privileges (docs/dev/PLUGINS.md §6).
 
 The nest engine (raster / sparrow) is a field of the nest-parameter dialog (ext_nest).
 """
@@ -286,12 +289,26 @@ class OptionsExtension:
             self.save_allowlist(d.checked(), d.authority())
         return d
 
+    def plugin_manager(self):
+        """The Plugin manager dialog (Engineer mode views; changes need Service mode)."""
+        from .plugin_manager import PluginManagerDialog
+        d = PluginManagerDialog(self.w)
+        d.exec()
+        return d
+
     def save_allowlist(self, allow: dict, authority: Optional[list] = None) -> None:
-        from mlaser.services.plugins import ALLOWLIST_KEY, AUTHORITY_KEY
+        from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, AUTHORITY_KEY
         cfg = self.ctx.config
         old = dict(cfg.get(ALLOWLIST_KEY, {}) or {})
         cfg.set(ALLOWLIST_KEY, dict(allow))
         cfg.set(AUTHORITY_KEY, sorted(n for n in (authority or []) if n in allow))
+        # the manifest permissions accepted now (a later change needs enabling again)
+        from mlaser.services.plugin_manifest import normalize_permissions
+        accepted = {k: v for k, v in (cfg.get(ACCEPTED_KEY, {}) or {}).items() if k in allow}
+        for info, _st in getattr(self.w, "plugin_catalog", []) or []:
+            if info.name in allow and allow.get(info.name) == info.target and info.manifest is not None:
+                accepted[info.name] = normalize_permissions(info.manifest.get("permissions", {}))
+        cfg.set(ACCEPTED_KEY, accepted)
         try:
             cfg.save()
         except OSError as exc:
@@ -314,9 +331,10 @@ def register(ctx) -> OptionsExtension:
         "craft.kerf_clipper", ext.set_kerf_clipper, label="Kerf fallback (pyclipper)", checkable=True
     )
     ctx.register_command("app.netcheck", ext.netcheck, label="Network self-test")
-    ctx.register_command("app.plugins", ext.plugins, label="plugins.title", min_mode="service")
+    ctx.register_command("app.plugins", ext.plugins, label="plugins.allowlist", min_mode="service")
+    ctx.register_command("app.plugin_manager", ext.plugin_manager, label="plugins.title", min_mode="engineer")
     ctx.add_ribbon_tab("Options+", ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
-                                    "app.plugins"])
+                                    "app.plugin_manager"])
     ctx.provide("dxf.mode", ext.dxf_mode)
     # the controller's plugin policy (Safety core): plugins arm / reset / reconfigure safety only
     # with the machine authority granted here; re-installed on every controller swap
