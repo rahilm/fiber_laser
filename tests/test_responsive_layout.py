@@ -188,10 +188,9 @@ def settle(win, app) -> None:
 
 
 def at_rest(win, app) -> None:
-    """Pump until nothing is pending: the document's plan delivered, no zero-delay timer of the
-    window's panels is armed (a
-    columns panel's or a column fitter's relayout), no page wrapper has a sync queued, and the
-    layout signature has not changed for three event-loop turns."""
+    """Pump until nothing is pending: the document's plan delivered, no relayout timer of the
+    window's columns panels, column fitters or dock policy armed, no page wrapper sync queued,
+    and the layout signature unchanged for three event-loop turns (at most 60 turns)."""
     from PySide6.QtCore import QTimer
     jobs = getattr(win, "jobs", None)
     t = getattr(jobs, "preview", None)
@@ -201,13 +200,17 @@ def at_rest(win, app) -> None:
         # page's estimate card and the preview, so the page's minimum depends on it); a plan
         # already delivered is left alone
         jobs.settle(timeout=60.0)
+    from mlaser.ui.responsive import ColumnFitter, ColumnsPanel
+    from mlaser.ui.shell.dock_policy import DockPolicy
+    layout_timers = [t for t in win.findChildren(QTimer)
+                     if isinstance(t.parent(), (ColumnsPanel, ColumnFitter, DockPolicy))]
     last, same = None, 0
-    for _ in range(200):
+    for _ in range(60):
         _pump(app, rounds=1)
         sig = _layout_signature(win)
         same = same + 1 if sig == last else 0
         last = sig
-        armed = any(t.isActive() and t.interval() == 0 for t in win.findChildren(QTimer))
+        armed = any(t.isActive() for t in layout_timers if t.isSingleShot())
         if same >= 3 and not sig[-1] and not armed:
             break
 
