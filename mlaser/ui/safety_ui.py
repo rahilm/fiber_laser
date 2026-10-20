@@ -19,6 +19,7 @@
 """
 from __future__ import annotations
 
+import logging
 import time
 from typing import Callable, Optional
 
@@ -31,6 +32,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialo
 from ..machine import events as EV
 from . import qtbridge
 from .safety_texts import remedy
+
+log = logging.getLogger("mlaser.ui.safety")
 
 JOB_MODES = ("process", "dry_run", "frame", "pause")
 
@@ -145,9 +148,10 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
 class PreflightDialog(QDialog):
     """The pre-flight report: errors (blocking) and warnings (to acknowledge)."""
 
-    def __init__(self, report, parent=None, title: str = ""):
+    def __init__(self, report, parent=None, title: str = "", actions=()):
         super().__init__(parent)
         self.report = report
+        self.chosen = None              # the extra action the operator picked (``actions``)
         self.setWindowTitle(title or f"Pre-flight check: {report.action}")
         lay = QVBoxLayout(self)
         head = QLabel()
@@ -175,8 +179,16 @@ class PreflightDialog(QDialog):
             bb.addButton(QDialogButtonBox.Cancel)
             bb.accepted.connect(self.accept)
             bb.rejected.connect(self.reject)
+        for label, fn in actions:       # e.g. "Repair..." for open contours (contributors)
+            b = bb.addButton(label, QDialogButtonBox.ActionRole)
+            b.clicked.connect(lambda _=False, f=fn: self._act(f))
         lay.addWidget(bb)
         self.resize(560, 300)
+
+    def _act(self, fn) -> None:
+        self.chosen = fn
+        self.reject()                   # the action replaces the start: it never continues it
+        fn()
 
 
 # ============================================================================== widgets
@@ -613,11 +625,16 @@ class SafetyUI(QObject):
             rep = ctl.preflight(action, doc)
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
+        rep = contribute_preflight(self.w, rep, action, doc, emits)   # plugins (material check)
         if not rep.issues:
             return True
         if not self._dialogs():
             return rep.ok
-        d = PreflightDialog(rep, self.w)
+        rep = override_preflight(self.w, rep)
+        if not rep.issues:
+            return True
+        actions = [a for c in _contributors(self.w) for a in (c.actions(rep) if hasattr(c, "actions") else ())]
+        d = PreflightDialog(rep, self.w, actions=actions)
         return bool(d.exec()) and rep.ok
 
     def _after(self, what: str) -> None:
@@ -726,6 +743,45 @@ class SafetyUI(QObject):
     def alarm_details(self) -> None:
         from .ext_card import AlarmListDialog
         AlarmListDialog(self.w, list(self.w.ctl.active_alarms)).exec()
+
+
+def _contributors(window) -> list:
+    return list(getattr(window, "preflight_contributors", None) or ())
+
+
+def contribute_preflight(window, rep, action: str, doc, emits):
+    """``rep`` plus the issues of the window's pre-flight contributors
+    (``window.preflight_contributors``: objects with ``issues(action, doc, emits)``, and
+    optionally ``overridable`` codes with ``override(issues, parent) -> bool`` and
+    ``actions(report) -> [(label, fn)]``).  A new report; the controller's is not changed.
+    A contributor only adds issues: it cannot remove the controller's."""
+    extra = []
+    for c in _contributors(window):
+        try:
+            extra += list(c.issues(action, doc, emits) or ())
+        except Exception:  # noqa: BLE001 - a broken contributor must not hide the dialog
+            log.exception("pre-flight contributor %r failed", c)
+    if not extra or rep is None:
+        return rep
+    from dataclasses import replace
+    return replace(rep, issues=list(rep.issues) + extra)
+
+
+def override_preflight(window, rep):
+    """Ask the contributors to override their own overridable errors (each asks the operator
+    and audits it).  Overridden errors stay in the report as warnings; nothing else changes."""
+    from dataclasses import replace
+    from mlaser.machine.preflight import WARNING
+    issues = list(rep.issues)
+    for c in _contributors(window):
+        codes = set(getattr(c, "overridable", ()) or ())
+        mine = [i for i in issues if i.blocking and i.code in codes]
+        if not mine:
+            continue
+        if c.override(mine, window):
+            issues = [replace(i, severity=WARNING, message=f"overridden: {i.message}") if i in mine else i
+                      for i in issues]
+    return replace(rep, issues=issues)
 
 
 def install(window) -> SafetyUI:

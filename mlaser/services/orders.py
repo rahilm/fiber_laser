@@ -171,7 +171,7 @@ def _map_header(row: list[str]) -> tuple[dict[str, int], list[str]]:
 
 
 def _decode(data: bytes) -> str:
-    for enc in ("utf-8-sig", "cp1252"):
+    for enc in ("utf-8-sig", "windows-1252"):
         try:
             return data.decode(enc)
         except UnicodeDecodeError:

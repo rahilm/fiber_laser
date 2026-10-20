@@ -189,6 +189,7 @@ def _self_intersection(c: Contour) -> Optional[Point]:
 
 
 def _open_ends(items) -> list[tuple[int, Point]]:
+    """(item index, point) of both ends of every open contour."""
     ends = []
     for k, (_pi, _ci, c) in enumerate(items):
         if not c.closed:
@@ -198,21 +199,41 @@ def _open_ends(items) -> list[tuple[int, Point]]:
 
 
 # ============================================================================== analyse
-def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int = 2_000_000) -> RepairReport:
-    """Every :class:`Finding` of ``doc`` (nothing is changed)."""
+#: above this many open segments the overlap check (quadratic) is skipped, so the review
+#: after opening a huge exploded drawing stays fast; the repair still merges overlaps
+MAX_OVERLAP_SEGMENTS = 4000
+
+
+def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int = 200_000) -> RepairReport:
+    """Every :class:`Finding` of ``doc`` (nothing is changed).  ``max_pairs`` bounds the
+    duplicate test (pairs of contours with overlapping boxes)."""
     from mlaser.cam.cleanup import remove_duplicate_contours, remove_overlaps
     o = opts or RepairOptions()
     rep = RepairReport()
     items = _items(doc)
     rep.contours = len(items)
     # ---- open contours, with the gap and the nearest other open end
-    ends = _open_ends(items)
+    radius = max(o.join_tol, o.close_gap, 1.0)        # the nearest other end is looked for this far
+    grid: dict[tuple[int, int], list[tuple[int, Point]]] = {}
+    for kk, q in _open_ends(items):
+        grid.setdefault((math.floor(q[0] / radius), math.floor(q[1] / radius)), []).append((kk, q))
+
+    def nearest(k: int, p: Point) -> float:
+        gx, gy = math.floor(p[0] / radius), math.floor(p[1] / radius)
+        best = math.inf
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for kk, q in grid.get((gx + dx, gy + dy), ()):
+                    if kk != k:
+                        best = min(best, math.dist(p, q))
+        return best if best <= radius else math.inf
+
     for k, (pi, ci, c) in enumerate(items):
         if c.closed or _is_point(c):
             continue
         a, b = c.segments[0].start, c.segments[-1].end
         gap = math.dist(a, b)
-        near = min((math.dist(p, q) for kk, q in ends if kk != k for p in (a, b)), default=math.inf)
+        near = min(nearest(k, a), nearest(k, b))
         fix = o.fix_open and (near <= o.join_tol or (gap <= o.close_gap and c.length() > 2 * gap))
         msg = f"part {pi + 1} contour {ci + 1} is open: gap {gap:.3f} mm"
         if near < math.inf:
@@ -241,7 +262,7 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
                                             f"contour {items[j][1] + 1} (cut twice)"))
     # ---- overlapping open geometry
     segs = [s for _pi, _ci, c in items if not c.closed for s in c.segments]
-    if len(segs) > 1:
+    if 1 < len(segs) <= MAX_OVERLAP_SEGMENTS:
         before = sum(_seg_len(s) for s in segs)
         after = sum(_seg_len(s) for s in remove_overlaps(segs, o.dup_gate))
         if before - after > max(o.dup_gate, 1e-6):
@@ -352,6 +373,65 @@ def _drop_short(c: Contour, tiny: float, zero: bool, small: bool) -> tuple[Optio
     return q, nz, nt
 
 
+def _clusters(members: list, reach: float) -> list[list]:
+    """``members`` ((part, contour) pairs) split into groups whose boxes, grown by ``reach``,
+    touch (union-find over an STRtree query)."""
+    if len(members) < 2:
+        return [members] if members else []
+    import shapely
+    boxes = [_bbox(c) for _p, c in members]
+    tree = shapely.STRtree(shapely.box(*zip(*[(b[0] - reach, b[1] - reach, b[2] + reach, b[3] + reach)
+                                              for b in boxes])))
+    qi, ti = tree.query(shapely.box(*zip(*boxes)))
+    parent = list(range(len(members)))
+
+    def find(i: int) -> int:
+        while parent[i] != i:
+            parent[i] = parent[parent[i]]
+            i = parent[i]
+        return i
+    for i, j in zip(qi.tolist(), ti.tolist()):
+        ri, rj = find(int(i)), find(int(j))
+        if ri != rj:
+            parent[max(ri, rj)] = min(ri, rj)
+    out: dict[int, list] = {}
+    for k, m in enumerate(members):
+        out.setdefault(find(k), []).append(m)
+    return list(out.values())
+
+
+def _repair_open(doc: Document, members: list, o: RepairOptions, done: dict, close_gaps, merge_connected,
+                 remove_overlaps) -> None:
+    owner = members[0][0]
+    opened = [c for _p, c in members]
+    work: list = list(opened)
+    changed = False
+    if o.fix_overlaps and len(opened) > 1:
+        segs_in = [s for c in opened for s in c.segments]
+        merged = remove_overlaps(segs_in, o.dup_gate)
+        if sum(_seg_len(s) for s in segs_in) - sum(_seg_len(s) for s in merged) > max(o.dup_gate, 1e-6):
+            done["overlaps"] += 1
+            work, changed = list(merged), True
+    if o.fix_open:
+        res = merge_connected(work, o.join_tol, 1) if len(work) > 1 or changed else list(work)
+        res = close_gaps(res, o.close_gap)
+        n_closed = sum(1 for r in res if r.closed)
+        if not changed and len(res) == len(opened) and n_closed == 0:
+            return                                    # nothing to do: keep the originals
+        done["joined"] += max(0, len(opened) - len(res)) if not changed else 0
+        done["closed"] += n_closed
+        final = res
+    elif changed:
+        final = merge_connected(work, 1e-6, 1)
+    else:
+        return
+    ids = {id(c) for c in opened}
+    for p in doc.parts:
+        if any(id(c) in ids for c in p.contours):
+            p.contours = [c for c in p.contours if id(c) not in ids]
+    owner.contours.extend(final)
+
+
 def repair(doc: Document, opts: Optional[RepairOptions] = None) -> dict[str, int]:
     """Apply the fixes of ``opts`` to ``doc`` in place.  Returns what was done:
     ``closed``, ``joined``, ``duplicates``, ``overlaps``, ``zero_length``, ``tiny_segments``,
@@ -384,41 +464,19 @@ def repair(doc: Document, opts: Optional[RepairOptions] = None) -> dict[str, int
             n0 = len(p.contours)
             p.contours = [c for ci, c in enumerate(p.contours) if (pi, ci) not in dead]
             done["duplicates"] += n0 - len(p.contours)
-    # 3. open contours, per layer: overlaps merged, ends joined within the tolerance, gaps closed
+    # 3. open contours, per layer and per cluster of touching boxes: overlaps merged, ends
+    #    joined within the tolerance, gaps closed (clusters keep the joining near-linear on
+    #    large exploded drawings: merge_connected compares every pair it is given)
     if o.fix_open or o.fix_overlaps:
         groups: dict[tuple, list[tuple[Part, Contour]]] = {}
         for p in doc.parts:
             for c in p.contours:
                 if c.segments and not c.closed and not _is_point(c):
                     groups.setdefault(_layer_key(p), []).append((p, c))
+        reach = max(o.join_tol, o.dup_gate, 1e-6)
         for members in groups.values():
-            owner = members[0][0]
-            opened = [c for _p, c in members]
-            work: list = list(opened)
-            changed = False
-            if o.fix_overlaps and len(opened) > 1:
-                segs_in = [s for c in opened for s in c.segments]
-                merged = remove_overlaps(segs_in, o.dup_gate)
-                if sum(_seg_len(s) for s in segs_in) - sum(_seg_len(s) for s in merged) > max(o.dup_gate, 1e-6):
-                    done["overlaps"] += 1
-                    work, changed = list(merged), True
-            if o.fix_open:
-                res = merge_connected(work, o.join_tol, 1)
-                res = close_gaps(res, o.close_gap)
-                n_closed = sum(1 for r in res if r.closed)
-                if not changed and len(res) == len(opened) and n_closed == 0:
-                    continue                              # nothing to do: keep the originals
-                done["joined"] += max(0, len(opened) - len(res)) if not changed else 0
-                done["closed"] += n_closed
-                final = res
-            elif changed:
-                final = merge_connected(work, 1e-6, 1)
-            else:
-                continue
-            ids = {id(c) for c in opened}
-            for p in doc.parts:
-                p.contours = [c for c in p.contours if id(c) not in ids]
-            owner.contours.extend(final)
+            for cluster in _clusters(members, reach):
+                _repair_open(doc, cluster, o, done, close_gaps, merge_connected, remove_overlaps)
     # 4. tiny objects
     if o.fix_tiny_objects:
         for p in doc.parts:

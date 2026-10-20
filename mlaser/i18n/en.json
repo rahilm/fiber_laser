@@ -497,6 +497,9 @@
   "main.time_mode": "Time mode",
   "main.wifi": "Wifi",
   "main.world_time": "World Time",
+  "material.ask": "The sheet does not match the technology:\n\n{issues}\n\nCut it anyway? Only when you have checked the sheet and the technology. This is recorded.",
+  "material.override": "Override and cut",
+  "material.title": "Material check",
   "misc.align": "Align",
   "misc.clear_alarm": "Clear Alarm",
   "misc.contours": "Contours",
@@ -537,6 +540,11 @@
   "nest.sheet_name": "Sheet Name",
   "nest.sheet_num": "Sheet Num",
   "nest.std_sheet": "Std Sheet",
+  "nestws.btn.technology": "Technology",
+  "nestws.msg.imported": "{n} parts from {k} files",
+  "nestws.msg.no_material": "no material set: the sheets are not checked against the technology",
+  "nestws.msg.no_tech": "No technology for {material} {t} mm",
+  "nestws.msg.recognized": "{n} parts ({k} different) added",
   "option.0_10v": "0～10V",
   "option.0_4v": "0～4V",
   "option.0_5v": "0～5V",
@@ -749,6 +757,44 @@
   "option.y_axis_2": "Y Axis",
   "option.y_orientation": "Y-orientation",
   "option.z_dry_run_travel_test": "Z dry-run travel test",
+  "orders.ask.replace": "Replace the {n} parts in the Nest list?",
+  "orders.btn.csv": "Import parts list...",
+  "orders.btn.files": "Add drawings...",
+  "orders.btn.nest": "Load into Nest ▶",
+  "orders.btn.remove": "Remove",
+  "orders.btn.template": "Template...",
+  "orders.cmd.csv": "Import parts list",
+  "orders.cmd.files": "Add drawings",
+  "orders.cmd.template": "Save the parts-list template",
+  "orders.cmd.to_nest": "Load into Nest",
+  "orders.col.customer": "Customer",
+  "orders.col.cut": "Cut",
+  "orders.col.due": "Due",
+  "orders.col.file": "File",
+  "orders.col.material": "Material",
+  "orders.col.order": "Order",
+  "orders.col.priority": "Priority",
+  "orders.col.qty": "Qty",
+  "orders.col.thickness": "Thickness",
+  "orders.group": "Material × thickness",
+  "orders.group_item": "{material} {t} mm · {n} lines",
+  "orders.msg.csv": "{file}: {summary}",
+  "orders.msg.files": "{n} drawings added",
+  "orders.msg.nest": "{n} parts from {k} order lines loaded into Nest ({material} {t} mm)",
+  "orders.msg.no_tech": "No technology for {material} {t} mm in the database: apply one in the Process workspace",
+  "orders.msg.row": "line {n}: {msg}",
+  "orders.msg.tech": "Technology {name} applied to layer(s) {layers}",
+  "orders.msg.template": "Template saved: {path}",
+  "orders.set.close_gap": "Close gaps up to",
+  "orders.set.feature_layers": "Feature layers (stay with their part)",
+  "orders.set.ignore_layers": "Ignored layers",
+  "orders.set.islands": "Islands in holes (keep, parts)",
+  "orders.set.join_tol": "Join open ends closer than",
+  "orders.set.recognition": "Part recognition (nested, layer, block, file, none)",
+  "orders.set.review_after_import": "Review every drawing after import",
+  "orders.tech": "Technology",
+  "orders.tech.pick": "Technology for {material} {t} mm:",
+  "orders.undo.tech": "technology {name}",
   "panel.0_05": "0.05",
   "panel.0_1": "0.1",
   "panel.0_5": "0.5",
@@ -1740,6 +1786,19 @@
   "param.zf_vibration_abatement.abatement_factor_thin": "ZF vibration Abatement.Abatement factor - [thin]",
   "param.zf_vibration_abatement.coefficient": "ZF vibration Abatement.Coefficient",
   "param.zf_vibration_suppression.vibration_suppression": "ZF vibration suppression.Vibration suppression",
+  "parts.btn.merge": "Merge",
+  "parts.btn.nest": "Nest these",
+  "parts.btn.split": "Split",
+  "parts.cmd": "Recognised parts",
+  "parts.loose": "{n} open contours are in no part and were left out (Import review closes small gaps)",
+  "parts.mode.block": "One part per block",
+  "parts.mode.file": "Whole drawing as one part",
+  "parts.mode.layer": "One part per layer",
+  "parts.mode.nested": "Outline with holes",
+  "parts.mode.none": "Every object a part",
+  "parts.rule": "Parts by",
+  "parts.summary": "{summary}",
+  "parts.title": "Recognised parts",
   "pitch.average_backlash": "Average backlash (mm): {backlash:.4f}",
   "pitch.back_lash": "Back Lash",
   "pitch.can_t_parse_file": "Can't parse file",
@@ -1846,6 +1905,44 @@
   "register.subnet_mask": "Subnet Mask",
   "register.time": "Time",
   "register.total_mileage": "Total mileage",
+  "repair.done.closed": "closed: {n}",
+  "repair.done.duplicates": "duplicates: {n}",
+  "repair.done.joined": "joined: {n}",
+  "repair.done.overlaps": "overlaps: {n}",
+  "repair.done.text": "text: {n}",
+  "repair.done.tiny_objects": "tiny objects: {n}",
+  "repair.done.tiny_segments": "tiny segments: {n}",
+  "repair.done.zero_length": "zero length: {n}",
+  "repair.kind.duplicate": "duplicate contours",
+  "repair.kind.open_contour": "open contours",
+  "repair.kind.overlap": "overlapping lines",
+  "repair.kind.self_intersection": "self-intersections",
+  "repair.kind.text": "text not converted",
+  "repair.kind.tiny_object": "tiny objects",
+  "repair.kind.tiny_segment": "tiny segments",
+  "repair.kind.zero_length": "zero-length geometry",
+  "review.auto": "Review every drawing after import",
+  "review.btn.fix": "Fix all safe issues",
+  "review.btn.preview": "Preview",
+  "review.btn.repair": "Repair...",
+  "review.close_gap": "Close gaps up to",
+  "review.cmd": "Import review",
+  "review.fix.dup": "duplicates",
+  "review.fix.open": "open contours",
+  "review.fix.seg": "tiny segments",
+  "review.fix.text": "text",
+  "review.fix.tiny": "tiny objects",
+  "review.fixed": "Fixed",
+  "review.found": "{n} problems in {c} contours ({fix} can be fixed): {what}",
+  "review.join_tol": "Join open ends closer than",
+  "review.log": "Import review: {what} (command import.review)",
+  "review.more": "... and {n} more",
+  "review.nothing": "nothing",
+  "review.ok": "No problems found in {n} contours.",
+  "review.open_left": "{n} open contours remain (larger gaps: check the drawing)",
+  "review.title": "Import review",
+  "review.undo": "repair drawing",
+  "review.would": "Would fix",
   "ribbon.group.auxiliary": "Auxiliary",
   "ribbon.group.backup": "Backup",
   "ribbon.group.diagnostics": "Diagnostics",
@@ -1868,6 +1965,13 @@
   "ribbon.tab.process": "Process",
   "ribbon.tab.start": "Start",
   "ribbon.tab.system_analysis": "System Analysis",
+  "run.load.n": "sheet {n}",
+  "run.load.nozzle": "Nozzle: {nozzle}",
+  "run.load.parts": "{n} parts · {name}",
+  "run.load.remnant": "remnant {id}",
+  "run.load.size": "Sheet {size}",
+  "run.load.tech": "Technology: {tech}",
+  "run.load.title": "Load this sheet",
   "status.speed": "Speed{unit}: {speed:.1f}",
   "view.arc": "Arc",
   "view.clear_track": "Clear Track",
@@ -2550,6 +2654,7 @@
   "web.warn.text": "The LAN monitor serves a read-only status page (state, progress, alarms, the current sheet) on {host}:{port} to anyone on the network who has the link with its access token. It cannot control the machine. Share the link only with people who may see production data, and keep it off on untrusted networks.\n\nEnable it?",
   "web.warn.title": "Enable the LAN monitor",
   "ws.nest": "Nest",
+  "ws.orders": "Orders",
   "ws.report": "Report",
   "ws.run": "Run",
   "cost.hint": "From the planned job that Start runs. Lines marked ≈ are estimates, not measurements.",
@@ -2979,6 +3084,64 @@
   "main.import_language_done": [
    "languages"
   ],
+  "material.ask": [
+   "issues"
+  ],
+  "nestws.msg.imported": [
+   "n",
+   "k"
+  ],
+  "nestws.msg.no_tech": [
+   "material",
+   "t"
+  ],
+  "nestws.msg.recognized": [
+   "n",
+   "k"
+  ],
+  "orders.ask.replace": [
+   "n"
+  ],
+  "orders.group_item": [
+   "material",
+   "t",
+   "n"
+  ],
+  "orders.msg.csv": [
+   "file",
+   "summary"
+  ],
+  "orders.msg.files": [
+   "n"
+  ],
+  "orders.msg.nest": [
+   "n",
+   "k",
+   "material",
+   "t"
+  ],
+  "orders.msg.no_tech": [
+   "material",
+   "t"
+  ],
+  "orders.msg.row": [
+   "n",
+   "msg"
+  ],
+  "orders.msg.tech": [
+   "name",
+   "layers"
+  ],
+  "orders.msg.template": [
+   "path"
+  ],
+  "orders.tech.pick": [
+   "material",
+   "t"
+  ],
+  "orders.undo.tech": [
+   "name"
+  ],
   "panel.estimate": [
    "minutes",
    "seconds",
@@ -2986,12 +3149,79 @@
    "rapid_m",
    "pierces"
   ],
+  "parts.loose": [
+   "n"
+  ],
+  "parts.summary": [
+   "summary"
+  ],
   "pitch.average_backlash": [
    "backlash"
   ],
   "plugins.confirm": [
    "names",
    "warning"
+  ],
+  "repair.done.closed": [
+   "n"
+  ],
+  "repair.done.duplicates": [
+   "n"
+  ],
+  "repair.done.joined": [
+   "n"
+  ],
+  "repair.done.overlaps": [
+   "n"
+  ],
+  "repair.done.text": [
+   "n"
+  ],
+  "repair.done.tiny_objects": [
+   "n"
+  ],
+  "repair.done.tiny_segments": [
+   "n"
+  ],
+  "repair.done.zero_length": [
+   "n"
+  ],
+  "review.found": [
+   "n",
+   "c",
+   "fix",
+   "what"
+  ],
+  "review.log": [
+   "what"
+  ],
+  "review.more": [
+   "n"
+  ],
+  "review.ok": [
+   "n"
+  ],
+  "review.open_left": [
+   "n"
+  ],
+  "run.load.n": [
+   "n"
+  ],
+  "run.load.nozzle": [
+   "nozzle"
+  ],
+  "run.load.parts": [
+   "n",
+   "name"
+  ],
+  "run.load.remnant": [
+   "id"
+  ],
+  "run.load.size": [
+   "size"
+  ],
+  "run.load.tech": [
+   "tech"
   ],
   "status.speed": [
    "unit",

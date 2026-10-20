@@ -225,9 +225,19 @@ deliberately out of scope for now.
 - ☐ tests: pytest-xdist in CI (timing tests grouped), `.python-version` 3.12, README numbers
 
 ### Wave C: shop workflow (quoting excluded)
-- ☐ part recognition and DXF repair on import
-- ☐ order intake: multi-file and CSV (quantity, material, thickness, customer, due date)
-- ☐ material check against the technology, "load this sheet" card
+- ☑ part recognition and DXF repair on import: outline + holes + features by containment,
+  layer, block or whole file, identical parts counted (not mirror images), merge/split before
+  nesting; the import review (open contours with the gap, duplicates, overlaps, tiny and
+  zero-length geometry, self-intersections, unconverted text) with preview and one-undo-step
+  fixes, after import and from the pre-flight's single "N open contours: Repair..." line
+  (docs/user/import.md; the DxfParse-faithful import and the goldens are unchanged)
+- ☑ order intake: multi-file and CSV parts lists (quantity, material, thickness, customer,
+  order, due date, priority; bad rows reported; template), material and thickness entered once
+  (Nest follows the layers' technology, orders apply it), customer/order references through
+  the nest, the queue and the production report
+- ☑ material check against the technology (blocking pre-flight error and start guard,
+  audited override), "load this sheet" card (material, thickness, size, remnant id, sheet n/N,
+  picture of the sheet's nest, technology and nozzle, orders)
 - ☐ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
   cut-up, remnant separation cut
 - ☐ lead-in collision check, automatic lead placement, tip-avoiding cut order

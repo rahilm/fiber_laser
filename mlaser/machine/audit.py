@@ -10,7 +10,10 @@ main log.  Events:
 * ``fifo``: a summary per job (frames, frames with emission);
 * ``arm`` / ``disarm``, ``state`` (safety state change), ``fault``, ``fault_reset``;
 * ``alarm`` (raised / cleared), ``link`` (lost / restored), ``halt`` (each safe_halt with the
-  result of every command), ``interlock``, ``preflight`` (refused actions), ``crash``.
+  result of every command), ``interlock``, ``preflight`` (refused actions), ``crash``;
+* ``material_check`` (a cut refused or let through by an override because the sheet does not
+  match the technology) and ``material_override`` (the operator's confirmation, with the
+  reason and user mode; :mod:`mlaser.services.material_check`).
 """
 from __future__ import annotations
 

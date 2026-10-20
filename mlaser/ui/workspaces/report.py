@@ -100,7 +100,8 @@ class ProductionRecorder:
                 ctx["width_mm"], ctx["height_mm"] = sb[2] - sb[0], sb[3] - sb[1]
             ctx.update(material=ent.material, thickness_mm=ent.thickness_mm, queue_id=ent.id,
                        sheet_no=ent.done + 1, remnant_id=ent.remnant_id,
-                       utilisation=float(ent.extra.get("utilisation", 0.0) or 0.0), name=ent.name)
+                       utilisation=float(ent.extra.get("utilisation", 0.0) or 0.0), name=ent.name,
+                       orders=list(ent.extra.get("orders") or []))
         self._ctx = ctx
 
     def _finished(self, ev: Any) -> None:
@@ -113,7 +114,8 @@ class ProductionRecorder:
                                   c["cut_m"], c["move_m"], c["pierces"], c["width_mm"], c["height_mm"],
                                   c.get("material", ""), float(c.get("thickness_mm", 0.0) or 0.0),
                                   float(c.get("utilisation", 0.0) or 0.0), c.get("queue_id", ""),
-                                  int(c.get("sheet_no", 0) or 0), c.get("remnant_id", ""), n_al)
+                                  int(c.get("sheet_no", 0) or 0), c.get("remnant_id", ""), n_al,
+                                  orders=list(c.get("orders") or []))
         self.ledger.add_job(rec, c["estimate"])
 
     def sync_alarms(self) -> None:

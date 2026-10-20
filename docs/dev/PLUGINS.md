@@ -50,6 +50,7 @@ name is already taken is ignored with a log line.
 | `ctx.on_controller_changed(fn)` | `fn(controller)` after the machine controller was replaced (re-attach signals, hooks) |
 | `ctx.on_mode_changed(fn)` | `fn(mode)` when the canvas mode changes (view.* commands, Esc) |
 | `ctx.on_document_changed(fn)` | `fn(kind)` after an edit, undo, redo or a new document |
+| `ctx.on("document_imported", fn)` | `fn(path, document)` after File > Open or Import read a drawing (DXF, SVG, G-code, chf); the built-in Orders plugin runs the import review from it ([import.md](../user/import.md)) |
 | `ctx.on_plan(fn)` | `fn(planned_job)` when a new PlannedJob is ready (preview = what Start cuts) |
 | `ctx.on_close(fn)` | before the window closes (save state, close devices) |
 | `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises.  Used today: `dxf.mode` (ext_options), `machine.monitor_host` (ext_machine: `fn(key, factory)` shows a device monitor as a panel of the Machine workspace); read when present: `user_mode` (`fn() -> "operator" / "engineer" / "service"`), `workspace.show` (`fn(name)`, the shell's switcher) |

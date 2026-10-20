@@ -62,7 +62,22 @@ program ended is shown as *interrupted*.
 
 **Run queue** puts the screen in queue mode. Before every sheet the operator loads the sheet and
 presses **Sheet loaded: start**: the next job is opened and started through the normal Start
-(pre-flight, arming). The queue never starts a sheet by itself. A stopped sheet stays in the
+(pre-flight, arming). The queue never starts a sheet by itself.
+
+While the queue waits, the **Load this sheet** card shows, in large type, the material and
+thickness, the sheet size, the remnant id and the sheet number (n/N), with a picture of the
+sheet and its nest; below it the technology and nozzle on its layers, the part count and the
+orders on the sheet (customer · order: quantity × part). The live view shows that sheet, not the
+previous drawing. A red line on the card warns when the sheet does not match the technology.
+
+**Material check.** Before a sheet starts (from the queue or with Start), its material and
+thickness are compared with the technology on every layer it uses. A mismatch (a 1 mm aluminium
+technology on a sheet queued as 3 mm mild steel) is a **blocking** pre-flight error. Load the
+right sheet or apply the right technology; if you are sure, **Override and cut** in the
+confirmation lets this one sheet start, and the override is recorded in the audit log
+(`material_override`). A layer set by hand (no technology) or a sheet without a material only
+gives a warning. A drawing that is not a queued or nested sheet has no declared material and is
+not checked. A stopped sheet stays in the
 queue (confirm to run it again, or skip it). The planned-quantity interlock of the production
 counters applies.
 

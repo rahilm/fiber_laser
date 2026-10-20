@@ -2,11 +2,21 @@
 
 Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
 
-* **Parts**: name, quantity, maximum (fill up to) and priority (higher is placed first). Add the
-  selected parts of the drawing, or import a DXF / .chf / SVG file.
+* **Parts**: name, quantity, maximum (fill up to) and priority (higher is placed first).
+  **+ From drawing** adds the drawing's *recognised parts* (an outline with its holes and
+  features is one part, identical parts are counted; the selection, else everything) after a
+  review where parts can be merged or split. **Import file...** takes several DXF / .chf / SVG
+  files at once (each file's parts recognised) or a parts list (.csv, into the Orders tab);
+  files can also be dropped on the workspace. See [Import](import.md#part-recognition).
+* **Orders** (the tab next to Nest): parts lists with quantity, material, thickness, customer,
+  order, due date and priority; **Load into Nest** fills the part list with one material ×
+  thickness group ([Import](import.md#orders-several-files-and-parts-lists)).
 * **Sheets / remnants**: standard sheets (width × height × count) and the remnants in stock that
-  match the material and thickness typed above the list. Tick a remnant to nest on it (remnants
-  are filled first).
+  match the material and thickness above the list. The material and thickness follow the
+  technology on the drawing's layers (set in the Process workspace, or by an order) until you
+  type in them; the material field completes from the technology database, and **Technology**
+  applies the matching technology to the layers the parts use. Tick a remnant to nest on it
+  (remnants are filled first).
 * **Parameters**: spacing and edge distance (mm), rotation, the engine (*Raster*, built in; or
   *Sparrow*, when the optional package `spyrrow` is installed), the time limit.
 * **Nest ▶** runs in the background with progress; **Cancel** keeps what was placed.
@@ -15,8 +25,9 @@ Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
   parts, then fewest sheets, then the best utilisation); click one to go back to it.
 * **Send to queue** writes every sheet as a `.chf` (`<data dir>/production/sheets/`) and adds it
   to the job queue (identical sheets become one entry with their count), with the material,
-  thickness, the sheet outline and the layer parameters. **Copy sheet to drawing** replaces the
-  drawing with the selected sheet (undoable).
+  thickness, the sheet outline, the layer parameters and the customer / order references of the
+  parts on each sheet. **Copy sheet to drawing** replaces the drawing with the selected sheet
+  (undoable) and remembers its material and thickness for the material check at Start.
 
 ## Remnants
 

@@ -49,7 +49,7 @@ SECTIONS = (("user", "help.section.user", "User guide"),
 #: topic order inside each section (file names without folder); others follow by name
 ORDER = {
     "": ("README.md",),
-    "user": ("README.md", "getting-started.md", "shell.md", "keyboard.md", "safety.md", "importing-mlaser-setup.md", "design.md",
+    "user": ("README.md", "getting-started.md", "shell.md", "keyboard.md", "safety.md", "importing-mlaser-setup.md", "design.md", "import.md",
              "process.md", "nest.md", "run.md", "report.md", "machine.md", "faq.md"),
     "dev": ("README.md", "ARCHITECTURE.md", "PLUGINS.md", "PERFORMANCE.md", "NATIVE_KERNEL.md",
             "TESTING.md", "PARITY.md", "project-format.md", "i18n.md", "RELEASE.md", "SAFETY.md", "ASSETS.md",

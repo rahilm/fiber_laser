@@ -19,7 +19,8 @@ from PySide6.QtWidgets import QVBoxLayout, QWidget
 
 log = logging.getLogger("mlaser.ui.workspaces")
 
-PLUGINS = ("mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report")
+PLUGINS = ("mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report",
+           "mlaser.ui.workspaces.orders")
 TOUCH = 56          # primary touch targets (px, docs/SAFETY.md run bar)
 TOUCH_MIN = 44      # every other control on the touch screens
 
