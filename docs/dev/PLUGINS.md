@@ -194,4 +194,4 @@ Known gaps (review 2): `ctx.config` is the whole ConfigService, so a plugin can 
 including `safety.*` and the LAN monitor's settings; `ctx.window` is the main window itself; and
 a plugin can replace the `process` profile or providers such as `project.open` (all by design for
 trusted code).  Report a plugin or a path around the guard that a well-meaning plugin could hit
-by accident privately, as the repository's `SECURITY.md` describes.
+by accident privately, as [SECURITY.md](../../SECURITY.md) describes.

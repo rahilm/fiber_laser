@@ -26,12 +26,34 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   simulator timing tests stay together on one worker (xdist group `timing`).
 - `.python-version` (3.12, the reference interpreter of the goldens).
 - `tools/bench_native.py --smooth`: compile figures with the default machine (smoothing on).
+- **Safety**: the gas-low, door and laser-source-alarm interlocks and the PC-alive heartbeat are
+  configurable (`safety.*` in the ConfigService; Machine > Hardware settings > Safety I/O,
+  Engineer and Service mode) and reach the controller at start-up and after every change (a
+  change waits while the machine is armed or a job runs).  Unconfigured interlocks are named on
+  the Run screen, warned about in the pre-flight of a laser job on a real machine, and flagged
+  by the commissioning checklist, which also has a wiring test.  Defaults stay off.
+- **Safety**: third-party (entry-point) plugins are opt-in (Options+ > Plugins, Service mode,
+  `plugins.allowlist`), load after the safety UI, cannot register `run.*` / `shell.*` /
+  `workspace.*` commands, and need granted machine authority to arm, reset faults or change
+  safety settings.  Trust model in docs/dev/PLUGINS.md §6.
+- **Safety**: limits for untrusted files: `.mlz` (unlisted members ignored, per-member and total
+  size, entry count, compression ratio, JSON depth), DXF (INSERT / MINSERT expansion), SVG
+  (`<use>` expansion); imports run off the GUI thread with progress and Cancel.
+- LAN monitor: socket timeouts, a connection cap (per client too), a per-client rate limit; the
+  sheet picture is cached and rebuilt only on change.
+- Command palette: "No command matches" instead of an empty list.
 
 ### Changed
 
 - README and docs/dev/PERFORMANCE.md: suite times re-measured; compile figures labelled
   "smoothing off" (the emitter in isolation) and "default profile" (smoothing on, what the
   application compiles).
+
+### Fixed
+
+- **Safety**: the Run screen's STOP, HOLD, START and Arm can no longer be squeezed out of view by
+  docked panels (the classic Nest dock at 1440 x 900): the Run workspace hides other docks.
+- A plugin pre-claiming `run.stop` no longer stops the application from starting.
 
 ## [0.1.0rc1]
 

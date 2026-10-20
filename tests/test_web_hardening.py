@@ -24,6 +24,9 @@ from mlaser.web.page import render_page
 from mlaser.web.snapshot import SheetSvgCache
 
 LINUX_PROC = os.path.isdir("/proc/self/fd")
+# socket timeouts and thread counts: with the safety / sim timing tests on one xdist worker
+# (tests/conftest.py, TIMING_GROUP), not next to 60 busy workers
+pytestmark = pytest.mark.xdist_group("timing")
 
 
 def _get(s, path, timeout=5.0):
