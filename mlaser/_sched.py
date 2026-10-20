@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import contextlib
 import threading
+from typing import Callable
 
 _si_lock = threading.Lock()
 _si_state: list = [0, 0.0]          # [depth, saved interval]
@@ -42,3 +43,37 @@ def responsive_holders() -> int:
     interval stays lowered, whoever opened the first."""
     with _si_lock:
         return int(_si_state[0])
+
+
+def start_now(fn: Callable[[], None], name: str) -> None:
+    """Run ``fn`` in a new daemon thread named ``name`` without waiting for it to start.
+
+    ``threading.Thread.start`` blocks until the new thread has run far enough to signal that it
+    started, and that needs the GIL: with CPU-bound threads in the process (a streaming job,
+    a compile) the caller waited 10-60 ms (measured: median 11 ms, p99 56 ms with three busy
+    threads; Windows CI: Stop blocked the GUI thread 58 ms).  ``_thread.start_new_thread``
+    returns once the OS thread exists (~0.04 ms).  An exception ``fn`` lets out goes to
+    ``threading.excepthook`` as for any thread (the application's hook halts and latches)."""
+    import _thread
+    import sys
+
+    def body() -> None:
+        try:
+            threading.current_thread().name = name      # machine-thread checks go by the name
+        except Exception:  # noqa: BLE001 - only a label
+            pass
+        try:
+            fn()
+        except BaseException:  # noqa: BLE001 - reported like a threading.Thread's
+            et, ev, tb = sys.exc_info()
+            threading.excepthook(threading.ExceptHookArgs((et, ev, tb, threading.current_thread())))
+        finally:
+            # the stand-in Thread object threading made for it (3.12 kept it listed after the
+            # thread ended: threading.enumerate() showed a dead "mlaser-stop")
+            try:
+                with threading._active_limbo_lock:          # type: ignore[attr-defined]
+                    threading._active.pop(threading.get_ident(), None)   # type: ignore[attr-defined]
+            except AttributeError:
+                pass
+
+    _thread.start_new_thread(body, ())

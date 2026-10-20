@@ -716,7 +716,10 @@ class JobRunnerPart:
             finally:
                 done.set()
 
-        threading.Thread(target=do_stop, name="mlaser-stop", daemon=True).start()
+        # never waits for the thread to start (threading.Thread.start did: 10-60 ms with busy
+        # threads in the process, while the caller - the GUI's Stop - waited)
+        from ..._sched import start_now
+        start_now(do_stop, "mlaser-stop")
         if wait:
             done.wait(15.0)
         return done

@@ -25,7 +25,7 @@ import pytest
 from mlaser.machine import lifecycle
 from mlaser.machine.safety import SafetyState
 
-from safety_helpers import Watch, rect_doc, safe, start_and_run, wait_until
+from safety_helpers import Watch, rect_doc, safe, start_and_run, stopped, wait_until
 
 
 @pytest.mark.parametrize("process", [False, True])
@@ -66,6 +66,23 @@ def test_stop_is_asynchronous_and_halts_first(make_ctl, process):
     cmds = sim.state.commands
     i = cmds.index(want[0])
     assert cmds[i:i + len(want)] == want
+
+
+def test_stop_never_waits_for_a_thread_start(make_ctl, monkeypatch):
+    """stop() hands the halt to a thread it does not wait for: threading.Thread.start blocks
+    until the new thread runs, 10-60 ms with busy threads in the process (Windows CI: stop()
+    blocked the caller 58 ms).  Here a thread start that would take 0.5 s."""
+    ctl = make_ctl(process=False)
+    start_and_run(ctl, run_s=0.3)
+    import threading as _th
+    real = _th.Thread.start
+    monkeypatch.setattr(_th.Thread, "start", lambda self: (time.sleep(0.5), real(self)))
+    t0 = time.monotonic()
+    done = ctl.stop()
+    assert time.monotonic() - t0 < 0.05, "stop() waited for a thread start"
+    monkeypatch.setattr(_th.Thread, "start", real)
+    assert done.wait(10)
+    assert wait_until(lambda: stopped(ctl.sim), 2) is not None
 
 
 def test_stop_with_the_link_down_never_blocks(make_ctl):
