@@ -352,10 +352,15 @@ def test_report_workspace_exports(win, app, tmp_path):
     pump(app, 0.2)
     jobs = rep.ledger.jobs()
     assert [j.ok for j in jobs] == [True, False]
+    # the test window runs the demo controller: simulator jobs, recorded but not production
+    assert {j.source for j in jobs} == {"simulator"}
     win.commands.run("workspace.report")
     host = rep.widget.window()
     host.resize(1280, 800)
     pump(app, 0.2)
+    d = rep.widget.refresh()
+    assert d["summary"]["jobs"] == 0 and d["hidden"] == 2 and rep.widget.jobs.rowCount() == 0
+    rep.widget.runs.setCurrentIndex(rep.widget.runs.findData("all"))      # Runs: All
     d = rep.widget.refresh()
     assert d["summary"]["jobs"] == 2 and rep.widget.jobs.rowCount() == 2
     shot(host, "report_1280x800.png")
@@ -374,10 +379,10 @@ def test_i18n_ids_of_the_workspaces_exist():
     here = os.path.dirname(pkg.__file__)
     pat = re.compile(r"""\btr\(\s*[\w.()]+,\s*["']([a-z_]+\.[a-z0-9_.]+)["']""")
     missing = []
-    for fn in ("run.py", "nest.py", "report.py"):
+    for fn in ("run.py", "nest.py", "report.py", "approval.py"):
         with open(os.path.join(here, fn), encoding="utf-8") as f:
             src = f.read()
         ids = set(pat.findall(src))
-        ids |= set(re.findall(r'\("((?:run|queue|report|nestws|web)\.[a-z0-9_.]+)", "', src))
+        ids |= set(re.findall(r'\("((?:run|queue|report|nestws|web|approval)\.[a-z0-9_.]+)", "', src))
         missing += [i for i in ids if i not in cat.strings]
     assert not missing, sorted(set(missing))

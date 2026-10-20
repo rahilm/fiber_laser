@@ -45,7 +45,10 @@ EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
               # Wave 3 workspaces (full module paths; plugin names run / nest / report)
               "mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report",
               # Review 2 Import & orders: import review, part recognition, orders, material check
-              "mlaser.ui.workspaces.orders")
+              "mlaser.ui.workspaces.orders",
+              # Review 2 shop floor (after run / report: they use the queue, intake and ledger)
+              "mlaser.ui.ext_automation", "mlaser.ui.ext_notify", "mlaser.ui.ext_labels",
+              "mlaser.ui.ext_practice")
 
 
 def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow

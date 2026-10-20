@@ -12,6 +12,30 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Added
 
+- Command line: `mlaser compile | estimate | nest | validate | convert | queue add | queue list`
+  (also `python -m mlaser ...`, `mlaser-cli`), JSON output with `--json`, documented exit codes,
+  the GUI's services, no card connection (docs/user/automation.md).
+- Automation API (off by default): local REST + WebSocket, read-only status and events, queue
+  intake whose jobs wait for the operator's approval on the Run screen; token, localhost by
+  default, the LAN monitor's limits, OpenAPI description; no remote start, stop, hold, arm,
+  move or approval (docs/dev/API.md).
+- **Safety**: jobs submitted from outside (API, CLI) wait in a separate approval list
+  (`pending.json`) and become queue entries only when the operator approves them; a submission
+  carries no cutting parameters.
+- Notifications: sheet done, queue waiting, alarm / fault, job finished, maintenance due over
+  ntfy, e-mail (SMTP) and webhook, per-event settings, rate limits, secrets in the keyring or a
+  0600 file (docs/user/notifications.md).
+- Labels: part labels on roll and A4 sheet sizes, QR job tickets per queued sheet, remnant
+  labels (PDF), part-ID etching on a marking layer (docs/user/labels.md).
+- Practice mode: six guided lessons on the simulator with progress (docs/user/practice.md).
+
+### Changed
+
+- Report: every job record has a source (real / simulator / dry run / practice); the figures
+  count real jobs by default (Runs filter), dry runs are recorded too. The device counters
+  (processing hours, maintenance), the planned quantity and `TotalReport.txt` count real jobs
+  only (review 2: a simulator sheet was recorded as production).
+
 - `SECURITY.md`: private reporting of security and machine-safety issues (GitHub private
   vulnerability reporting).
 - `CONTRIBUTING.md`: setup, the contract checked on every commit, parity and bit-exact rules,

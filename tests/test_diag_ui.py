@@ -57,6 +57,9 @@ def test_job_statistics_end_to_end(win, tmp_path):
     w.set_document(Document(parts=[Part([sq])], layers={1: LayerParams(1)}))
     w.ctl.connect()
     assert w.ctl.arm()
+    # the demo controller is a simulator, whose jobs never count (review 2 P1-7,
+    # test_simulator_jobs_do_not_count); this test is about the statistics of a real job
+    ext.svc.job_source = lambda mode: "real"
     DemoController.RAPID = 4000.0
     try:
         w.ctl.start(w.document)

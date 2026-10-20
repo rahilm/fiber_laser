@@ -17,6 +17,11 @@ used as is (``cost_hook`` takes precedence over both).
 
 JSON lines are appended (one ``write`` per record), so a crash loses at most the last line and
 a damaged line is skipped on reading.
+
+Every job record carries its ``source`` (``real`` / ``simulator`` / ``dry_run`` / ``practice``,
+:mod:`mlaser.services.runsource`).  :meth:`Ledger.jobs` returns every source unless
+``sources`` is given; the Report counts :data:`PRODUCTION_SOURCES` (real jobs) by default.  A
+record written before sources existed has none and reads as ``real``.
 """
 from __future__ import annotations
 
@@ -32,6 +37,9 @@ from typing import Any, Callable, Iterable, Optional
 
 PRODUCTION_FILE = "production.jsonl"
 ALARM_FILE = "alarms.jsonl"
+#: job sources (mlaser.services.runsource); the Report counts PRODUCTION_SOURCES by default
+SOURCES = ("real", "simulator", "dry_run", "practice")
+PRODUCTION_SOURCES: tuple[str, ...] = ("real",)
 
 
 # ============================================================================== records
@@ -62,15 +70,24 @@ class ProductionRecord:
     #: order references of the parts on the sheet (customer, order, line, part, qty), from the
     #: queue entry (services.orders.sheet_order_refs)
     orders: list = field(default_factory=list)
+    source: str = "real"               # real | simulator | dry_run | practice (SOURCES)
 
     @property
     def day(self) -> str:
         return _dt.datetime.fromtimestamp(self.start).strftime("%Y-%m-%d")
 
+    @property
+    def production(self) -> bool:
+        """A real job (counted in the production figures by default)."""
+        return (self.source or "real") in PRODUCTION_SOURCES
+
     @classmethod
     def from_json(cls, d: dict) -> "ProductionRecord":
         names = {f.name for f in fields(cls)}
-        return cls(**{k: v for k, v in d.items() if k in names})
+        r = cls(**{k: v for k, v in d.items() if k in names})
+        if r.source not in SOURCES:
+            r.source = "real" if not r.source else str(r.source)
+        return r
 
 
 @dataclass
@@ -209,14 +226,18 @@ class Ledger:
         self._changed()
         return rec
 
-    def jobs(self, since: float = 0.0, until: float = float("inf")) -> list[ProductionRecord]:
+    def jobs(self, since: float = 0.0, until: float = float("inf"),
+             sources: Optional[Iterable[str]] = None) -> list[ProductionRecord]:
+        """Job records started in ``[since, until)``; ``sources`` keeps only those sources
+        (e.g. :data:`PRODUCTION_SOURCES`), None every record."""
+        keep = None if sources is None else {str(s) for s in sources}
         out = []
         for d in self._read(self.production_path):
             try:
                 r = ProductionRecord.from_json(d)
             except TypeError:
                 continue
-            if since <= r.start < until:
+            if since <= r.start < until and (keep is None or (r.source or "real") in keep):
                 out.append(r)
         return out
 
@@ -353,7 +374,7 @@ def by_job(jobs: Iterable[ProductionRecord]) -> list[dict]:
 # ============================================================================== CSV
 JOB_COLUMNS = ("start", "end", "name", "ok", "reason", "duration_s", "est_s", "cut_m", "move_m",
                "pierces", "width_mm", "height_mm", "material", "thickness_mm", "utilisation",
-               "queue_id", "sheet_no", "remnant_id", "alarms", "cost_total", "currency", "path", "orders")
+               "queue_id", "sheet_no", "remnant_id", "alarms", "cost_total", "currency", "path", "orders", "source")
 DAY_COLUMNS = ("day", "jobs", "ok", "stopped", "run_s", "est_s", "cut_m", "move_m", "pierces",
                "utilisation", "cost", "currency", "alarms", "alarm_s")
 ALARM_COLUMNS = ("time", "code", "text", "kind", "cleared", "duration_s", "job", "remedy")
@@ -371,7 +392,7 @@ def job_rows(jobs: Iterable[ProductionRecord]) -> list[list]:
                     round(j.width_mm, 1), round(j.height_mm, 1), j.material, j.thickness_mm,
                     round(j.utilisation, 4), j.queue_id, j.sheet_no, j.remnant_id, j.alarms,
                     round(float(j.cost.get("total", 0.0) or 0.0), 2), j.cost.get("currency", ""), j.path,
-                    _orders_text(j.orders)])
+                    _orders_text(j.orders), j.source or "real"])
     return out
 
 
@@ -412,6 +433,6 @@ def write_csv(path: str, columns: Iterable[str], rows: Iterable[list]) -> str:
     return path
 
 
-__all__ = ["ProductionRecord", "AlarmRecord", "CostRates", "Ledger", "job_cost", "summary", "by_day",
+__all__ = ["SOURCES", "PRODUCTION_SOURCES", "ProductionRecord", "AlarmRecord", "CostRates", "Ledger", "job_cost", "summary", "by_day",
            "by_job", "period", "job_rows", "day_rows", "alarm_rows", "csv_text", "write_csv",
            "JOB_COLUMNS", "DAY_COLUMNS", "ALARM_COLUMNS"]

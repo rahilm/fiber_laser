@@ -42,6 +42,7 @@ all = ["mlaser[devices,plots,test,modern]"]
 [project.scripts]
 mlaser = "mlaser.ui.__main__:main"
 mlaser-cardsim = "mlaser.controller.simulator:main"
+mlaser-cli = "mlaser.cli:main"         # the headless subcommands (also `mlaser <subcommand>`, docs/user/automation.md)
 
 [tool.setuptools.packages.find]
 include = ["mlaser*"]
@@ -144,7 +145,8 @@ ignore = ["E702", "E731", "E741"]
 [tool.mypy]
 python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/_native", "mlaser/nc", "mlaser/services",
-         "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py"]
+         "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py",
+         "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels"]
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -165,8 +167,10 @@ name = "Dependencies point downward only"
 type = "layers"
 layers = [
     "mlaser.ui | mlaser.parity",
+    "mlaser.cli",                 # the GUI launcher hands subcommands to it (mlaser.ui.__main__)
     "mlaser.services",
-    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web",
+    "mlaser.api",                 # reuses the LAN monitor's hardened server (mlaser.web)
+    "mlaser.diag | mlaser.report | mlaser.engrave | mlaser.web | mlaser.notify | mlaser.labels",
     "mlaser.controller",
     "mlaser.devices | mlaser.machine",
     "mlaser.ops",
@@ -190,6 +194,7 @@ source_modules = [
     "mlaser.formats", "mlaser.cad", "mlaser.motion", "mlaser.cam", "mlaser.io", "mlaser.nest",
     "mlaser.nc", "mlaser.ops", "mlaser.machine", "mlaser.devices", "mlaser.controller",
     "mlaser.services", "mlaser.project", "mlaser.web",
+    "mlaser.cli", "mlaser.api", "mlaser.notify", "mlaser.labels",
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 # no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt
@@ -206,3 +211,12 @@ forbidden_modules = [
     "mlaser.parity", "mlaser._compat",
 ]
 # no ignores left: LayerView's defaults are injected (parity_ports.mainapp.layer.set_layer_defaults)
+
+[[tool.importlinter.contracts]]
+# the automation API and the notifications hold no route to the machine: no controller, no card
+# protocol, no devices, no streamer (docs/dev/API.md "No remote motion"; tests/safety/test_automation_api.py)
+name = "Automation API and notifications cannot reach the machine"
+type = "forbidden"
+source_modules = ["mlaser.api", "mlaser.notify"]
+forbidden_modules = ["mlaser.controller", "mlaser.devices", "mlaser.protocol", "mlaser.nc.stream",
+                     "mlaser.machine.api", "mlaser.machine.safety"]

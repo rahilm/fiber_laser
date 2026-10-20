@@ -49,7 +49,7 @@ COLUMNS: dict[str, tuple[str, ...]] = {
     "file": ("file", "path", "filename", "drawing", "dxf", "partfile", "part", "datei"),
     "quantity": ("quantity", "qty", "count", "pcs", "pieces", "amount", "menge", "anzahl", "stk"),
     "material": ("material", "mat", "werkstoff"),
-    "thickness": ("thickness", "thk", "thicknessmm", "thick", "t", "staerke", "dicke"),
+    "thickness": ("thickness", "thk", "thicknessmm", "thick", "t", "staerke", "stärke", "dicke"),
     "customer": ("customer", "client", "kunde"),
     "order": ("order", "orderref", "ref", "reference", "orderno", "ordernumber", "po", "job", "auftrag"),
     "due": ("due", "duedate", "deadline", "date", "delivery", "termin"),
