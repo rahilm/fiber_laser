@@ -378,11 +378,27 @@ class TechField:
         self.reset.setVisible(False)
         self.reset.setFocusPolicy(Qt.TabFocus)
         self.container = QWidget()
-        row = QHBoxLayout(self.container)
+        col = QVBoxLayout(self.container)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(2)
         row.addWidget(w, 1)
         row.addWidget(self.reset)
+        col.addLayout(row)
+        # source chip (inheritance): "set on layer 2" under an overridden value
+        self.chip = QLabel()
+        self.chip.setObjectName("techform_chip")
+        self.chip.setWordWrap(True)
+        f = self.chip.font()
+        f.setPointSizeF(f.pointSizeF() * 0.85)
+        self.chip.setFont(f)
+        self.chip.setForegroundRole(self.chip.foregroundRole())
+        self.chip.hide()
+        col.addWidget(self.chip)
+        self.mark: Optional[bool] = None     # explicit override mark (inheritance), None = diff
+        self.here_label = ""
         self.base: Any = None
         self.overridden = False
         self.secondary = False
@@ -432,8 +448,17 @@ class TechField:
 
     def update_marker(self, base_label: str) -> None:
         cur = self.get()
-        self.overridden = self.base is not None and not T._same(cur, self.base)
-        self.reset.setVisible(self.overridden)
+        if self.mark is not None:
+            self.overridden = self.mark
+        else:
+            self.overridden = self.base is not None and not T._same(cur, self.base)
+        self.reset.setVisible(self.overridden and self.base is not None)
+        if self.here_label:
+            self.chip.setText(self.here_label if self.overridden else "")
+            self.chip.setVisible(self.overridden)
+            tip = self.tooltip + "\n\n" + (self.here_label if self.overridden else
+                                             self.tr_.format("techform.from", base=base_label))
+            self.widget.setToolTip(tip)
         if self.overridden:
             self.reset.setToolTip(self.tr_.format("techform.reset_tip", base=base_label,
                                                   value=self.text_value(self.base)))
@@ -456,6 +481,8 @@ class TechForm(QWidget):
     override markers compare with."""
 
     changed = Signal()
+    fieldEdited = Signal(str, object)     # key, new value (a user edit of one field)
+    fieldReset = Signal(str)              # key: the reset button of an overridden field
 
     def __init__(self, tr: Any, pressure_unit: int = 0, parent: Optional[QWidget] = None,
                  advanced: bool = False, scope: Optional[str] = None) -> None:
@@ -555,7 +582,7 @@ class TechForm(QWidget):
                    grouped: bool = False) -> Optional[TechField]:
         if key in self.fields or key not in T.layer_registry():
             return None
-        f = TechField(key, self.tr_, self._edited, self.pressure_unit)
+        f = TechField(key, self.tr_, lambda k=key: self._field_edited(k), self.pressure_unit)
         f.secondary = secondary
         f.section = sid
         f.reset.clicked.connect(lambda _c=False, ff=f: self.reset_field(ff.key))
@@ -620,12 +647,19 @@ class TechForm(QWidget):
         return form
 
     # ---------------------------------------------------------------- values
-    def set_values(self, full: dict, base: Optional[dict] = None, base_label: str = "") -> None:
+    def set_values(self, full: dict, base: Optional[dict] = None, base_label: str = "",
+                   marks: Optional[set] = None, here_label: str = "") -> None:
+        """Load values.  ``base``: what they are compared with / reset to; ``marks``: the keys
+        overridden here (inheritance; without it a value differing from ``base`` counts as
+        changed); ``here_label``: the words of the chip under an overridden value ("set on
+        layer 2")."""
         self._loading = True
         try:
             for k, f in self.fields.items():
                 f.set(full.get(k, f.d.default_value))
                 f.base = None if base is None else base.get(k, f.d.default_value)
+                f.mark = None if marks is None else (k in marks)
+                f.here_label = here_label
             self.base_label = base_label
         finally:
             self._loading = False
@@ -639,8 +673,17 @@ class TechForm(QWidget):
         self.fields[key].set(v)
         self._edited()
 
+    def _field_edited(self, key: str) -> None:
+        if self._loading:
+            return
+        self._edited()
+        self.fieldEdited.emit(key, self.fields[key].get())
+
     def reset_field(self, key: str) -> None:
         f = self.fields[key]
+        if f.mark is not None:                  # inheritance: the owner clears the override
+            self.fieldReset.emit(key)
+            return
         if f.base is not None:
             f.set(f.base)
             self._edited()

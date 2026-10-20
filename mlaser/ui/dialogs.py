@@ -162,8 +162,8 @@ class ParamGridDialog(QDialog):
         self.accept()
 
 
-# lp0 "Layer parameters": the grouped technology form (mlaser.ui.layer_params_dialog)
-from .layer_params_dialog import LayerParamDialog  # noqa: E402,F401 - re-exported
+# lp0 "Layer parameters" is no longer a dialog: a layer's values are edited in one place, the
+# layer inspector of Process › Layers (mlaser.ui.workspaces.layer_inspector).
 
 
 class LeadDialog(_Base):

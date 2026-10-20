@@ -847,11 +847,12 @@ class MainWindow(QMainWindow):
     def edit_layer(self, layer: int) -> None:
         if self._operator_blocked():               # Operator mode: no parameter editing
             return
-        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
-                                                                extra={"placeholder": True}))
-        if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
-            lp.extra.pop("placeholder", None)        # parameters confirmed: the layer is defined
-            self.layer_panel.refresh()
+        # one home per value: the layer's values are edited in Process › Layers (the layer
+        # inspector), not in a dialog of their own (SETTINGS_MAP H3)
+        self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
+                                                           extra={"placeholder": True}))
+        from . import homes
+        homes.edit_in(self, "layer.GP.CutSpeed", layer)
 
     def _kerf_width(self) -> float:
         sel = [p for p in self.document.parts if p.selected] or self.document.parts

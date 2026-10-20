@@ -205,7 +205,7 @@ def test_user_modes_gate_commands_rail_and_editing(win, app, monkeypatch):
     assert win.property("userMode") == "operator"
     assert not win.layer_panel.isEnabled()
     edited = []
-    monkeypatch.setattr("mlaser.ui.dialogs.LayerParamDialog.exec", lambda self: edited.append(1) or 0)
+    monkeypatch.setattr("mlaser.ui.homes.edit_in", lambda *a, **k: edited.append(1))
     win.edit_layer(1)
     assert edited == []                                   # no parameter editing
     from mlaser import ops

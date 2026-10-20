@@ -763,7 +763,6 @@ class OrdersPlugin:
         layer values to the layers the nest parts use (one undo step) and select it in the
         Process workspace."""
         from mlaser.model import LayerParams
-        from mlaser.services import technology as T
         w = self.window
         store = self.store()
         if store is None or not material or not thickness:
@@ -795,11 +794,17 @@ class OrdersPlugin:
         layers = sorted({q.craft.layer for q in geo}) or sorted({p.craft.layer for p in w.document.parts}) or [0]
 
         def fn(d):
+            from mlaser.services import inheritance as I
+
             from ..canvas import layer_color
             for li in layers:
-                lp = d.layers.get(li) or LayerParams(index=li, color=layer_color(li).name())
-                d.layers[li] = T.apply_to_layer(lp, tech)
-        self.ctx.edit(fn, tr(w, "orders.undo.tech", "technology {name}", name=tech.key.label()), parts=())
+                if li not in d.layers:
+                    d.layers[li] = LayerParams(index=li, color=layer_color(li).name())
+            # one service for every "use this technology" (SETTINGS_MAP *Assign recipe*); the
+            # parts keep their leads and kerf as drawn (set on the parts)
+            I.pin_crafts([p for p in d.parts if p.craft.layer in layers])
+            I.assign_recipe(d, store, tech, layers)
+        self.ctx.edit(fn, tr(w, "orders.undo.tech", "technology {name}", name=tech.key.label()))
         # the layer values only: leads, kerf and micro-joints stay as the parts were drawn (a
         # lead added here could reach past the sheet edge the nest placed the part against)
         if pws is not None:

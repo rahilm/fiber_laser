@@ -208,17 +208,12 @@ def test_main_window_screenshot(app, tmp_path):
 
 
 def test_dialogs_build(app):
-    from mlaser.model import LayerParams, LeadParams
+    from mlaser.model import LeadParams
     from mlaser.ui import dialogs
     from mlaser.ui.params import OPTION_SECTIONS, registry  # noqa: F401
 
     tr = i18n.Translator(language="en")
     assert len(registry()) > 500
-    lp = LayerParams(index=1)
-    d = dialogs.LayerParamDialog(tr, lp)
-    d.values["GP.CutSpeed"] = 55.0
-    d._store()
-    assert lp.speed == 55.0
     li, lo = LeadParams(kind=1), LeadParams()
     ld = dialogs.LeadDialog(tr, li, lo)
     ld._w["in"][3].setValue(4.5)

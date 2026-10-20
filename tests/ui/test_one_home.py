@@ -21,7 +21,7 @@ from PySide6.QtWidgets import QDialog, QDockWidget, QWidget
 from mlaser import ops
 
 #: surfaces whose every input must be bound (editor / mirror / transient)
-BOUND_SURFACES = {"dock:plugin.ext_process.properties", "dialog:LayerParamDialog"}
+BOUND_SURFACES = {"dock:plugin.ext_process.properties"}
 
 
 @pytest.fixture(scope="module")
@@ -123,7 +123,6 @@ def walk(app, tmp_path_factory):
         for s in BOUND_SURFACES:
             if s.startswith("dock:"):
                 unbound.setdefault(s, []).extend(_unbound(w, s))
-        w.edit_layer(1)                    # the layer parameters (opened from the layer list)
         for cmd, act in sorted(w.ribbon.actions.items()):
             if cmd.startswith(("app.exit", "shell.mode_", "hw.connect", "hw.reconnect", "file.")):
                 continue

@@ -383,21 +383,40 @@ def test_technology_editor_groups_hides_advanced_and_persists(win, app):
     assert T.layer_technology_ref(win.document.layers[1])["version"] == 2
 
 
-def test_layer_dialog_shows_what_the_layer_overrides(win, app):
-    from mlaser.ui import dialogs
+def test_layer_inspector_inherits_and_overrides(win, app):
+    """Process › Layers: the layer follows its recipe; a value set on the layer is marked and
+    survives re-assigning the recipe; restore goes back to the recipe's value."""
+    from mlaser.services import inheritance as I
 
     ext = win.extension("ext_process")
+    ws = ext.workspace
     tech = ext.store.all()[0]
-    ext.workspace.apply(tech, [1], leads=False, kerf=False, joints=False, rules=False)
+    ws.apply(tech, [1])
+    ws.select_layer(1)
+    insp = ws.inspector
+    speed = tech.full_params()["GP.CutSpeed"]
+    f = insp.form.fields["GP.CutSpeed"]
+    assert f.get() == pytest.approx(speed) and not f.overridden and tech.key.material in insp.form.base_label
+    f.widget.setValue(speed + 10.0)           # the user types a value: one undo step
     lp = win.document.layers[1]
-    d = dialogs.LayerParamDialog(win.tr_, lp, win)
-    assert d.form.overridden() == [] and tech.key.material in d.form.base_label
-    lp.speed = tech.full_params()["GP.CutSpeed"] + 10.0
-    d = dialogs.LayerParamDialog(win.tr_, lp, win)
-    assert d.form.overridden() == ["GP.CutSpeed"]
-    d.form.reset_field("GP.CutSpeed")
-    d._ok()
-    assert lp.speed == pytest.approx(tech.full_params()["GP.CutSpeed"])
+    assert lp.speed == pytest.approx(speed + 10.0) and "GP.CutSpeed" in I.layer_overrides(lp)
+    assert insp.form.fields["GP.CutSpeed"].overridden and not insp.form.fields["GP.CutSpeed"].chip.isHidden()
+    assert "1 " in ws.layer_state(1)[1] or "1" in ws.layer_state(1)[1]
+    ws.apply(tech, [1])                        # re-assign: the value set on the layer stays
+    assert win.document.layers[1].speed == pytest.approx(speed + 10.0)
+    insp.form.reset_field("GP.CutSpeed")       # restore: the recipe's value
+    assert win.document.layers[1].speed == pytest.approx(speed)
+    assert "GP.CutSpeed" not in I.layer_overrides(win.document.layers[1])
+    win.undo()
+    assert win.document.layers[1].speed == pytest.approx(speed + 10.0)
+    # a layer-level kerf default reaches the parts of the layer
+    fld = insp.craft_fields["craft.kerf_width"]
+    fld.edited.emit(0.2)
+    assert all(p.craft.kerf_width == 0.2 for p in win.document.parts if p.craft.layer == 1)
+    # the layer list's double-click and the Properties button go to the inspector
+    win.show_workspace("design")
+    win.edit_layer(1)
+    assert ws.pages.currentIndex() == 0 and ws.tabs.currentWidget() is insp
 
 
 def test_compare_two_technologies(win, app):

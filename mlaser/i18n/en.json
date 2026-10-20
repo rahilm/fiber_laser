@@ -568,6 +568,9 @@
   "home.run": "Run",
   "home.select_parts": "Select the parts whose cut settings you want to change. The layer defaults are in Process › Layers.",
   "home.settings": "Settings",
+  "inherit.from": "from {source}",
+  "inherit.reset_tip": "Restore: use the value from {source}",
+  "inherit.set_on": "set on {where}",
   "inherit.src.contour": "this contour",
   "inherit.src.layer": "layer {n}",
   "inherit.src.part": "this part",
@@ -611,18 +614,38 @@
   "labels.set.ticket_page": "Job ticket page size",
   "labels.undo.etch": "Etch part IDs",
   "labels.undo.remove": "Remove part ID marking",
+  "layer.assign": "Assign recipe",
+  "layer.assign_tip": "The layer follows this technology record: its values and the parts' leads and kerf come from it, except what is set on the layer, a part or a contour.",
+  "layer.assigned": "Recipe {name} assigned to layer {layers}; {kept} values set on the layers and {parts} parts with their own settings kept",
+  "layer.craft_section": "Leads and kerf (layer defaults)",
+  "layer.edit.reset": "restore layer value",
+  "layer.edit.value": "layer value",
+  "layer.follows": "Follows {recipe}",
   "layer.import_the_layer_parameters": "Import the layer parameters",
   "layer.layer_parameters": "Layer Parameters",
+  "layer.no_recipe": "No recipe: every value is set on this layer. Choose a recipe below to follow a technology record.",
+  "layer.none": "Select a layer",
+  "layer.push": "Put changes into the recipe…",
+  "layer.push_confirm": "Save the {n} values set on this layer ({names}) as a new version of {recipe}? The layer then follows that version.",
+  "layer.recipe": "Recipe",
+  "layer.reset_all": "Restore all",
+  "layer.save_new": "Save as new recipe…",
   "layer.system_parameters_backup": "System parameters backup",
+  "layer.title": "Layer {n}",
   "layerdlg.base_tech": "technology {name}",
   "layerdlg.intro": "The process parameters of this layer. The important ones are shown first; tick Show all parameters for the rest, or search. Values changed on this layer are in bold with a restore button.",
   "layerdlg.title": "Layer {n} parameters",
+  "layers.edit_in": "Edit in Process › Layers",
   "leaddlg.at_corner": "Opposite side flag",
   "leaddlg.at_corner_tip": "The lead side flag of the .chf file (set when a contour is reversed). It is stored with the drawing; the toolpath does not use it.",
   "leaddlg.intro": "A lead-in starts the cut in the scrap, so the pierce mark is not on the part; a lead-out ends it there. The leads go to the selected parts, or to every part when nothing is selected.",
   "leaddlg.only_closed": "Closed contours only",
   "leaddlg.only_selected": "Selected parts only",
   "leaddlg.only_selected_tip": "Untick to set the leads on every part. With nothing selected they go to every part.",
+  "library.search": "Search material, thickness, gas…",
+  "library.tab.values": "Values",
+  "library.unused": "Not used in this drawing",
+  "library.used_by": "Used by layers {layers} of this drawing",
   "main.add_alpha_chamfer": "Add α Chamfer",
   "main.add_sheet": "Add Sheet",
   "main.alarm": "Alarm",
@@ -2359,6 +2382,9 @@
   "process.material": "Material",
   "process.no_technology": "No technology",
   "process.nozzle": "Nozzle",
+  "process.outdated": "Layers {layers} follow an older version of their recipe.",
+  "process.page.drawing": "Drawing",
+  "process.page.library": "Library",
   "process.pick": "Technology",
   "process.save_layer": "Save layer as technology…",
   "process.set.auto": "auto",
@@ -2377,20 +2403,22 @@
   "process.set.sheet_h": "Sheet height (0 = cut bounding box)",
   "process.set.sheet_w": "Sheet width (0 = cut bounding box)",
   "process.set.wall_plug": "Laser wall-plug efficiency (assumption)",
-  "process.state.as_applied": "As applied",
+  "process.state.as_applied": "As recipe",
   "process.state.example": "example values",
-  "process.state.manual": "Set by hand",
-  "process.state.missing": "Technology no longer in the database",
-  "process.state.modified": "Modified: {n} fields",
-  "process.state.newer": "version {v} available: apply again to use it",
-  "process.state.undefined": "Not defined: set its parameters",
+  "process.state.manual": "No recipe",
+  "process.state.missing": "Recipe no longer in the library",
+  "process.state.modified": "{n} set on the layer",
+  "process.state.newer": "recipe version {v} available: Update",
+  "process.state.undefined": "Not defined: choose a recipe",
   "process.tab": "Process+",
   "process.tab.changes": "What changed",
   "process.tab.estimate": "Estimate",
   "process.tab.history": "History",
+  "process.tab.layer": "Layer",
   "process.tab.technology": "Technology",
   "process.thickness": "Thickness",
   "process.title": "Process",
+  "process.update_layers": "Update",
   "process.with_joints": "Micro-joints",
   "process.with_kerf": "Kerf",
   "process.with_leads": "Leads",
@@ -3078,6 +3106,7 @@
   "techform.f.stage_height": "Height",
   "techform.f.stage_power": "Laser power",
   "techform.f.stage_time": "Pierce time",
+  "techform.from": "Inherited from {base}",
   "techform.group.general": "General",
   "techform.h.cut_duty": "Share of each modulation period the laser is on. 100 % is continuous.",
   "techform.h.cut_freq": "Frequency of the laser modulation while cutting.",
@@ -3596,7 +3625,33 @@
   "home.edit_in": [
    "home"
   ],
+  "inherit.from": [
+   "source"
+  ],
+  "inherit.reset_tip": [
+   "source"
+  ],
+  "inherit.set_on": [
+   "where"
+  ],
   "inherit.src.layer": [
+   "n"
+  ],
+  "layer.assigned": [
+   "name",
+   "layers",
+   "kept",
+   "parts"
+  ],
+  "layer.follows": [
+   "recipe"
+  ],
+  "layer.push_confirm": [
+   "n",
+   "names",
+   "recipe"
+  ],
+  "layer.title": [
    "n"
   ],
   "layerdlg.base_tech": [
@@ -3604,6 +3659,9 @@
   ],
   "layerdlg.title": [
    "n"
+  ],
+  "library.used_by": [
+   "layers"
   ],
   "main.import_language_done": [
    "languages"
@@ -4030,6 +4088,9 @@
    "util",
    "placed",
    "unplaced"
+  ],
+  "process.outdated": [
+   "layers"
   ],
   "queue.note.missing": [
    "path"
@@ -4479,6 +4540,9 @@
    "n"
   ],
   "techform.base": [
+   "base"
+  ],
+  "techform.from": [
    "base"
   ],
   "techform.overridden": [

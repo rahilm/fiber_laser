@@ -1,26 +1,20 @@
-"""Process workspace (ux.md P1-2, §4.2): technology per layer, the technology editor, "what
-changed", and the time / cost estimate.
+"""Process workspace (SETTINGS_MAP H2 + H3): two pages.
 
-* **Material × thickness**: one row per material with a chip per thickness in the store; the
-  gas and nozzle of the chosen pair below (cascading over the records), then *Apply* to the
-  chosen layer or to every layer in use, optionally with the record's craft defaults (leads,
-  kerf, micro-joints) and rules.  Applying is one ``PluginContext.edit``.
-* **Layers**: every layer in use with its technology and its state (example values, modified
-  after applying, not set).  *Save layer as technology* stores a hand-tuned layer as a record.
-* **Technology editor** (:class:`mlaser.ui.techform.TechForm`): the parameters in sections, the
-  important few first (Cutting, Piercing, Gas and nozzle, Height follow, Leads and kerf with the
-  lead / kerf diagram, Corners and small features, About), every other parameter under
-  *Advanced*; search; a mark on each value that differs from the factory version.  *Save* makes
-  a new version, *Save as new* a new record; *Revert to factory*; *Compare…* shows two records
-  side by side.
-* **What changed**: the record against its factory version (or the registry defaults), or the
-  layer against the record it was applied from; **History**: the versions.
-* **Estimate**: the time and cost card of the current plan.
+* **Drawing**: the drawing's layers (recipe, state: as recipe / n values set on the layer / newer
+  recipe version / example values) and, for the selected layer, the **layer inspector**
+  (:mod:`.layer_inspector`: which recipe the layer follows, its values, its lead / kerf
+  defaults, every value set on the layer marked with a restore button); the cutting-strategy
+  checks; the time / cost estimate.  "n layers use an older recipe version: Update".
+* **Library**: the technology records (material › thickness › gas · nozzle, search), the
+  editor of the selected record (:class:`TechnologyEditor`, grouped form: Cutting, Piercing, Gas
+  and nozzle, Height follow, Leads and kerf with the diagram, Corners and small features, About,
+  Advanced), what changed, history, Save version / Save as new / Revert to factory,
+  Import / Export, Compare.
 
-One tab level and one scroll area (the editor's): the panel adapts to the width it is given
-(rows wrap label-above-field, chips and options wrap to new lines).
-
-Records live in :class:`mlaser.services.technology.TechnologyStore`; this module is only the UI.
+A record is *assigned* to layers (the layers follow it; nothing set on a layer, a part or a
+contour is overwritten: :mod:`mlaser.services.inheritance`), it is no longer copied once.  Each
+page adapts to the width it gets (rows wrap label-above-field, the Library's list goes above
+the editor).  Records live in :class:`mlaser.services.technology.TechnologyStore`.
 """
 
 from __future__ import annotations
@@ -37,24 +31,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
-from mlaser.model import LayerParams, LeadParams
+from mlaser.model import LeadParams
 from mlaser.services import technology as T
 from mlaser.ui.quantity import quantity
-from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section, TechForm
+from mlaser.ui.techform import FlowLayout, ResponsiveForm, TechForm
 
-
-def _nz(nozzle: str, power_w: int) -> str:
-    return f"{nozzle}\x1f{int(power_w)}"
-
-
-def _nz_split(v: str) -> tuple[str, int]:
-    name, _, p = str(v).rpartition("\x1f")
-    return name, int(p or 0)
-
-
-def _nz_label(v: str) -> str:
-    name, p = _nz_split(v)
-    return name + (f" · {p / 1000:g} kW" if p else "")
+from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label  # noqa: F401 - re-exported
 
 
 # --------------------------------------------------------------------------- editor
@@ -431,166 +413,58 @@ class TechCompareDialog(QDialog):
         self.summary.setText(self.tr_.format("tech.compare.count", n=n))
 
 
-# --------------------------------------------------------------------------- picker
-class MaterialPicker(QWidget):
-    """Material × thickness: one line per material, a check chip per thickness the store has
-    (chips wrap to new lines in a narrow panel)."""
+# --------------------------------------------------------------------------- library page
+class LibraryPage(QWidget):
+    """Process › Library (SETTINGS_MAP H2): the technology records.  The record list (material ›
+    thickness › gas · nozzle, search) and the editor of the selected record with its history and
+    "what changed"; Save version / Save as new / Revert to factory, Import / Export, Compare.
+    Next to each other when the page is wide enough, one above the other when not."""
 
-    picked = Signal(str, float)
-
-    def __init__(self, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.setObjectName("material_picker")
-        self.lay = QVBoxLayout(self)
-        self.lay.setContentsMargins(0, 0, 0, 0)
-        self.lay.setSpacing(4)
-        self.chips: dict[tuple[str, float], QToolButton] = {}
-        self._rows: list[QWidget] = []
-
-    def set_records(self, techs: list[T.Technology]) -> None:
-        for w in self._rows:
-            w.setParent(None)
-            w.deleteLater()
-        self._rows = []
-        self.chips = {}
-        by: dict[str, set] = {}
-        for t in techs:
-            by.setdefault(t.key.material, set()).add(t.key.thickness_mm)
-        for m in sorted(by):
-            row = QWidget()
-            fl = FlowLayout(row, 4)
-            lab = QLabel(f"<b>{m}</b>")
-            lab.setTextFormat(Qt.RichText)
-            fl.addWidget(lab)
-            for th in sorted(by[m]):
-                b = QToolButton()
-                b.setText(f"{th:g} mm")
-                b.setCheckable(True)
-                b.setAutoRaise(False)
-                b.setObjectName("material_chip")
-                b.setAccessibleName(f"{m} {th:g} mm")
-                b.clicked.connect(lambda _c=False, mm=m, tt=th: self.picked.emit(mm, tt))
-                fl.addWidget(b)
-                self.chips[(m, th)] = b
-            self.lay.addWidget(row)
-            self._rows.append(row)
-
-    def set_current(self, material: Optional[str], thickness: Optional[float]) -> None:
-        for (m, th), b in self.chips.items():
-            b.setChecked(m == material and thickness is not None and abs(th - thickness) < 1e-9)
-
-
-# --------------------------------------------------------------------------- workspace
-class ProcessWorkspace(QWidget):
-    """The Process workspace (see the module docstring)."""
+    saved = Signal(object)          # a new version / record was stored
 
     def __init__(self, ctx: Any, store: T.TechnologyStore, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.ctx = ctx
-        self.store = store
-        self.tr_ = ctx.tr
-        self.setObjectName("process_workspace")
+        from mlaser.ui.homes import bind_transient
+
+        self.ctx, self.store, self.tr_ = ctx, store, ctx.tr
+        self.setObjectName("process_library")
         t = self.tr_.tr
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
-        # ---- choose and apply
-        pick_body = QWidget()
-        pv = QVBoxLayout(pick_body)
-        pv.setContentsMargins(0, 0, 0, 0)
-        pv.setSpacing(4)
-        self.matrix = MaterialPicker()
-        self.matrix.picked.connect(self._matrix_picked)
-        pv.addWidget(self.matrix)
-        pf = ResponsiveForm()
-        self.material = QComboBox()
-        self.thickness = QComboBox()
-        self.gas = QComboBox()
-        self.nozzle = QComboBox()
-        for key, w in (("process.material", self.material), ("process.thickness", self.thickness),
-                       ("process.gas", self.gas), ("process.nozzle", self.nozzle)):
-            w.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-            w.setMinimumContentsLength(8)
-            lab = QLabel(t(key))
-            lab.setBuddy(w)
-            w.setAccessibleName(t(key))
-            pf.form.addRow(lab, w)
-        # material and thickness come from the chips; the combos stay for keyboard use
-        pf.form.setRowVisible(self.material, False)
-        pf.form.setRowVisible(self.thickness, False)
-        self.material.currentIndexChanged.connect(lambda _i: self._cascade(1))
-        self.thickness.currentIndexChanged.connect(lambda _i: self._cascade(2))
-        self.gas.currentIndexChanged.connect(lambda _i: self._cascade(3))
-        self.nozzle.currentIndexChanged.connect(lambda _i: self._picked())
-        self.target = QComboBox()
-        self.target.setAccessibleName(t("process.apply_to"))
-        self.target.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
-        self.target.setMinimumContentsLength(8)
-        lab = QLabel(t("process.apply_to"))
-        lab.setBuddy(self.target)
-        pf.form.addRow(lab, self.target)
-        self.pick_form = pf
-        pv.addWidget(pf)
-        opts = QWidget()
-        fl = FlowLayout(opts, 8)
-        self.with_leads = QCheckBox(t("process.with_leads"))
-        self.with_kerf = QCheckBox(t("process.with_kerf"))
-        self.with_joints = QCheckBox(t("process.with_joints"))
-        self.with_rules = QCheckBox(t("process.with_rules"))
-        for cb in (self.with_leads, self.with_kerf, self.with_joints, self.with_rules):
-            cb.setChecked(cb is not self.with_joints)
-            fl.addWidget(cb)
-        opts.setToolTip(t("process.with_tip"))
-        pv.addWidget(opts)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        self.compare_btn = QPushButton(t("tech.compare"))
-        self.compare_btn.clicked.connect(self.compare)
-        row.addWidget(self.compare_btn)
-        self.apply_btn = QPushButton(t("process.apply"))
-        self.apply_btn.setDefault(True)
-        self.apply_btn.clicked.connect(self.apply_selected)
-        row.addWidget(self.apply_btn)
-        pv.addLayout(row)
-        self.pick_section = Section("pick", t("process.pick"), pick_body, expanded=True)
-        self.pick_section.header.clicked.connect(self._pick_toggled)
-        root.addWidget(self.pick_section)
-        # ---- layers | editor tabs (one tab level)
-        split = QSplitter(Qt.Vertical)
-        split.setChildrenCollapsible(False)
-        root.addWidget(split, 1)
-        lw = QWidget()
-        ll = QVBoxLayout(lw)
-        ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(4)
-        lt = QLabel(t("process.layers"))
-        f = lt.font()
-        f.setBold(True)
-        lt.setFont(f)
-        ll.addWidget(lt)
-        self.layers = QTableWidget(0, 3)
-        self.layers.setHorizontalHeaderLabels([t("process.col.layer"), t("process.col.technology"),
-                                               t("process.col.state")])
-        hh = self.layers.horizontalHeader()
-        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        hh.setSectionResizeMode(1, QHeaderView.Stretch)
-        hh.setSectionResizeMode(2, QHeaderView.Stretch)
-        self.layers.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.layers.setTextElideMode(Qt.ElideRight)
-        self.layers.verticalHeader().hide()
-        self.layers.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.layers.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.layers.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.layers.itemSelectionChanged.connect(self._layer_selected)
-        self.layers.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        ll.addWidget(self.layers, 1)
-        b = QPushButton(t("process.save_layer"))
-        b.clicked.connect(self.save_layer_as_technology)
-        bl = QHBoxLayout()
-        bl.addStretch(1)
-        bl.addWidget(b)
-        ll.addLayout(bl)
-        split.addWidget(lw)
+        root.setContentsMargins(0, 0, 0, 0)
+        self.split = QSplitter(Qt.Horizontal)
+        self.split.setChildrenCollapsible(False)
+        root.addWidget(self.split)
+        left = QWidget()
+        lv = QVBoxLayout(left)
+        lv.setContentsMargins(0, 0, 0, 0)
+        self.search = QLineEdit()
+        self.search.setPlaceholderText(t("library.search"))
+        self.search.setClearButtonEnabled(True)
+        self.search.textChanged.connect(lambda _t: self.refresh_tree())
+        bind_transient(self.search, "view.search")
+        lv.addWidget(self.search)
+        self.tree = QTreeWidget()
+        self.tree.setObjectName("library_tree")
+        self.tree.setHeaderHidden(True)
+        self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.tree.setTextElideMode(Qt.ElideRight)
+        self.tree.currentItemChanged.connect(lambda cur, _prev: self._tree_picked(cur))
+        lv.addWidget(self.tree, 1)
+        brow = QWidget()
+        bfl = FlowLayout(brow, 6)
+        for key, fn in (("tech.import", self.import_file), ("tech.export", self.export_file),
+                        ("tech.compare", self.compare)):
+            b = QPushButton(t(key))
+            b.clicked.connect(lambda _c=False, f=fn: f())
+            bfl.addWidget(b)
+        lv.addWidget(brow)
+        self.split.addWidget(left)
+        right = QWidget()
+        rv = QVBoxLayout(right)
+        rv.setContentsMargins(0, 0, 0, 0)
+        self.used_by = QLabel()
+        self.used_by.setWordWrap(True)
+        rv.addWidget(self.used_by)
         tabs = QTabWidget()
         tabs.setDocumentMode(True)
         unit = int(ctx.config.get("UN.GasPressureUnit", 0) or 0) if getattr(ctx, "config", None) is not None else 0
@@ -603,19 +477,20 @@ class ProcessWorkspace(QWidget):
         self.comment = QLineEdit()
         self.comment.setPlaceholderText(t("tech.comment"))
         self.comment.setAccessibleName(t("tech.comment"))
+        bind_transient(self.comment, "library.comment")
         el.addWidget(self.comment)
-        brow = QWidget()
-        bfl = FlowLayout(brow, 6)
+        arow = QWidget()
+        afl = FlowLayout(arow, 6)
         self.save_btn = QPushButton(t("tech.save"))
+        self.save_btn.setDefault(True)
         self.save_btn.clicked.connect(self.save_version)
-        bfl.addWidget(self.save_btn)
-        for key, fn in (("tech.save_new", self.save_as_new), ("tech.revert", self.revert_factory),
-                        ("tech.import", self.import_file), ("tech.export", self.export_file)):
-            bb = QPushButton(t(key))
-            bb.clicked.connect(fn)
-            bfl.addWidget(bb)
-        el.addWidget(brow)
-        tabs.addTab(ed, t("process.tab.technology"))
+        afl.addWidget(self.save_btn)
+        for key, fn in (("tech.save_new", self.save_as_new), ("tech.revert", self.revert_factory)):
+            b = QPushButton(t(key))
+            b.clicked.connect(lambda _c=False, f=fn: f())
+            afl.addWidget(b)
+        el.addWidget(arow)
+        tabs.addTab(ed, t("library.tab.values"))
         dw = QWidget()
         dl = QVBoxLayout(dw)
         dl.setContentsMargins(0, 4, 0, 0)
@@ -628,6 +503,7 @@ class ProcessWorkspace(QWidget):
         self.diff_mode.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
         self.diff_mode.setMinimumContentsLength(8)
         self.diff_mode.currentIndexChanged.connect(lambda _i: self.refresh_diff())
+        bind_transient(self.diff_mode, "view.diff_mode")
         df.form.addRow(QLabel(t("process.diff.mode")), self.diff_mode)
         dl.addWidget(df)
         self.diff = QTreeWidget()
@@ -661,68 +537,24 @@ class ProcessWorkspace(QWidget):
         hl.addLayout(rl)
         tabs.addTab(hw, t("process.tab.history"))
         self.tabs = tabs
-        split.addWidget(tabs)
-        split.setStretchFactor(0, 1)
-        split.setStretchFactor(1, 4)
-        # ---- estimate: its own tab (the card is tall; the column keeps its height for editing)
-        from PySide6.QtWidgets import QFrame, QScrollArea
-
-        from mlaser.ui.preview_scrubber import CostCardWidget
-
-        self.card = CostCardWidget(self.tr_)
-        sa = QScrollArea()
-        sa.setWidgetResizable(True)
-        sa.setFrameShape(QFrame.NoFrame)
-        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        sa.setWidget(self.card)
-        tabs.addTab(sa, t("process.tab.estimate"))
-        self.current_layer: Optional[int] = None
+        rv.addWidget(tabs, 1)
+        self.split.addWidget(right)
+        self.split.setStretchFactor(0, 1)
+        self.split.setStretchFactor(1, 3)
+        self.current_layer: Optional[int] = None      # for "layer vs recipe"
+        self._all: list[T.Technology] = []
         self.reload()
 
-    # ---------------------------------------------------------------- adapt to the height
-    def available_height(self) -> int:
-        """The height the column really has (the shell's scroll viewport, else our own)."""
-        p = self.parentWidget()
-        return p.height() if p is not None and p.objectName() == "qt_scrollarea_viewport" else self.height()
-
-    def adapt(self) -> None:
-        """Collapse the Technology chooser when the column is too short for it and the editor,
-        open it again when there is room (content-driven; a section the user toggled stays)."""
-        sec = self.pick_section
-        if getattr(self, "_user_pick", False):
-            return
-        body_h = sec.body.sizeHint().height()
-        need_open = self.minimumSizeHint().height() + (0 if sec.expanded() else body_h)
-        want = self.available_height() >= need_open
-        if sec.expanded() != want:
-            self._adapting = True
-            try:
-                sec.set_expanded(want)
-            finally:
-                self._adapting = False
-
+    # ---------------------------------------------------------------- layout
     def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
         super().resizeEvent(ev)
-        self.adapt()
+        # side by side while the list's natural width and the editor's minimum fit
+        need = self.split.widget(0).sizeHint().width() + self.split.widget(1).minimumSizeHint().width() + 24
+        want = Qt.Vertical if self.width() < need else Qt.Horizontal
+        if self.split.orientation() != want:
+            self.split.setOrientation(want)
 
-    def showEvent(self, ev) -> None:   # noqa: N802 - Qt
-        super().showEvent(ev)
-        p = self.parentWidget()
-        if p is not None and p is not getattr(self, "_watched", None):
-            p.installEventFilter(self)       # the scroll viewport's height is the one that counts
-            self._watched = p
-        self.adapt()
-
-    def eventFilter(self, obj, ev) -> bool:   # noqa: N802 - Qt
-        from PySide6.QtCore import QEvent
-        if obj is getattr(self, "_watched", None) and ev.type() == QEvent.Resize:
-            self.adapt()
-        return False
-
-    def _pick_toggled(self, _on: bool) -> None:
-        if not getattr(self, "_adapting", False):
-            self._user_pick = True
-
+    # ---------------------------------------------------------------- records
     def _factory_of(self, tech: T.Technology) -> Optional[T.Technology]:
         if tech.id is None:
             return None
@@ -731,249 +563,94 @@ class ProcessWorkspace(QWidget):
         except KeyError:
             return None
 
-    def _matrix_picked(self, material: str, thickness: float) -> None:
-        i = self.material.findData(material)
-        if i >= 0:
-            self.material.setCurrentIndex(i)
-            self._cascade(1)
-        j = self.thickness.findData(thickness)
-        if j >= 0:
-            self.thickness.setCurrentIndex(j)
-            self._cascade(2)
-        self.matrix.set_current(self.material.currentData(), self.thickness.currentData())
-
-    def compare(self) -> TechCompareDialog:
-        cur = self.picked()
-        d = TechCompareDialog(self.tr_, self.store, cur, None, self)
-        if not getattr(self.ctx.window, "_test_no_dialogs", False):
-            d.open()
-        return d
-
-    # ---------------------------------------------------------------- store / pickers
     def reload(self, select: Optional[T.Technology] = None) -> None:
+        cur = select or self.editor.tech
         self._all = self.store.all()
-        self.material.blockSignals(True)
-        self.material.clear()
-        for m in sorted({t.key.material for t in self._all}):
-            self.material.addItem(m, m)
-        self.material.blockSignals(False)
-        self.matrix.set_records(self._all)
-        if select is not None:
-            self.pick(select.key)
-        else:
-            self._cascade(1)
-        self.refresh_layers()
+        self.refresh_tree()
+        if cur is not None:
+            self.select(cur.key)
+        elif self._all:
+            self.select(self._all[0].key)
 
-    def _combo_set(self, combo: QComboBox, values: list, fmt=str) -> None:
-        cur = combo.currentData()
-        combo.blockSignals(True)
-        combo.clear()
-        for v in values:
-            combo.addItem(fmt(v), v)
-        i = combo.findData(cur)
-        combo.setCurrentIndex(i if i >= 0 else (0 if values else -1))
-        combo.blockSignals(False)
+    def refresh_tree(self) -> None:
+        q = self.search.text().strip().lower()
+        cur = self.selected()
+        self.tree.blockSignals(True)
+        self.tree.clear()
+        mats: dict[str, QTreeWidgetItem] = {}
+        ths: dict[tuple, QTreeWidgetItem] = {}
+        for tech in self._all:
+            k = tech.key
+            if q and q not in k.label().lower():
+                continue
+            m = mats.get(k.material)
+            if m is None:
+                m = mats[k.material] = QTreeWidgetItem([k.material])
+                self.tree.addTopLevelItem(m)
+                m.setExpanded(True)
+            th = ths.get((k.material, k.thickness_mm))
+            if th is None:
+                th = ths[(k.material, k.thickness_mm)] = QTreeWidgetItem([f"{k.thickness_mm:g} mm"])
+                m.addChild(th)
+                th.setExpanded(True)
+            it = QTreeWidgetItem([f"{k.gas} · {_nz_label(_nz(k.nozzle, k.power_w))}" +
+                                  (f" · v{tech.version}" if tech.version else "")])
+            it.setData(0, Qt.UserRole, tech.id)
+            it.setToolTip(0, k.label())
+            th.addChild(it)
+        self.tree.blockSignals(False)
+        if cur is not None:
+            self.select(cur.key)
 
-    def _cascade(self, level: int) -> None:
-        m = self.material.currentData()
-        recs = [t for t in self._all if t.key.material == m]
-        if level <= 1:
-            self._combo_set(self.thickness, sorted({t.key.thickness_mm for t in recs}), lambda v: f"{v:g} mm")
-        th = self.thickness.currentData()
-        recs = [t for t in recs if th is None or abs(t.key.thickness_mm - th) < 1e-9]
-        if level <= 2:
-            self._combo_set(self.gas, sorted({t.key.gas for t in recs}))
-        g = self.gas.currentData()
-        recs = [t for t in recs if t.key.gas == g]
-        if level <= 3:
-            self._combo_set(self.nozzle, sorted({_nz(t.key.nozzle, t.key.power_w) for t in recs}), _nz_label)
-        self._picked()
+    def _items(self):
+        out = []
+        for i in range(self.tree.topLevelItemCount()):
+            m = self.tree.topLevelItem(i)
+            for j in range(m.childCount()):
+                th = m.child(j)
+                for k in range(th.childCount()):
+                    out.append(th.child(k))
+        return out
 
-    def picked(self) -> Optional[T.Technology]:
-        m, th, g, nz = (self.material.currentData(), self.thickness.currentData(), self.gas.currentData(),
-                        self.nozzle.currentData())
-        if None in (m, th, g, nz):
-            return None
-        name, power = _nz_split(nz)
-        return self.store.find(T.TechKey(m, th, g, name, power))
+    def select(self, key: T.TechKey) -> None:
+        tech = self.store.find(key)
+        if tech is None:
+            return
+        for it in self._items():
+            if it.data(0, Qt.UserRole) == tech.id:
+                self.tree.setCurrentItem(it)
+                break
+        self._show(tech)
 
-    def pick(self, key: T.TechKey) -> None:
-        for combo, v in ((self.material, key.material), (self.thickness, key.thickness_mm), (self.gas, key.gas),
-                         (self.nozzle, _nz(key.nozzle, key.power_w))):
-            i = combo.findData(v)
-            if i >= 0:
-                combo.setCurrentIndex(i)
-            level = {self.material: 1, self.thickness: 2, self.gas: 3}.get(combo)
-            if level:
-                self._cascade(level)
+    def selected(self) -> Optional[T.Technology]:
+        return self.editor.tech
 
-    def _picked(self) -> None:
-        self.matrix.set_current(self.material.currentData(), self.thickness.currentData())
-        tech = self.picked()
+    def _tree_picked(self, it) -> None:
+        if it is None or it.data(0, Qt.UserRole) is None:
+            return
+        try:
+            self._show(self.store.get(int(it.data(0, Qt.UserRole))))
+        except KeyError:
+            pass
+
+    def _show(self, tech: Optional[T.Technology]) -> None:
+        if self.editor.tech is not None and tech is not None and self.editor.tech.id == tech.id and \
+                self.editor.tech.version == tech.version:
+            return
         self.editor.set_technology(tech)
-        self.apply_btn.setEnabled(tech is not None)
-        self.compare_btn.setEnabled(len(self._all) > 1)
+        self.refresh_used_by()
         self.refresh_history()
         self.refresh_diff()
 
-    # ---------------------------------------------------------------- layers
-    def layers_in_use(self) -> list[int]:
-        doc = self.ctx.document
-        return sorted({p.craft.layer for p in doc.parts})
-
-    def refresh_layers(self) -> None:
-        from mlaser.ui.canvas import layer_color
-        from mlaser.ui.properties.panel import _swatch
-
-        t = self.tr_.tr
-        doc = self.ctx.document
-        used = self.layers_in_use()
-        keep = self.current_layer
-        self.layers.blockSignals(True)
-        self.layers.setRowCount(0)
-        for li in used:
-            lp = doc.layers.get(li)
-            ref = T.layer_technology_ref(lp)
-            r = self.layers.rowCount()
-            self.layers.insertRow(r)
-            it = QTableWidgetItem(_swatch(layer_color(li)), f"{t('props.layer')} {li}")
-            it.setData(Qt.UserRole, li)
-            self.layers.setItem(r, 0, it)
-            name, state = self.layer_state(li)
-            self.layers.setItem(r, 1, QTableWidgetItem(name))
-            self.layers.setItem(r, 2, QTableWidgetItem(state))
-            if ref is not None and ref.get("example"):
-                self.layers.item(r, 2).setToolTip(t("tech.example_badge"))
-        self.layers.blockSignals(False)
-        self._combo_set(self.target, ["all"] + used,
-                        lambda v: t("process.all_layers") if v == "all" else f"{t('props.layer')} {v}")
-        if keep in used:
-            self.select_layer(keep)
-        self.refresh_diff()
-
-    def technology_name(self, layer: int) -> str:
-        ref = T.layer_technology_ref(self.ctx.document.layers.get(layer))
-        if not ref:
-            return ""
-        k = ref.get("key") or {}
-        try:
-            return T.TechKey(**k).label() + (f" · v{ref.get('version')}" if ref.get("version") else "")
-        except TypeError:
-            return str(k)
-
-    def layer_state(self, layer: int) -> tuple[str, str]:
-        t = self.tr_.tr
-        lp = self.ctx.document.layers.get(layer)
-        ref = T.layer_technology_ref(lp)
-        if lp is None or (lp.extra or {}).get("placeholder"):
-            return t("process.no_technology"), t("process.state.undefined")
-        if ref is None:
-            return t("process.no_technology"), t("process.state.manual")
-        tech = self._ref_tech(ref)
+    def refresh_used_by(self) -> None:
+        tech = self.editor.tech
         if tech is None:
-            return self.technology_name(layer), t("process.state.missing")
-        n = len(T.layer_changes(lp, tech))
-        state = self.tr_.format("process.state.modified", n=n) if n else t("process.state.as_applied")
-        if ref.get("example"):
-            state += " · " + t("process.state.example")
-        try:
-            head = self.store.get(int(ref["id"])).version if ref.get("id") is not None else 0
-        except KeyError:
-            head = 0
-        if head and ref.get("version") and head > int(ref["version"]):
-            state += " · " + self.tr_.format("process.state.newer", v=head)
-        return self.technology_name(layer), state
-
-    def _ref_tech(self, ref: dict) -> Optional[T.Technology]:
-        try:
-            if ref.get("id") is not None:
-                return self.store.get(int(ref["id"]), int(ref["version"]) if ref.get("version") else None)
-        except KeyError:
-            pass
-        try:
-            return self.store.find(T.TechKey(**(ref.get("key") or {})))
-        except TypeError:
-            return None
-
-    def select_layer(self, layer: int) -> None:
-        for r in range(self.layers.rowCount()):
-            if self.layers.item(r, 0).data(Qt.UserRole) == layer:
-                self.layers.selectRow(r)
-                return
-
-    def _layer_selected(self) -> None:
-        rows = self.layers.selectionModel().selectedRows() if self.layers.selectionModel() else []
-        if not rows:
+            self.used_by.setText("")
             return
-        li = self.layers.item(rows[0].row(), 0).data(Qt.UserRole)
-        self.current_layer = li
-        i = self.target.findData(li)
-        if i >= 0:
-            self.target.setCurrentIndex(i)
-        ref = T.layer_technology_ref(self.ctx.document.layers.get(li))
-        if ref:
-            tech = self._ref_tech(ref)
-            if tech is not None:
-                self.pick(tech.key)
-        self.refresh_diff()
-
-    # ---------------------------------------------------------------- apply
-    def _locked(self, what: str) -> bool:
-        from mlaser.ui import safety_ui
-
-        win = self.ctx.window
-        return bool(getattr(win, "safety_ui", None)) and safety_ui.job_locked(win, what)
-
-    def apply_selected(self) -> int:
-        tech = self.picked()
-        if tech is None:
-            return 0
-        tgt = self.target.currentData()
-        layers = self.layers_in_use() if tgt in (None, "all") else [int(tgt)]
-        return self.apply(tech, layers)
-
-    def apply(self, tech: T.Technology, layers: list[int], leads: Optional[bool] = None, kerf: Optional[bool] = None,
-              joints: Optional[bool] = None, rules: Optional[bool] = None) -> int:
-        """Apply ``tech`` to ``layers`` (one undo step).  Returns the number of layers."""
-        from mlaser.ui.canvas import layer_color
-
-        if not layers or self._locked(self.tr_.tr("process.apply")):
-            return 0
-        opts = dict(leads=self.with_leads.isChecked() if leads is None else leads,
-                    kerf=self.with_kerf.isChecked() if kerf is None else kerf,
-                    joints=self.with_joints.isChecked() if joints is None else joints,
-                    rules=self.with_rules.isChecked() if rules is None else rules)
-        craft = any(opts.values())
-        doc = self.ctx.document
-        scope = [p for p in doc.parts if p.craft.layer in layers] if craft else []
-
-        def fn(d):
-            for li in layers:
-                lp = d.layers.get(li) or LayerParams(index=li, color=layer_color(li).name())
-                d.layers[li] = T.apply_to_layer(lp, tech)
-            if craft:
-                T.apply_craft(d, tech, [p for p in d.parts if p.craft.layer in layers], **opts)
-        self.ctx.edit(fn, self.tr_.format("process.edit.apply", name=tech.key.label()), parts=scope)
-        self.ctx.log(self.tr_.format("process.applied", name=tech.key.label(),
-                                     layers=", ".join(map(str, layers))))
-        self.refresh_layers()
-        return len(layers)
-
-    def save_layer_as_technology(self) -> Optional[T.Technology]:
-        li = self.current_layer or (self.layers_in_use() or [None])[0]
-        if li is None:
-            return None
-        lp = self.ctx.document.layers.get(li)
-        cur = self.picked()
-        base = cur.key if cur is not None else T.TechKey("Material", 1.0, "N2", "nozzle")
-        text, ok = QInputDialog.getText(self, self.tr_.tr("process.save_layer"), self.tr_.tr("tech.new_material"),
-                                        text=f"{base.material} (layer {li})")
-        if not ok or not text:
-            return None
-        tech = T.technology_from_layer(lp, replace(base, material=text))
-        saved = self.store.save(tech, self.tr_.format("process.from_layer", n=li))
-        self.reload(select=saved)
-        return saved
+        used = [li for li, lp in sorted(self.ctx.document.layers.items())
+                if (T.layer_technology_ref(lp) or {}).get("id") == tech.id]
+        self.used_by.setText(self.tr_.format("library.used_by", layers=", ".join(map(str, used))) if used
+                             else self.tr_.tr("library.unused"))
 
     # ---------------------------------------------------------------- editor actions
     def _editor_changed(self) -> None:
@@ -989,22 +666,29 @@ class ProcessWorkspace(QWidget):
             QMessageBox.warning(self, self.tr_.tr("tech.save"), str(e))
             return None
         self.comment.clear()
+        self.editor.tech = None
         self.reload(select=saved)
+        self.saved.emit(saved)
         return saved
 
     def save_as_new(self) -> Optional[T.Technology]:
         if self.editor.tech is None:
             return None
         cur = self.editor.current()
-        text, ok = QInputDialog.getText(self, self.tr_.tr("tech.save_new"), self.tr_.tr("tech.new_material"),
-                                        text=cur.key.material + " *")
+        if getattr(self.ctx.window, "_test_no_dialogs", False):
+            text, ok = cur.key.material + " *", True
+        else:
+            text, ok = QInputDialog.getText(self, self.tr_.tr("tech.save_new"), self.tr_.tr("tech.new_material"),
+                                            text=cur.key.material + " *")
         if not ok or not text:
             return None
         new = replace(cur, key=replace(cur.key, material=text), id=None, version=0, origin="user", verified=False)
         if new.notes == T.EXAMPLE_NOTE:
             new = replace(new, notes="")
         saved = self.store.save(new, self.tr_.tr("tech.created"))
+        self.editor.tech = None
         self.reload(select=saved)
+        self.saved.emit(saved)
         return saved
 
     def revert_factory(self) -> Optional[T.Technology]:
@@ -1012,7 +696,9 @@ class ProcessWorkspace(QWidget):
         if tech is None or tech.id is None:
             return None
         saved = self.store.revert(tech.id)
+        self.editor.tech = None
         self.reload(select=saved)
+        self.saved.emit(saved)
         return saved
 
     def restore_version(self) -> Optional[T.Technology]:
@@ -1021,7 +707,9 @@ class ProcessWorkspace(QWidget):
         if tech is None or tech.id is None or it is None:
             return None
         saved = self.store.revert(tech.id, int(it.data(0, Qt.UserRole)))
+        self.editor.tech = None
         self.reload(select=saved)
+        self.saved.emit(saved)
         return saved
 
     def import_file(self) -> list:
@@ -1051,6 +739,12 @@ class ProcessWorkspace(QWidget):
         self.ctx.log(self.tr_.format("tech.exported", file=path))
         return path
 
+    def compare(self) -> TechCompareDialog:
+        d = TechCompareDialog(self.tr_, self.store, self.editor.tech, None, self)
+        if not getattr(self.ctx.window, "_test_no_dialogs", False):
+            d.open()
+        return d
+
     # ---------------------------------------------------------------- history / diff
     def refresh_history(self) -> None:
         self.history.clear()
@@ -1069,8 +763,8 @@ class ProcessWorkspace(QWidget):
         if mode == "layer":
             li = self.current_layer
             lp = self.ctx.document.layers.get(li) if li is not None else None
-            ref = T.layer_technology_ref(lp)
-            base = self._ref_tech(ref) if ref else None
+            from mlaser.services import inheritance as I
+            base = I.recipe_of(self.ctx.document, li, self.store) if li is not None else None
             return T.layer_changes(lp, base) if (lp is not None and base is not None) else []
         if tech is None:
             return []
@@ -1087,6 +781,365 @@ class ProcessWorkspace(QWidget):
             it = QTreeWidgetItem([label, unit, old, new])
             it.setToolTip(0, key)
             self.diff.addTopLevelItem(it)
-        for c in range(4):
+        for c in range(1, 4):
             self.diff.resizeColumnToContents(c)
         self.diff_summary.setText(self.tr_.format("process.diff.count", n=len(ch)))
+
+
+# --------------------------------------------------------------------------- workspace
+class ProcessWorkspace(QWidget):
+    """The Process workspace: **Drawing** (the drawing's layers and the layer inspector, the
+    cutting-strategy checks and the estimate) and **Library** (the technology records).  See the
+    module docstring."""
+
+    def __init__(self, ctx: Any, store: T.TechnologyStore, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QButtonGroup, QFrame, QScrollArea, QStackedWidget
+
+        from mlaser.ui.preview_scrubber import CostCardWidget
+
+        from .layer_inspector import LayerInspector
+
+        self.ctx = ctx
+        self.store = store
+        self.tr_ = ctx.tr
+        self.setObjectName("process_workspace")
+        t = self.tr_.tr
+        root = QVBoxLayout(self)
+        root.setContentsMargins(8, 8, 8, 8)
+        root.setSpacing(6)
+        # ---- Drawing | Library
+        sw = QHBoxLayout()
+        sw.setSpacing(0)
+        self.page_buttons = QButtonGroup(self)
+        self.page_buttons.setExclusive(True)
+        for i, key in enumerate(("process.page.drawing", "process.page.library")):
+            b = QToolButton()
+            b.setText(t(key))
+            b.setCheckable(True)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            b.setObjectName(f"process_page_{i}")
+            self.page_buttons.addButton(b, i)
+            sw.addWidget(b)
+        self.page_buttons.idClicked.connect(self.show_page)
+        root.addLayout(sw)
+        self.pages = QStackedWidget()
+        root.addWidget(self.pages, 1)
+        # ---- Drawing page
+        drawing = QWidget()
+        dv = QVBoxLayout(drawing)
+        dv.setContentsMargins(0, 0, 0, 0)
+        self.outdated = QWidget()
+        ol = QHBoxLayout(self.outdated)
+        ol.setContentsMargins(0, 0, 0, 0)
+        self.outdated_label = QLabel()
+        self.outdated_label.setWordWrap(True)
+        ol.addWidget(self.outdated_label, 1)
+        self.update_btn = QPushButton(t("process.update_layers"))
+        self.update_btn.clicked.connect(self.update_outdated)
+        ol.addWidget(self.update_btn)
+        self.outdated.hide()
+        dv.addWidget(self.outdated)
+        split = QSplitter(Qt.Vertical)
+        split.setChildrenCollapsible(False)
+        dv.addWidget(split, 1)
+        lw = QWidget()
+        ll = QVBoxLayout(lw)
+        ll.setContentsMargins(0, 0, 0, 0)
+        ll.setSpacing(4)
+        lt = QLabel(t("process.layers"))
+        f = lt.font()
+        f.setBold(True)
+        lt.setFont(f)
+        ll.addWidget(lt)
+        self.layers = QTableWidget(0, 3)
+        self.layers.setHorizontalHeaderLabels([t("process.col.layer"), t("process.col.technology"),
+                                               t("process.col.state")])
+        hh = self.layers.horizontalHeader()
+        hh.setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh.setSectionResizeMode(1, QHeaderView.Stretch)
+        hh.setSectionResizeMode(2, QHeaderView.Stretch)
+        self.layers.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.layers.setTextElideMode(Qt.ElideRight)
+        self.layers.verticalHeader().hide()
+        self.layers.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.layers.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.layers.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.layers.itemSelectionChanged.connect(self._layer_selected)
+        ll.addWidget(self.layers, 1)
+        split.addWidget(lw)
+        tabs = QTabWidget()
+        tabs.setDocumentMode(True)
+        self.inspector = LayerInspector(ctx, store)
+        self.inspector.changed.connect(self._inspector_changed)
+        tabs.addTab(self.inspector, t("process.tab.layer"))
+        self.card = CostCardWidget(self.tr_)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        sa.setWidget(self.card)
+        tabs.addTab(sa, t("process.tab.estimate"))
+        self.tabs = tabs                       # the Cutting strategy tab is added by ext_process
+        split.addWidget(tabs)
+        split.setStretchFactor(0, 1)
+        split.setStretchFactor(1, 4)
+        self.pages.addWidget(drawing)
+        # ---- Library page
+        self.library = LibraryPage(ctx, store)
+        self.library.saved.connect(lambda _t: self.refresh_layers())
+        self.pages.addWidget(self.library)
+        self.editor = self.library.editor
+        self.diff_mode = self.library.diff_mode
+        self.current_layer: Optional[int] = None
+        self.show_page(0)
+        self.reload()
+
+    # ---------------------------------------------------------------- pages
+    def show_page(self, i: int) -> None:
+        self.pages.setCurrentIndex(int(i))
+        b = self.page_buttons.button(int(i))
+        if b is not None and not b.isChecked():
+            b.setChecked(True)
+
+    # ---------------------------------------------------------------- proxies (picker, library)
+    @property
+    def material(self) -> QComboBox:
+        return self.inspector.picker.material
+
+    @property
+    def thickness(self) -> QComboBox:
+        return self.inspector.picker.thickness
+
+    @property
+    def gas(self) -> QComboBox:
+        return self.inspector.picker.gas
+
+    @property
+    def nozzle(self) -> QComboBox:
+        return self.inspector.picker.nozzle
+
+    def picked(self) -> Optional[T.Technology]:
+        return self.inspector.picker.picked()
+
+    def pick(self, key: T.TechKey) -> None:
+        """Choose a record: in the layer inspector's recipe picker and in the Library."""
+        self.inspector.picker.pick(key)
+        self.library.select(key)
+
+    def reload(self, select: Optional[T.Technology] = None) -> None:
+        self.inspector.picker.reload(select)
+        self.library.reload(select)
+        self.refresh_layers()
+
+    def save_version(self) -> Optional[T.Technology]:
+        return self.library.save_version()
+
+    def save_as_new(self) -> Optional[T.Technology]:
+        return self.library.save_as_new()
+
+    def revert_factory(self) -> Optional[T.Technology]:
+        return self.library.revert_factory()
+
+    def restore_version(self) -> Optional[T.Technology]:
+        return self.library.restore_version()
+
+    def changes(self) -> list[T.Change]:
+        self.library.current_layer = self.current_layer
+        return self.library.changes()
+
+    def refresh_diff(self) -> None:
+        self.library.current_layer = self.current_layer
+        self.library.refresh_diff()
+
+    def compare(self) -> TechCompareDialog:
+        return self.library.compare()
+
+    # ---------------------------------------------------------------- layers
+    def layers_in_use(self) -> list[int]:
+        doc = self.ctx.document
+        return sorted({p.craft.layer for p in doc.parts})
+
+    def refresh_layers(self) -> None:
+        from mlaser.ui.canvas import layer_color
+        from mlaser.ui.properties.panel import _swatch
+
+        t = self.tr_.tr
+        used = self.layers_in_use()
+        keep = self.current_layer
+        self.layers.blockSignals(True)
+        self.layers.setRowCount(0)
+        outdated = []
+        for li in used:
+            r = self.layers.rowCount()
+            self.layers.insertRow(r)
+            it = QTableWidgetItem(_swatch(layer_color(li)), f"{t('props.layer')} {li}")
+            it.setData(Qt.UserRole, li)
+            self.layers.setItem(r, 0, it)
+            name, state = self.layer_state(li)
+            self.layers.setItem(r, 1, QTableWidgetItem(name))
+            si = QTableWidgetItem(state)
+            si.setToolTip(state)
+            self.layers.setItem(r, 2, si)
+            self.layers.item(r, 1).setToolTip(name)
+            if self._newer(li):
+                outdated.append(li)
+        self.layers.blockSignals(False)
+        self.outdated.setVisible(bool(outdated))
+        self.outdated_label.setText(self.tr_.format("process.outdated", layers=", ".join(map(str, outdated))))
+        self._outdated = outdated
+        if keep in used:
+            self.select_layer(keep)
+        elif used:
+            self.select_layer(used[0])
+        else:
+            self.current_layer = None
+            self.inspector.set_layer(None)
+        self.library.refresh_used_by()
+        self.refresh_diff()
+
+    def _newer(self, layer: int) -> Optional[T.Technology]:
+        ref = T.layer_technology_ref(self.ctx.document.layers.get(layer))
+        if not ref or ref.get("id") is None:
+            return None
+        try:
+            head = self.store.get(int(ref["id"]))
+        except KeyError:
+            return None
+        return head if ref.get("version") and head.version > int(ref["version"]) else None
+
+    def update_outdated(self) -> int:
+        """Layers that follow an older version of their recipe follow the newest one (their own
+        values are kept): one undo step per recipe."""
+        n = 0
+        by: dict[int, tuple[T.Technology, list[int]]] = {}
+        for li in list(getattr(self, "_outdated", [])):
+            head = self._newer(li)
+            if head is not None:
+                by.setdefault(head.id or 0, (head, []))[1].append(li)
+        for head, lis in by.values():
+            self.inspector.assign(head, lis)
+            n += len(lis)
+        self.refresh_layers()
+        return n
+
+    def technology_name(self, layer: int) -> str:
+        ref = T.layer_technology_ref(self.ctx.document.layers.get(layer))
+        if not ref:
+            return ""
+        k = ref.get("key") or {}
+        try:
+            return T.TechKey(**k).label() + (f" · v{ref.get('version')}" if ref.get("version") else "")
+        except TypeError:
+            return str(k)
+
+    def layer_state(self, layer: int) -> tuple[str, str]:
+        from mlaser.services import inheritance as I
+
+        t = self.tr_.tr
+        lp = self.ctx.document.layers.get(layer)
+        ref = T.layer_technology_ref(lp)
+        if lp is None or (lp.extra or {}).get("placeholder"):
+            return t("process.no_technology"), t("process.state.undefined")
+        if ref is None:
+            return t("process.no_technology"), t("process.state.manual")
+        tech = I.recipe_of(self.ctx.document, layer, self.store)
+        if tech is None:
+            return self.technology_name(layer), t("process.state.missing")
+        n = len(I.layer_overrides(lp)) if I.OVERRIDES in (lp.extra or {}) else len(T.layer_changes(lp, tech))
+        state = self.tr_.format("process.state.modified", n=n) if n else t("process.state.as_applied")
+        if ref.get("example"):
+            state += " · " + t("process.state.example")
+        head = self._newer(layer)
+        if head is not None:
+            state += " · " + self.tr_.format("process.state.newer", v=head.version)
+        return self.technology_name(layer), state
+
+    def select_layer(self, layer: int) -> None:
+        for r in range(self.layers.rowCount()):
+            if self.layers.item(r, 0).data(Qt.UserRole) == layer:
+                self.layers.selectRow(r)
+                self.current_layer = layer
+                self.inspector.set_layer(layer)
+                return
+
+    def _layer_selected(self) -> None:
+        rows = self.layers.selectionModel().selectedRows() if self.layers.selectionModel() else []
+        if not rows:
+            return
+        li = self.layers.item(rows[0].row(), 0).data(Qt.UserRole)
+        self.current_layer = li
+        self.inspector.set_layer(li)
+        self.refresh_diff()
+
+    def _inspector_changed(self) -> None:
+        self.refresh_layers()
+
+    # ---------------------------------------------------------------- assign (was: apply)
+    def apply_selected(self) -> int:
+        """``process.apply``: assign the picked recipe to the current layer (all layers in use
+        when none is current)."""
+        tech = self.picked()
+        if tech is None:
+            return 0
+        layers = [self.current_layer] if self.current_layer is not None else self.layers_in_use()
+        return self.apply(tech, layers)
+
+    def apply(self, tech: T.Technology, layers: list[int], leads: Optional[bool] = None, kerf: Optional[bool] = None,
+              joints: Optional[bool] = None, rules: Optional[bool] = None) -> int:
+        """Assign ``tech`` to ``layers`` (SETTINGS_MAP *Assign recipe*; ``leads`` / ``kerf`` are
+        no longer options: the parts inherit the recipe's leads and kerf unless they set their
+        own).  ``joints`` / ``rules``: also generate the record's micro-joints / rules."""
+        if not layers:
+            return 0
+        res = self.inspector.assign(tech, layers, joints=bool(joints), rules=bool(rules))
+        self.refresh_layers()
+        return len(res.get("layers", [])) if res else 0
+
+    def save_layer_as_technology(self) -> Optional[T.Technology]:
+        saved = self.inspector.save_as_recipe()
+        if saved is not None:
+            self.reload(select=saved)
+        return saved
+
+
+# --------------------------------------------------------------------------- "Edit in …"
+def _workspace(window: Any) -> Optional[ProcessWorkspace]:
+    ext = window.extension("ext_process") if hasattr(window, "extension") else None
+    return getattr(ext, "workspace", None)
+
+
+def _resolve_layer(window: Any, vid: str, target: Any) -> Optional[QWidget]:
+    ws = _workspace(window)
+    if ws is None:
+        return None
+    ws.show_page(0)
+    if isinstance(target, int):
+        ws.select_layer(target)
+    ws.tabs.setCurrentWidget(ws.inspector)
+    from mlaser.ui.homes import editors
+    found = editors(ws.inspector, vid)
+    return found[0] if found else None
+
+
+def _resolve_recipe(window: Any, vid: str, target: Any) -> Optional[QWidget]:
+    ws = _workspace(window)
+    if ws is None:
+        return None
+    ws.show_page(1)
+    if isinstance(target, T.Technology):
+        ws.library.select(target.key)
+    ws.library.tabs.setCurrentIndex(0)
+    from mlaser.ui.homes import editors
+    found = editors(ws.library, vid)
+    return found[0] if found else None
+
+
+def _register_resolvers() -> None:
+    from mlaser.ui import homes
+    if not any(p == "layer." for p, _f in homes._RESOLVERS):
+        homes.register_resolver("layer.", _resolve_layer)
+        homes.register_resolver("recipe.", _resolve_recipe)
+
+
+_register_resolvers()
