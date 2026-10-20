@@ -238,11 +238,11 @@ def test_window_preview_is_the_plan_and_start_streams_it(app):
         got = []
         ctl.start_job = lambda job, generation=None: got.append(job)
         compiles = w.jobs.stats["compiles"]
-        w.control.buttons["mp54"].click()  # the run controls' Start
+        w.safety_ui.run_bar.buttons["start"].click()  # the run bar's Start
         w.jobs.settle(w.jobs.last_run, timeout=60)
         assert got and got[0] is plan  # exactly the previewed plan
         assert w.jobs.stats["compiles"] == compiles  # no recompile
-        w.control.buttons["mp58"].click()  # Frame: planned in the worker too
+        w.safety_ui.run_bar.buttons["frame"].click()  # Frame: planned in the worker too
         w.jobs.settle(w.jobs.last_run, timeout=60)
         assert len(got) == 2 and got[1].mode == "frame" and got[1].dry_run
     finally:

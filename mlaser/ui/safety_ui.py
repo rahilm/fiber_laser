@@ -27,7 +27,7 @@ from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialog,
                                QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStyle, QTextEdit,
-                               QToolBar, QVBoxLayout, QWidget)
+                               QMenu, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from .._power import keep_awake
 
@@ -339,6 +339,23 @@ class RunBar(QToolBar):
                 b.setStyleSheet("QPushButton{background:#c62828;color:white;font-weight:bold;}")
             self.addWidget(b)
             self.buttons[key] = b
+            if key == "start":
+                # explicit scope: "Start selection only" (it used to hide in a Run Control check
+                # box that silently changed what Start did)
+                more = QToolButton()
+                more.setObjectName("run_start_menu")
+                more.setArrowType(Qt.DownArrow)
+                more.setPopupMode(QToolButton.InstantPopup)
+                more.setToolTip("More ways to start")
+                more.setAccessibleName("Start options")
+                menu = QMenu(more)
+                act = menu.addAction("Start selection only")
+                act.setObjectName("run_start_selection")
+                act.triggered.connect(lambda _=False: ui.start_selection())
+                more.setMenu(menu)
+                keep_min_size(more, QSize(MIN_TARGET // 2, MIN_TARGET))
+                self.addWidget(more)
+                self.start_menu = more
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(True)
@@ -369,7 +386,8 @@ class RunBar(QToolBar):
         lay = self.layout()
         sp = lay.spacing() if lay is not None else 0
         st = self.style()
-        need = sum(w.minimumWidth() + sp for w in (self.pill, *self.buttons.values(), self.progress, self.eta))
+        need = sum(w.minimumWidth() + sp for w in (self.pill, *self.buttons.values(), self.start_menu,
+                                                   self.progress, self.eta))
         if lay is not None:
             m = lay.contentsMargins()
             need += m.left() + m.right()
@@ -641,10 +659,13 @@ class SafetyUI(QObject):
     def _dialogs(self) -> bool:
         return not getattr(self.w, "_test_no_dialogs", False)
 
-    def _selected_only(self) -> bool:
-        panel = getattr(self.w, "control", None)
-        cb = getattr(panel, "selected_only", None)
-        return bool(cb.isChecked()) if cb is not None else False
+    def start_selection(self) -> None:
+        """Start only the selected parts (refused, with a message, when nothing is selected)."""
+        doc = self.w.document
+        if doc is None or not any(getattr(p, "selected", False) for p in doc.parts):
+            self.w.statusBar().showMessage("Start selection: select the parts to cut first", 6000)
+            return
+        self.start(selected_only=True)
 
     def _extent(self, doc):
         try:
@@ -654,18 +675,18 @@ class SafetyUI(QObject):
             bb = doc.bbox() if hasattr(doc, "bbox") else None
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
-    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None) -> bool:
+    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False) -> bool:
         """Run the controller's pre-flight check; show the dialog when it finds anything."""
         ctl = self.w.ctl
         try:
-            rep = ctl.preflight(action, doc, self._selected_only(), extent=self._extent(doc) if doc else None,
+            rep = ctl.preflight(action, doc, selected_only, extent=self._extent(doc) if doc else None,
                                 emits=emits)
         except TypeError:
             rep = ctl.preflight(action, doc)
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
         from .workspaces.cutting_strategy import augment_preflight as augment_cutting
-        rep = augment_cutting(self.w, rep, action, doc, self._selected_only())   # lead / tip warnings
+        rep = augment_cutting(self.w, rep, action, doc, selected_only)   # lead / tip warnings
         rep = contribute_preflight(self.w, rep, action, doc, emits)   # plugins (material check)
         if not rep.issues:
             return True
@@ -693,7 +714,9 @@ class SafetyUI(QObject):
         on it).  Without the services layer: the controller itself."""
         return getattr(self.w, "run_controls", None) or self.w.ctl
 
-    def start(self) -> None:
+    def start(self, selected_only: bool = False) -> None:
+        """Start (or resume) the job; ``selected_only``: only the selected parts, asked for
+        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch."""
         ctl, doc = self.w.ctl, self.w.document
         ms = ctl.state()
         if ms.mode == "pause" or ctl.breakpoint is not None:
@@ -709,10 +732,10 @@ class SafetyUI(QObject):
                 return
             if not self.arm(confirm=False):
                 return
-        if not self.preflight_ok("start" if emits else "dry_run", doc, emits):
+        if not self.preflight_ok("start" if emits else "dry_run", doc, emits, selected_only=bool(selected_only)):
             return
         self._shown = None
-        self._runner().start(doc, selected_only=self._selected_only())
+        self._runner().start(doc, selected_only=bool(selected_only))
         self._after("Start")
 
     def hold(self) -> None:

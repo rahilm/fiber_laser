@@ -52,8 +52,6 @@ def widget_path(w: QWidget, stop: QWidget | None = None) -> str:
         x = x.parentWidget()
     # keep the leaf and the named ancestors: short but locatable
     out = list(reversed(parts))
-    if len(out) > 6:
-        out = out[:2] + ["…"] + out[-4:]
     leaf = type(w).__name__ + (f"#{w.objectName()}" if w.objectName() else "")
     text = _text_of(w)
     if out and out[-1] != leaf:

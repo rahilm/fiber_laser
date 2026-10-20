@@ -174,6 +174,7 @@ class Shell:
             ("shell.set_pins", lambda: self.set_pins(), "shell.pin.setup_title", False, ""),
             ("shell.import_params", lambda: self.import_params(), "shell.import_params", False, "engineer"),
             ("run.start", lambda: su.start(), "shell.run.start", False, ""),
+            ("run.start_selection", lambda: su.start_selection(), "shell.run.start_selection", False, ""),
             ("run.hold", lambda: su.hold(), "shell.run.hold", False, ""),
             ("run.stop", lambda: su.stop(), "shell.run.stop", False, ""),
             ("run.frame", lambda: su.frame(), "shell.run.frame", False, ""),

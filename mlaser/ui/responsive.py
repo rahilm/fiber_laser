@@ -895,11 +895,19 @@ class FitArea(QScrollArea):
         widget.installEventFilter(self)
 
     def _cap(self, size: QSize) -> QSize:
+        """At most what the screen leaves for the page: its available size less the window's
+        own chrome around this area (top bar, docks, run bar, frame), and at most
+        :data:`SCREEN_SHARE` of the screen."""
         scr = self.screen()
         if scr is None:
             return size
         avail = scr.availableSize()
-        return size.boundedTo(QSize(int(avail.width() * self.SCREEN_SHARE), int(avail.height() * self.SCREEN_SHARE)))
+        cap = QSize(int(avail.width() * self.SCREEN_SHARE), int(avail.height() * self.SCREEN_SHARE))
+        win = self.window()
+        if win is not None and win is not self and win.isVisible():
+            chrome = win.frameGeometry().size() - self.size()
+            cap = cap.boundedTo(QSize(max(avail.width() - chrome.width(), 1), max(avail.height() - chrome.height(), 1)))
+        return size.boundedTo(cap)
 
     def need(self, width: int) -> QSize:
         """The page's minimum size at ``width``."""

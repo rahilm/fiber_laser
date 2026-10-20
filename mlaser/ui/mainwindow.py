@@ -201,6 +201,7 @@ class MainWindow(QMainWindow):
         # right: control panel
         # (no scroll area: the panel reflows and folds to fit the dock, ui/responsive.py)
         self.control = ControlPanel(self.tr_, self.ctl, lambda: self.document)
+        self.control.bind_config(self.config)
         self.right_dock = self._dock("mf141", self.control, Qt.RightDockWidgetArea)
 
         # bottom: log / alarms
@@ -427,7 +428,9 @@ class MainWindow(QMainWindow):
             "file.save": self.file_save, "file.save_as": lambda: self.file_save(True),
             "app.exit": self.close, "app.import_language": self.import_language, "app.about": lambda: dialogs.AboutDialog(self.tr_, self).exec(),
             "app.options": lambda: self.options_dialog("app.options"),
-            "hw.options": lambda: self.options_dialog("hw.options"),
+            # Machine › Setup is the one editor of the hardware parameters (WORK_ITEMS R-1)
+            "hw.options": lambda: (self.commands.run("machine.setup") if self.commands.get("machine.setup")
+                                   else self.options_dialog("hw.options")),
             "hw.set_ip": self.ip_dialog, "hw.reconnect": self.reconnect,
             "machine.home": lambda: self.ctl.home("XY"), "machine.home_x": lambda: self.ctl.home("X"),
             "machine.home_y": lambda: self.ctl.home("Y"), "machine.home_xyz": lambda: self.ctl.home("XYZ"),

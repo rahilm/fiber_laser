@@ -58,7 +58,7 @@ UI_MODULES = {
     # Review 2 plugin manager
     "test_plugin_manager_ui",
     # UI wave: responsive layout harness
-    "test_responsive_layout", "test_responsive_helpers",
+    "test_responsive_layout", "test_responsive_helpers", "test_machine_setup",
     # UI wave: process & technology
     "test_ui_process_paths", "test_one_home",
 }

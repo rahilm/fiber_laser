@@ -40,6 +40,7 @@ PENDING: dict[str, str] = {
     # Process & technology track (ui_wave_brief.md): Properties dock, Process workspace panels
     "PropertiesPanel#properties_panel": "Process & technology",
     "ProcessWorkspace#process_workspace >": "Process & technology",
+    "CanvasHud#canvas_hud": "Process & technology",      # the canvas overlay (646c40c)
 }
 
 
@@ -90,7 +91,7 @@ def win(app, tmp_path_factory):
     # the offscreen screen is 800 × 800: pages must not be capped to it (FitArea's screen cap is
     # tested on its own, test_fit_area_screen_cap)
     from mlaser.ui.responsive import FitArea
-    mp.setattr(FitArea, "SCREEN_SHARE", 100.0)
+    mp.setattr(FitArea, "_cap", lambda self, size: size)
     w = real_window(config=ConfigService())
     onshape = _load_onshape(w)
     w.shell.host.refresh_mode()
@@ -122,7 +123,7 @@ def _fit(win, app, size) -> QSize:
     """Resize to ``size`` (never below the window's own minimum, which is what the content needs)."""
     s = QSize(*size).expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
     win.resize(s)
-    _pump(app)
+    _pump(app, rounds=8)          # a page that needs more height when narrower grows the window
     return win.size()
 
 

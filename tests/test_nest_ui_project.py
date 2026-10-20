@@ -6,6 +6,7 @@ import os
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 import pytest
+from PySide6.QtWidgets import QWidget
 
 from mlaser.cam import ordering as O
 from mlaser.model import Arc, Contour, Line, Part
@@ -74,12 +75,16 @@ def test_register_nest_and_sort(app, tmp_path):
     from mlaser.ui import docops
     from wiring import real_window
 
-    from mlaser.ui.ext_nest import NestParamsDialog, SheetDialog
+    from mlaser.ui.ext_nest import SheetDialog
     win = real_window()
     nx, sx = win.extension("ext_nest")
-    d = NestParamsDialog(win, nx.job.params, win)
-    d.spacing.setValue(4.0)
-    assert d.apply().spacing == 4.0
+    # the Nest workspace's job panel edits the parameters (nest.params opens it: R-5)
+    win.run("nest.params")
+    ws = win.findChild(QWidget, "nest_workspace")
+    assert win.shell.host.current == "nest" and ws.options.isVisibleTo(ws)
+    ws.spacing.setValue(4.0)
+    ws._apply_params()
+    assert nx.job.params.spacing == 4.0
     assert SheetDialog(win).sheet().width == 3000.0
     win.set_document(docops.demo_document())
     assert nx.add_part_from_selection() == 4
@@ -126,14 +131,15 @@ def test_params_dialog_engine_and_missing_engine(app, monkeypatch):
     import sys
 
     from mlaser.nest import ENGINE_RASTER, ENGINE_SPYRROW
-    from mlaser.ui.ext_nest import NestParamsDialog
     from wiring import real_window
     win = real_window()
     nx, _ = win.extension("ext_nest")
-    d = NestParamsDialog(win, nx.job.params, win)
-    assert d.engine.currentData() == ENGINE_RASTER
-    d.engine.setCurrentIndex(d.engine.findData(ENGINE_SPYRROW))
-    assert d.apply().engine == ENGINE_SPYRROW
+    ws = win.findChild(QWidget, "nest_workspace")
+    ws.refresh()
+    assert ws.engine.currentData() == ENGINE_RASTER
+    ws.engine.setCurrentIndex(ws.engine.findData(ENGINE_SPYRROW))
+    ws._apply_params()
+    assert nx.job.params.engine == ENGINE_SPYRROW
     monkeypatch.setitem(sys.modules, "spyrrow", None)
     nx.job.add_part(NestPart([Part([rect(0, 0, 50, 50)])]))
     nx.job.add_sheet(NestSheet(500, 500))

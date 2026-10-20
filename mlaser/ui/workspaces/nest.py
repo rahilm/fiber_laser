@@ -23,7 +23,7 @@ from typing import Any, Optional
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDoubleSpinBox,
-                               QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QFileDialog, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QListView, QListWidget, QListWidgetItem, QProgressBar,
                                QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget,
                                QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
@@ -35,10 +35,14 @@ from mlaser.nest.engine import available_engines
 from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
 
-from ..responsive import ColumnFitter
+from .. import homes
+from ..responsive import ColumnFitter, FlowLayout
 from . import TOUCH_MIN, show_workspace, tr
 
 #: per-part rotation choices of the parts table: (id, label key, default text, NestPart.angles, grain)
+#: the job's rotation steps offered (a job's own step is added when it has another one)
+ROTATION_STEPS = (0, 90, 45, 30, 15)
+
 ROTATIONS = (("sheet", "nestws.rotp.sheet", "sheet setting", None, False),
              ("fixed", "nestws.rotp.fixed", "fixed 0°", [0.0], False),
              ("half", "nestws.rotp.half", "0° / 180°", [0.0, 180.0], False),
@@ -295,12 +299,14 @@ class NestWorkspace(QWidget):
         mv.addWidget(self.sheet_title)
         self.view = SheetView()
         mv.addWidget(self.view, 1)
-        prm = QGridLayout()
+        # the job parameters (Nest › Job, the one home of every nest value: WORK_ITEMS R-5):
+        # label + field pairs that wrap to the next row in a narrow window
+        prm = FlowLayout(justify=False)
         self.spacing = self._spin(0, 100, 3.0, " mm")
         self.margin = self._spin(0, 500, 5.0, " mm")
         self.rot = QComboBox()
-        for deg in (0, 90, 45, 15):
-            self.rot.addItem(tr(w, "nestws.rot.none", "no rotation") if deg == 0 else f"{deg}°", float(deg))
+        for deg in ROTATION_STEPS:
+            self.rot.addItem(tr(w, "nestws.rot.none", "no rotation") if deg == 0 else f"{deg:g}°", float(deg))
         self.rot.setMinimumHeight(TOUCH_MIN - 8)
         self.engine = QComboBox()
         self.engine.setObjectName("nestws_engine")
@@ -314,13 +320,17 @@ class NestWorkspace(QWidget):
                                     Qt.ToolTipRole)
         self.engine.setMinimumHeight(TOUCH_MIN - 8)
         self.time_limit = self._spin(1, 3600, 30.0, " s", 0)
-        for n, (key, text, wid) in enumerate((("nestws.spacing", "Spacing", self.spacing),
-                                               ("nestws.margin", "Edge", self.margin),
-                                               ("nestws.rotation", "Rotation", self.rot),
-                                               ("nestws.engine", "Engine", self.engine),
-                                               ("nestws.time", "Time limit", self.time_limit))):
-            prm.addWidget(QLabel(tr(w, key, text)), 0, n)
-            prm.addWidget(wid, 1, n)
+        for key, text, wid in (("nestws.spacing", "Spacing", self.spacing),
+                               ("nestws.margin", "Edge", self.margin),
+                               ("nestws.rotation", "Rotation", self.rot),
+                               ("nestws.engine", "Engine", self.engine),
+                               ("nestws.time", "Time limit", self.time_limit)):
+            prm.addWidget(_pair(tr(w, key, text), wid))
+        for wid, vid in ((self.spacing, "nest.spacing"), (self.margin, "nest.margin"),
+                         (self.rot, "nest.rotation_step"), (self.engine, "nest.engine"),
+                         (self.time_limit, "nest.time_limit_s"), (self.material, "nest.material"),
+                         (self.thickness, "nest.thickness")):
+            homes.bind_editor(wid, vid)
         self.options_btn = QToolButton()
         self.options_btn.setObjectName("nestws_options_btn")
         self.options_btn.setCheckable(True)
@@ -329,7 +339,7 @@ class NestWorkspace(QWidget):
         self.options_btn.setArrowType(Qt.RightArrow)
         self.options_btn.setMinimumHeight(TOUCH_MIN - 8)
         self.options_btn.toggled.connect(self.show_options)
-        prm.addWidget(self.options_btn, 1, 5)
+        prm.addWidget(self.options_btn)
         mv.addLayout(prm)
         self.options = self._options_panel()
         self.options.setVisible(False)
@@ -417,7 +427,7 @@ class NestWorkspace(QWidget):
         box.setObjectName("nestws_options")
         box.setDocumentMode(True)
         nb = QWidget()
-        ng = QGridLayout(nb)
+        ng = FlowLayout(nb, justify=False)
         ng.setContentsMargins(4, 4, 4, 4)
         self.common_line = self._check("nestws.opt.common_line", "Common line", "nestws_common_line")
         self.share_min = self._spin(0.1, 10000, 20.0, " mm")
@@ -434,18 +444,22 @@ class NestWorkspace(QWidget):
         self.grain = self._combo(((GRAIN_NONE, "nestws.grain.none", "none"),
                                   (GRAIN_X, "nestws.grain.x", "along X"),
                                   (GRAIN_Y, "nestws.grain.y", "along Y")), "nestws_grain")
-        ng.addWidget(self.common_line, 0, 0)
-        ng.addWidget(self.share_min, 0, 1)
-        ng.addWidget(self.kerf, 0, 2)
-        ng.addWidget(self.part_in_part, 0, 3)
-        ng.addWidget(self.mirror, 0, 4)
-        ng.addWidget(QLabel(tr(w, "nestws.opt.gravity", "Gravity")), 1, 0)
-        ng.addWidget(self.gravity, 1, 1, 1, 2)
-        ng.addWidget(QLabel(tr(w, "nestws.opt.grain", "Sheet grain")), 1, 3)
-        ng.addWidget(self.grain, 1, 4)
+        # the former Nest parameters dialog's own fields (nothing is lost: WORK_ITEMS R-5)
+        self.accuracy = self._spin(0.1, 1.0, 0.5, "", 2)
+        self.accuracy.setObjectName("nestws_accuracy")
+        self.cell = self._spin(0, 50, 0.0, " mm", 1)
+        self.cell.setObjectName("nestws_cell")
+        self.cell.setSpecialValueText(tr(w, "nestws.opt.auto", "auto"))
+        ng.addWidget(_pair("", self.common_line, self.share_min, self.kerf))
+        ng.addWidget(self.part_in_part)
+        ng.addWidget(self.mirror)
+        ng.addWidget(_pair(tr(w, "nestws.opt.gravity", "Gravity"), self.gravity))
+        ng.addWidget(_pair(tr(w, "nestws.opt.grain", "Sheet grain"), self.grain))
+        ng.addWidget(_pair(tr(w, "nestws.opt.accuracy", "Accuracy"), self.accuracy))
+        ng.addWidget(_pair(tr(w, "nestws.opt.cell", "Raster cell"), self.cell))
         box.addTab(nb, tr(w, "nestws.opt.nesting", "Nesting"))
         sb = QWidget()
-        sg = QGridLayout(sb)
+        sg = FlowLayout(sb, justify=False)
         sg.setContentsMargins(4, 4, 4, 4)
         self.scrap = self._combo(((SCRAP_OFF, "nestws.scrap.off", "off"),
                                   (SCRAP_GRID, "nestws.scrap.grid", "grid"),
@@ -462,16 +476,20 @@ class NestWorkspace(QWidget):
                                          ("last", "nestws.tip.last", "cut last"),
                                          ("avoid", "nestws.tip.avoid", "rapids avoid")),
                                         "nestws_tip_strategy")
-        sg.addWidget(QLabel(tr(w, "nestws.opt.scrap", "Skeleton cut-up")), 0, 0)
-        sg.addWidget(self.scrap, 0, 1)
-        sg.addWidget(self.scrap_pitch, 0, 2)
-        sg.addWidget(self.remnant_cut, 0, 3)
-        sg.addWidget(self.remnant_min, 0, 4)
-        sg.addWidget(self.lead_fix, 1, 0, 1, 2)
-        sg.addWidget(self.tip_check, 1, 3)
-        sg.addWidget(self.tip_strategy, 1, 4)
+        sg.addWidget(_pair(tr(w, "nestws.opt.scrap", "Skeleton cut-up"), self.scrap, self.scrap_pitch))
+        sg.addWidget(_pair("", self.remnant_cut, self.remnant_min))
+        sg.addWidget(self.lead_fix)
+        sg.addWidget(_pair("", self.tip_check, self.tip_strategy))
         box.addTab(sb, tr(w, "nestws.opt.strategy", "Cutting strategy"))
-        box.setMaximumHeight(130)
+        for wid, vid in ((self.common_line, "nest.common_line"), (self.share_min, "nest.share_edge_min_len"),
+                         (self.kerf, "nest.kerf"), (self.part_in_part, "nest.part_in_part"),
+                         (self.mirror, "nest.allow_mirror"), (self.gravity, "nest.gravity"),
+                         (self.grain, "nest.grain"), (self.accuracy, "nest.accuracy"),
+                         (self.cell, "nest.resolution"), (self.scrap, "nest.scrap_cut"),
+                         (self.scrap_pitch, "nest.scrap_pitch"), (self.remnant_cut, "nest.remnant_cut"),
+                         (self.remnant_min, "nest.remnant_min_width"), (self.lead_fix, "nest.lead_fix"),
+                         (self.tip_check, "nest.tip_check"), (self.tip_strategy, "nest.tip_strategy")):
+            homes.bind_editor(wid, vid)
         for wid in (self.scrap, self.scrap_pitch, self.remnant_cut, self.remnant_min):
             sig = getattr(wid, "currentIndexChanged", None) or getattr(wid, "valueChanged", None) \
                 or wid.toggled
@@ -557,8 +575,14 @@ class NestWorkspace(QWidget):
         self._sync = True
         self.spacing.setValue(p.spacing)
         self.margin.setValue(p.margin)
-        i = self.rot.findData(float(p.rotation_step if 0 < p.rotation_step < 360 else 0.0))
-        self.rot.setCurrentIndex(max(0, i))
+        step = float(p.rotation_step if 0 < p.rotation_step < 360 else 0.0)
+        i = self.rot.findData(step)
+        if i < 0:                                # a step of its own (e.g. 30°): kept, not lost
+            self.rot.addItem(f"{step:g}°", step)
+            i = self.rot.count() - 1
+        self.rot.setCurrentIndex(i)
+        self.accuracy.setValue(p.accuracy)
+        self.cell.setValue(p.resolution or 0.0)
         self.engine.setCurrentIndex(max(0, self.engine.findData(p.engine)))
         self.time_limit.setValue(p.time_limit_s)
         self.common_line.setChecked(p.common_line)
@@ -689,6 +713,8 @@ class NestWorkspace(QWidget):
         p.rotation_step = float(self.rot.currentData() or 0.0) or 360.0
         p.engine = self.engine.currentData() or ENGINE_RASTER
         p.time_limit_s = self.time_limit.value()
+        p.accuracy = self.accuracy.value()
+        p.resolution = self.cell.value() or None
         p.common_line = self.common_line.isChecked()
         p.share_edge_min_len = self.share_min.value()
         p.kerf = self.kerf.value()
@@ -703,6 +729,9 @@ class NestWorkspace(QWidget):
         p.lead_fix = self.lead_fix.isChecked()
         p.tip_check = self.tip_check.isChecked()
         self.job.extra["tip_strategy"] = self.tip_strategy.currentData() or "joint"
+        if not self._material_auto:
+            self.job.extra["material"] = {"name": self.material.text().strip(),
+                                          "thickness_mm": self.thickness.value(), "typed": True}
 
     def _strategy_job(self, run: NestRun) -> NestJob:
         """The run's job with the cutting strategy as set now (it needs no new nesting run)."""
@@ -807,6 +836,16 @@ class NestWorkspace(QWidget):
                 self.material.setCompleter(comp)
             except Exception:  # noqa: BLE001 - a completion is a convenience
                 pass
+        saved = self.job.extra.get("material")
+        if isinstance(saved, dict) and self._material_auto and saved.get("typed"):
+            # the job's own material and thickness (saved with the job: WORK_ITEMS R-5)
+            self._prefilling = True
+            try:
+                self.material.setText(str(saved.get("name", "")))
+                self.thickness.setValue(float(saved.get("thickness_mm", 0.0) or 0.0))
+            finally:
+                self._prefilling = False
+            self._material_auto = False
         if not self._material_auto:
             return
         from mlaser.services.material_check import layer_techs
@@ -1052,7 +1091,22 @@ class NestWorkspace(QWidget):
         return True
 
 
+def _pair(label: str, *widgets: QWidget) -> QWidget:
+    """A label and its field(s) kept together on one row of a wrapping layout."""
+    box = QWidget()
+    lay = QHBoxLayout(box)
+    lay.setContentsMargins(0, 0, 0, 0)
+    if label:
+        lb = QLabel(label)
+        lb.setBuddy(widgets[0])
+        lay.addWidget(lb)
+    for wd in widgets:
+        lay.addWidget(wd)
+    return box
+
+
 def register(ctx: Any) -> NestWorkspace:
+    homes.register_home("nest.", homes.Home("nest", "job", "home.nest_job", implemented=True))
     ws = NestWorkspace(ctx)
     title = tr(ctx.window, "ws.nest", "Nest")
     ctx.add_workspace("nest", ws, title)

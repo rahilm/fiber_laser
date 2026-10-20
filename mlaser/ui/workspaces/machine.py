@@ -26,7 +26,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
 from mlaser.services.alarm_history import AlarmHistory, fmt_time
 from mlaser.services.procedures import MIN_MODES, mode_allows
 
-from .. import icons
+from .. import homes, icons
 from ..responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, CurrentPageStack, FlowLayout, ResponsiveForm, flow,
                           mark_list)
 from ..wizards.common import MIN_TARGET, JogPad, T
@@ -41,6 +41,85 @@ SECTIONS = (("connection", "ws.machine.sec_connection", "plug-connected", "opera
 SETTINGS_EDIT_MODE = "service"
 HW_SECTIONS = ("AxisParam", "MachineAxisConfig_0", "MachineAxisConfig", "HomeParam", "LaserParam",
                "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam", "DOParam")
+
+#: the jog values (the jog pad is their home) and the coordinate system (Homing and jog)
+JOG_KEYS = ("MC.IsStepMove", "MC.StepLength", "MC.IsFastMode")
+MOTION_KEYS = JOG_KEYS + ("MSC.CoordSysType",)
+#: runtime state, not settings (the selected mark point, recent files, test ids)
+NOT_SETUP = frozenset({"MC.MarkPtIndex", "MSC.RecenFileIndex", "MSC.LatestFilePath", "MSC.TestCardID",
+                       "MSC.TestPersonID"}) | frozenset(MOTION_KEYS)
+
+
+def _pre(*prefixes: str):
+    return lambda s: s.key.startswith(prefixes)
+
+
+def _sec(*names: str):
+    return lambda s: s.section in names
+
+
+def _hard(s) -> bool:
+    return s.file == "HardPara.xml"
+
+
+#: Machine › Setup (WORK_ITEMS R-1): every machine setting in one editor, by topic.  (id, title
+#: key, predicate over the ConfigService schema).  The card's HardPara rows that used to sit in
+#: Options (precision compensation, crash protection, ...) are under Advanced; the machine
+#: behaviour rows of Options (jog / rapid speeds, gas delays, coordinates, edge seek) have their
+#: own sections; MachineAxisConfig_1..4 (no editor before) are the other axes.
+SETUP_SECTIONS: tuple = (
+    ("AxisParam", "ws.machine.hw_AxisParam", _sec("AxisParam")),
+    ("MachineAxisConfig", "ws.machine.hw_MachineAxisConfig", _sec("MachineAxisConfig")),
+    *((f"MachineAxisConfig_{i}", f"ws.machine.hw_MachineAxisConfig_{i}", _sec(f"MachineAxisConfig_{i}"))
+      for i in range(5)),
+    ("HomeParam", "ws.machine.hw_HomeParam", _sec("HomeParam")),
+    ("motion", "ws.machine.hw_motion", lambda s: s.section == "ManuParam" and not _hard(s)
+     and s.key.startswith(("MC.", "MS.", "LC.", "LMP.", "ManuParam:LMP.", "MP."))),
+    ("coords", "ws.machine.hw_coords", _pre("MSC.")),
+    ("LaserParam", "ws.machine.hw_LaserParam", _sec("LaserParam")),
+    ("GasParam", "ws.machine.hw_GasParam", lambda s: s.section == "GasParam" or s.key.startswith("GC.")),
+    ("ZFParam", "ws.machine.hw_ZFParam", _sec("ZFParam")),
+    ("AFParam", "ws.machine.hw_AFParam", lambda s: s.section == "AFParam"
+     or (s.section == "ManuParam" and _hard(s) and s.key.startswith("AF."))),
+    ("FCParam", "ws.machine.hw_FCParam", lambda s: s.section == "FCParam" or (s.section == "ManuParam"
+                                                                               and s.key.startswith("FC."))),
+    ("DAParam", "ws.machine.hw_DAParam", _sec("DAParam")),
+    ("DIParam", "ws.machine.hw_DIParam", _sec("DIParam")),
+    ("DOParam", "ws.machine.hw_DOParam", _sec("DOParam")),
+    ("ethercat", "ws.machine.hw_ethercat", lambda s: s.section == "ECParam"
+     or (s.section == "ManuParam" and _hard(s) and s.key.startswith("EC."))),
+    ("edge", "ws.machine.hw_edge", lambda s: s.section == "GraphParam" and s.key.startswith("GRP.Edge")),
+    ("advanced", "ws.machine.hw_advanced", lambda s: _hard(s) and (
+        (s.section == "ManuParam" and s.key.startswith(("MP.", "MGP.")))
+        or (s.section == "SoftParam" and s.key.startswith("SP.")))),
+)
+
+
+def setup_keys(config: Any) -> dict[str, str]:
+    """Schema key -> Setup section id, for every machine setting Machine › Setup edits."""
+    out: dict[str, str] = {}
+    for s in config.schema.values():
+        if s.key in NOT_SETUP or not s.label:
+            continue
+        for sid, _title, pred in SETUP_SECTIONS:
+            if pred(s):
+                out.setdefault(s.key, sid)
+                break
+    return out
+
+
+H_SETUP = homes.Home("machine", "settings", "home.machine_setup", implemented=True)
+H_JOG = homes.Home("machine", "motion", "home.machine_jog", implemented=True)
+
+
+def register_homes(config: Any) -> dict[str, str]:
+    """The Setup rows and the jog values have their home here (``cfg:<key>``)."""
+    keys = setup_keys(config)
+    for k in keys:
+        homes.register_home(f"cfg:{k}", H_SETUP)
+    for k in MOTION_KEYS:
+        homes.register_home(f"cfg:{k}", H_JOG)
+    return keys
 MONITORS = (("controller", "ws.machine.mon_controller"), ("zf", "ws.machine.mon_follower"),
             ("af", "ws.machine.mon_autofocus"), ("ec", "ws.machine.mon_ethercat"))
 #: (command, title, description, icon) of the procedure cards
@@ -101,16 +180,20 @@ class SettingsPanel(QWidget):
         top = QHBoxLayout()
         self.section = QComboBox()
         self.section.setMinimumHeight(32)
-        for s in HW_SECTIONS:
-            if config.section(s):
-                self.section.addItem(T(window, f"ws.machine.hw_{s}"), s)
+        self.keys = register_homes(config)          # key -> section id
+        homes.bind_transient(self.section, "machine.setup_section")
+        for sid, title, _pred in SETUP_SECTIONS:
+            if sid in self.keys.values():
+                self.section.addItem(T(window, title), sid)
         self.section.currentIndexChanged.connect(lambda _i: self.build())
         top.addWidget(QLabel(T(window, "ws.machine.hw_section")))
         top.addWidget(self.section, 1)
         self.search = QLineEdit()
+        homes.bind_transient(self.search, "machine.setup_search")
         self.search.setPlaceholderText(T(window, "ws.machine.hw_search"))
         self.search.setClearButtonEnabled(True)
-        self.search.textChanged.connect(self._filter)
+        self._all = False
+        self.search.textChanged.connect(self._search)
         top.addWidget(self.search, 1)
         # the interlocks and the heartbeat have their own dialog (Engineer and Service mode)
         self.b_safety_io = _button(window, "safety.io.button", self._safety_io, "alert-triangle")
@@ -213,10 +296,15 @@ class SettingsPanel(QWidget):
             return
         tr = getattr(self.w, "tr_", None)
         groups: dict[str, QTreeWidgetItem] = {}
-        for s in self.config.section(sec):
-            if not s.label:
-                continue
+        # a search looks through every section of Setup, else the chosen section
+        self._all = bool(self.search.text().strip())
+        titles = {sid: T(self.w, title) for sid, title, _p in SETUP_SECTIONS}
+        rows = [s for s in self.config.schema.values()
+                if s.key in self.keys and (self._all or self.keys[s.key] == sec)]
+        for s in rows:
             g, name = tr.tr_param(s.label) if tr is not None else ("", s.label)
+            if self._all:
+                g = f"{titles[self.keys[s.key]]} › {g}" if g else titles[self.keys[s.key]]
             top = groups.get(g)
             if top is None:
                 top = QTreeWidgetItem([g or "–"])
@@ -227,6 +315,8 @@ class SettingsPanel(QWidget):
             it.setToolTip(0, s.key)
             top.addChild(it)
             ed = self._editor(s)
+            ed.setObjectName(f"setup_{s.key}")
+            homes.bind_editor(ed, f"cfg:{s.key}")
             self.tree.setItemWidget(it, 1, ed)
             self._editors[s.key] = ed
             self._initial[s.key] = self._read(ed)
@@ -236,6 +326,31 @@ class SettingsPanel(QWidget):
                                                     for e in self._editors.values()))
         self._filter(self.search.text())
         self.columns.schedule()
+
+    def _search(self, text: str) -> None:
+        if bool(text.strip()) != self._all:
+            self.build()                   # every section while searching, the chosen one after
+        else:
+            self._filter(text)
+
+    def show_key(self, key: str) -> Optional[QWidget]:
+        """Open the Setup section of ``key`` and return its editor (``homes.edit_in``)."""
+        sid = self.keys.get(key)
+        if sid is None:
+            return None
+        if self.search.text():
+            self.search.clear()
+        i = self.section.findData(sid)
+        if i >= 0 and i != self.section.currentIndex():
+            self.section.setCurrentIndex(i)
+        ed = self._editors.get(key)
+        if ed is not None:
+            for j in range(self.tree.topLevelItemCount()):
+                g = self.tree.topLevelItem(j)
+                for k in range(g.childCount()):
+                    if g.child(k).text(2) == key:
+                        self.tree.scrollToItem(g.child(k))
+        return ed
 
     def _filter(self, text: str) -> None:
         t = text.strip().lower()
@@ -267,6 +382,27 @@ class SettingsPanel(QWidget):
                             + (("  ⚠ " + "; ".join(self.errors)) if self.errors else ""))
         self.build()
         return n
+
+
+def _resolve(window: Any, vid: str, target: Any = None) -> Optional[QWidget]:
+    """``homes.edit_in`` for the machine's values: open the section and return the editor."""
+    key = vid[4:] if vid.startswith("cfg:") else vid
+    if not isinstance(window, QWidget):
+        return None
+    ws = window.findChild(MachineWorkspace)
+    if ws is None:
+        return None
+    if key in MOTION_KEYS:
+        ws.show_section("motion")
+        return ws.coord if key == "MSC.CoordSysType" else (ws.jog.fast if key == "MC.IsFastMode"
+                                                            else ws.jog.step_buttons[1])
+    if key in ws.settings_panel.keys:
+        ws.show_section("settings")
+        return ws.settings_panel.show_key(key)
+    return None
+
+
+homes.register_resolver("cfg:", _resolve)
 
 
 class MachineWorkspace(QWidget):
@@ -454,7 +590,7 @@ class MachineWorkspace(QWidget):
                                         ("ws.machine.home_xyz", "machine.home_xyz"),
                                         ("ws.machine.home_focus", "wizard.focus_home"))], uniform=True)
         page.add_section(CollapsibleSection(T(w, "ws.machine.homing_box"), homing, priority=2))
-        self.jog = JogPad(w, lambda: self.ctx.controller, z=True)
+        self.jog = JogPad(w, lambda: self.ctx.controller, z=True, home=True)     # the jog values' home
         self.jog.log.connect(self.ctx.log)
         page.add_section(CollapsibleSection(T(w, "ws.machine.jog_box"), self.jog, priority=3))
         cb = QWidget()
@@ -468,6 +604,7 @@ class MachineWorkspace(QWidget):
             self.coord.addItem(tr.tr(C.NAMES[i]) if tr is not None else C.NAMES[i], i)
         self.coord.setCurrentIndex(self.ext.ops.coords.kind)
         self.coord.activated.connect(lambda i: self.ext.select_coord(int(self.coord.itemData(i))))
+        homes.bind_editor(self.coord, "cfg:MSC.CoordSysType")
         form = ResponsiveForm()
         form.addRow(QLabel(T(w, "ws.machine.coord_system")), self.coord)
         cl.addWidget(form)

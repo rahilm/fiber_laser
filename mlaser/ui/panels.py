@@ -16,12 +16,14 @@ from mlaser.model import LayerParams
 
 from .canvas import LAYER_COLORS, layer_color
 from ..machine.api import MachineAPI
+from . import homes
 from .i18n import Translator
 from .params import GAS_KEYS
 from .icons import command_icon
-from .responsive import (TARGET, TARGET_MIN, CollapsibleSection, ColumnFitter, ColumnsPanel, ResponsiveForm, flow, keep_min_size)
+from .responsive import (TARGET_MIN, CollapsibleSection, ColumnFitter, ColumnsPanel, ResponsiveForm, flow)
 
 PAD_ICON = 28       # px: the touch icon size (jog pad, run buttons)
+JOG_KEYS = ("MC.IsStepMove", "MC.IsFastMode", "MC.StepLength")
 
 
 def _swatch(color: QColor, size: int = 14) -> QIcon:
@@ -354,29 +356,19 @@ class ControlPanel(QWidget):
         self._keepalive = QTimer(self)
         self._keepalive.setInterval(self.JOG_KEEPALIVE_MS)
         self._keepalive.timeout.connect(self._jog_keepalive)
-        # Responsive layout (docs/dev/RESPONSIVE.md): Start / Pause / Stop pinned on top (never
-        # folded, never scrolled away), then the sections Jog, DO, Run Control and Coordinate in
+        # Responsive layout (docs/dev/RESPONSIVE.md): the sections Jog, DO, Path and Coordinate in
         # 1..3 columns as the dock's width allows; when the dock is too short the panel turns
         # compact and then folds the sections of lowest priority (Coordinate first, Jog last).
-        # One rule for icons and text: the jog pad is icon-only (direction and meaning in the
-        # tooltip and accessible name; every pad button the same size), the run buttons carry
-        # icon and text, every other action is a text button.
+        # Start / Hold / STOP / Frame / Dry run are the run bar's (always on screen, never a
+        # second copy here: WORK_ITEMS R-4, UI audit D-2).  One rule for icons and text: the jog
+        # pad is icon-only (direction and meaning in the tooltip and accessible name; every pad
+        # button the same touch size), every other action is a text button.
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
         self.columns = ColumnsPanel(max_columns=3)
         self.columns.setObjectName("control_columns")
         outer.addWidget(self.columns)
-
-        # --- run: Start / Pause / Stop (pinned)
-        run_row = QWidget()
-        run_row.setObjectName("control_run_row")
-        rr = QHBoxLayout(run_row)
-        rr.setContentsMargins(0, 0, 0, 0)
-        for key, ic, fn in (("mp54", "run.start", self._start), ("mp55", "run.pause", self._pause),
-                            ("mp56", "run.stop", self._stop)):
-            b = self._icon_button(key, ic, fn)
-            rr.addWidget(b, 1)
-        self.columns.add_pinned(run_row)
+        self.config = None               # ConfigService (bind_config): jog step / fast, coordinates
 
         # --- jog
         jog = QWidget()
@@ -416,12 +408,19 @@ class ControlPanel(QWidget):
         self.step.setCurrentIndex(3)
         self.step.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         tr.bind(self.step, "mp31", self.step.setAccessibleName)
+        # the jog values' home is the Machine workspace's jog pad; these are quick switches on
+        # the same persisted keys (homes.SHORTCUT), like every other jog pad
+        for wdg, vid in ((self.mode_step, "cfg:MC.IsStepMove"), (self.mode_fast, "cfg:MC.IsFastMode"),
+                         (self.step, "cfg:MC.StepLength")):
+            wdg.setProperty(homes.PROP_VALUE, vid)
+            wdg.setProperty(homes.PROP_ROLE, homes.SHORTCUT)
         jv.addWidget(flow([self.mode_step, self.mode_fast, self.step], justify=False))
         # mark points (标记点1..6 = MC.MarkPtIndex, 标记 mp39 FUN_005c9390, 返回 af10 FUN_005c97f0)
         self.mark_index = QComboBox()
         for k in ("mp33", "mp34", "mp35", "mp36", "mp37", "mp38"):
             self.mark_index.addItem(tr.tr(k))
         self.mark_index.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        homes.bind_transient(self.mark_index, "run.mark_point")      # which mark Mark / Return use
         self.mark_index.currentIndexChanged.connect(self._mark_index_changed)
         jv.addWidget(flow([self._text_button("mp29_1", self._sys_home), self.mark_index,
                            self._text_button("mp39", self._set_mark), self._text_button("af10", self._return_mark)]))
@@ -450,11 +449,13 @@ class ControlPanel(QWidget):
         for k in GAS_KEYS:
             self.gas_type.addItem(tr.tr(k))
         self.gas_type.currentIndexChanged.connect(lambda i: self.ctl.set_gas_type(i))
+        homes.bind_transient(self.gas_type, "run.manual_gas")        # the gas the Gas button opens
         self.power = QSpinBox()
         self.power.setRange(0, 100)
         self.power.setValue(10)
         self.power.setSuffix(" %")
         self.power.valueChanged.connect(lambda p: self.ctl.set_laser_power(float(p)))
+        homes.bind_transient(self.power, "run.manual_power")         # the Laser button's power
         form = ResponsiveForm()
         lbl_gas = QLabel()
         tr.bind(lbl_gas, "mp42", lbl_gas.setText)
@@ -465,7 +466,7 @@ class ControlPanel(QWidget):
         iv.addWidget(form)
         self.sec_io = self._section("ss4", io, priority=2)
 
-        # --- process
+        # --- path: simulate and step along the job (the run itself is the run bar's)
         proc = QWidget()
         pv = QVBoxLayout(proc)
         pv.setContentsMargins(0, 0, 0, 0)
@@ -473,40 +474,91 @@ class ControlPanel(QWidget):
         self.bf_len.setRange(0.1, 10000)
         self.bf_len.setValue(10.0)
         tr.bind(self.bf_len, "mp62", self.bf_len.setAccessibleName)
-        pv.addWidget(flow([self._text_button("mp57", self._dry_run), self._text_button("mp58", self._frame),
-                           self._text_button("mp59", self.simulateRequested.emit)], uniform=True))
-        pv.addWidget(flow([self._text_button("mp61", lambda: self.ctl.step_backward(self.bf_len.value())),
+        homes.bind_transient(self.bf_len, "run.step_length")
+        pv.addWidget(flow([self._text_button("mp59", self.simulateRequested.emit),
+                           self._text_button("mp61", lambda: self.ctl.step_backward(self.bf_len.value())),
                            self._text_button("mp62", lambda: self.ctl.step_forward(self.bf_len.value())),
                            self.bf_len], uniform=True))
-        self.selected_only = QCheckBox()
-        tr.bind(self.selected_only, "mp52", self.selected_only.setText)
-        self.soft_limit = QCheckBox()
-        tr.bind(self.soft_limit, "mp73", self.soft_limit.setText)
-        self.soft_limit.setChecked(True)
-        pv.addWidget(flow([self.selected_only, self.soft_limit], justify=False))
-        self.return_to = QComboBox()
-        for k in ("mp71", "mp68", "mp69", "mp70"):
-            self.return_to.addItem(tr.tr(k))
-        lbl2 = QLabel()
-        tr.bind(lbl2, "mp67", lbl2.setText)
-        f2 = ResponsiveForm()
-        f2.addRow(lbl2, self.return_to)
-        pv.addWidget(f2)
         self.sec_run = self._section("mf141", proc, priority=1)
 
-        # --- coordinate / misc
+        # --- coordinate system (shown; chosen in Machine › Homing and jog) and its actions
         coord = QWidget()
         cv = QVBoxLayout(coord)
         cv.setContentsMargins(0, 0, 0, 0)
-        self.coord_sys = QComboBox()
-        for k in ("mp200", "mp201", "mp202", "mp203", "mp204", "mp205", "mp206", "mp207"):
-            self.coord_sys.addItem(tr.tr(k))
-        tr.bind(self.coord_sys, "mf307", self.coord_sys.setAccessibleName)
+        self.coord_sys = QLabel()
+        self.coord_sys.setObjectName("control_coord_sys")
+        self.coord_sys.setWordWrap(True)
+        homes.bind_mirror(self.coord_sys, "cfg:MSC.CoordSysType", tr)
         cv.addWidget(self.coord_sys)
         cv.addWidget(flow([self._text_button("mf514", self.ctl.set_origin),
                            self._text_button("mp164", self.ctl.go_origin_point),
                            self._text_button("mf21", self.ctl.clear_alarms)], uniform=True))
         self.sec_coord = self._section("mf307", coord, priority=0)
+        self._show_coord()
+
+    # -- configuration (one jog step / fast for every jog pad; the coordinate system)
+    def bind_config(self, config) -> None:
+        """Read and write the persisted jog values (``MC.IsStepMove``, ``MC.StepLength``,
+        ``MC.IsFastMode``: the same values every jog pad shows, WORK_ITEMS R-3) and show the
+        coordinate system; follows changes made elsewhere."""
+        self.config = config
+        self._jog_sync()
+        self.mode_step.toggled.connect(lambda on: self._jog_set("MC.IsStepMove", bool(on)))
+        self.mode_fast.toggled.connect(lambda on: self._jog_set("MC.IsFastMode", bool(on)))
+        self.step.currentIndexChanged.connect(lambda _i: self._jog_set("MC.StepLength", self._step_mm()))
+        config.subscribe(self._config_changed)
+        self._show_coord()
+
+    def _config_changed(self, key: str) -> None:
+        if key in JOG_KEYS:
+            self._jog_sync()
+        elif key == "MSC.CoordSysType":
+            self._show_coord()
+
+    def _step_mm(self) -> float:
+        try:
+            return float(self.tr_.tr(self.STEP_KEYS[self.step.currentIndex()]))
+        except (ValueError, IndexError):
+            return 1.0
+
+    def _jog_set(self, key: str, value) -> None:
+        if self.config is not None and not self._jog_syncing and self.config.get(key) != value:
+            try:
+                self.config.set(key, value)
+            except ValueError:
+                pass
+
+    _jog_syncing = False
+
+    def _jog_sync(self) -> None:
+        if self.config is None:
+            return
+        self._jog_syncing = True
+        try:
+            self.mode_step.setChecked(bool(self.config.get("MC.IsStepMove", False)))
+            self.mode_fast.setChecked(bool(self.config.get("MC.IsFastMode", False)))
+            mm = float(self.config.get("MC.StepLength", 1.0) or 1.0)
+            vals = []
+            for k in self.STEP_KEYS:
+                try:
+                    vals.append(float(self.tr_.tr(k)))
+                except ValueError:
+                    vals.append(float("nan"))
+            best = min(range(len(vals)), key=lambda i: abs(vals[i] - mm) if vals[i] == vals[i] else 1e18)
+            self.step.setCurrentIndex(best)
+        finally:
+            self._jog_syncing = False
+
+    def _show_coord(self) -> None:
+        from mlaser.controller import coords as C
+        kind = 0
+        if self.config is not None:
+            try:
+                kind = int(float(self.config.get("MSC.CoordSysType", 0) or 0))
+            except (TypeError, ValueError):
+                kind = 0
+        name = self.tr_.tr(C.NAMES[kind]) if 0 <= kind < len(C.NAMES) else str(kind)
+        self.coord_sys.setText(name)
 
     # -- machine actions
     machine_ops = None       # controller.machine_ops.MachineOps, set by ui.ext_machine.register
@@ -598,20 +650,6 @@ class ControlPanel(QWidget):
         self.buttons[name] = b
         return b
 
-    def _icon_button(self, key: str, icon_cmd: str, fn: Callable) -> QToolButton:
-        b = QToolButton()
-        b.setIcon(command_icon(icon_cmd))
-        b.setIconSize(QSize(PAD_ICON, PAD_ICON))
-        b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
-        b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        keep_min_size(b, QSize(TARGET_MIN, TARGET))
-        self.tr_.bind(b, key, b.setText)
-        self.tr_.bind(b, key, b.setAccessibleName)
-        b.clicked.connect(lambda _=False: fn())
-        b.setObjectName(key)
-        self.buttons[key] = b
-        return b
-
     def _with_doc(self, fn) -> None:
         doc = self.get_document()
         if doc is not None:
@@ -628,7 +666,7 @@ class ControlPanel(QWidget):
             return
         doc = self.get_document()
         if doc is not None:
-            self.ctl.start(doc, selected_only=self.selected_only.isChecked())
+            self.ctl.start(doc)
 
     def _pause(self) -> None:
         if self.run_hooks is not None:
