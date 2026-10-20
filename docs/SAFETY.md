@@ -137,6 +137,16 @@ so a well-meaning plugin stays on the supported, audited path:
 `tests/safety/test_plugin_trust.py` registers the review's "evil" plugin and checks every public
 route it used is closed and nothing emits while disarmed.
 
+
+Plugin API 2 adds declared permissions (`mlaser-plugin.toml`, docs/dev/PLUGIN_STANDARD.md §5):
+`ctx.controller` of a plugin with a manifest needs `permissions.machine` **and** the service
+engineer's machine-authority grant, otherwise `PermissionError`; the controller's plugin policy
+above is unchanged and still refuses arm / reset / safety changes without the grant. The other
+permissions (network hosts, secrets, the document, orders, queue) are enforced on the plugin
+API the same way. They narrow the supported path; like the plugin view, they are not a security
+boundary against hostile code. The plugin manager's verified installs (hashes, `RECORD`, pure
+wheels, no module that shadows the core) protect the integrity of what is installed, not its
+intent, and installing never enables.
 ## 4. `safe_halt()`
 
 Sent through the **halt channel** (a second socket, 40 ms timeout, 2 sends, its own lock, so it

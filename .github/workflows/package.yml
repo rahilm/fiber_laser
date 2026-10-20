@@ -18,6 +18,11 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - ".github/workflows/package.yml"
+      - "plugins/**"
+      - "tools/plugin_index.py"
+      - "mlaser/services/plugin_index.py"
+      - "mlaser/services/plugin_manager.py"
+      - "mlaser/services/plugin_manifest.py"
   workflow_dispatch:
 
 concurrency:
@@ -102,6 +107,52 @@ jobs:
         with:
           name: sdist
           path: dist/*.tar.gz
+          if-no-files-found: error
+          retention-days: 14
+
+  # the project's own plugins (plugins/<name>/, e.g. plugins/mlaser-onshape): pure wheels, checked
+  # exactly as the plugin manager checks them, plus SHA256SUMS and mlaser-plugin-index.json (wheel
+  # URLs relative to the index).  Attached to the release (docs/dev/RELEASE.md), the index is the
+  # application's default repository:
+  # https://github.com/rahilm/fiber_laser/releases/latest/download/mlaser-plugin-index.json
+  plugins:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Build the plugin wheels
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          mkdir -p plugins-dist
+          for d in plugins/*/; do
+            [ -f "$d/pyproject.toml" ] || continue
+            uv build --wheel -o plugins-dist "$d"
+          done
+          ls -l plugins-dist
+      # the index tool needs only the standard library and mlaser's Qt-free plugin modules
+      - name: Index, SHA256SUMS and check
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          py="uv run --no-project --python 3.12 python"
+          $py tools/plugin_index.py build plugins-dist/*.whl -o plugins-dist/mlaser-plugin-index.json \
+            --sha256sums plugins-dist/SHA256SUMS --name "mlaser plugins" \
+            --homepage https://github.com/rahilm/fiber_laser/tree/main/plugins
+          $py tools/plugin_index.py check plugins-dist/mlaser-plugin-index.json plugins-dist/*.whl
+          cat plugins-dist/SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugins
+          path: |
+            plugins-dist/*.whl
+            plugins-dist/SHA256SUMS
+            plugins-dist/mlaser-plugin-index.json
           if-no-files-found: error
           retention-days: 14
 

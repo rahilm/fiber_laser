@@ -44,6 +44,8 @@ UI_MODULES = {
     "test_import_worker_ui", "test_ws_cutting_strategy", "test_ws_orders",
     # Review 2 shop floor (automation track)
     "test_notify_ui", "test_labels", "test_marking", "test_practice", "test_runsource",
+    # Review 2 plugin manager
+    "test_plugin_manager_ui",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

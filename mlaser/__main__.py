@@ -183,6 +183,15 @@ def _check_svgelements() -> str:
     return f"{getattr(svgelements, 'SVGELEMENTS_VERSION', '')}, 2 shapes parsed".lstrip(", ")
 
 
+def _check_plugins() -> str:
+    """The plugin manager end to end in a temporary directory (services.plugin_manager.self_check)."""
+    import tempfile
+
+    from mlaser.services.plugin_manager import self_check
+    with tempfile.TemporaryDirectory(prefix="mlaser-plugin-check-") as d:
+        return self_check(d)
+
+
 def _check_fonts() -> str:
     """The bundled cutting-text fonts (mlaser/cad/fontdata): each file present and shaping text
     into outlines (fontTools + uharfbuzz)."""
@@ -239,6 +248,7 @@ def bundle_check(files: list[str]) -> int:
         run(what, fn, bool(shipped.get(key)))
     run("svgelements (SVG import)", _check_svgelements, True)
     run("bundled fonts (cutting text)", _check_fonts, True)
+    run("plugin manager (wheel install, site directory, entry points)", _check_plugins, True)
     try:
         from PySide6.QtCore import QLibraryInfo, qVersion
         line(True, "Qt", f"{qVersion()}, libraries in "

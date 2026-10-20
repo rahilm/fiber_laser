@@ -6,7 +6,9 @@ The version is `[project] version` in `pyproject.toml`, a [PEP 440](https://peps
 version: release candidates are `0.1.0rc1`, `0.1.0rc2`, ..., the release `0.1.0` (wheels and
 bundles carry it in their names, e.g. `mlaser-0.1.0rc1-cp312-...whl`). Tag releases on the
 main branch after the contract in [Testing](TESTING.md) is green on CI: `vX.Y.Z` for a
-release, `vX.Y.Z-rcN` for a release candidate (version `X.Y.ZrcN`). Bump the version and move
+release, `vX.Y.Z-rcN` for a release candidate (version `X.Y.ZrcN`). Bump the version (and
+`__version__` in `mlaser/__init__.py`, which plugins' `mlaser` ranges are checked against; a test
+keeps the two equal) and move
 the "Unreleased" entries of [CHANGELOG.md](../../CHANGELOG.md) under the new version (Keep a
 Changelog) in the same commit; `uv lock` updates the lock's own entry.
 
@@ -115,6 +117,10 @@ run=<id of the green Package run on main>
 gh run download $run -R rahilm/fiber_laser -D assets/
 mkdir upload
 cp assets/wheels-*/*.whl assets/sdist/*.tar.gz upload/
+# the project's plugins and their index (the app's default plugin repository: the index URL
+# .../releases/latest/download/mlaser-plugin-index.json and the relative wheel URLs in it only
+# work when the three are assets of the same release)
+cp assets/plugins/*.whl assets/plugins/SHA256SUMS assets/plugins/mlaser-plugin-index.json upload/
 for os in Linux Windows macOS; do
   cp assets/mlaser-$os/mlaser-*.zip assets/mlaser-$os/mlaser-*.tar.gz upload/ 2>/dev/null
   cp assets/mlaser-$os/build-info.json upload/build-info-$os.json
@@ -126,7 +132,9 @@ gh release create vX.Y.Z-rcN --draft --prerelease --target main -t "mlaser X.Y.Z
 A draft release creates its tag only when it is published. Assets: 8 wheels (cp312 / cp313 x
 manylinux x86_64, manylinux aarch64, win_amd64, macosx_11_0_arm64), the sdist, the Windows
 (`.zip`), Linux and macOS (`.tar.gz`, the `.app` inside) one-folder bundles and their
-`build-info-<OS>.json` (bundled distributions, sizes, LGPL check, smoke-test output). Without
+`build-info-<OS>.json` (bundled distributions, sizes, LGPL check, smoke-test output), and the
+project's plugin wheels with `SHA256SUMS` and `mlaser-plugin-index.json` (job `plugins`; the
+application's default plugin repository, docs/dev/PLUGIN_STANDARD.md). Without
 the signing secrets the bundles are unsigned (say so in the notes: SmartScreen on Windows,
 right-click > Open on macOS).
 
