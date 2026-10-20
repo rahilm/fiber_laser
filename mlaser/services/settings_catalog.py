@@ -318,6 +318,8 @@ def migrate_legacy(cfg: Any) -> list[str]:
     for old, new, conv in LEGACY:
         if not cfg.is_set(old) or cfg.setting(new) is None:
             continue
+        if new.startswith("units.") and cfg.is_set(new):
+            continue                    # the display units the user chose win over the original's
         raw = cfg.values[old]
         if old in done and done[old] == raw:
             continue

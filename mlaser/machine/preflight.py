@@ -46,6 +46,25 @@ class Issue:
         return self.severity == ERROR
 
 
+def _mm_range(lo: float, hi: float, fmt: str = "g") -> str:
+    return f"{lo:{fmt}}..{hi:{fmt}} mm"
+
+
+def _mm_point(x: float, y: float) -> str:
+    return f"({x:.1f}, {y:.1f}) mm"
+
+
+#: how the messages show lengths (text only: every check works in mm).  The display-units service
+#: (mlaser.services.units, a higher layer) installs its formatters here when the units change.
+TEXT_FORMAT: dict = {"range": _mm_range, "point": _mm_point}
+
+
+def set_text_format(range_fn=None, point_fn=None) -> None:
+    """Install the length formatters of the messages (None: back to mm)."""
+    TEXT_FORMAT["range"] = range_fn or _mm_range
+    TEXT_FORMAT["point"] = point_fn or _mm_point
+
+
 @dataclass(frozen=True)
 class TravelLimits:
     x: tuple[float, float]
@@ -56,8 +75,8 @@ class TravelLimits:
         return (self.x[0] - tol <= x <= self.x[1] + tol) and (self.y[0] - tol <= y <= self.y[1] + tol)
 
     def describe(self) -> str:
-        return (f"X {self.x[0]:g}..{self.x[1]:g} mm, Y {self.y[0]:g}..{self.y[1]:g} mm "
-                f"({self.source})")
+        r = TEXT_FORMAT["range"]
+        return f"X {r(*self.x)}, Y {r(*self.y)} ({self.source})"
 
 
 @dataclass
@@ -281,7 +300,8 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
             rep.add("travel_unknown", WARNING, "machine travel limits unknown: bounds not checked")
         elif not (travel.contains(x0, y0) and travel.contains(x1, y1)):
             rep.add("out_of_travel", ERROR,
-                    f"job extent X {x0:.1f}..{x1:.1f}, Y {y0:.1f}..{y1:.1f} mm is outside the "
+                    f"job extent X {TEXT_FORMAT['range'](x0, x1, '.1f')}, "
+                    f"Y {TEXT_FORMAT['range'](y0, y1, '.1f')} is outside the "
                     f"travel {travel.describe()}")
     if target is not None:
         tx, ty = target
@@ -290,7 +310,7 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
         elif travel is None:
             rep.add("travel_unknown", WARNING, "machine travel limits unknown: target not checked")
         elif not travel.contains(tx, ty):
-            rep.add("out_of_travel", ERROR, f"target ({tx:.1f}, {ty:.1f}) mm is outside the travel "
+            rep.add("out_of_travel", ERROR, f"target {TEXT_FORMAT['point'](tx, ty)} is outside the travel "
                     f"{travel.describe()}")
     return rep
 

@@ -27,7 +27,7 @@ import copy
 import dataclasses
 from typing import Callable, Optional
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFontComboBox, QFormLayout, QLineEdit, QPlainTextEdit, QSpinBox,
                                QVBoxLayout)
 
@@ -36,6 +36,8 @@ from mlaser.cad import edit as ED
 from mlaser.cad import tools as T
 from mlaser.cad.text import DEFAULT_FONT
 from mlaser.model import Contour, Document, Part
+from mlaser.services import units
+from mlaser.ui.units_qt import QuantitySpinBox
 
 SNAP_PX = 8.0          # object-snap window (pixels)
 MIN_CLICK_PX = 2.0     # clicks closer than this to the previous one are ignored (tool+0x38)
@@ -188,12 +190,9 @@ class _Dialog(QDialog):
         self.lay.addWidget(bb)
 
 
-def _dspin(lo, hi, v, dec=3):
-    w = QDoubleSpinBox()
-    w.setDecimals(dec)
-    w.setRange(lo, hi)
-    w.setValue(v)
-    return w
+def _lspin(lo, hi, v, dec=3, kind: str = "length") -> QuantitySpinBox:
+    """A length in the display units (``value()`` in mm; ``dec`` = the metric decimals)."""
+    return QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, value=v)
 
 
 def _ispin(lo, hi, v):
@@ -316,7 +315,7 @@ class DrawExtension:
         fc.setFontFilters(QFontComboBox.ScalableFonts)
         from PySide6.QtGui import QFont
         fc.setCurrentFont(QFont(resolve_family(p.font)))
-        hs = d.add("ti0", _dspin(0.1, 10000, p.height, 2))
+        hs = d.add("ti0", _lspin(0.1, 10000, p.height, 2))
         d.buttons()
         if not self._run_dialog(d):
             return
@@ -343,7 +342,7 @@ class DrawExtension:
         p = self.qr
         d = _Dialog(self.w.tr_, "A260420_1", self.w)
         ed = d.add("mv20", QLineEdit(p.text))
-        sz = d.add("A260420_2", _dspin(10, 100, p.size, 2))
+        sz = d.add("A260420_2", _lspin(10, 100, p.size, 2))
         dn = d.add("A260420_4", _ispin(3, 30, p.density))
         md = QComboBox()
         md.addItems(["scan lines", "outline squares"])
@@ -374,7 +373,7 @@ class DrawExtension:
         kd = d.add("pd1810", QComboBox())
         kd.addItems([d.label("pd503"), d.label("pd504")])
         kd.setCurrentIndex(p.kind)
-        off = d.add("pd1811", _dspin(0, 1000, p.offset))
+        off = d.add("pd1811", _lspin(0, 1000, p.offset))
         d.buttons()
         if not self._run_dialog(d):
             return
@@ -406,9 +405,9 @@ class DrawExtension:
         ft = d.add("pd725", QComboBox())
         ft.addItems([d.label("pd720"), d.label("pd721"), d.label("pd722")])
         ft.setCurrentIndex(p.fill_type if p.fill_type < 3 else 0)
-        r = d.add("pd726", _dspin(0.1, 500, p.radius))
-        st = d.add("pd727", _dspin(0.1, 300, p.stock))
-        sp = d.add("pd728", _dspin(0.1, 300, p.space))
+        r = d.add("pd726", _lspin(0.1, 500, p.radius))
+        st = d.add("pd727", _lspin(0.1, 300, p.stock))
+        sp = d.add("pd728", _lspin(0.1, 300, p.space))
         d.buttons()
         if not self._run_dialog(d):
             return
@@ -479,7 +478,7 @@ class DrawExtension:
     def merge_dialog(self):
         p = self.merge
         d = _Dialog(self.w.tr_, "mf84", self.w)
-        tol = d.add("pd368", _dspin(0.01, 100, p.tolerance))
+        tol = d.add("pd368", _lspin(0.01, 100, p.tolerance, 3, "small_length"))
         d.buttons()
         if not self._run_dialog(d):
             return
@@ -512,8 +511,8 @@ class DrawExtension:
         p = self.size
         p.width, p.height = x1 - x0, y1 - y0
         d = _Dialog(self.w.tr_, "mf591", self.w)
-        wv = d.add("gp64", _dspin(0.001, 1e6, p.width))
-        hv = d.add("gp63", _dspin(0.001, 1e6, p.height))
+        wv = d.add("gp64", _lspin(0.001, 1e6, p.width))
+        hv = d.add("gp63", _lspin(0.001, 1e6, p.height))
         lk = d.add("pd659", QCheckBox())
         lk.setChecked(p.lock)
         an = d.add("gp65", QComboBox())
@@ -563,7 +562,10 @@ class DrawExtension:
                 return
             self.last_measure = t.measurement
             dx, dy, L = t.measurement
-            msg = self.w.tr_.format("mv17", dx, dy, L)   # view.measure_result
+            u = units.current()
+            # a measurement: the fine resolution (3 decimals in mm, 4 in inches)
+            msg = self.w.tr_.format("mv17", u.fmt(dx, "small_length"), u.fmt(dy, "small_length"),
+                                    u.fmt(L, "small_length"))   # view.measure_result
             self.log(msg)
             try:
                 self.w.statusBar().showMessage(msg, 15000)

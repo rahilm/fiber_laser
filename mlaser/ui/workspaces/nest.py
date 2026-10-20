@@ -33,7 +33,9 @@ from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BO
                          GRAVITY_RIGHT, GRAVITY_TOP, NestJob, NestSheet)
 from mlaser.nest.engine import available_engines
 from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF
+from mlaser.services import units as U
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 from . import TOUCH_MIN, show_workspace, tr
 
@@ -43,6 +45,29 @@ ROTATIONS = (("sheet", "nestws.rotp.sheet", "sheet setting", None, False),
              ("half", "nestws.rotp.half", "0° / 180°", [0.0, 180.0], False),
              ("quarter", "nestws.rotp.quarter", "90° steps", [0.0, 90.0, 180.0, 270.0], False),
              ("grain", "nestws.rotp.grain", "with the grain", None, True))
+
+
+def size_text(w: float, h: float) -> str:
+    """A sheet / remnant size in the display units: "3000 × 1500 mm", "118.11 × 59.06 in"."""
+    u = U.current()
+    dec = 0 if u.unit("length") == "mm" else 2
+    return u.fmt_size(w, h, decimals=dec, trim=dec > 0)
+
+
+def thickness_text(t: float) -> str:
+    """A sheet thickness in the display units ("3 mm", "0.118 in")."""
+    return U.current().fmt(t, "length", trim=True)
+
+
+def remnant_label(r: Any) -> str:
+    """``Remnant.label()`` in the display units (the store's own label is mm: it is data)."""
+    try:
+        w, h = r.size
+    except Exception:  # noqa: BLE001 - a remnant without an outline
+        return r.label()
+    mat = f" {r.material}" if getattr(r, "material", "") else ""
+    thk = f" {thickness_text(r.thickness_mm)}" if getattr(r, "thickness_mm", 0) else ""
+    return f"{r.id} {size_text(w, h)}{mat}{thk}"
 
 
 #: NestParams fields of the cutting strategy (applied to a finished run without nesting again)
@@ -198,7 +223,7 @@ class NestWorkspace(QWidget):
                  ("nestws.col.mirror", "Mirror"))
     # the engine and the options of a run are the Run cell's tooltip (the column is narrow)
     COMPARE_COLS = (("nestws.col.run", "Run"), ("nestws.col.sheets", "Sheets"), ("nestws.col.util", "Util."),
-                    ("nestws.col.cut", "Cut m"), ("nestws.col.pierces", "Pierces"),
+                    ("nestws.col.cut", "Cut"), ("nestws.col.pierces", "Pierces"),
                     ("nestws.col.unplaced", "Unplaced"))
 
     def __init__(self, ctx: Any) -> None:
@@ -242,11 +267,8 @@ class NestWorkspace(QWidget):
         self.material.setObjectName("nestws_material")
         self.material.setPlaceholderText(tr(w, "nestws.material", "Material"))
         self.material.setMinimumHeight(TOUCH_MIN - 8)
-        self.thickness = QDoubleSpinBox()
+        self.thickness = QuantitySpinBox("length", minimum=0.0, maximum=100.0, decimals=2)
         self.thickness.setObjectName("nestws_thickness")
-        self.thickness.setRange(0.0, 100.0)
-        self.thickness.setDecimals(2)
-        self.thickness.setSuffix(" mm")
         self.thickness.setMinimumHeight(TOUCH_MIN - 8)
         self.material.editingFinished.connect(self.refresh_stock)
         self.thickness.valueChanged.connect(lambda _v: self.refresh_stock())
@@ -268,8 +290,8 @@ class NestWorkspace(QWidget):
         self.stock.itemChanged.connect(self._stock_checked)
         lv.addWidget(self.stock, 1)
         srow = QHBoxLayout()
-        self.sheet_w = self._spin(1, 100000, 3000.0, " mm")
-        self.sheet_h = self._spin(1, 100000, 1500.0, " mm")
+        self.sheet_w = self._qspin("length", 1, 100000, 3000.0)
+        self.sheet_h = self._qspin("length", 1, 100000, 1500.0)
         self.sheet_n = QSpinBox()
         self.sheet_n.setRange(1, 999)
         self.sheet_n.setValue(5)
@@ -295,8 +317,8 @@ class NestWorkspace(QWidget):
         self.view = SheetView()
         mv.addWidget(self.view, 1)
         prm = QGridLayout()
-        self.spacing = self._spin(0, 100, 3.0, " mm")
-        self.margin = self._spin(0, 500, 5.0, " mm")
+        self.spacing = self._qspin("length", 0, 100, 3.0)
+        self.margin = self._qspin("length", 0, 500, 5.0)
         self.rot = QComboBox()
         for deg in (0, 90, 45, 15):
             self.rot.addItem(tr(w, "nestws.rot.none", "no rotation") if deg == 0 else f"{deg}°", float(deg))
@@ -375,7 +397,7 @@ class NestWorkspace(QWidget):
         rv.addWidget(self._heading(tr(w, "nestws.compare", "COMPARE RUNS")))
         self.compare = QTableWidget(0, len(self.COMPARE_COLS))
         self.compare.setObjectName("nestws_compare")
-        self.compare.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COMPARE_COLS])
+        self._set_compare_headers()
         self.compare.verticalHeader().setVisible(False)
         self.compare.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.compare.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -391,11 +413,12 @@ class NestWorkspace(QWidget):
         split.setSizes([300, 540, 380])
         split.setStretchFactor(1, 1)
         self._update_buttons()
-        # the default sheet is a preference (Settings > Nest), kept live
+        # the default sheet is remembered from the last nest (nest.*; this panel is its home)
         self._sheet_defaults("*")
         cfg = getattr(w, "config", None)
         if cfg is not None:
             cfg.subscribe(self._sheet_defaults)
+        on_units_changed(self, self._units_changed, now=False)
 
     def _remember(self, values: dict) -> None:
         """The panel is the home of these values: the next nest starts from the last used ones."""
@@ -413,6 +436,21 @@ class NestWorkspace(QWidget):
             return
         self.sheet_w.setValue(float(cfg.get("nest.sheet_width", 3000.0)))
         self.sheet_h.setValue(float(cfg.get("nest.sheet_height", 1500.0)))
+
+    def _units_changed(self, _u: Any = None) -> None:
+        """Relabel the texts that carry a length (sheet list, results, titles, compare table)."""
+        self._set_compare_headers()
+        self.refresh_stock()
+        row = self.results.currentRow()
+        self._show_run(self.run)
+        if 0 <= row < self.results.count():
+            self.results.setCurrentRow(row)
+
+    def _set_compare_headers(self) -> None:
+        w = self.window_
+        self.compare.setHorizontalHeaderLabels(
+            [U.current().header(tr(w, k, d), "long_length") if k == "nestws.col.cut" else tr(w, k, d)
+             for k, d in self.COMPARE_COLS])
 
     # ------------------------------------------------------------------ options drawer
     def _check(self, key: str, text: str, name: str) -> QCheckBox:
@@ -439,9 +477,9 @@ class NestWorkspace(QWidget):
         ng = QGridLayout(nb)
         ng.setContentsMargins(4, 4, 4, 4)
         self.common_line = self._check("nestws.opt.common_line", "Common line", "nestws_common_line")
-        self.share_min = self._spin(0.1, 10000, 20.0, " mm")
+        self.share_min = self._qspin("length", 0.1, 10000, 20.0)
         self.share_min.setToolTip(tr(w, "nestws.opt.share_min", "shortest shared edge"))
-        self.kerf = self._spin(0, 10, 0.2, " mm", 2)
+        self.kerf = self._qspin("small_length", 0, 10, 0.2, 2)
         self.kerf.setToolTip(tr(w, "nestws.opt.kerf", "kerf: the part distance with common line"))
         self.part_in_part = self._check("nestws.opt.part_in_part", "Part in part", "nestws_part_in_part")
         self.mirror = self._check("nestws.opt.mirror", "Mirror (all parts)", "nestws_mirror")
@@ -469,11 +507,11 @@ class NestWorkspace(QWidget):
         self.scrap = self._combo(((SCRAP_OFF, "nestws.scrap.off", "off"),
                                   (SCRAP_GRID, "nestws.scrap.grid", "grid"),
                                   (SCRAP_GAPS, "nestws.scrap.gaps", "in the gaps")), "nestws_scrap")
-        self.scrap_pitch = self._spin(10, 10000, 500.0, " mm", 0)
+        self.scrap_pitch = self._qspin("length", 10, 10000, 500.0, 0)
         self.scrap_pitch.setToolTip(tr(w, "nestws.opt.scrap_pitch", "largest scrap piece"))
         self.remnant_cut = self._check("nestws.opt.remnant_cut", "Remnant separation cut",
                                        "nestws_remnant_cut")
-        self.remnant_min = self._spin(1, 10000, 100.0, " mm", 0)
+        self.remnant_min = self._qspin("length", 1, 10000, 100.0, 0)
         self.remnant_min.setToolTip(tr(w, "nestws.opt.remnant_min", "narrowest remnant worth separating"))
         self.lead_fix = self._check("nestws.opt.lead_fix", "Fix lead collisions", "nestws_lead_fix")
         self.tip_check = self._check("nestws.opt.tip_check", "Tip-avoiding order", "nestws_tip_check")
@@ -527,6 +565,12 @@ class NestWorkspace(QWidget):
         b.setMinimumHeight(h)
         b.clicked.connect(lambda _=False: fn())
         return b
+
+    def _qspin(self, kind: str, lo: float, hi: float, val: float, dec: int = 1) -> QuantitySpinBox:
+        """A spin box for a quantity (value and range in mm; shown in the display units)."""
+        s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, value=val)
+        s.setMinimumHeight(TOUCH_MIN - 8)
+        return s
 
     def _spin(self, lo: float, hi: float, val: float, suffix: str, dec: int = 1) -> QDoubleSpinBox:
         s = QDoubleSpinBox()
@@ -619,8 +663,8 @@ class NestWorkspace(QWidget):
         for s in job.sheets:
             if s.is_remnant and s.extra.get("remnant_id"):
                 continue
-            it = QListWidgetItem(tr(w, "nestws.sheet_item", "▭ {name} {w:.0f} × {h:.0f} mm × {n}",
-                                    name=s.name, w=s.width, h=s.height, n=s.quantity))
+            it = QListWidgetItem(tr(w, "nestws.sheet_item", "▭ {name} {size} × {n}",
+                                    name=s.name, size=size_text(s.width, s.height), n=s.quantity))
             it.setData(Qt.UserRole, ("sheet", s.id))
             it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
             it.setCheckState(Qt.Checked)
@@ -628,7 +672,7 @@ class NestWorkspace(QWidget):
         store = self.remnants
         if store is not None:
             for r in store.available(self.material.text().strip(), self.thickness.value()):
-                it = QListWidgetItem(tr(w, "nestws.remnant_item", "◩ remnant {label}", label=r.label()))
+                it = QListWidgetItem(tr(w, "nestws.remnant_item", "◩ remnant {label}", label=remnant_label(r)))
                 it.setData(Qt.UserRole, ("remnant", r.id))
                 it.setFlags(it.flags() | Qt.ItemIsUserCheckable)
                 it.setCheckState(Qt.Checked if r.id in used_remnants else Qt.Unchecked)
@@ -850,8 +894,9 @@ class NestWorkspace(QWidget):
             return None
         tech = orders.use_technology(self.material.text().strip(), self.thickness.value(), list(self.job.parts))
         if tech is None:
-            self.status.setText(tr(self.window_, "nestws.msg.no_tech", "No technology for {material} {t} mm",
-                                   material=self.material.text().strip() or "?", t=f"{self.thickness.value():g}"))
+            self.status.setText(tr(self.window_, "nestws.msg.no_tech", "No technology for {material} {t}",
+                                   material=self.material.text().strip() or "?",
+                                   t=thickness_text(self.thickness.value())))
         return tech
 
     def remove_part(self) -> None:
@@ -933,10 +978,10 @@ class NestWorkspace(QWidget):
                 pm = layout_pixmap(run.job, lay, QSize(120, 72), pal)
                 label = tr(w, "nestws.result_item", "Sheet {n}  {util:.0f} %  ·  {parts} parts\n{sheet}",
                            n=k + 1, util=100 * lay.utilisation, parts=len(lay.placements),
-                           sheet=sh.extra.get("remnant_id") or f"{sh.width:.0f} × {sh.height:.0f} mm")
+                           sheet=sh.extra.get("remnant_id") or size_text(sh.width, sh.height))
                 if lay.remnant:
                     x0, y0, x1, y1 = lay.remnant
-                    label += tr(w, "nestws.leftover", "  → leftover {w:.0f} × {h:.0f}", w=x1 - x0, h=y1 - y0)
+                    label += tr(w, "nestws.leftover", "  → leftover {size}", size=size_text(x1 - x0, y1 - y0))
                 it = QListWidgetItem(QIcon(pm), label)
                 it.setSizeHint(QSize(260, 80))
                 self.results.addItem(it)
@@ -958,12 +1003,13 @@ class NestWorkspace(QWidget):
         best = self.service.best()
         for r, run in enumerate(runs):
             vals = [f"{run.number}{' ★' if run is best else ''}", str(run.sheets),
-                    f"{100 * run.utilisation:.1f} %", f"{run.cut_length_mm / 1000.0:.1f}", str(run.pierces),
+                    f"{100 * run.utilisation:.1f} %", U.current().number(run.cut_length_mm, "long_length", 1),
+                    str(run.pierces),
                     str(run.unplaced)]
             p = run.job.params
             tip = tr(self.window_, "nestws.run_tip",
-                     "{engine}, spacing {spacing:g} mm, common line {cl}, part in part {pip}",
-                     engine=run.engine, spacing=p.spacing, cl="✓" if p.common_line else "–",
+                     "{engine}, spacing {spacing}, common line {cl}, part in part {pip}",
+                     engine=run.engine, spacing=U.current().fmt(p.spacing, "length", trim=True), cl="✓" if p.common_line else "–",
                      pip="✓" if p.part_in_part else "–")
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
@@ -997,8 +1043,8 @@ class NestWorkspace(QWidget):
             self.ctx.log(f"nest: strategy preview: {exc}")
             lines = []
         self.view.show_layout(run.job, lay, lines)
-        self.sheet_title.setText(tr(self.window_, "nestws.sheet_title", "Sheet {n} / {total}   {w:.0f} × {h:.0f} mm   {util:.1f} %",
-                                    n=row + 1, total=len(run.result.layouts), w=sh.width, h=sh.height,
+        self.sheet_title.setText(tr(self.window_, "nestws.sheet_title", "Sheet {n} / {total}   {size}   {util:.1f} %",
+                                    n=row + 1, total=len(run.result.layouts), size=size_text(sh.width, sh.height),
                                     util=100 * lay.utilisation))
 
     def _update_buttons(self) -> None:

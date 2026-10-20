@@ -413,7 +413,7 @@
   "cost.missing": "input needed",
   "cost.note.gas_missing": "gas flow unknown for layer {layers}: enter it in the technology or the rates",
   "cost.note.gas_mixed": "flow from the technology, rates and nozzle estimates",
-  "cost.note.gas_orifice": "orifice estimate: nozzle {nozzle} mm, Cd {cd}",
+  "cost.note.gas_orifice": "orifice estimate: nozzle {nozzle}, Cd {cd}",
   "cost.note.gas_rate_missing": "price not set: {gas}",
   "cost.note.gas_settings": "flow from the rates",
   "cost.note.gas_technology": "flow from the technology",
@@ -428,8 +428,8 @@
   "cost.note.pierce": "pierce, gas delays, settling",
   "cost.note.planned": "wire replay + process items",
   "cost.note.rate_missing": "rate not set",
-  "cost.note.sheet": "{w} × {h} × {t} mm, {density} g/cm³",
-  "cost.note.sheet_bbox": "{w} × {h} × {t} mm (cut bounding box), {density} g/cm³",
+  "cost.note.sheet": "{size} × {t}, {density}",
+  "cost.note.sheet_bbox": "{size} × {t} (cut bounding box), {density}",
   "cost.rates": "Rates and assumptions…",
   "cost.rates_note": "Rates of 0 are treated as not set. The efficiency and discharge coefficient are assumptions: adjust them to your machine.",
   "cost.title": "Estimate",
@@ -440,10 +440,10 @@
   "craft.msg.scope_all": "all parts",
   "craft.msg.scope_selection": "the selection",
   "craft.msg.select_first": "Select the parts first: this command changes the selected parts only.",
-  "cutstrat.bed": "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where}",
+  "cutstrat.bed": "Bed: slats along {d}, pitch {p}, width {w}, {where}",
   "cutstrat.bed.along_x": "slats along X",
   "cutstrat.bed.along_y": "slats along Y",
-  "cutstrat.bed.offset": "first slat at {o:g} mm",
+  "cutstrat.bed.offset": "first slat at {o}",
   "cutstrat.bed.offset_unknown": "unknown",
   "cutstrat.bed.unknown": "position unknown (worst case)",
   "cutstrat.check_leads": "Check",
@@ -702,7 +702,7 @@
   "main.save_file": "Save File",
   "main.set_origin": "Set Origin",
   "main.simple_nest": "Simple Nest",
-  "main.step_length_mm": "Step Length(mm)",
+  "main.step_length_mm": "Step Length",
   "main.switched_to_co2_laser_check_the": "Switched to CO2 laser. Check the settings and wiring before processing.",
   "main.switched_to_fiber_laser_check_the": "Switched to fiber laser. Check the settings and wiring before processing.",
   "main.the_fill_shape_contains_an_open_contour": "The fill shape contains an open contour; fill failed.",
@@ -764,7 +764,7 @@
   "nestws.btn.remove": "Remove",
   "nestws.btn.technology": "Technology",
   "nestws.btn.to_drawing": "Copy sheet to drawing",
-  "nestws.col.cut": "Cut m",
+  "nestws.col.cut": "Cut",
   "nestws.col.engine": "Engine",
   "nestws.col.max": "Max",
   "nestws.col.mirror": "Mirror",
@@ -791,7 +791,7 @@
   "nestws.grav.left": "left",
   "nestws.grav.right": "right",
   "nestws.grav.top": "top",
-  "nestws.leftover": "  → leftover {w:.0f} × {h:.0f}",
+  "nestws.leftover": "  → leftover {size}",
   "nestws.margin": "Edge",
   "nestws.material": "Material",
   "nestws.msg.done": "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
@@ -799,7 +799,7 @@
   "nestws.msg.imported": "{n} parts from {k} files",
   "nestws.msg.no_material": "no material set: the sheets are not checked against the technology",
   "nestws.msg.no_parts": "Add parts first (from the drawing or a file).",
-  "nestws.msg.no_tech": "No technology for {material} {t} mm",
+  "nestws.msg.no_tech": "No technology for {material} {t}",
   "nestws.msg.queued": "{n} sheet jobs added to the queue",
   "nestws.msg.recognized": "{n} parts ({k} different) added",
   "nestws.msg.running": "Nesting...",
@@ -831,12 +831,12 @@
   "nestws.rotp.half": "0° / 180°",
   "nestws.rotp.quarter": "90° steps",
   "nestws.rotp.sheet": "sheet setting",
-  "nestws.run_tip": "{engine}, spacing {spacing:g} mm, common line {cl}, part in part {pip}",
+  "nestws.run_tip": "{engine}, spacing {spacing}, common line {cl}, part in part {pip}",
   "nestws.scrap.gaps": "in the gaps",
   "nestws.scrap.grid": "grid",
   "nestws.scrap.off": "off",
-  "nestws.sheet_item": "▭ {name} {w:.0f} × {h:.0f} mm × {n}",
-  "nestws.sheet_title": "Sheet {n} / {total}   {w:.0f} × {h:.0f} mm   {util:.1f} %",
+  "nestws.sheet_item": "▭ {name} {size} × {n}",
+  "nestws.sheet_title": "Sheet {n} / {total}   {size}   {util:.1f} %",
   "nestws.spacing": "Spacing",
   "nestws.stock": "SHEETS / REMNANTS",
   "nestws.time": "Time limit",
@@ -1152,11 +1152,11 @@
   "orders.col.qty": "Qty",
   "orders.col.thickness": "Thickness",
   "orders.group": "Material × thickness",
-  "orders.group_item": "{material} {t} mm · {n} lines",
+  "orders.group_item": "{material} {t} · {n} lines",
   "orders.msg.csv": "{file}: {summary}",
   "orders.msg.files": "{n} drawings added",
-  "orders.msg.nest": "{n} parts from {k} order lines loaded into Nest ({material} {t} mm)",
-  "orders.msg.no_tech": "No technology for {material} {t} mm in the database: apply one in the Process workspace",
+  "orders.msg.nest": "{n} parts from {k} order lines loaded into Nest ({material} {t})",
+  "orders.msg.no_tech": "No technology for {material} {t} in the database: apply one in the Process workspace",
   "orders.msg.row": "line {n}: {msg}",
   "orders.msg.tech": "Technology {name} applied to layer(s) {layers}",
   "orders.msg.template": "Template saved: {path}",
@@ -1168,7 +1168,7 @@
   "orders.set.recognition": "Part recognition (nested, layer, block, file, none)",
   "orders.set.review_after_import": "Review every drawing after import",
   "orders.tech": "Technology",
-  "orders.tech.pick": "Technology for {material} {t} mm:",
+  "orders.tech.pick": "Technology for {material} {t}:",
   "orders.undo.tech": "technology {name}",
   "panel.0_05": "0.05",
   "panel.0_1": "0.1",
@@ -2174,7 +2174,7 @@
   "parts.rule": "Parts by",
   "parts.summary": "{summary}",
   "parts.title": "Recognised parts",
-  "pitch.average_backlash": "Average backlash (mm): {backlash:.4f}",
+  "pitch.average_backlash": "Average backlash: {backlash}",
   "pitch.back_lash": "Back Lash",
   "pitch.can_t_parse_file": "Can't parse file",
   "pitch.clear": "Clear",
@@ -2294,7 +2294,7 @@
   "practice.step.hold.text": "While the job cuts, press HOLD (or Space). The machine stops on the path and keeps a breakpoint: the job is not lost.",
   "practice.step.hold.title": "Hold",
   "practice.step.intro_sim": "This lesson runs on the simulator: nothing moves and no laser fires. Use the normal Run screen buttons; this panel tells you what to do and checks it.",
-  "practice.step.load.text": "Press Load to open the practice sheet: three parts on a 300 x 200 mm sheet. Look at it in the live view: the parts, their holes and the start points.",
+  "practice.step.load.text": "Press Load to open the practice sheet: three parts on a {sheet} sheet. Look at it in the live view: the parts, their holes and the start points.",
   "practice.step.load.title": "Load the practice sheet",
   "practice.step.loaded.text": "The practice sheet is open with cutting parameters on every layer. On the real machine you would now put the sheet on the table and check the material.",
   "practice.step.loaded.title": "Sheet loaded",
@@ -2331,7 +2331,7 @@
   "preview.state.pierce": "Piercing",
   "preview.state.process": "Gas / height",
   "preview.state.travel": "Rapid",
-  "preview.status": "{state} · laser {laser} · contour {n} / {total} · X {x} Y {y} mm",
+  "preview.status": "{state} · laser {laser} · contour {n} / {total} · X {x} Y {y}",
   "preview.timeline": "Job timeline",
   "preview.title": "Preview",
   "process.all_layers": "All layers in use",
@@ -2610,7 +2610,7 @@
   "report.col.alarms": "Alarms",
   "report.col.code": "Code",
   "report.col.cost": "Cost",
-  "report.col.cut": "Cut (m)",
+  "report.col.cut": "Cut",
   "report.col.day": "Day",
   "report.col.duration": "Duration",
   "report.col.est": "Estimated",
@@ -2650,8 +2650,8 @@
   "report.set.currency": "Currency",
   "report.set.gas_per_h": "Gas cost (per hour)",
   "report.set.machine_per_h": "Machine rate (per hour)",
-  "report.set.material_per_m2": "Material (per m²)",
-  "report.set.per_cut_m": "Wear cost (per metre cut)",
+  "report.set.material_per_m2": "Material (per area of the used sheet)",
+  "report.set.per_cut_m": "Wear cost (per length cut)",
   "report.set.per_pierce": "Cost per pierce",
   "report.set.power_per_h": "Power cost (per hour)",
   "report.source.dry_run": "dry run",
@@ -2751,7 +2751,7 @@
   "run.queue.title": "Queue: {n} jobs, {left} sheets left",
   "run.reason.alarm": "Alarm {code}: {text}",
   "run.reason.armed": "Ready: ARMED, the laser fires on Start",
-  "run.reason.breakpoint": "Held at a breakpoint (X {x:.1f}, Y {y:.1f} mm): resume here or from the contour start",
+  "run.reason.breakpoint": "Held at a breakpoint ({position}): resume here or from the contour start",
   "run.reason.cutting": "Cutting",
   "run.reason.disarmed": "Ready: disarmed, the laser cannot fire",
   "run.reason.dry_run": "Dry run: laser off",
@@ -2782,10 +2782,10 @@
   "run.tip.stop": "Stop the job (Esc or F12)",
   "run.untitled": "(untitled)",
   "run.val.gas": "Gas {v}",
-  "run.val.height": "Height {v} mm",
-  "run.val.position": "X {x}  Y {y}  Z {z} mm",
+  "run.val.height": "Height {v}",
+  "run.val.position": "X {x}  Y {y}  Z {z} {unit}",
   "run.val.power": "Power {v} %",
-  "run.val.speed": "Speed {v} mm/s",
+  "run.val.speed": "Speed {v}",
   "safety.io.active": "Alarm when",
   "safety.io.button": "Safety I/O...",
   "safety.io.door": "Door / guard interlock",
@@ -2825,6 +2825,7 @@
   "safety.set.laser_alarm_active": "Laser-source alarm interlock: alarm when the input is on",
   "safety.set.laser_alarm_input": "Laser-source alarm interlock: card input",
   "safety.set.not_fitted": "Sensor not fitted on this machine (declared)",
+  "settings.cam.note": "The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operations: their dialog is where you set them. Each dialog starts from the values it was last run with; they are listed here, and Reset gives a tool its defaults back.",
   "settings.elsewhere": "Elsewhere (opens where the value is edited)",
   "settings.elsewhere_more": "and {n} more: refine the search",
   "settings.group.appearance": "Appearance",
@@ -2985,6 +2986,19 @@
   "settings.help.shell.classic_ribbon": "Show the original program's ribbon with every command instead of the task workspaces' toolbars.",
   "settings.help.shell.language": "The language of the interface. System language follows the computer's language when mlaser has texts for it, else English. Other languages can be imported from an original Mlaser installation.",
   "settings.help.shell.theme": "Light, dark or high contrast (black, white and yellow, for safety glasses). The safety banners keep their own colours in every theme.",
+  "settings.help.units.accel": "The unit for accelerations; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.area": "The unit for areas; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.decimals_accel": "Decimals shown for accelerations; Follow the unit system uses the unit's usual precision.",
+  "settings.help.units.decimals_area": "Decimals shown for areas; Follow the unit system uses the unit's usual precision.",
+  "settings.help.units.decimals_length": "Decimals shown for lengths; Follow the unit system uses the unit's usual precision.",
+  "settings.help.units.decimals_pressure": "Decimals shown for pressures; Follow the unit system uses the unit's usual precision.",
+  "settings.help.units.decimals_speed": "Decimals shown for speeds; Follow the unit system uses the unit's usual precision.",
+  "settings.help.units.flow": "The unit for gas flows; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.length": "The unit for lengths; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.mass": "The unit for masses; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.pressure": "The unit for pressures; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.speed": "The unit for speeds; Follow the unit system uses the system's (metric or imperial).",
+  "settings.help.units.system": "Every length, speed, acceleration, area and pressure the application shows or takes is in these units. Stored values (documents, settings, the technology database) are always kept in millimetres, so switching never changes a part.",
   "settings.home.api": "Edit in Automation API settings…",
   "settings.home.machine": "Edit in Machine › Setup",
   "settings.home.notify": "Edit in Notification settings…",
@@ -3473,6 +3487,23 @@
   "techform.show_all": "Show all parameters",
   "techform.show_all_tip": "Also show the less common parameters of each section and the Advanced section. Changed values are always shown.",
   "techform.stage": "Stage {n}",
+  "units.follow_system": "Follow the unit system",
+  "units.help": "Every length, speed, acceleration, area and pressure the application shows or takes is in these units. Stored values (documents, settings, the technology database) are always kept in millimetres, so switching never changes a part.",
+  "units.set.accel": "Acceleration unit",
+  "units.set.area": "Area unit",
+  "units.set.decimals_accel": "Acceleration decimals",
+  "units.set.decimals_area": "Area decimals",
+  "units.set.decimals_length": "Length decimals",
+  "units.set.decimals_pressure": "Pressure decimals",
+  "units.set.decimals_speed": "Speed decimals",
+  "units.set.flow": "Gas flow unit",
+  "units.set.length": "Length unit",
+  "units.set.mass": "Mass unit",
+  "units.set.pressure": "Pressure unit",
+  "units.set.speed": "Speed unit",
+  "units.set.system": "Unit system",
+  "units.system.imperial": "Imperial (in)",
+  "units.system.metric": "Metric (mm)",
   "view.arc": "Arc",
   "view.clear_track": "Clear Track",
   "view.copy": "Copy",
@@ -3486,7 +3517,7 @@
   "view.manual_sort_started": "Manual sort started: ",
   "view.manual_sort_step": "Manual sort: step",
   "view.manual_sort_step_0": "Manual sort: step 0",
-  "view.measure_result": "Measurement: X {dx:.3f} mm, Y {dy:.3f} mm, length {length:.3f} mm",
+  "view.measure_result": "Measurement: X {dx}, Y {dy}, length {length}",
   "view.paste": "Paste",
   "view.please_input_text": "Please input text: ",
   "view.previous_step": "Previous Step",
@@ -3537,7 +3568,7 @@
   "wizard.comm.hb_slow": "Output {output} toggles only {toggles_per_s} times/s (expected {expected}).",
   "wizard.comm.heartbeat_text": "Measuring the “PC alive” output (docs/SAFETY.md §11)…",
   "wizard.comm.hold_heartbeat": "Hold heartbeat (test)",
-  "wizard.comm.home_ok": "Homed in {seconds} s at ({x}, {y}) mm.",
+  "wizard.comm.home_ok": "Homed in {seconds} s at ({x}, {y}) {unit}.",
   "wizard.comm.home_timeout": "Homing did not finish.",
   "wizard.comm.homing_button": "Home X/Y",
   "wizard.comm.homing_text": "Press Home X/Y: the machine moves to its home switches.",
@@ -3564,18 +3595,18 @@
   "wizard.comm.item_network": "Network and connection",
   "wizard.comm.item_scaling": "Card scaling",
   "wizard.comm.item_soft_limits": "Soft limits",
-  "wizard.comm.jog_moved": "{axis} moved {moved} mm (step {step} mm).",
+  "wizard.comm.jog_moved": "{axis} moved {moved} {unit} (step {step} {unit}).",
   "wizard.comm.jog_ok": "{axis}+ moves in the right direction.",
-  "wizard.comm.jog_position": "{axis} position went {moved} mm for a +{step} mm jog.",
+  "wizard.comm.jog_position": "{axis} position went {moved} {unit} for a +{step} {unit} jog.",
   "wizard.comm.jog_wrong": "{axis}+ moves the wrong way.",
-  "wizard.comm.jog_x_button": "Jog X+ 10 mm",
+  "wizard.comm.jog_x_button": "Jog X+ {jog_step}",
   "wizard.comm.jog_x_q": "Did the head move to the RIGHT (as seen from the operator position)?",
   "wizard.comm.jog_x_q_title": "X direction",
-  "wizard.comm.jog_x_text": "Press Jog X+: the head moves 10 mm in +X.",
-  "wizard.comm.jog_y_button": "Jog Y+ 10 mm",
+  "wizard.comm.jog_x_text": "Press Jog X+: the head moves {jog_step} in +X.",
+  "wizard.comm.jog_y_button": "Jog Y+ {jog_step}",
   "wizard.comm.jog_y_q": "Did the head move AWAY from you (towards the back of the machine)?",
   "wizard.comm.jog_y_q_title": "Y direction",
-  "wizard.comm.jog_y_text": "Press Jog Y+: the head moves 10 mm in +Y.",
+  "wizard.comm.jog_y_text": "Press Jog Y+: the head moves {jog_step} in +Y.",
   "wizard.comm.limits_mismatch": "The card's soft limits differ on axis {axes}.",
   "wizard.comm.limits_none": "The card reports no soft limits.",
   "wizard.comm.limits_ok": "The card's soft limits match the axis strokes.",
@@ -3614,7 +3645,7 @@
   "wizard.edge.apply_title": "Apply",
   "wizard.edge.check_text": "Checking the connection, the follower and the parameters…",
   "wizard.edge.compute_title": "Compute",
-  "wizard.edge.corner_value": "Corner ({x}, {y}) mm",
+  "wizard.edge.corner_value": "Corner ({x}, {y}) {unit}",
   "wizard.edge.dry_not_applied": "(dry run: not applied)",
   "wizard.edge.error.dock": "Edge seek needs a corner dock point (1, 3, 7 or 9), not {dock}.",
   "wizard.edge.error.no_document": "No document to apply the rotation to.",
@@ -3622,7 +3653,7 @@
   "wizard.edge.error.no_result": "There is no measurement to apply.",
   "wizard.edge.error.points": "Record both points first.",
   "wizard.edge.error.seek": "The edge was not found: {detail}",
-  "wizard.edge.error.too_close": "The two points are less than 1 mm apart.",
+  "wizard.edge.error.too_close": "The two points are less than {min_gap} apart.",
   "wizard.edge.f_board_x": "Sheet size X",
   "wizard.edge.f_board_y": "Sheet size Y",
   "wizard.edge.f_current": "Start at the current head position",
@@ -3649,8 +3680,8 @@
   "wizard.edge.p2_title": "Point 2",
   "wizard.edge.params_text": "Where to start and how far apart the probe points are. The defaults are the machine's edge-seek parameters.",
   "wizard.edge.params_title": "Probe parameters",
-  "wizard.edge.point_value": "P{n} = ({x}, {y}) mm",
-  "wizard.edge.radius_value": "Radius {r} mm",
+  "wizard.edge.point_value": "P{n} = ({x}, {y}) {unit}",
+  "wizard.edge.radius_value": "Radius {r}",
   "wizard.edge.record_button": "Record position",
   "wizard.edge.result": "Sheet angle {angle}°",
   "wizard.edge.review_text": "The measured outline and angle are drawn here and on the canvas (machine coordinates). Press Next to continue, Abort if it looks wrong.",
@@ -3864,7 +3895,7 @@
   "ws.machine.mon_follower": "Follower (FTC)",
   "ws.machine.not_homed": "NOT homed",
   "ws.machine.offline": "offline",
-  "ws.machine.origins": "Tool origins (mm): {tools}",
+  "ws.machine.origins": "Tool origins ({unit}): {tools}",
   "ws.machine.p_comm": "First-connection checklist: network, scaling, soft limits, homing, watchdog, jog directions.",
   "ws.machine.p_edge_cap": "Find the sheet corner and angle with the capacitive follower; check the outline, then rotate the drawing (undoable).",
   "ws.machine.p_edge_disc": "Find the centre of a round blank with the follower.",
@@ -3902,8 +3933,7 @@
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
-  "ws.run": "Run",
-  "settings.cam.note": "The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operations: their dialog is where you set them. Each dialog starts from the values it was last run with; they are listed here, and Reset gives a tool its defaults back."
+  "ws.run": "Run"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -3928,14 +3958,6 @@
    "done",
    "total"
   ],
-  "craft.msg.kerf": [
-   "n",
-   "where"
-  ],
-  "craft.msg.leads": [
-   "n",
-   "where"
-  ],
   "help.not_packaged": [
    "target"
   ],
@@ -3945,18 +3967,6 @@
   "help.search_results": [
    "count",
    "query"
-  ],
-  "home.edit_in": [
-   "home"
-  ],
-  "inherit.src.layer": [
-   "n"
-  ],
-  "layerdlg.base_tech": [
-   "name"
-  ],
-  "layerdlg.title": [
-   "n"
   ],
   "main.import_language_done": [
    "languages"
@@ -4146,7 +4156,8 @@
   "wizard.comm.home_ok": [
    "seconds",
    "x",
-   "y"
+   "y",
+   "unit"
   ],
   "wizard.comm.ilk_configured": [
    "wired"
@@ -4178,6 +4189,7 @@
   "wizard.comm.jog_moved": [
    "axis",
    "moved",
+   "unit",
    "step"
   ],
   "wizard.comm.jog_ok": [
@@ -4186,6 +4198,7 @@
   "wizard.comm.jog_position": [
    "axis",
    "moved",
+   "unit",
    "step"
   ],
   "wizard.comm.jog_wrong": [
@@ -4241,7 +4254,8 @@
   ],
   "wizard.edge.corner_value": [
    "x",
-   "y"
+   "y",
+   "unit"
   ],
   "wizard.edge.error.dock": [
    "dock"
@@ -4252,7 +4266,8 @@
   "wizard.edge.point_value": [
    "n",
    "x",
-   "y"
+   "y",
+   "unit"
   ],
   "wizard.edge.radius_value": [
    "r"
@@ -4336,11 +4351,11 @@
    "mode"
   ],
   "ws.machine.origins": [
+   "unit",
    "tools"
   ],
   "nestws.leftover": [
-   "w",
-   "h"
+   "size"
   ],
   "nestws.msg.done": [
    "n",
@@ -4367,15 +4382,13 @@
   ],
   "nestws.sheet_item": [
    "name",
-   "w",
-   "h",
+   "size",
    "n"
   ],
   "nestws.sheet_title": [
    "n",
    "total",
-   "w",
-   "h",
+   "size",
    "util"
   ],
   "nestws.total": [
@@ -4442,8 +4455,7 @@
    "text"
   ],
   "run.reason.breakpoint": [
-   "x",
-   "y"
+   "position"
   ],
   "run.reason.fault": [
    "fault"
@@ -4461,7 +4473,8 @@
   "run.val.position": [
    "x",
    "y",
-   "z"
+   "z",
+   "unit"
   ],
   "run.val.power": [
    "v"
@@ -4507,14 +4520,12 @@
    "eff"
   ],
   "cost.note.sheet": [
-   "w",
-   "h",
+   "size",
    "t",
    "density"
   ],
   "cost.note.sheet_bbox": [
-   "w",
-   "h",
+   "size",
    "t",
    "density"
   ],
@@ -4827,6 +4838,44 @@
   "plugin_manager.confirm_hosts": [
    "hosts",
    "name"
+  ],
+  "wizard.comm.jog_x_button": [
+   "jog_step"
+  ],
+  "wizard.comm.jog_x_text": [
+   "jog_step"
+  ],
+  "wizard.comm.jog_y_button": [
+   "jog_step"
+  ],
+  "wizard.comm.jog_y_text": [
+   "jog_step"
+  ],
+  "wizard.edge.error.too_close": [
+   "min_gap"
+  ],
+  "practice.step.load.text": [
+   "sheet"
+  ],
+  "craft.msg.kerf": [
+   "n",
+   "where"
+  ],
+  "craft.msg.leads": [
+   "n",
+   "where"
+  ],
+  "home.edit_in": [
+   "home"
+  ],
+  "inherit.src.layer": [
+   "n"
+  ],
+  "layerdlg.base_tech": [
+   "name"
+  ],
+  "layerdlg.title": [
+   "n"
   ],
   "tech.compare.count": [
    "n"

@@ -107,10 +107,11 @@ class CardExtension:
     def params(self) -> None:
         sc = self.w.ctl.scaling
         m = getattr(self.w, "machine", None)
+        from .units_qt import fmt
         txt = sc.summary() if sc is not None else "card parameters not read (not connected)"
         if m is not None:
             txt += (f"\nMachine: {m.pulses_per_mm_x:g} x {m.pulses_per_mm_y:g} pulses/mm, "
-                    f"period {m.period_ms:g} ms, step speed cap {m.max_step_speed:.0f} mm/s")
+                    f"period {m.period_ms:g} ms, step speed cap {fmt(m.max_step_speed, 'speed', decimals=0)}")
         self.w.log_panel.log(txt)
 
     def stream_process(self, on: bool) -> None:

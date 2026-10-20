@@ -26,6 +26,7 @@ from mlaser.services.config import Setting
 from mlaser.services.costing import Rates, card_for_plan, rates_from_config
 from mlaser.services.preview import Timeline, build_timeline
 from mlaser.services.technology import TechnologyStore
+from mlaser.ui.units_qt import on_units_changed
 
 PLUGIN_API = 1
 LAZY_TIMELINE_ITEMS = 1_000_000      # larger plans (about 0.5 s to build) wait for the first scrub / play
@@ -86,6 +87,8 @@ class ProcessExtension:
         self.closed = False
         ctx.on_close(self._close)
         self.config_unsub = ctx.config.subscribe(self._config_changed)
+        # the cost card's notes carry lengths (sheet size, nozzle): rebuilt in the new units
+        on_units_changed(self.workspace, lambda _u: self.update_card(), now=False)
         ctx.register_command("process.show", self.show_process, label="process.cmd.show")
         ctx.register_command("process.apply", self.workspace.apply_selected, label="process.cmd.apply")
         ctx.register_command("process.rates", self.rates_dialog, label="process.cmd.rates")

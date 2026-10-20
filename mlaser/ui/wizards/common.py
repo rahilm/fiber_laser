@@ -8,9 +8,12 @@ from typing import Any, Callable, Iterable, Optional
 from PySide6.QtCore import QObject, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFrame, QGridLayout, QHBoxLayout,
-                               QLabel, QPushButton, QSizePolicy, QToolButton, QVBoxLayout, QWidget)
+                               QLabel, QPushButton, QSizePolicy, QToolButton, QWidget)
+
+from mlaser.services import units as U
 
 from .. import icons
+from ..units_qt import on_units_changed
 
 AMBER_BG, AMBER_FG = "#ffd43b", "#212529"     # readable in light and dark themes
 MIN_TARGET = 44                                # px, touch target (56 for the run bar)
@@ -18,6 +21,25 @@ MIN_TARGET = 44                                # px, touch target (56 for the ru
 
 def tr_of(window: Any):
     return getattr(window, "tr_", None)
+
+
+def unit_values() -> dict:
+    """Placeholders for wizard texts that name a fixed length (the commissioning jog step, the
+    edge-seek minimum point distance) and the length unit, in the display units."""
+    from mlaser.services.procedures.commissioning import JOG_STEP_MM
+    u = U.current()
+    return {"jog_step": u.fmt(JOG_STEP_MM, "length", trim=True), "min_gap": u.fmt(1.0, "length", trim=True),
+            "unit": u.suffix("length")}
+
+
+#: jog step choices (mm) per display length unit: metric 0.1 / 1 / 10 mm, imperial
+#: 0.005 / 0.05 / 0.5 in (0.127 / 1.27 / 12.7 mm: the same orders of size, round in inches)
+JOG_STEPS_MM = {"mm": (0.1, 1.0, 10.0), "in": (0.005 * 25.4, 0.05 * 25.4, 0.5 * 25.4)}
+
+
+def jog_steps_mm() -> tuple[float, ...]:
+    u = U.current().unit("length")
+    return JOG_STEPS_MM["in" if u in ("in", "ft") else "mm"]
 
 
 def T(window: Any, key: str, **values: Any) -> str:
@@ -115,21 +137,29 @@ class JogPad(QWidget):
         row = QHBoxLayout()
         self.steps = QButtonGroup(self)
         self.step_buttons: list[QPushButton] = []
-        for i, (val, key) in enumerate(((0.0, "ws.machine.step_cont"), (0.1, ""), (1.0, ""), (10.0, ""))):
-            b = QPushButton(T(window, key) if key else f"{val:g} mm")
+        for i in range(4):
+            b = QPushButton(T(window, "ws.machine.step_cont") if i == 0 else "")
             b.setCheckable(True)
             b.setMinimumHeight(MIN_TARGET)
-            b.setProperty("step_mm", val)
+            b.setProperty("step_mm", 0.0)
             self.steps.addButton(b, i)
             self.step_buttons.append(b)
             row.addWidget(b)
         self.step_buttons[0].setChecked(True)
+        # the step buttons carry the step in mm (what the card moves); labels and the choices
+        # follow the display units (a switch keeps the selected position in the row)
+        on_units_changed(self, self._step_labels)
         self.fast = QCheckBox(T(window, "ws.machine.jog_fast"))
         row.addWidget(self.fast)
         g.addLayout(row, 3, 0, 1, 4)
         app = QApplication.instance()
         if app is not None:
             app.applicationStateChanged.connect(self._app_state)
+
+    def _step_labels(self, u: Any) -> None:
+        for b, mm in zip(self.step_buttons[1:], jog_steps_mm()):
+            b.setProperty("step_mm", mm)
+            b.setText(u.fmt(mm, "length", trim=True))
 
     # ------------------------------------------------------------------ jog
     def step_mm(self) -> float:
@@ -200,6 +230,7 @@ class OutlineView(QWidget):
         self.setMinimumSize(320, 240)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAccessibleName(T(window, "wizard.edge.view_name"))
+        on_units_changed(self, lambda _u: self.update(), now=False)
 
     def set_data(self, data: dict) -> None:
         self.data = data or {}
@@ -262,11 +293,13 @@ class OutlineView(QWidget):
         txt = []
         if ang is not None:
             txt.append(T(self.w, "wizard.edge.angle_value", angle=f"{ang:.3f}"))
+        u = U.current()
         if self.data.get("corner"):
             cx, cy = self.data["corner"]
-            txt.append(T(self.w, "wizard.edge.corner_value", x=f"{cx:.2f}", y=f"{cy:.2f}"))
+            txt.append(T(self.w, "wizard.edge.corner_value", x=u.number(cx, "length"), y=u.number(cy, "length"),
+                         unit=u.suffix("length")))
         if self.data.get("radius"):
-            txt.append(T(self.w, "wizard.edge.radius_value", r=f"{self.data['radius']:.2f}"))
+            txt.append(T(self.w, "wizard.edge.radius_value", r=u.fmt(self.data["radius"], "length")))
         p.drawText(QRectF(8, 4, self.width() - 16, 24), Qt.AlignLeft | Qt.AlignVCenter, "   ".join(txt))
 
 
@@ -274,4 +307,4 @@ def angle_deg(rad: float) -> float:
     return math.degrees(rad)
 
 
-__all__ = ["T", "Bridge", "SafetyNotes", "JogPad", "OutlineView", "MIN_TARGET"]
+__all__ = ["T", "Bridge", "SafetyNotes", "JogPad", "OutlineView", "MIN_TARGET", "unit_values", "jog_steps_mm"]

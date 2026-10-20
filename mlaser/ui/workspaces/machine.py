@@ -14,7 +14,6 @@ Hardware settings are read-only below Service.
 """
 from __future__ import annotations
 
-import time
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer
@@ -25,9 +24,11 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.services.alarm_history import AlarmHistory, fmt_time
+from mlaser.services import units as U
 from mlaser.services.procedures import MIN_MODES, mode_allows
 
 from .. import icons
+from ..units_qt import QuantitySpinBox, kind_for, on_units_changed, spin_for_unit
 from ..wizards.common import MIN_TARGET, JogPad, T
 
 #: (id, title, icon, lowest mode)
@@ -137,6 +138,7 @@ class SettingsPanel(QWidget):
         row.addWidget(self.b_apply)
         lay.addLayout(row)
         self.build()
+        on_units_changed(self, self._relabel, now=False)
 
     def _safety_io(self) -> None:
         run = getattr(self.w, "run", None)
@@ -166,15 +168,14 @@ class SettingsPanel(QWidget):
             except (TypeError, ValueError):
                 pass
         elif s.kind == "float":
-            w = QDoubleSpinBox()
-            w.setDecimals(4)
-            w.setRange(s.min if s.min is not None else -1e9, s.max if s.max is not None else 1e9)
+            # mm, mm/s, mm/s² ...: a QuantitySpinBox (display units, value() stays in the
+            # setting's own unit); other units (p/mm, %, ms) keep their suffix
+            w = spin_for_unit(s.unit, s.min if s.min is not None else -1e9, s.max if s.max is not None else 1e9,
+                              decimals=4, step=1.0)
             try:
                 w.setValue(float(v))
             except (TypeError, ValueError):
                 pass
-            if s.unit:
-                w.setSuffix(f" {s.unit}")
         elif s.kind == "int":
             w = QSpinBox()
             w.setRange(int(max(s.min if s.min is not None else -2**31, -2**31)),
@@ -196,7 +197,7 @@ class SettingsPanel(QWidget):
             return w.isChecked()
         if isinstance(w, QComboBox):
             return w.currentIndex()
-        if isinstance(w, (QSpinBox, QDoubleSpinBox)):
+        if isinstance(w, (QSpinBox, QDoubleSpinBox, QuantitySpinBox)):
             return w.value()
         return w.text().strip()
 
@@ -220,7 +221,8 @@ class SettingsPanel(QWidget):
                 top.setFirstColumnSpanned(True)
                 self.tree.addTopLevelItem(top)
                 groups[g] = top
-            it = QTreeWidgetItem([name + (f" ({s.unit})" if s.unit else ""), "", s.key])
+            it = QTreeWidgetItem([self._name(name, s), "", s.key])
+            it.setData(0, Qt.UserRole, name)
             it.setToolTip(0, s.key)
             top.addChild(it)
             ed = self._editor(s)
@@ -229,6 +231,27 @@ class SettingsPanel(QWidget):
             self._initial[s.key] = self._read(ed)
         self.tree.expandAll()
         self._filter(self.search.text())
+
+    @staticmethod
+    def _name(name: str, s: Any) -> str:
+        """The row title with the unit: the display unit for a converted number; a unit the
+        registry puts on a switch or a choice ("mm" on GRP.IsShow*, ZF.ZFType) is dropped."""
+        k = kind_for(s.unit) if s.unit else None
+        if k is not None and s.kind == "float":
+            return f"{name} ({U.current().suffix(k)})"
+        if k is not None and s.kind in ("bool", "enum"):
+            return name
+        return name + (f" ({s.unit})" if s.unit else "")
+
+    def _relabel(self, _u: Any = None) -> None:
+        """Units switched: the row titles follow (the editors relabel themselves, edits kept)."""
+        for i in range(self.tree.topLevelItemCount()):
+            g = self.tree.topLevelItem(i)
+            for j in range(g.childCount()):
+                c = g.child(j)
+                s = self.config.setting(c.text(2))
+                if s is not None and c.data(0, Qt.UserRole) is not None:
+                    c.setText(0, self._name(c.data(0, Qt.UserRole), s))
 
     def _filter(self, text: str) -> None:
         t = text.strip().lower()
@@ -600,13 +623,16 @@ class MachineWorkspace(QWidget):
         self.lbl["endpoint"].setText(f"{ep[0]}:{ep[1]}" if ep else "–")
         self.lbl["link"].setText(y if st.link_ok else n)
         self.lbl["homed"].setText(y if st.homed else n)
-        self.pos_lbl.setText(f"X {st.x:9.3f}   Y {st.y:9.3f}   Z {st.z:7.3f}  mm")
+        u = U.current()
+        d = u.decimals("small_length")            # 0.001 mm / 0.0001 in
+        self.pos_lbl.setText(f"X {u.number(st.x, 'length', d):>9}   Y {u.number(st.y, 'length', d):>9}   "
+                             f"Z {u.number(st.z, 'length', d):>7}  {u.suffix('length')}")
         self.homed_lbl.setText(T(self.w, "ws.machine.homed") if st.homed else T(self.w, "ws.machine.not_homed"))
         c = self.ext.ops.coords
         if self.coord.currentIndex() != c.kind:
             self.coord.setCurrentIndex(c.kind)
-        self.origins.setText(T(self.w, "ws.machine.origins", tools="  ".join(
-            f"{i + 1}: ({x:.2f}, {y_:.2f})" for i, (x, y_) in enumerate(c.tools))))
+        self.origins.setText(T(self.w, "ws.machine.origins", unit=u.suffix("length"), tools="  ".join(
+            f"{i + 1}: ({u.number(x, 'length')}, {u.number(y_, 'length')})" for i, (x, y_) in enumerate(c.tools))))
 
     def apply_mode(self, mode: Optional[str]) -> None:
         for i, (sid, _k, _ic, need) in enumerate(SECTIONS):

@@ -56,6 +56,13 @@ def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoub
     return shrinkable(s)
 
 
+def _qspin(lo: float, hi: float, dec: int, step: float = 1.0) -> QuantitySpinBox:
+    """A length in the display units (``value()`` in mm); ``dec`` / ``step`` are the metric ones."""
+    s = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec, step=step)
+    s.setKeyboardTracking(False)
+    return s
+
+
 def _swatch(color: QColor) -> QIcon:
     pm = QPixmap(14, 14)
     pm.fill(color)
@@ -97,10 +104,11 @@ class PropertiesPanel(QScrollArea):
 
         # ---- transform
         g, f = self._section("props.transform")
-        self.x = _spin(-1e6, 1e6, 3, "mm")
-        self.y = _spin(-1e6, 1e6, 3, "mm")
-        self.w = _spin(0.001, 1e6, 3, "mm")
-        self.h = _spin(0.001, 1e6, 3, "mm")
+        # position and size in the display units (value() stays mm: docs/user/units.md)
+        self.x = _qspin(-1e6, 1e6, 3)
+        self.y = _qspin(-1e6, 1e6, 3)
+        self.w = _qspin(0.001, 1e6, 3)
+        self.h = _qspin(0.001, 1e6, 3)
         self.rot = _spin(-360.0, 360.0, 2, "°", 15.0)
         for key, wdg in (("props.x", self.x), ("props.y", self.y), ("props.width", self.w),
                          ("props.height", self.h), ("props.rotate_by", self.rot)):

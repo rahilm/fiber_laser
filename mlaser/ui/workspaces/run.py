@@ -46,9 +46,11 @@ from mlaser.services.intake import IntakeStore
 from mlaser.services.operator import RunStatus, fmt_duration, run_status
 from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
+from mlaser.services import units as U
 
 from ..icons import icon
 from ..safety_texts import remedy
+from ..units_qt import on_units_changed
 from . import TOUCH, TOUCH_MIN, show_workspace, tr
 
 log = logging.getLogger("mlaser.ui.run")
@@ -68,7 +70,7 @@ REASONS = {
     "run.reason.fault": "Fault latched: {fault}",
     "run.reason.alarm": "Alarm {code}: {text}",
     "run.reason.offline": "No machine connected",
-    "run.reason.breakpoint": "Held at a breakpoint (X {x:.1f}, Y {y:.1f} mm): resume here or from the contour start",
+    "run.reason.breakpoint": "Held at a breakpoint ({position}): resume here or from the contour start",
     "run.reason.hold": "Held: press Continue to go on",
     "run.reason.cutting": "Cutting",
     "run.reason.dry_run": "Dry run: laser off",
@@ -100,6 +102,52 @@ def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, pt: float = 15.0, bold: b
     btn.setFont(f)
     btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     return btn
+
+
+# ============================================================================== units
+_MM_TEXT = None
+
+
+def thickness_text(t_mm: Any) -> str:
+    """A sheet thickness in the display units ("3 mm", "0.118 in"); "" when unset."""
+    try:
+        t = float(t_mm or 0.0)
+    except (TypeError, ValueError):
+        return ""
+    return U.current().fmt(t, "length", trim=True) if t else ""
+
+
+def mm_text(text: str) -> str:
+    """Display text from a service that writes lengths as "<number> mm" (material check
+    messages): each such length in the display units.  Display only: never parsed back."""
+    import re
+    global _MM_TEXT
+    if _MM_TEXT is None:
+        _MM_TEXT = re.compile(r"(-?\d+(?:\.\d+)?)\s?mm\b")
+    u = U.current()
+    if not u.imperial and u.unit("length") == "mm":
+        return text
+    return _MM_TEXT.sub(lambda m: u.fmt(float(m.group(1)), "length", trim=True), text)
+
+
+def card_in_units(data: dict, entry: Any = None) -> dict:
+    """The load card (services.material_check.load_card, which writes mm) in the display units:
+    thickness, sheet size and the mismatch lines.  The technology names stay as stored (data)."""
+    d = dict(data)
+    if entry is not None:
+        d["thickness"] = thickness_text(getattr(entry, "thickness_mm", 0.0))
+        sb = (getattr(entry, "extra", None) or {}).get("sheet_bounds")
+        if sb and len(sb) == 4:
+            try:
+                d["size"] = U.current().fmt_size(float(sb[2]) - float(sb[0]), float(sb[3]) - float(sb[1]),
+                                                 decimals=0 if not U.current().imperial else 2)
+            except (TypeError, ValueError):
+                pass
+    else:
+        d["thickness"] = mm_text(str(d.get("thickness", "")))
+        d["size"] = mm_text(str(d.get("size", "")))
+    d["mismatch"] = [mm_text(str(m)) for m in d.get("mismatch", [])]
+    return d
 
 
 # ============================================================================== load card
@@ -160,11 +208,14 @@ class LoadSheetCard(QFrame):
         lay.addLayout(col, 1)
         self.data: dict = {}
         self._key: Any = None
+        # a units switch redraws the card at the next refresh
+        on_units_changed(self, lambda _u: setattr(self, "_key", None), now=False)
 
-    def show_card(self, data: dict, doc: Any, key: Any) -> None:
+    def show_card(self, data: dict, doc: Any, key: Any, entry: Any = None) -> None:
         if key == self._key:
             return
         self._key = key
+        data = card_in_units(data, entry)
         self.data = data
         w = self.window_
         self.material.setText(" ".join(x for x in (data["material"], data["thickness"]) if x))
@@ -362,6 +413,7 @@ class QueuePanel(QWidget):
         v.addLayout(g)
         self.table.itemSelectionChanged.connect(self._selected)
         self._sync = False
+        on_units_changed(self, lambda _u: self.refresh(), now=False)   # thickness column
 
     def selected_id(self) -> Optional[str]:
         rows = sorted({i.row() for i in self.table.selectedIndexes()})
@@ -381,7 +433,7 @@ class QueuePanel(QWidget):
         for r, e in enumerate(q):
             st_key, st_def = STATUS_TEXT.get(e.status, (e.status, e.status))
             sheet = e.remnant_id or e.sheet
-            mat = " ".join(x for x in (e.material, f"{e.thickness_mm:g} mm" if e.thickness_mm else "") if x)
+            mat = " ".join(x for x in (e.material, thickness_text(e.thickness_mm)) if x)
             vals = [str(r + 1), e.name, str(e.quantity), str(e.done), tr(w, st_key, st_def), mat, sheet,
                     fmt_duration(e.est_s) if e.est_s else "-", fmt_duration(e.actual_s) if e.actual_s else "-",
                     _msg(w, e.note)]
@@ -780,11 +832,14 @@ class OperatorScreen(QWidget):
                               eta=fmt_duration(s.eta_s) if running else "-"))
         # process values
         dash = "-"
-        vals = [tr(w, "run.val.speed", "Speed {v} mm/s", v=f"{s.speed:.1f}"),
+        u = U.current()
+        vals = [tr(w, "run.val.speed", "Speed {v}", v=u.fmt(s.speed, "speed")),
                 tr(w, "run.val.power", "Power {v} %", v=f"{s.power_pct:.0f}" if s.power_pct is not None else dash),
-                tr(w, "run.val.gas", "Gas {v}", v=(s.gas + (f" {s.gas_bar:.1f} bar" if s.gas_bar else "")) or dash),
-                tr(w, "run.val.height", "Height {v} mm", v=f"{s.height_mm:.2f}" if s.height_mm is not None else dash),
-                tr(w, "run.val.position", "X {x}  Y {y}  Z {z} mm", x=f"{s.x:.2f}", y=f"{s.y:.2f}", z=f"{s.z:.2f}")]
+                tr(w, "run.val.gas", "Gas {v}", v=(s.gas + (f" {u.fmt(s.gas_bar, 'pressure', decimals=1)}"
+                                                            if s.gas_bar else "")) or dash),
+                tr(w, "run.val.height", "Height {v}", v=u.fmt(s.height_mm, "length", missing=dash)),
+                tr(w, "run.val.position", "X {x}  Y {y}  Z {z} {unit}", x=u.number(s.x, "length"),
+                   y=u.number(s.y, "length"), z=u.number(s.z, "length"), unit=u.suffix("length"))]
         self.values.setText("    ".join(vals))
         # alarms
         self._alarms(s)
@@ -829,7 +884,7 @@ class OperatorScreen(QWidget):
             ent = r.current
             doc = self.ws.entry_document(ent)
             from mlaser.services.material_check import load_card
-            self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)))
+            self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)), ent)
         if waiting != self.load_card.isVisibleTo(self):
             self.load_card.setVisible(waiting)
         b["confirm_sheet"].setVisible(r.state in ("confirm", "starting"))
@@ -1010,7 +1065,12 @@ class RunWorkspace:
 
     def reason_text(self, s: RunStatus) -> str:
         default = REASONS.get(s.reason, s.reason)
-        return tr(self.window, s.reason, default, **s.reason_args)
+        args = dict(s.reason_args)
+        if s.reason == "run.reason.breakpoint":
+            u = U.current()
+            args["position"] = u.fmt_xy(float(args.get("x", 0.0)), float(args.get("y", 0.0)), decimals=1
+                                        if not u.imperial else 2).replace("  Y", ", Y")
+        return tr(self.window, s.reason, default, **args)
 
     def view_document(self) -> tuple[Any, Optional[tuple]]:
         """The document the live view shows: the running plan's placed document, else the
@@ -1256,8 +1316,10 @@ class RunWorkspace:
             "progress": s.progress if running else 0.0, "elapsed_s": s.elapsed_s if running else None,
             "eta_s": s.eta_s if running else None, "job": self.job_name(),
             "sheet": f"{min(ent.done + 1, ent.quantity)}/{ent.quantity} {ent.name}" if ent else "",
-            "speed": f"{s.speed:.1f} mm/s", "power": f"{s.power_pct:.0f} %" if s.power_pct is not None else "-",
-            "position": f"X {s.x:.1f}  Y {s.y:.1f} mm", "alarms": alarms, "queue": queue[:20],
+            "speed": U.current().fmt(s.speed, "speed"),
+            "power": f"{s.power_pct:.0f} %" if s.power_pct is not None else "-",
+            "position": U.current().fmt_xy(s.x, s.y, decimals=1 if not U.current().imperial else 2),
+            "alarms": alarms, "queue": queue[:20],
             "sheet_rev": rev, "lang": getattr(trn, "language", "en"),
             "labels": {k: tr(w, k, "") for k in LABEL_IDS},
         }

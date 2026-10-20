@@ -156,8 +156,24 @@ class RemnantLabel:
         return f"mlaser:remnant:{self.id}"
 
 
-def _mat(material: str, thickness: float) -> str:
-    return " ".join(x for x in (material, f"{thickness:g} mm" if thickness else "") if x)
+def _metric(units: Any) -> bool:
+    """No display units handed in (this package sits below mlaser.services: the UI passes
+    ``mlaser.services.units.current()``), or metric ones: the texts stay as they were."""
+    return units is None or units.unit("length") == "mm"
+
+
+def _mat(material: str, thickness: float, units: Any = None) -> str:
+    t = ""
+    if thickness:
+        t = f"{thickness:g} mm" if _metric(units) else units.fmt(thickness, "length", trim=True)
+    return " ".join(x for x in (material, t) if x)
+
+
+def _size(w: float, h: float, units: Any = None, dec: int = -1) -> str:
+    """ "62 x 29 mm" (``dec`` -1: ``:g``), or in the display units ("2.44 x 1.14 in")."""
+    if _metric(units):
+        return f"{w:g} x {h:g} mm" if dec < 0 else f"{w:.{dec}f} x {h:.{dec}f} mm"
+    return units.fmt_size(w, h, decimals=2, trim=True).replace(" × ", " x ")
 
 
 def _order_fields(part: Any, order_info: Optional[Mapping[str, Mapping]]) -> dict:
@@ -307,8 +323,9 @@ def _layout(x: float, y: float, s: LabelSize) -> tuple[tuple[float, float, float
 
 
 def render_part_labels(path: str, labels: Sequence[PartLabel], size: str | LabelSize = DEFAULT_SIZE,
-                       frame: bool = True, title: str = "Part labels") -> str:
-    """Write ``labels`` to ``path`` as PDF on label size ``size``; returns the path."""
+                       frame: bool = True, title: str = "Part labels", units: Any = None) -> str:
+    """Write ``labels`` to ``path`` as PDF on label size ``size``; returns the path.  ``units``:
+    the display units of the printed sizes (``mlaser.services.units.Units``; None = mm)."""
     s = size if isinstance(size, LabelSize) else label_size(size)
     doc = PdfDocument(title)
     pg: Optional[PdfPage] = None
@@ -323,9 +340,9 @@ def render_part_labels(path: str, labels: Sequence[PartLabel], size: str | Label
         rows = [(f"{lab.part_id} #{lab.copy}/{lab.copies}", True), (lab.name, True),
                 (" · ".join(v for v in (lab.order, lab.customer) if v), False),
                 (" · ".join(v for v in (lab.reference, lab.part_number, lab.due) if v), False),
-                (_mat(lab.material, lab.thickness_mm), False),
+                (_mat(lab.material, lab.thickness_mm, units), False),
                 (" · ".join(v for v in (lab.sheet, f"queue {lab.queue_id}" if lab.queue_id else "") if v), False),
-                (f"{lab.size_mm[0]:g} x {lab.size_mm[1]:g} mm" if any(lab.size_mm) else "", False)]
+                (_size(lab.size_mm[0], lab.size_mm[1], units) if any(lab.size_mm) else "", False)]
         _lines(pg, *box, rows, max_size=10.0 if s.height < 60 else 14.0)
     if not labels:
         doc.page(*s.page_size)
@@ -333,7 +350,7 @@ def render_part_labels(path: str, labels: Sequence[PartLabel], size: str | Label
 
 
 def render_remnant_labels(path: str, items: Sequence[RemnantLabel], size: str | LabelSize = "62x29",
-                          frame: bool = True) -> str:
+                          frame: bool = True, units: Any = None) -> str:
     s = size if isinstance(size, LabelSize) else label_size(size)
     doc = PdfDocument("Remnant labels")
     pg: Optional[PdfPage] = None
@@ -346,9 +363,10 @@ def render_remnant_labels(path: str, items: Sequence[RemnantLabel], size: str | 
         (qx, qy, q), box = _layout(x, y, s)
         pg.qr(qx, qy, q, qr_matrix(r.qr_payload))
         when = _dt.datetime.fromtimestamp(r.created).strftime("%Y-%m-%d") if r.created else ""
-        rows = [(f"Remnant {r.id}", True), (f"{r.width_mm:.0f} x {r.height_mm:.0f} mm", True),
-                (_mat(r.material, r.thickness_mm), False),
-                (f"area {r.area_mm2 / 1e6:.3f} m²" if r.area_mm2 else "", False),
+        area = (f"area {r.area_mm2 / 1e6:.3f} m²" if _metric(units)
+                else "area " + units.fmt(r.area_mm2, "large_area", decimals=2)) if r.area_mm2 else ""
+        rows = [(f"Remnant {r.id}", True), (_size(r.width_mm, r.height_mm, units, 0), True),
+                (_mat(r.material, r.thickness_mm, units), False), (area, False),
                 (" · ".join(v for v in (r.location, when) if v), False), (r.source, False)]
         _lines(pg, *box, rows, max_size=10.0 if s.height < 60 else 14.0)
     if not items:
@@ -356,7 +374,7 @@ def render_remnant_labels(path: str, items: Sequence[RemnantLabel], size: str | 
     return doc.save(path)
 
 
-def render_tickets(path: str, tickets: Sequence[TicketData], page: str = "A4") -> str:
+def render_tickets(path: str, tickets: Sequence[TicketData], page: str = "A4", units: Any = None) -> str:
     """One job ticket page per queued sheet."""
     pw, ph = A5 if page.upper() == "A5" else A4
     doc = PdfDocument("Job tickets")
@@ -368,7 +386,7 @@ def render_tickets(path: str, tickets: Sequence[TicketData], page: str = "A4") -
         pg.qr(pw - m - q, m, q, qr_matrix(t.qr_payload))
         pg.text(m, m + 9 * k, t.name or t.entry_id, size=20 * k, bold=True, max_width=pw - 3 * m - q)
         y = m + 17 * k
-        rows = [("Queue entry", t.entry_id), ("Material", _mat(t.material, t.thickness_mm) or "-"),
+        rows = [("Queue entry", t.entry_id), ("Material", _mat(t.material, t.thickness_mm, units) or "-"),
                 ("Sheet", t.remnant_id and f"remnant {t.remnant_id}" or t.sheet or "-"),
                 ("Quantity", f"{t.quantity} sheet(s)" + (f", {t.done} done" if t.done else "")),
                 ("Estimated", f"{t.est_s / 60:.1f} min per sheet" if t.est_s else "-")]

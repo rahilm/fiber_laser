@@ -14,8 +14,11 @@ command        what it does
                enable, disable, repo add|remove|list (:mod:`mlaser.cli.plugin`)
 =============  =====================================================================
 
-``--json`` prints one JSON object on stdout (``{"command", "ok", "exit_code", ...}``; on an
-error ``"error": {"code", "message"}``); without it the output is short text.  Exit codes:
+``--json`` prints one JSON object on stdout (``{"command", "ok", "exit_code", "units", ...}``;
+on an error ``"error": {"code", "message"}``); without it the output is short text.  JSON is
+always in mm (mm/s, mm², ...; ``"units": "mm"``); ``--units metric|imperial`` sets the text
+output's units (default: the config's ``units.system``, docs/user/units.md).  Lengths given on
+the command line are mm when plain numbers and may carry a unit (``--spacing 0.125in``).  Exit codes:
 0 ok, 1 checked and failed (validate errors, parts left unplaced), 2 usage, 3 input file,
 4 processing failed, 5 output not written, 6 queue submission refused
 (docs/user/automation.md).
@@ -35,8 +38,10 @@ import os
 import sys
 from typing import Any, Callable, Optional
 
+from mlaser.services.units import SYSTEMS
+
 from .common import (EXIT_CHECK, EXIT_FAILED, EXIT_INPUT, EXIT_OK, EXIT_OUTPUT, EXIT_REFUSED, EXIT_USAGE,
-                     CliError)
+                     JSON_UNITS, CliError, parse_length, set_output_units)
 
 SUBCOMMANDS = ("compile", "estimate", "nest", "validate", "convert", "queue", "plugin")
 EXIT_CODES = {EXIT_OK: "ok", EXIT_CHECK: "check failed", EXIT_USAGE: "usage", EXIT_INPUT: "input",
@@ -56,8 +61,19 @@ class _Parser(argparse.ArgumentParser):
 
 
 def _common(p: argparse.ArgumentParser) -> None:
-    p.add_argument("--json", action="store_true", help="print one JSON object on stdout")
+    p.add_argument("--json", action="store_true", help="print one JSON object on stdout (always in mm)")
     p.add_argument("--config", metavar="PATH", help="config.json to use (default: the user's)")
+    _units_arg(p)
+
+
+def _units_arg(p: argparse.ArgumentParser) -> None:
+    # SUPPRESS: a subcommand's missing --units does not overwrite one given before the command
+    p.add_argument("--units", choices=SYSTEMS, default=argparse.SUPPRESS,
+                   help="units of the text output (default: the config's units.system); JSON stays mm")
+
+
+def _length(text: str) -> float:
+    return parse_length(text, "length")
 
 
 def _tech_args(p: argparse.ArgumentParser) -> None:
@@ -70,9 +86,9 @@ def _start(text: Optional[str]) -> tuple[float, float]:
     if not text:
         return (0.0, 0.0)
     try:
-        x, y = (float(v) for v in text.replace(";", ",").split(","))
-    except ValueError as exc:
-        raise CliError(f"--start {text!r}: use X,Y in mm", EXIT_USAGE, "usage") from exc
+        x, y = (parse_length(v, "--start") for v in text.replace(";", ",").split(","))
+    except (ValueError, CliError) as exc:
+        raise CliError(f"--start {text!r}: use X,Y in mm (or with a unit: 1in,2in)", EXIT_USAGE, "usage") from exc
     return (x, y)
 
 
@@ -80,9 +96,10 @@ def _size(text: Optional[str], what: str = "--sheet") -> Optional[tuple[float, f
     if not text:
         return None
     try:
-        w, h = (float(v) for v in text.lower().replace("mm", "").replace("*", "x").split("x"))
-    except ValueError as exc:
-        raise CliError(f"{what} {text!r}: use WIDTHxHEIGHT in mm, e.g. 3000x1500", EXIT_USAGE, "usage") from exc
+        w, h = (parse_length(v, what) for v in text.replace("*", "x").replace("X", "x").replace("×", "x").split("x"))
+    except (ValueError, CliError) as exc:
+        raise CliError(f"{what} {text!r}: use WIDTHxHEIGHT in mm, e.g. 3000x1500 (or with units: 120inx60in)",
+                       EXIT_USAGE, "usage") from exc
     if w <= 0 or h <= 0:
         raise CliError(f"{what} {text!r}: width and height must be positive", EXIT_USAGE, "usage")
     return (w, h)
@@ -90,6 +107,8 @@ def _size(text: Optional[str], what: str = "--sheet") -> Optional[tuple[float, f
 
 def build_parser() -> argparse.ArgumentParser:
     ap = _Parser(prog="mlaser", description="mlaser headless tools (no machine connection)")
+    ap.add_argument("--units", choices=SYSTEMS, default=argparse.SUPPRESS,
+                    help="units of the text output (default: the config's units.system); JSON stays mm")
     sub = ap.add_subparsers(dest="command", parser_class=_Parser)
 
     p = sub.add_parser("compile", help="compile a drawing into the job Start would stream")
@@ -114,8 +133,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("parts", nargs="+", help="FILE[:QTY] ... or a parts list .csv (file,quantity,name,...)")
     p.add_argument("--sheet", required=True, metavar="WxH", help="sheet size in mm, e.g. 3000x1500")
     p.add_argument("--sheets", type=int, default=1, help="number of such sheets (default 1)")
-    p.add_argument("--spacing", type=float, default=3.0, help="part spacing in mm")
-    p.add_argument("--margin", type=float, default=5.0, help="sheet edge margin in mm")
+    p.add_argument("--spacing", type=_length, default=3.0, help="part spacing in mm (or with a unit: 0.125in)")
+    p.add_argument("--margin", type=_length, default=5.0, help="sheet edge margin in mm (or with a unit)")
     p.add_argument("--rotation", type=float, default=90.0, help="rotation step in degrees (0 = none)")
     p.add_argument("--time-limit", type=float, default=30.0, help="seconds")
     p.add_argument("--engine", default="", help="nest engine (default: the built-in raster engine)")
@@ -124,7 +143,7 @@ def build_parser() -> argparse.ArgumentParser:
                    help="sheet files: mlz (default, keeps the layer parameters), chf (no layer table), dxf, svg")
     p.add_argument("--name", default="nest", help="file name prefix of the sheets")
     p.add_argument("--material", default="", help="material (recorded in the sheet files' summary)")
-    p.add_argument("--thickness", type=float, default=0.0)
+    p.add_argument("--thickness", type=_length, default=0.0, help="sheet thickness in mm (or with a unit)")
 
     p = sub.add_parser("validate", help="pre-flight-like checks without a machine")
     _common(p)
@@ -149,8 +168,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--quantity", "-n", type=int, default=1, help="sheets to cut")
     p.add_argument("--name", default="")
     p.add_argument("--material", default="")
-    p.add_argument("--thickness", type=float, default=0.0)
-    p.add_argument("--sheet", default="", help="sheet description, e.g. 3000 x 1500 mm")
+    p.add_argument("--thickness", type=_length, default=0.0, help="sheet thickness in mm (or with a unit)")
+    p.add_argument("--sheet", default="", help="sheet description (free text), e.g. 3000 x 1500 mm")
     p.add_argument("--note", default="", help="a note for the operator")
     p.add_argument("--reference", default="", help="your own id (order number)")
     p.add_argument("--data-dir", metavar="DIR", help="mlaser data directory (default: the user's)")
@@ -206,13 +225,14 @@ def main(argv: Optional[list[str]] = None, out: Any = None, err: Any = None) -> 
             name += f" {args.plugin_command}" + (f" {args.repo_command}" if args.plugin_command == "repo"
                                                  and getattr(args, "repo_command", None) else "")
         assert fn is not None
+        set_output_units(getattr(args, "units", None), getattr(args, "config", None))
         code, result, text = fn(args)
-        result = {"command": name, "ok": code == EXIT_OK, "exit_code": code, **result}
+        result = {"command": name, "ok": code == EXIT_OK, "exit_code": code, "units": JSON_UNITS, **result}
         _emit(result, as_json, text, out)
         return code
     except CliError as exc:
         res = {"command": args_list[0] if args_list else "", "ok": False, "exit_code": exc.exit_code,
-               "error": {"code": exc.code, "message": str(exc), **exc.detail}}
+               "units": JSON_UNITS, "error": {"code": exc.code, "message": str(exc), **exc.detail}}
         if as_json:
             out.write(json.dumps(res, ensure_ascii=False, default=str) + "\n")
         else:

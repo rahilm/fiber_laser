@@ -294,7 +294,7 @@ comment next to a hard-coded default is listed as **no reader**.
 | GraphParam | `GRP.GCodeScanSideLineLength` | Engraving Parameter › Side line length | **no reader** | 5.0 mm | unchanged | parity-only: the rebuild's engraving (mlaser.engrave) has its own per-job parameters |
 | GraphParam | `GRP.GCodeScanDirection` | Engraving Parameter › Scan direction | **no reader** | 0 | unchanged | parity-only: the rebuild's engraving (mlaser.engrave) has its own per-job parameters |
 | GraphParam | `QR.QRCodeSize` | QR code › Width (draw.md) | **no reader** | 25.0 mm | unchanged | move: Draw › QR code dialog (per job) |
-| GraphParam | `QR.QRCodeLineDensity` | QR code › Line density (draw.md) | **no reader** | 12 mm | unchanged | move: Draw › QR code dialog (per job) |
+| GraphParam | `QR.QRCodeLineDensity` | QR code › Line density (draw.md) | `ui/dialogs.py` | 12 mm | unchanged | move: Draw › QR code dialog (per job) |
 | GraphParam | `QR.QRCodeNote` | AF DA Map › AF DA Adjust Data (draw.md) | **no reader** | – | unchanged | move: Draw › QR code dialog (per job) |
 | ImportGraphParam | `IGP.IsAutoFilterMicoGraph` | Minimal Graphics › Remove minimal graphic (cam.md) | **no reader**; now `import.remove_small` → `ui/settings_apply.py` | True | unchanged | keep: `import.remove_small` (Settings › Import (the Optimize dialog starts from them)) |
 | ImportGraphParam | `IGP.MicoGraphGate` | Minimal Graphics › Smallest Length (cam.md) | **no reader**; now `import.small_gate` → `ui/settings_apply.py` | 0.1 mm | unchanged | keep: `import.small_gate` (Settings › Import (the Optimize dialog starts from them)) |
@@ -456,9 +456,9 @@ comment next to a hard-coded default is listed as **no reader**.
 | ManuParam | `MS.EnableSoftLimit` | Process › Enable software limit (parity.md, protocol.md) | `controller/machine_ops.py`, `controller/parts/motion.py` | False | unchanged (off): the guard checks the travel limits regardless (docs/SAFETY.md) | move: Machine settings › Motion, laser point and process control (hw.options, Service mode) |
 | ManuParam | `GP.IsAutoCheckGraphOrder` | Graph Process Control › Auto distinguish inner outer before process | **no reader** | True | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
 | ManuParam | `GP.EnableMicroLinkDecc` | Graph Process Control › Enable Micro-Joint Deceleration | `nc/machine.py` | False | unchanged | move: Machine settings › Motion, laser point and process control (hw.options, Service mode) |
-| ManuParam | `UN.SpeedUnit` | Unit › Speed Unit | **no reader** | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
-| ManuParam | `UN.AccUnit` | Unit › Acc Unit | **no reader** | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
-| ManuParam | `UN.GasPressureUnit` | Unit › Gas Pressure Unit | `ui/ext_process.py`, `ui/layer_params_dialog.py`, `ui/workspaces/process.py` | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
+| ManuParam | `UN.SpeedUnit` | Unit › Speed Unit | `services/units.py` | 0 | unchanged | move: Units service (units.*; hidden; migrated once when the display units are not set) |
+| ManuParam | `UN.AccUnit` | Unit › Acc Unit | `services/units.py` | 0 | unchanged | move: Units service (units.*; hidden; migrated once when the display units are not set) |
+| ManuParam | `UN.GasPressureUnit` | Unit › Gas Pressure Unit | `services/units.py`, `ui/ext_process.py`, `ui/layer_params_dialog.py`, `ui/mainwindow.py`, `ui/workspaces/process.py` | 0 | unchanged | move: Units service (units.pressure shows and takes pressures; this row keeps its storage meaning for the technology values and stays hidden; migrated once when units.pressure is not set) |
 | ManuParam | `MSC.RecenFileIndex` | Misc › Recent file index | **no reader** | 0 | unchanged | drop: recent files belong to the platform's menus; the last drawing is app.last_file |
 | ManuParam | `MSC.LatestFilePath` | Misc › Recent open files | **no reader** | – | unchanged | drop: recent files belong to the platform's menus; the last drawing is app.last_file |
 | ManuParam | `MSC.TestCardID` | Misc › Recent file index | **no reader** | 0 | unchanged | drop: factory test fields |
@@ -488,7 +488,7 @@ comment next to a hard-coded default is listed as **no reader**.
 | ManuParam | `MC.EnableContourShift` | Graph Shift › Enable Graph Shift | **no reader** | False | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
 | ManuParam | `MC.ContourShiftXDist` | Graph Shift › Graph Shift X Direction Length | **no reader** | 0.0 mm | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
 | ManuParam | `MC.ContourShiftYDist` | Graph Shift › Graph Shift Y Direction Length | **no reader** | 0.0 mm | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
-| ManuParam | `MC.UnitType` | Unit › System unit | **no reader** | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
+| ManuParam | `MC.UnitType` | Unit › System unit | `services/units.py` | 0 | unchanged | move: Units service (units.*; hidden; migrated once when the display units are not set) |
 | ManuParam | `MC.MaintainParamStr` | Unit › System unit (diag.md) | `diag/maintain.py` | – | unchanged | move: Diagnostics › Maintenance dialog |
 | ManuParam | `MC.W_MoveSpeed` | Lifting platform move speed | **no reader** | 50.0 mm / s | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
 | ManuParam | `MC.IsRotationAxis` | Rotation axis › Enable the rotation axis | **no reader** | False | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |

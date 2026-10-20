@@ -23,9 +23,8 @@ longer fit, the label goes above the control.  Pages never scroll horizontally; 
 scrolls vertically.  Standard widgets keep the palette (no style sheets); the 8 px spacing grid
 is in :data:`GRID`.
 
-Unit-bearing values use the Units track's ``QuantitySpinBox`` (stored value in mm, mm/s, mm²;
-the display follows ``units.*``); until :mod:`mlaser.ui.units_qt` exists a local stand-in with
-the same constructor is used (metric display only).
+Unit-bearing values use the Units track's widgets (:func:`mlaser.ui.units_qt.spin_for_setting`:
+the stored value stays in mm, mm/s, mm², per m³...; the display follows ``units.*``).
 """
 from __future__ import annotations
 
@@ -40,7 +39,6 @@ from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QDoubleSpinBox,
     QFrame,
     QGridLayout,
     QHBoxLayout,
@@ -62,36 +60,8 @@ from mlaser.services import settings_catalog as C
 from mlaser.services import usermodes as um
 from mlaser.services.config import Setting
 
-try:  # the Units track's widget (stored value in internal units, display in the user's units)
-    from mlaser.services.units import kind_for_unit
-    from mlaser.ui.units_qt import QuantitySpinBox
-except ImportError:  # pragma: no cover - until the Units track lands: metric stand-in
-    _UNIT_KIND = {"mm": "length", "mm/s": "speed", "mm / s": "speed", "mm/s2": "accel", "mm/s²": "accel",
-                  "mm²": "area", "bar": "pressure", "l/min": "flow", "kg": "mass"}
-    _SUFFIX = {"length": "mm", "speed": "mm/s", "accel": "mm/s²", "area": "mm²", "pressure": "bar",
-               "flow": "l/min", "mass": "kg"}
-
-    def kind_for_unit(unit: str) -> Optional[str]:
-        return _UNIT_KIND.get((unit or "").strip())
-
-    class QuantitySpinBox(QDoubleSpinBox):  # type: ignore[no-redef]
-        """Stand-in for ``mlaser.ui.units_qt.QuantitySpinBox`` (same constructor; metric)."""
-
-        def __init__(self, kind: str = "length", parent: Optional[QWidget] = None, *, minimum: float = 0.0,
-                     maximum: float = 99.99, decimals: Optional[int] = None, step: Optional[float] = None,
-                     value: Optional[float] = None) -> None:
-            super().__init__(parent)
-            self._kind = kind
-            self.setDecimals({"area": 0, "speed": 1, "accel": 0}.get(kind, 3) if decimals is None else decimals)
-            self.setRange(minimum, maximum)
-            if step is not None:
-                self.setSingleStep(step)
-            self.setSuffix(" " + _SUFFIX.get(kind, ""))
-            if value is not None:
-                self.setValue(value)
-
-        def kind(self) -> str:
-            return self._kind
+from mlaser.services.units import kind_for_unit
+from mlaser.ui.units_qt import spin_for_setting
 
 
 #: the spacing grid (px): margins and gaps are multiples of it
@@ -309,8 +279,11 @@ class SettingRow(QWidget):
         if e is not None and e.choices:
             return [(v, _t(tr, k, str(v))) for v, k in e.choices]
         if s.kind == "str" and s.options:     # units.* (values; "" = follow the system)
-            return [(o, _t(tr, f"settings.opt.value.{o}", str(o)) if o else _t(tr, "settings.opt.follow", "Automatic"))
-                    for o in s.options]
+            def text(o: str) -> str:
+                if not o:
+                    return _t(tr, "units.follow_system", "Follow the unit system")
+                return _t(tr, f"units.system.{o}", str(o)) if s.key == "units.system" else str(o)
+            return [(o, text(o)) for o in s.options]
         return []
 
     def _make_editor(self) -> QWidget:
@@ -342,15 +315,10 @@ class SettingRow(QWidget):
         elif s.kind in ("int", "float"):
             lo = s.min if s.min is not None else -1e9
             hi = s.max if s.max is not None else 1e9
-            kind = kind_for_unit(s.unit) if s.kind == "float" else None
-            if kind is not None:
-                w = QuantitySpinBox(kind, minimum=lo, maximum=hi)
-            elif s.kind == "float":
-                w = QDoubleSpinBox()
-                w.setDecimals(3)
-                w.setRange(lo, hi)
-                if s.unit:
-                    w.setSuffix(f" {s.unit}")
+            if s.kind == "float":
+                # the Units track's widgets: a value stored in mm, mm/s, mm², per m³ ... is shown
+                # and typed in the display units (units.*); other units keep their suffix
+                w = spin_for_setting(s)
             else:
                 w = QSpinBox()
                 w.setRange(int(max(lo, -2**31)), int(min(hi, 2**31 - 1)))

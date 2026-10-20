@@ -136,8 +136,11 @@ RULES: list[tuple[str, str]] = [
      "parity-only: the rebuild never moves the machine on its own after a job or a stop (no unrequested "
      "motion); the original's default (on) is deliberately not followed"),
     (r"^(MC\.GasType|GC\.DefaultGasPressure)$", "parity-only: the manual gas output uses the technology's gas"),
-    (r"^UN\.|^MC\.UnitType$", "move: Units service (units.*; the value is migrated once when the Units "
-                              "service is present)"),
+    (r"^UN\.GasPressureUnit$", "move: Units service (units.pressure shows and takes pressures; this row "
+                               "keeps its storage meaning for the technology values and stays hidden; "
+                               "migrated once when units.pressure is not set)"),
+    (r"^UN\.|^MC\.UnitType$", "move: Units service (units.*; hidden; migrated once when the display units "
+                              "are not set)"),
 ]
 #: decisions of the second registration of a name (``"<table>:<name>"``) that differs from the first
 KEY_RULES = {

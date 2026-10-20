@@ -30,6 +30,7 @@ from mlaser.machine.audit import audit
 from mlaser.machine.preflight import ERROR, WARNING, Issue, used_layers
 from mlaser.services.orders import material_key
 from mlaser.services.technology import layer_technology_ref
+from mlaser.services import units as _units
 
 __all__ = ["SheetSpec", "sheet_of", "set_sheet", "check", "MaterialGate", "load_card", "layer_techs",
            "MISMATCH", "same_material", "summarize_orders"]
@@ -51,7 +52,7 @@ class SheetSpec:
     def label(self) -> str:
         if not self.material and not self.thickness_mm:
             return "(not declared)"
-        return f"{self.material or '?'} {self.thickness_mm:g} mm"
+        return f"{self.material or '?'} {_units.mm_text(self.thickness_mm)}"
 
     def to_dict(self) -> dict:
         return {"material": self.material, "thickness_mm": self.thickness_mm, "source": self.source,
@@ -114,11 +115,11 @@ def check(doc: Any, sheet: Optional[SheetSpec] = None) -> list[Issue]:
         m, t = str(key.get("material", "")), float(key.get("thickness_mm", 0.0) or 0.0)
         if not same_material(m, t, sheet.material, sheet.thickness_mm):
             out.append(Issue(MISMATCH, ERROR,
-                             f"layer {li} has the technology for {m} {t:g} mm, but the sheet is "
+                             f"layer {li} has the technology for {m} {_units.mm_text(t)}, but the sheet is "
                              f"{sheet.label()}: load the right sheet or apply the right technology", (li,)))
         elif ref.get("example"):
             out.append(Issue("technology_example", WARNING,
-                             f"layer {li} uses example values ({m} {t:g} mm): verify them on this machine", (li,)))
+                             f"layer {li} uses example values ({m} {_units.mm_text(t)}): verify them on this machine", (li,)))
     return out
 
 
@@ -128,6 +129,11 @@ def signature(doc: Any, sheet: Optional[SheetSpec], issues: list[Issue]) -> str:
     s = sheet or SheetSpec("", 0.0)
     bits = [s.source, s.entry, str(s.sheet_no), material_key(s.material, s.thickness_mm)[0],
             f"{s.thickness_mm:.2f}"]
+    # the messages carry display units: the key uses the metric text, so an override given in
+    # imperial still holds after a switch to metric (and back)
+    if doc is not None:
+        with _units.using(_units.Units("metric")):
+            issues = check(doc, sheet)
     bits += sorted(i.message for i in issues if i.code == MISMATCH)
     return "|".join(bits)
 
@@ -215,7 +221,7 @@ def load_card(entry: Any, doc: Any = None) -> dict:
     size = ""
     if sb and len(sb) == 4:
         try:
-            size = f"{float(sb[2]) - float(sb[0]):.0f} × {float(sb[3]) - float(sb[1]):.0f} mm"
+            size = _units.mm_size(float(sb[2]) - float(sb[0]), float(sb[3]) - float(sb[1]))
         except (TypeError, ValueError):
             size = ""
     size = size or str(getattr(entry, "sheet", "") or "")
@@ -225,7 +231,7 @@ def load_card(entry: Any, doc: Any = None) -> dict:
         ref = ((d or {}).get("extra") or {}).get("technology") if isinstance(d, dict) else None
         key = (ref or {}).get("key") if isinstance(ref, dict) else None
         if isinstance(key, dict):
-            lab = f"{key.get('material', '')} {float(key.get('thickness_mm', 0) or 0):g} mm · {key.get('gas', '')}"
+            lab = f"{key.get('material', '')} {_units.mm_text(float(key.get('thickness_mm', 0) or 0))} · {key.get('gas', '')}"
             if lab not in techs:
                 techs.append(lab)
             if key.get("nozzle"):
@@ -239,7 +245,7 @@ def load_card(entry: Any, doc: Any = None) -> dict:
     q = int(getattr(entry, "quantity", 1) or 1)
     n = min(int(getattr(entry, "done", 0) or 0) + 1, q)
     return {"title": "Load this sheet", "name": str(getattr(entry, "name", "")),
-            "material": material or "(material not set)", "thickness": f"{thick:g} mm" if thick else "",
+            "material": material or "(material not set)", "thickness": _units.mm_text(thick) if thick else "",
             "size": size, "remnant_id": str(getattr(entry, "remnant_id", "") or ""),
             "sheet": f"{n}/{q}", "parts": int(ex.get("parts", 0) or 0),
             "utilisation": float(ex.get("utilisation", 0.0) or 0.0),

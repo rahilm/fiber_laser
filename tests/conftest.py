@@ -61,6 +61,9 @@ UI_MODULES = {
     "test_settings_dialog",
     # UI wave: process & technology
     "test_ui_process_paths", "test_one_home",
+    # display units (units track)
+    "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
+    "test_units_sweep_machine",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -92,6 +95,9 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     if "MLASER_APP_DIR" not in os.environ or os.environ.get("_MLASER_APP_AUTO"):
         monkeypatch.setenv("MLASER_APP_DIR", str(tmp_path_factory.mktemp("app")))
         monkeypatch.setenv("_MLASER_APP_AUTO", "1")
+    # display units are process-wide (mlaser.services.units): every test starts metric, unbound
+    from mlaser.services import units as _units
+    _units.reset()
 
 
 @pytest.hookimpl(tryfirst=True)
