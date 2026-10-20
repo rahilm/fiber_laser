@@ -325,12 +325,13 @@ class CommissioningWizard(WizardDialog):
         """Dry run: the private simulator gets the configured interlock inputs (the wiring test
         then toggles its inputs); its heartbeat stays on output 7."""
         cfg = getattr(self.ext.ctx, "config", None)
-        if rig is None or cfg is None or not hasattr(getattr(rig, "interlocks", None), "cfg"):
+        if rig is None or cfg is None:
             return
-        from dataclasses import replace
-
         from mlaser.services import safety_io
-        rig.interlocks.cfg = replace(safety_io.from_config(cfg).interlocks)
+        # through the audited API: the interlock configuration is read-only on the controller
+        if not rig.configure_safety(interlocks=safety_io.from_config(cfg).interlocks,
+                                    source="operator", reason="commissioning dry run"):
+            raise RuntimeError("the dry-run simulator refused the interlock configuration")
 
     def configure_safety_io(self) -> None:
         """The Safety I/O dialog from the checklist, then the interlock check again."""

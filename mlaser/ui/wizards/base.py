@@ -150,7 +150,10 @@ class WizardDialog(QDialog):
             self.dry.setChecked(False)
             self.dry.blockSignals(False)
             self.proc = self._make(False)
-            self.status.setText(T(self.w, "wizard.error.step", detail=str(e)))
+            msg = T(self.w, "wizard.error.dry_run_unavailable", detail=str(e))
+            self.status.setText(msg)
+            # never let an operator believe this is a dry run when it is not
+            QMessageBox.warning(self, T(self.w, "wizard.dry_run"), msg)
         self.pages.clear()
         while self.stack.count():
             wdg = self.stack.widget(0)

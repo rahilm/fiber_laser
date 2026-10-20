@@ -184,8 +184,11 @@ def test_third_party_plugins_get_the_plugin_view(monkeypatch):
     assert P.PluginContext(Host(), "third", "entry-point").controller == ("view", "third")
     assert calls == [(Host.ctl, "third")]
     assert P.PluginContext(Host(), "ext_card").controller is Host.ctl          # built in
-    monkeypatch.setitem(sys.modules, "mlaser.controller.plugin_view", None)    # not merged yet
-    assert P.PluginContext(Host(), "third", "entry-point").controller is Host.ctl
+    # fails closed: without the plugin view a third-party plugin gets an error, never the
+    # controller itself
+    monkeypatch.setitem(sys.modules, "mlaser.controller.plugin_view", None)
+    with pytest.raises(ImportError):
+        P.PluginContext(Host(), "third", "entry-point").controller
 
 
 def test_plugin_policy_needs_machine_authority(tmp_path):

@@ -284,7 +284,7 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
             self._interlocks._configure(interlocks)
         if heartbeat_output is not None:
             self._heartbeat_output = int(heartbeat_output)
-            self._sup.heartbeat_output = self._heartbeat_output
+            self._sup.set_heartbeat_output(self._heartbeat_output)   # old output off first
         if heartbeat_hz is not None:
             self._heartbeat_hz = float(heartbeat_hz)
             self._sup.heartbeat_hz = self._heartbeat_hz

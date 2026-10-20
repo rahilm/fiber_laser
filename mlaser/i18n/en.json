@@ -2940,7 +2940,8 @@
   "cmd.edit.paste": "Paste",
   "cmd.sort.keep": "Keep current order",
   "cmd.sort.shortest": "Shortest path",
-  "cmd.sort.grid": "Grid order"
+  "cmd.sort.grid": "Grid order",
+  "wizard.error.dry_run_unavailable": "The dry-run simulator could not start ({detail}). The procedure is now set for the REAL machine; the dry-run box has been cleared."
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -3497,6 +3498,9 @@
   ],
   "shell.ws.goto": [
    "workspace"
+  ],
+  "wizard.error.dry_run_unavailable": [
+   "detail"
   ]
  },
  "legacy": {

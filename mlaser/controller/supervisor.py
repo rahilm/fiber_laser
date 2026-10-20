@@ -488,6 +488,18 @@ class SafetySupervisor:
             self._hb_next = self._hb_next + half if now - self._hb_next < half else now + half
             self._heartbeat_write(not self._hb_state)
 
+    def set_heartbeat_output(self, output: int) -> None:
+        """Move the heartbeat to another output (or 0 = off).  The old output is switched off
+        first if it is high, so a watchdog relay on it cannot stay energised by a stale level."""
+        output = int(output)
+        if output == self.heartbeat_output:
+            return
+        if self.heartbeat_output and self._hb_state:
+            self._heartbeat_write(False)
+        self.heartbeat_output = output
+        self._hb_state = False
+        self._hb_next = 0.0
+
     def _heartbeat_write(self, on: bool) -> None:
         mc = self._halt_channel()
         if mc is None:
