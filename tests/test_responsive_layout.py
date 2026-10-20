@@ -703,6 +703,7 @@ def test_live_resize_recovers(win, app):
         s0 = _fit(win, app, (1512, 875))
         _pump(app, 0.05)
         before = _geometry(win)
+        report0 = _dock_report(win)
         for wd in [*reversed(widths), *widths, 1512]:
             s = _fit(win, app, (wd, 875))
             rep.check("live", s, ws, win)
@@ -711,7 +712,7 @@ def test_live_resize_recovers(win, app):
         after = _geometry(win)
         diff = {k: (before.get(k), after.get(k)) for k in set(before) | set(after)
                 if not _same(before.get(k), after.get(k))}
-        assert not diff, (ws, diff, _dock_report(win))
+        assert not diff, (ws, diff, "before:", report0, "after:", _dock_report(win))
     rep.write("live_resize")
     text = _fail_text(rep.rows)
     assert not text, text
@@ -728,7 +729,11 @@ def _dock_report(win) -> dict:
             out[d.objectName()] = {
                 "w": d.width(), "min": d.minimumSizeHint().width(),
                 "hint": inner.sizeHint().width() if inner is not None else None,
-                "pref": pol.prefs.get(d.objectName()) if pol is not None else None}
+                "pref": pol.prefs.get(d.objectName()) if pol is not None else None,
+                "tabbed": [x.objectName() for x in win.tabifiedDockWidgets(d)],
+                "parts": [(type(c).__name__, c.sizeHint().width()) for c in
+                          (inner.findChildren(QWidget, options=Qt.FindDirectChildrenOnly) if inner is not None else [])
+                          if c.isVisible()][:6]}
     return out
 
 
@@ -744,6 +749,8 @@ def _geometry(win) -> dict:
     out = {}
     for d in win.shell.host.docks():
         if d.isVisible() and not d.isFloating():
+            if win.tabifiedDockWidgets(d) and d.visibleRegion().isEmpty():
+                continue      # a tab behind another: its geometry is not shown (nor kept current)
             out[f"dock:{d.objectName()}"] = (d.width(), d.height())
     for w in win.findChildren(QWidget):
         state = w.property("responsive_state")

@@ -56,3 +56,26 @@ def test_workspace_toolbars_do_not_overflow_at_the_window_minimum(app, monkeypat
     finally:
         app.setFont(f0)
         dispose(w)
+
+
+def test_toolbar_minimum_follows_a_style_change_without_a_resize(app, monkeypatch, tmp_path):
+    """The page's minimum (its icon-only tool bar) is measured again on a style or font change,
+    not only at the next resize: after a theme switch the docks beside the page took their
+    widths from the stale minimum."""
+    from wiring import dispose, real_window
+    monkeypatch.setenv("MLASER_DATA_DIR", str(tmp_path / "data"))
+    w = real_window()
+    f0 = app.font()
+    try:
+        w.resize(1600, 900)
+        w.show()
+        w.shell.host.activate("design")
+        _pump(app)
+        page = w.shell.host.pages["design"]
+        need0 = page._toolbar_need
+        page.setStyleSheet("QToolButton { padding: 6px; }")     # a theme with roomier buttons
+        _pump(app)
+        assert page._toolbar_need > need0
+    finally:
+        app.setFont(f0)
+        dispose(w)

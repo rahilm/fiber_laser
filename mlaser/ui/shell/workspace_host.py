@@ -273,6 +273,15 @@ class WorkspacePage(QWidget):
         self.fit_toolbar()
         self.fit_split()
 
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange):
+            # the tool bar's width (and so this page's minimum) changes with the style and the
+            # font: measured again now, not at the next resize (after a theme switch the page
+            # kept the old minimum until the window was resized, and the docks beside it took
+            # their widths from that stale value)
+            self.fit_toolbar()
+
     def _split_moved(self, _pos: int, _index: int) -> None:
         if not self._fitting_split:
             self._user_split = True          # the user's split stays (until a reset)
