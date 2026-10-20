@@ -163,5 +163,40 @@ def pytest_runtest_setup(item):
     mod = item.module.__name__ if item.module is not None else None
     if mod != _frozen_module[0]:
         _frozen_module[0] = mod
+        close_leftover_windows()
         gc.collect()
         gc.freeze()
+
+
+def close_leftover_windows() -> int:
+    """Close and delete every top-level widget the previous modules left (their module and
+    function fixtures are torn down by now).  Returns how many there were.
+
+    Most tests build windows and never close them: by the end of a CI worker's share there were
+    hundreds of main windows and ~10^5 widgets alive, and everything that reaches every widget
+    became that much slower: ``QApplication.setStyle`` / ``setPalette`` (a theme switch,
+    tests/test_native.py: 1894 s on macOS CI, 141 s locally after three UI modules), the
+    display-units signal that every unit-aware widget follows (370 s), each ``processEvents``,
+    and the leaked windows' own timers and threads competing with the timing tests.  A window
+    closes as the application closes it (``closeEvent``: safe halt, disconnect) without the
+    "job running" question, which offscreen would never answer."""
+    try:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return 0
+    app = QApplication.instance()
+    if app is None:
+        return 0
+    tops = app.topLevelWidgets()
+    for w in tops:
+        try:
+            w._test_no_dialogs = True
+            w.close()
+            w.deleteLater()
+        except RuntimeError:            # already deleted on the C++ side
+            pass
+    if tops:
+        app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return len(tops)

@@ -160,9 +160,11 @@ def test_sim_estimate_message_is_formatted():
         w.log_panel.log = lambda m, *a, **k: lines.append(m)
         w.simulate()
         est = [l for l in lines if l.startswith("Estimated time:")]
-        assert est and "%" not in est[0] and "{" not in est[0] and " min " in est[0]
+        assert est, (lines, w.jobs.preview and (w.jobs.preview.cancelled, w.jobs.preview.error))
+        assert "%" not in est[0] and "{" not in est[0] and " min " in est[0]
     finally:
-        w.close()
+        from wiring import dispose
+        dispose(w)
 
 
 def test_smoothed_compile_is_not_quadratic():

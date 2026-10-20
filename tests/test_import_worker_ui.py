@@ -21,7 +21,18 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _window(tmp_path):
+@pytest.fixture
+def windows():
+    """Main windows a test builds, closed and deleted after it: a window's background compile
+    (JobService, under ``responsive_gil``) must not run on into the next test."""
+    made: list = []
+    yield made
+    from wiring import dispose
+    for w in made:
+        dispose(w)
+
+
+def _window(tmp_path, made=None):
     from mlaser.services.config import ConfigService
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import EXTENSIONS, MainWindow
@@ -30,6 +41,8 @@ def _window(tmp_path):
     cfg.set("app_dir", str(tmp_path))
     w = MainWindow(DemoController(), extensions=EXTENSIONS, config=cfg)
     w._test_no_dialogs = True
+    if made is not None:
+        made.append(w)
     return w
 
 
@@ -98,7 +111,7 @@ def test_result_errors_and_one_import_at_a_time(qapp):
         run_import(None, nested)
 
 
-def test_load_path_refuses_a_dxf_bomb_with_a_message(qapp, tmp_path):
+def test_load_path_refuses_a_dxf_bomb_with_a_message(qapp, tmp_path, windows):
     ezdxf = pytest.importorskip("ezdxf")
     from PySide6.QtWidgets import QMessageBox
 
@@ -112,7 +125,7 @@ def test_load_path_refuses_a_dxf_bomb_with_a_message(qapp, tmp_path):
     d.modelspace().add_blockref("B8", (0, 0))
     p = tmp_path / "bomb.dxf"
     d.saveas(p)
-    w = _window(tmp_path)
+    w = _window(tmp_path, windows)
     logged = []
     orig = w.log_panel.log
     w.log_panel.log = lambda m, *a, **k: (logged.append(str(m)), orig(m, *a, **k))
@@ -130,10 +143,10 @@ def test_load_path_refuses_a_dxf_bomb_with_a_message(qapp, tmp_path):
     w._test_no_dialogs = True
 
 
-def test_load_path_still_opens_files(qapp, tmp_path):
+def test_load_path_still_opens_files(qapp, tmp_path, windows):
     from mlaser.model import Contour, Document, Line, Part
     from mlaser.project import save_project
-    w = _window(tmp_path)
+    w = _window(tmp_path, windows)
     pts = [(0.0, 0.0), (10.0, 0.0), (10.0, 10.0), (0.0, 10.0)]
     doc = Document([Part([Contour([Line(pts[i], pts[(i + 1) % 4]) for i in range(4)], True)])])
     p = tmp_path / "ok.mlz"
@@ -148,8 +161,17 @@ def test_gui_wait_lowers_the_switch_interval(qapp):
     it is restored afterwards."""
     import sys
 
-    from mlaser._sched import RESPONSIVE_SWITCH_S
+    from mlaser._sched import RESPONSIVE_SWITCH_S, responsive_holders
     from mlaser.ui.import_worker import run_import
+    # the interval is process-wide and reference-counted (mlaser._sched): another thread's
+    # responsive_gil (a window's compile, a stream) keeps it lowered until the last one ends,
+    # so measure "restored" from a moment when nobody else holds it (Windows CI: a compile of
+    # an earlier test's window was still running, 0.0005 after the import)
+    t0 = time.monotonic()
+    while responsive_holders() and time.monotonic() - t0 < 30:
+        qapp.processEvents()
+        time.sleep(0.01)
+    assert responsive_holders() == 0
     before = sys.getswitchinterval()
     seen = []
 
@@ -159,4 +181,5 @@ def test_gui_wait_lowers_the_switch_interval(qapp):
         return 1
     assert run_import(None, fn) == 1
     assert seen and seen[0] <= RESPONSIVE_SWITCH_S + 1e-9
+    assert responsive_holders() == 0
     assert sys.getswitchinterval() == before

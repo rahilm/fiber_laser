@@ -35,3 +35,10 @@ def responsive_gil(interval_s: float = RESPONSIVE_SWITCH_S):
             _si_state[0] -= 1
             if _si_state[0] == 0:
                 sys.setswitchinterval(_si_state[1])
+
+
+def responsive_holders() -> int:
+    """How many :func:`responsive_gil` contexts are open now (any thread): while one is, the
+    interval stays lowered, whoever opened the first."""
+    with _si_lock:
+        return int(_si_state[0])
