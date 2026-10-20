@@ -149,7 +149,7 @@ def test_close_event_halts_and_disconnects(make_ctl, monkeypatch):
     win.close()
     dt, travel = w.until_safe(1.0)
     assert dt is not None and dt < 0.5 and travel < 20.0
-    assert not ctl.sup.connected
+    assert not ctl._sup.connected
     sim.stop()
 
 

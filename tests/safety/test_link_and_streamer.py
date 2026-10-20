@@ -231,13 +231,13 @@ def test_simulator_deadline_does_not_leak_to_a_real_card():
     ctl = UiController(poll_s=0.02, stream_process=False)
     try:
         assert ctl.connect_simulator()
-        assert ctl.sup.link_deadline_ms == SIM_LINK_DEADLINE_MS
+        assert ctl._sup.link_deadline_ms == SIM_LINK_DEADLINE_MS
         ctl.disconnect()
         ctl.sim = None
         card = CardSimulator("127.0.0.1", 0).start()           # stands in for an external card
         try:
             ctl.connect("127.0.0.1", card.port)
-            assert ctl.sup.link_deadline_ms == 150.0
+            assert ctl._sup.link_deadline_ms == 150.0
         finally:
             ctl.disconnect()
             card.stop()
@@ -270,15 +270,15 @@ def test_child_startup_is_not_link_silence(make_ctl):
     first message on; spawning the child (an interpreter start, often > 0.5 s on Windows) is
     bounded by ``ProcessStreamer.startup_s`` instead and never reads as a lost link."""
     ctl = make_ctl(process=True, link_deadline_ms=150.0)
-    normal = ctl.sup.child_deadline_ms
-    ctl.sup.child_deadline_ms = 50.0       # far shorter than any process start-up
+    normal = ctl._sup.child_deadline_ms
+    ctl._sup.child_deadline_ms = 50.0       # far shorter than any process start-up
     alive = ctl._child_alive
     spoke = []
 
     def first_message():                   # back to the normal deadline once the child spoke
         if not spoke:
             spoke.append(time.monotonic())
-            ctl.sup.child_deadline_ms = normal
+            ctl._sup.child_deadline_ms = normal
         alive()
 
     ctl._child_alive = first_message
@@ -306,7 +306,7 @@ def test_link_age_after_a_process_job_counts_from_the_childs_relays():
         assert ctl.stop().wait(10)
         time.sleep(0.3)                    # a few monitor ticks after the job ended
         assert not ctl.fsm.faulted, ctl.safety().fault
-        assert ctl.sup.link_age_s() < 1.0
+        assert ctl._sup.link_age_s() < 1.0
     finally:
         ctl.disconnect()
 

@@ -83,7 +83,7 @@ def test_disarm_fault_or_halt_while_compiling_cancels_the_start(ctl, what):
         ctl.raise_fault("test fault")
         assert ctl.reset_fault()
     else:
-        ctl.sup.safe_halt("test halt")
+        ctl._sup.safe_halt("test halt")
     assert wait_until(lambda: results, 10) is not None
     time.sleep(0.2)
     assert ctl.started == [] and results[0][0] is False
@@ -92,7 +92,7 @@ def test_disarm_fault_or_halt_while_compiling_cancels_the_start(ctl, what):
 
 def test_generation_advances_on_stop_halt_fault_disarm_connect(ctl):
     g = ctl.start_generation()
-    for act in (lambda: ctl.stop(wait=True), lambda: ctl.sup.safe_halt("x"), lambda: ctl.disarm("x"),
+    for act in (lambda: ctl.stop(wait=True), lambda: ctl._sup.safe_halt("x"), lambda: ctl.disarm("x"),
                 lambda: (ctl.raise_fault("x"), ctl.reset_fault())):
         act()
         g2 = ctl.start_generation()
@@ -228,7 +228,7 @@ def test_a_new_job_is_refused_while_a_breakpoint_is_pending(ctl):
 
 def test_active_door_interlock_refuses_a_cut_but_not_a_dry_run(ctl):
     from mlaser.controller.interlocks import InterlockConfig
-    ctl.interlocks.cfg = InterlockConfig(door_input=3)
+    assert ctl.configure_safety(interlocks=InterlockConfig(door_input=3))
     assert ctl.arm()
     ctl.sim.state.inputs |= 1 << 2                      # door open, before the start (P2 S-12)
     time.sleep(0.15)

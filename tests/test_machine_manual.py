@@ -42,7 +42,7 @@ class Rig:
         self.ctl = UiController(machine=self.machine, stream_process=False, poll_s=0.02)
         self.ctl.sim = self.sim
         self.ctl._log = lambda m, *a: None
-        self.ctl.require_homed = False      # the simulator starts unhomed (pre-flight)
+        self.ctl.configure_safety(require_homed=False)   # the simulator starts unhomed (pre-flight)
         assert self.ctl.connect("127.0.0.1", self.sim.port)
         self.ops = MachineOps(self.ctl, values=dict(self.machine.params))
 

@@ -20,7 +20,7 @@ class IOPart:
             self._safe("output", self._mc.set_output, int(port), bool(on))
 
     def _port_guarded(self, port: int) -> bool:
-        return bool(port and 1 <= port <= F.N_OUTPUTS and self.sup.guarded_outputs >> (port - 1) & 1)
+        return bool(port and 1 <= port <= F.N_OUTPUTS and self._sup.guarded_outputs >> (port - 1) & 1)
 
     # names of the output map that are never a laser output (operators test them by hand)
     NON_LASER_OUTPUTS = ("gas", "red_light", "dedust", "lube", "follow")

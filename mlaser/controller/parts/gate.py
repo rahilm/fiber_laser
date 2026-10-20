@@ -52,7 +52,7 @@ class StartGatePart:
         connect and disconnect (ControllerFacade.start_generation plus the supervisor's halt
         count).  Read it when the operator asks for a start and pass it to :meth:`start_job`
         (``generation=``): a start whose generation is stale is refused."""
-        return super().start_generation() + int(self.sup.halt_count)  # type: ignore[misc]
+        return super().start_generation() + int(self._sup.halt_count)  # type: ignore[misc]
 
     # ------------------------------------------------------------------ the gate
     def _gate_refuse(self, action: str, reason: str) -> bool:

@@ -36,15 +36,15 @@ class ConnectionPart:
         # the streaming link deadline: the configured one for a real card, the simulator's own
         # (see connect_simulator) while self.sim runs in this process
         if self.sim is None:
-            self.sup.link_deadline_ms = self._card_link_deadline_ms()
+            self._sup.link_deadline_ms = self._card_link_deadline_ms()
         if host:
             self.cfg.host = host
         if port:
             self.cfg.port = int(port)
-        mc = self.sup.open(self.cfg, self.machine.pulses_per_mm_x)
-        self.sup.guarded_outputs = self._guarded_outputs_mask()
-        self.sup.heartbeat_output = int(self.heartbeat_output or 0)
-        self.sup.heartbeat_hz = float(self.heartbeat_hz)
+        mc = self._sup.open(self.cfg, self.machine.pulses_per_mm_x)
+        self._sup.guarded_outputs = self._guarded_outputs_mask()
+        self._sup.heartbeat_output = int(self.heartbeat_output or 0)
+        self._sup.heartbeat_hz = float(self.heartbeat_hz)
         try:
             if self.card_params is not None:
                 cfgw, ver = mc.startup(self.card_params)
@@ -52,7 +52,7 @@ class ConnectionPart:
                 cfgw, ver = mc.connect()
         except (ControllerError, OSError) as e:
             self._log(f"mf166: cannot connect to {self.cfg.host}:{self.cfg.port} ({e})", logging.WARNING)
-            self.sup.close()
+            self._sup.close()
             return False
         self.version = ver
         with self._slock:
@@ -60,9 +60,9 @@ class ConnectionPart:
             s.connected, s.mode, s.laser, s.link_ok = True, "ready", "ready", True
             s.ftc = "ready" if self._zf_type() else "offline"
         self.fsm.simulator = self.sim is not None
-        self.fsm.dry_run = not self.laser_enabled
+        self._sync_dry_run()
         self.fsm.connected()
-        self.sup.link_ok = True
+        self._sup.link_ok = True
         self._log(f"mf165: connected to MCC {self.cfg.host}:{self.cfg.port} ({self.cfg.transport}), "
                   f"version {ver} (V{ver // 100}.{ver % 100:02d}), config 0x{cfgw:08x}; "
                   f"{'SIMULATOR, ' if self.sim is not None else ''}"
@@ -75,7 +75,7 @@ class ConnectionPart:
         self._poll_stop.clear()
         self._poll_thread = threading.Thread(target=self._poll_loop, name="mlaser-poll", daemon=True)
         self._poll_thread.start()
-        self.sup.start_monitor()
+        self._sup.start_monitor()
         lifecycle.register(self)
         if self.registers_laser_guard:
             # one entry per controller; every registered one must allow (devices.laser): a
@@ -114,8 +114,8 @@ class ConnectionPart:
                       "Machine scaling")
             return
         self._mc.pulses_per_mm = sc.position_ppm
-        if self.sup._halt is not None:
-            self.sup._halt.pulses_per_mm = sc.position_ppm
+        if self._sup._halt is not None:
+            self._sup._halt.pulses_per_mm = sc.position_ppm
         self._log(f"card parameters: {sc.summary()}")
         if self.adopt_card_scaling:
             sx, sy = sc.step_ppm(sc.x_axis), sc.step_ppm(sc.y_axis)
@@ -139,14 +139,14 @@ class ConnectionPart:
         from ..simulator import CardSimulator
         self.disconnect(quiet=True)
         self._card_link_deadline_ms()                       # remember the configured value
-        self.sup.link_deadline_ms = float(link_deadline_ms if link_deadline_ms is not None
+        self._sup.link_deadline_ms = float(link_deadline_ms if link_deadline_ms is not None
                                           else SIM_LINK_DEADLINE_MS)
         m = self.machine
         sim_kw.setdefault("ppm", m.pulses_per_mm_x)          # position counts = step pulses
         sim_kw.setdefault("step_ppm", m.pulses_per_mm_x)
         self.sim = CardSimulator("127.0.0.1", 0, period_ms=m.period_ms,
                                  time_scale=time_scale, **sim_kw).start()
-        self.require_homed = bool(require_homed)
+        self._require_homed = bool(require_homed)
         self._log(f"simulator started on 127.0.0.1:{self.sim.port} (UDP)")
         self.cfg.transport = "udp"
         return self.connect("127.0.0.1", self.sim.port)
@@ -155,7 +155,7 @@ class ConnectionPart:
         """The deadline configured for a real card (captured once, before any simulator)."""
         v = getattr(self, "_card_deadline_ms", None)
         if v is None:
-            v = self._card_deadline_ms = float(self.sup.link_deadline_ms)
+            v = self._card_deadline_ms = float(self._sup.link_deadline_ms)
         return v
 
     def is_simulator(self) -> bool:
@@ -165,8 +165,8 @@ class ConnectionPart:
         """Halt the card first (program stop, PWM 0, process outputs off, FIFO stop/clear), then
         stop the job worker, the poller and close the sockets."""
         self._invalidate_starts("disconnect")
-        if self.sup.connected:
-            self.sup.safe_halt("disconnect")
+        if self._sup.connected:
+            self._sup.safe_halt("disconnect")
         self._stop_reason = "disconnect"
         self._cancel.set()
         st = self._streamer
@@ -178,8 +178,8 @@ class ConnectionPart:
         if self._poll_thread is not None and self._poll_thread is not threading.current_thread():
             self._poll_thread.join(timeout=2.0)
             self._poll_thread = None
-        was = self.sup.connected
-        self.sup.close()
+        was = self._sup.connected
+        self._sup.close()
         lifecycle.unregister(self)
         _laser.unregister_emission_guard(self)
         if self.sim is not None and not keep_sim:
@@ -199,7 +199,7 @@ class ConnectionPart:
     def state(self) -> MachineState:
         s = self._s
         self._fill_safety(s)
-        s.link_ok = self.sup.link_ok and s.connected
+        s.link_ok = self._sup.link_ok and s.connected
         return s
 
     def snapshot(self) -> MachineState:
@@ -211,7 +211,7 @@ class ConnectionPart:
 
     def card(self):
         """The supervised card handle (None while disconnected)."""
-        return self.sup.card if self.sup.connected else None
+        return self._sup.card if self._sup.connected else None
 
     def endpoint(self) -> Optional[tuple[str, int]]:
         return (str(self.cfg.host), int(self.cfg.port))
@@ -219,16 +219,16 @@ class ConnectionPart:
     def operator_action(self, what: str = "") -> None:
         """A new operator action (wizard step): clears the halt latch, nothing else (a latched
         FAULT still refuses motion in the guard)."""
-        self.sup.clear_latch(what or "operator action")
+        self._sup.clear_latch(what or "operator action")
 
     def heartbeat_status(self) -> dict:
-        s = self.sup
+        s = self._sup
         return {"output": int(s.heartbeat_output or 0), "hz": float(s.heartbeat_hz),
                 "toggles": int(s.heartbeat_toggles), "hold": bool(s.heartbeat_held),
                 "active": bool(s.heartbeat_output) and s.connected and not s.heartbeat_held}
 
     def heartbeat_hold(self, hold: bool) -> None:
-        self.sup.heartbeat_held = bool(hold)
+        self._sup.heartbeat_held = bool(hold)
         audit("heartbeat_hold", hold=bool(hold))
 
     # ------------------------------------------------------------------ link events
@@ -251,7 +251,7 @@ class ConnectionPart:
             mc = self._mc
             if mc is None:
                 break
-            if self.sup.streaming:
+            if self._sup.streaming:
                 # a job streams: the streamer owns the link and relays the status
                 self._poll_stop.wait(self.poll_s)
                 self._deadman_tick()
@@ -290,7 +290,7 @@ class ConnectionPart:
 
     def _stream_status(self, st, zf=None) -> None:
         """Status relayed by the streamer (in-thread or child process) during a job."""
-        if zf is None and self.sup.streaming == "thread" and self._mc is not None:
+        if zf is None and self._sup.streaming == "thread" and self._mc is not None:
             zf = self._read_follower(self._mc)
         self._apply_status(st, zf)
 
@@ -385,7 +385,7 @@ class ConnectionPart:
             try:
                 self._vm_stop_jog()
             except Exception:  # noqa: BLE001
-                self.sup.safe_halt("jog dead-man")
+                self._sup.safe_halt("jog dead-man")
 
 
 __all__ = ["ConnectionPart", "AXES"]

@@ -28,10 +28,10 @@ class DemoController(_api.ControllerFacade):
     def __init__(self, clock: Callable[[], float] = time.monotonic, laser_enabled: bool = True) -> None:
         super().__init__()
         self._clock = clock
-        self.laser_enabled = laser_enabled
+        self._laser_enabled = bool(laser_enabled)
         self.machine = None
         self.layers = None
-        self.require_homed = False       # nothing to home: the demo table is always referenced
+        self._require_homed = False      # nothing to home: the demo table is always referenced
         self._s = _api.MachineState()
         self._t = clock()
         self._jog: dict[str, tuple[int, float]] = {}
@@ -144,7 +144,8 @@ class DemoController(_api.ControllerFacade):
         self._invalidate_starts("connect")
         s = self._s
         s.connected, s.mode, s.ftc, s.laser, s.link_ok = True, "ready", "ready", "ready", True
-        self.fsm.simulator, self.fsm.dry_run = True, not self.laser_enabled
+        self.fsm.simulator = True
+        self._sync_dry_run()
         self.fsm.connected()
         self._log(f"mf0: demo controller connected ({host or '10.1.1.168'}:{port or 502})")
         for fn in list(self.connect_hooks):

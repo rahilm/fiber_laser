@@ -369,7 +369,7 @@ class MotionController:
 
     def __init__(self, host: str = "10.1.1.168", port: int = 502, transport: str = "udp",
                  config: Optional[TransportConfig] = None, pulses_per_mm: float = 1000.0,
-                 apply_hal_filter: bool = True):
+                 apply_hal_filter: bool = True, guard=None):
         self.cfg = config or TransportConfig(host=host, port=port, transport=transport)
         if config is None:
             self.cfg.host, self.cfg.port, self.cfg.transport = host, port, transport
@@ -386,12 +386,23 @@ class MotionController:
         self.axis_rw: list[list[int]] = []
         self.fifo_capacity: Optional[int] = None
         # Safety hooks (controller.supervisor.SafetySupervisor): ``guard(req)`` is called for
-        # every outgoing request before it is sent and raises to refuse it; ``last_ok`` is the
-        # time.monotonic() of the last successful reply (link watchdog).
-        self.guard = None
+        # every outgoing request before it is sent and raises to refuse it (sealed: set once,
+        # at construction or by the first assignment, never replaced or removed); ``last_ok``
+        # is the time.monotonic() of the last successful reply (link watchdog).
+        self._guard = guard
         self.last_ok = 0.0
         self.last_sent = 0.0         # time.monotonic() of the last request sent
         self.requests = 0
+
+    @property
+    def guard(self):
+        return self._guard
+
+    @guard.setter
+    def guard(self, fn) -> None:
+        if self._guard is not None:
+            raise AttributeError("the safety guard of a channel is sealed: it cannot be replaced or removed")
+        self._guard = fn
 
     # ------------------------------------------------------------------ socket
     def open(self) -> "MotionController":
@@ -475,7 +486,7 @@ class MotionController:
 
     def transact(self, req: F.Request) -> F.Response:
         """Send one request and wait for its reply with the original retry policy."""
-        g = self.guard
+        g = self._guard
         if g is not None:
             g(req)                 # raises (CommandRefused) when the safety policy refuses
         with self._lock:

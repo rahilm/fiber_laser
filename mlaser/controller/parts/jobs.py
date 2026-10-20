@@ -67,7 +67,7 @@ class JobRunnerPart:
         return lim or PF.travel_from_machine(self.machine)
 
     def job_emits(self, job) -> bool:
-        return (not getattr(job, "dry_run", False)) and wire_emits(job.wire, self.sup.guarded_outputs)
+        return (not getattr(job, "dry_run", False)) and wire_emits(job.wire, self._sup.guarded_outputs)
 
     def _refuse(self, rep) -> bool:
         refused = super()._refuse(rep)
@@ -134,13 +134,14 @@ class JobRunnerPart:
         self.document = document
         self._run_job(job, mode, job.summary(), emits=emits, generation=gen)
 
-    def start_job(self, plan, generation: Optional[int] = None) -> bool:
+    def start_job(self, job, generation: Optional[int] = None) -> bool:
         """Run a :class:`mlaser.services.jobs.PlannedJob` (the JobSubmitter protocol: the plan
         the canvas shows, compiled off the GUI thread) without recompiling it: connected, idle,
         no alarms, the job-start hooks with the unplaced document, the pre-flight on the plan,
         then the start gate (``generation`` = :meth:`start_generation` read when the operator
         asked for the start; a Stop or a halt since then refuses it, as does a head that moved
         away from the plan's start).  Returns True when the job started."""
+        plan = job
         frame = plan.mode == "frame"
         action = "frame" if frame else "start"
         if not self._motion_ok(action):
@@ -218,9 +219,9 @@ class JobRunnerPart:
         from .. import stream as S
         kw = dict(max_buffer_ms=self.max_buffer_ms, pwm_freq=int(self.machine.pt_laser_freq))
         if self._use_process():
-            policy = dict(armed=bool(emits and self.fsm.armed), guarded=self.sup.guarded_outputs,
-                          halt=asdict(self._halt_params()), link_deadline_ms=self.sup.link_deadline_ms,
-                          halt_timeout_ms=self.sup.halt_timeout_ms, parent_timeout_s=self.child_parent_timeout_s,
+            policy = dict(armed=bool(emits and self.fsm.armed), guarded=self._sup.guarded_outputs,
+                          halt=asdict(self._halt_params()), link_deadline_ms=self._sup.link_deadline_ms,
+                          halt_timeout_ms=self._sup.halt_timeout_ms, parent_timeout_s=self.child_parent_timeout_s,
                           follower_regs=(PF.REG_ONBZF, PF.N_ONBZF) if (self._zf_type() and self.interlocks.cfg.follower) else None)
             ps = S.ProcessStreamer(self.cfg, self.position_ppm, policy=policy, stall_s=self.child_stall_s, **kw)
             ps.on_status = self._stream_status
@@ -233,7 +234,7 @@ class JobRunnerPart:
         return js
 
     def _child_alive(self) -> None:
-        self.sup.child_seen = time.monotonic()
+        self._sup.child_seen = time.monotonic()
 
     def _use_process(self) -> bool:
         if self.stream_process is not None:
@@ -261,7 +262,7 @@ class JobRunnerPart:
             self._log(why, logging.WARNING)
             audit("start_refused", logging.WARNING, mode=mode, reason=why)
             return False
-        self.sup.clear_latch(f"{mode} start")
+        self._sup.clear_latch(f"{mode} start")
         if base_job is None and track:
             self.job = job
         self._bp_job = (base_job or job) if track else None
@@ -285,7 +286,7 @@ class JobRunnerPart:
         if hasattr(streamer, "on_event"):
             streamer.on_event = self._stream_event
         markers = (base_job or job).markers
-        f0 = (self.sup.fifo_frames, self.sup.fifo_emitting)
+        f0 = (self._sup.fifo_frames, self._sup.fifo_emitting)
         self.events.publish(EV.JobStarted(mode, what, resume=resume, tracked=track))
         last_pub = [0.0]
 
@@ -319,8 +320,8 @@ class JobRunnerPart:
                 # process streamer: the parent's link watch starts with the child's first
                 # message (0 = not seen yet; the child's start-up is bounded by
                 # ProcessStreamer.startup_s, and the card has nothing of this job before it)
-                self.sup.child_seen = 0.0
-                self.sup.streaming = "process" if self._use_process() else "thread"
+                self._sup.child_seen = 0.0
+                self._sup.streaming = "process" if self._use_process() else "thread"
                 streamer.run_job(job, progress, self._cancel, lambda: self._paused)
                 if self._cancel.is_set():
                     reason = self._stop_reason or ("paused" if self._pausing else "stopped")
@@ -345,20 +346,20 @@ class JobRunnerPart:
                 logging.getLogger("mlaser.controller").exception("job worker")
                 self.raise_fault(f"{mode}: unexpected error {type(e).__name__}: {e}")
             finally:
-                if self.sup.streaming == "process" and self._mc is not None and self.sup.child_seen:
+                if self._sup.streaming == "process" and self._mc is not None and self._sup.child_seen:
                     # the child owned the link during the job and relayed the card's status
                     # until child_seen; the parent's own connection last heard the card before
                     # the job, so without this the idle deadline (1.5 s) counted the whole job
                     # as silence and a stop / hold right after it read as a lost link
-                    self._mc.last_ok = max(self._mc.last_ok, self.sup.child_seen)
-                self.sup.streaming = None
+                    self._mc.last_ok = max(self._mc.last_ok, self._sup.child_seen)
+                self._sup.streaming = None
                 if not ok:
-                    self.sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
+                    self._sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
                 self._exec_index = getattr(streamer, "exec_index", self._exec_index)
                 b = getattr(streamer, "buf", None)
                 self.stream_stats = b if isinstance(b, dict) else (b.__dict__.copy() if b else {})
-                frames = self.sup.fifo_frames - f0[0]
-                audit("fifo", mode=mode, frames=frames, emitting=self.sup.fifo_emitting - f0[1],
+                frames = self._sup.fifo_frames - f0[0]
+                audit("fifo", mode=mode, frames=frames, emitting=self._sup.fifo_emitting - f0[1],
                       ok=ok, reason=reason[:160])
                 if (not ok and track and self._bp_job is not None and self.fsm.faulted
                         and self.breakpoint is None and not self._pausing):
@@ -417,8 +418,8 @@ class JobRunnerPart:
             self._cancel.set()
         self._jogging = None
         self._jog_active = False
-        if self.sup.connected:
-            self.sup.safe_halt(f"fault: {reason}")
+        if self._sup.connected:
+            self._sup.safe_halt(f"fault: {reason}")
 
     def reset_fault(self) -> bool:
         """Operator reset of a latched FAULT: link must answer, the card alarms are cleared
@@ -430,7 +431,7 @@ class JobRunnerPart:
         if self._busy():
             self._log("fault reset refused: the job worker is still stopping")
             return False
-        if self.sup.connected:
+        if self._sup.connected:
             try:
                 self._mc.reset_alarms()
                 st = self._mc.read_status()
@@ -458,7 +459,7 @@ class JobRunnerPart:
             return False
         reason = self.fsm.fault
         self.fsm.reset(paused=self.breakpoint is not None)
-        self.sup.clear_latch("fault reset")
+        self._sup.clear_latch("fault reset")
         audit("fault_reset", reason=reason)
         self._log("fault reset: the machine is disarmed" + (" (breakpoint kept: Resume continues there)"
                                                             if self.breakpoint is not None else ""))
@@ -471,8 +472,8 @@ class JobRunnerPart:
         """Stop motion, PWM 0, process outputs off, follower stop, FIFO stop + clear (each
         command independent), and stop the worker without waiting for it."""
         self._invalidate_starts("safe_halt")
-        if self.sup.connected:
-            self.sup.safe_halt(reason or "safe_halt")
+        if self._sup.connected:
+            self._sup.safe_halt(reason or "safe_halt")
         self._jogging = None
         self._jog_active = False
         if self._busy():
@@ -496,7 +497,7 @@ class JobRunnerPart:
         if st is not None and hasattr(st, "set_hold"):
             st.set_hold(True)
         if self.pause_mode == "fifo":
-            hc = self.sup._halt_channel()
+            hc = self._sup._halt_channel()
             self._try("pause", hc.fifo_stop) if hc is not None else None
             self._s.mode = "pause"
             self.fsm.job_paused()
@@ -517,14 +518,14 @@ class JobRunnerPart:
         self._cancel.set()
         if st is not None and hasattr(st, "set_cancel"):
             st.set_cancel()
-        self.sup.safe_halt("pause", pause=True)
+        self._sup.safe_halt("pause", pause=True)
 
         def finish():
             if self._worker is not None:
                 self._worker.join(timeout=10.0)
             if bp_job is None:                    # frame / laser test: a plain stop
                 self._paused = self._pausing = False
-                hc = self.sup._halt_channel()
+                hc = self._sup._halt_channel()
                 if hc is not None:
                     self._try("stop", hc.fifo_clear)
                 with self._slock:
@@ -549,7 +550,7 @@ class JobRunnerPart:
 
     def _set_breakpoint(self, job, idx: int, why: str) -> None:
         from ...nc.resume import Breakpoint, BreakpointStore, document_key, position_mm
-        hc = self.sup._halt_channel()
+        hc = self._sup._halt_channel()
         if hc is not None:
             self._try("pause", hc.fifo_clear)
         x, y = position_mm(job, idx)
@@ -679,9 +680,9 @@ class JobRunnerPart:
 
         def do_stop():
             try:
-                if self.sup.connected:
+                if self._sup.connected:
                     if running:
-                        self.sup.safe_halt("stop")
+                        self._sup.safe_halt("stop")
                     else:
                         if self.breakpoint is None and self._s.connected:
                             self._try("stop", self._mc.command, [CANCEL_CMD])
@@ -705,7 +706,7 @@ class JobRunnerPart:
                 self._log("stopped")
             except Exception:  # noqa: BLE001 - a stop must always complete
                 logging.getLogger("mlaser.controller").exception("stop")
-                self.sup.safe_halt("stop (after an error)")
+                self._sup.safe_halt("stop (after an error)")
             finally:
                 done.set()
 

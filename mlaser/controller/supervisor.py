@@ -119,7 +119,9 @@ def run_halt(mc, p: HaltParams, reason: str, pause: bool = False, channel: str =
 
 class CardHandle:
     """The card methods the UI, diag and devices may use; every call goes through the guarded
-    main channel.  No access to the socket, the guard, ``open``/``close`` or ``connect``."""
+    main channel.  No access to the socket, the guard, ``open``/``close`` or ``connect``: an
+    allowed name returns a plain function that forwards the call (not a bound method, whose
+    ``__self__`` would be the raw channel), and the supervisor is held in a closure."""
 
     ALLOWED = frozenset({
         "read_regs", "read_reg", "write_regs", "write_reg", "transact", "command", "set_outputs",
@@ -132,27 +134,42 @@ class CardHandle:
         "write_fast_map", "read_status_fast", "read_servo_info", "set_timeout",
     })
 
+    __slots__ = ("_channel",)
+
     def __init__(self, sup: "SafetySupervisor"):
-        object.__setattr__(self, "_sup", sup)
+        def channel() -> Optional[MotionController]:
+            return sup._mc
+        object.__setattr__(self, "_channel", channel)
 
     def __getattr__(self, name: str):
         if name not in CardHandle.ALLOWED:
             raise AttributeError(f"card handle: {name!r} is not available outside the safety supervisor")
-        mc = object.__getattribute__(self, "_sup")._mc
-        if mc is None:
+        channel = object.__getattribute__(self, "_channel")
+        mc0 = channel()
+        if mc0 is None:
             raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
-        return getattr(mc, name)
+        v = getattr(mc0, name)
+        if not callable(v):
+            return v                     # a data value (pulses_per_mm, fast_len, ...)
+
+        def call(*a, **kw):
+            mc = channel()
+            if mc is None:
+                raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
+            return getattr(mc, name)(*a, **kw)
+        call.__name__ = call.__qualname__ = name
+        return call
 
     def __setattr__(self, name, value):
         raise AttributeError("card handle is read-only")
 
     @property
     def cfg(self) -> TransportConfig:
-        mc = object.__getattribute__(self, "_sup")._mc
+        mc = object.__getattribute__(self, "_channel")()
         return replace(mc.cfg) if mc is not None else TransportConfig()
 
     def __bool__(self) -> bool:
-        return object.__getattribute__(self, "_sup")._mc is not None
+        return object.__getattribute__(self, "_channel")() is not None
 
     def __repr__(self) -> str:
         return f"<CardHandle connected={bool(self)}>"
@@ -180,7 +197,7 @@ class SafetySupervisor:
         self.on_link_restored = on_link_restored
         self.halt_params = halt_params or HaltParams
         self._guarded = 0                     # bit n = output n+1 needs arming to switch on
-        self.guarded_fn: Optional[Callable[[], int]] = None   # live mask (owner's output map)
+        self._guarded_fn: Optional[Callable[[], int]] = None  # live mask (owner's output map)
         self._mc: Optional[MotionController] = None
         self._halt: Optional[MotionController] = None
         self.card = CardHandle(self)
@@ -208,7 +225,7 @@ class SafetySupervisor:
 
     @property
     def guarded_outputs(self) -> int:
-        fn = self.guarded_fn
+        fn = self._guarded_fn
         if fn is not None:
             try:
                 return int(fn())
@@ -223,24 +240,17 @@ class SafetySupervisor:
 
     # ------------------------------------------------------------------ channels
     @property
-    def mc(self) -> Optional[MotionController]:
-        """The raw main channel (the owner's internals only)."""
-        return self._mc
-
-    @property
     def connected(self) -> bool:
         return self._mc is not None
 
     def open(self, cfg: TransportConfig, pulses_per_mm: float) -> MotionController:
         """Create the main channel (guarded) and the halt channel; does not send anything."""
         self.close()
-        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm)
-        mc.guard = self._guard
+        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm, guard=self._guard)
         self._mc = mc
         hcfg = replace(cfg, timeout_ms=self.halt_timeout_ms,
                        fifo_time_ms=self.halt_timeout_ms * self.halt_sends, max_recv=1)
-        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm)
-        self._halt.guard = self._halt_guard
+        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm, guard=self._halt_guard)
         self._latch = False
         self.link_ok = False
         self._lost = False

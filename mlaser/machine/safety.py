@@ -243,11 +243,23 @@ class SafetyFSM:
         self._fault = ""
         self._fault_t = 0.0
         self.simulator = False
-        self.dry_run = False
+        self._dry_run = False
         self.on_change = on_change
         self.transitions: list[tuple[float, str, str, str]] = []
 
     # ------------------------------------------------------------------ queries
+    @property
+    def dry_run(self) -> bool:
+        """Laser output disabled (``--laser-off``): arming impossible.  One way: it can be
+        switched on, never off again (a new controller is needed for that)."""
+        return self._dry_run
+
+    @dry_run.setter
+    def dry_run(self, v: bool) -> None:
+        if not v and self._dry_run:
+            raise AttributeError("dry-run mode cannot be lifted on a running controller")
+        self._dry_run = bool(v)
+
     @property
     def state(self) -> SafetyState:
         return self._state

@@ -50,7 +50,7 @@ class MotionPart:
         if mode == HOME_ZF and not self._zf_type():
             self._log("mp30: no follower configured (ZF.ZFType = 0), nothing to home")
             return
-        self.sup.clear_latch("go origin")
+        self._sup.clear_latch("go origin")
         mask = self._safe("Go Origin", self._mc.home_mode, mode, AXES["X"], AXES["Y"], AXES["W"])
         if mask:
             self._home_mask = mask
@@ -168,7 +168,7 @@ class MotionPart:
         d = self._jog_distance(a, direction, length)
         if d == 0:
             return
-        self.sup.clear_latch(what)
+        self._sup.clear_latch(what)
         if length is None:
             self._jogging = axis.upper()
             self._jog_alive = time.monotonic()
@@ -226,7 +226,7 @@ class MotionPart:
         ok = self._try("stop", self._mc.fifo_stop) and ok
         ok = self._try("stop", self._mc.fifo_clear) and ok
         if not ok:
-            self.sup.safe_halt("stop (fallback, main channel failed)")
+            self._sup.safe_halt("stop (fallback, main channel failed)")
 
     def _wait_axes_idle(self, timeout_s: float) -> None:
         t_end = time.time() + timeout_s
@@ -288,7 +288,7 @@ class MotionPart:
         p = self.position_ppm
         sp = self.machine.move_speed if speed is None else speed
         ac = self.machine.move_acc if acc is None else acc
-        self.sup.clear_latch("move")
+        self._sup.clear_latch("move")
         self._safe("move", self._mc.move, 0b11, F.ftol(sp * p), F.ftol(ac),
                    [F.ftol(dx * p), F.ftol(dy * p)])
 

@@ -135,7 +135,7 @@ def test_every_guarded_port_refused_disarmed_and_off_after_every_halt(io_ctl):
         if port in (1, 3):
             continue                      # gas and red light keep their own numbers here
         ctl.output_map["shutter"] = port
-        assert ctl.sup.guarded_outputs >> (port - 1) & 1
+        assert ctl._sup.guarded_outputs >> (port - 1) & 1
         assert ctl._process_outputs_mask() >> (port - 1) & 1
         with pytest.raises(CommandRefused):
             card.set_output(port, True)
@@ -149,9 +149,9 @@ def test_every_guarded_port_refused_disarmed_and_off_after_every_halt(io_ctl):
             card.set_output(port, True)
             assert _sim_out(ctl, port)
             if kind == "halt":
-                ctl.sup.safe_halt(f"test {port}")
+                ctl._sup.safe_halt(f"test {port}")
             elif kind == "pause":
-                ctl.sup.safe_halt(f"test {port}", pause=True)
+                ctl._sup.safe_halt(f"test {port}", pause=True)
             else:
                 ctl.raise_fault(f"test fault {port}")
             assert not _sim_out(ctl, port), f"output {port} still on after the {kind} halt"
@@ -214,5 +214,5 @@ def test_supervisor_mask_error_fails_closed():
 
     def boom():
         raise RuntimeError("config gone")
-    sup.guarded_fn = boom
+    sup._guarded_fn = boom
     assert sup.guarded_outputs == F.ALL_OUTPUTS_MASK

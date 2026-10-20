@@ -175,7 +175,10 @@ class PluginContext:
 
     @property
     def controller(self):
-        return self.host.ctl
+        """The machine controller as plugins see it (``controller.plugin_view``): the
+        MachineAPI only, read-only, arming and fault reset through the plugin policy."""
+        from ..controller.plugin_view import plugin_view
+        return plugin_view(self.host.ctl, self.name)
 
     @property
     def window(self):
@@ -221,7 +224,12 @@ class PluginContext:
         return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts)
 
     def replace_document(self, doc: Any, label: str = "", path: Optional[str] = None) -> None:
-        """Make ``doc`` the open document (undoable)."""
+        """Make ``doc`` the open document (undoable).  Refused while a job is active (running,
+        paused, or a breakpoint kept for Resume): the document is locked like File > Open."""
+        ctl = getattr(self.host, "ctl", None)
+        job_active = getattr(ctl, "job_active", None)
+        if callable(job_active) and job_active():
+            raise RuntimeError("the document is locked while a job is active (Stop it first)")
         self.host.docs.replace(doc, path, label or f"{self.name}: replace")
 
     # ------------------------------------------------------------------ hooks

@@ -118,7 +118,7 @@ def test_run_screen_on_the_simulator(win, app):
     # the constructor's value is the real card's and does not apply to the simulator)
     ctl = UiController(poll_s=0.02, stream_process=False)
     assert ctl.connect_simulator(time_scale=1.0, link_deadline_ms=3000.0)
-    assert ctl.sup.link_deadline_ms == 3000.0
+    assert ctl._sup.link_deadline_ms == 3000.0
     win.set_controller(ctl)
     try:
         win.set_document(doc_of(rect(10, 10, 300, 200), rect(400, 10, 200, 200), rect(10, 300, 300, 150)))
