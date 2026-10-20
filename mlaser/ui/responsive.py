@@ -287,6 +287,8 @@ class ResponsiveForm(QWidget):
         super().__init__(parent)
         self._grid = QGridLayout(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
+        # the minimum is the stacked one (minimumSizeHint), not the grid's side-by-side one
+        self._grid.setSizeConstraint(QLayout.SetNoConstraint)
         self._rows: list[tuple[Optional[QWidget], QWidget]] = []
         self._beside = True
         self.setProperty(STATE_PROP, "beside")

@@ -99,7 +99,7 @@ def win(app, tmp_path_factory):
         from PySide6.QtWidgets import QStyleFactory
         if style.lower() not in [k.lower() for k in QStyleFactory.keys()]:
             pytest.skip(f"style {style} not available here ({QStyleFactory.keys()})")
-        app.setStyle(style)
+        _restyle(app)
     w.resize(*SAMPLES[2])
     w.show()
     _pump(app, 0.3)
@@ -109,6 +109,13 @@ def win(app, tmp_path_factory):
     w.deleteLater()
     _pump(app)
     mp.undo()
+
+
+def _restyle(app) -> None:
+    """``MLASER_LAYOUT_STYLE``: (again) the style under test (a theme switch may set another)."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "")
+    if style and app.style().name().lower() != style.lower():
+        app.setStyle(style)
 
 
 def _fit(win, app, size) -> QSize:
@@ -294,6 +301,7 @@ def test_safety_controls_visible_everywhere(win, app):
     bad = []
     for theme in ("light", "dark"):
         win.shell.set_theme(theme, persist=False)
+        _restyle(app)
         for size in SAMPLES:
             s = _fit(win, app, size)
             for label in views(win, app, deep=False):
@@ -310,6 +318,7 @@ def test_safety_controls_visible_everywhere(win, app):
                     bad.append(f"{theme} {s.width()}x{s.height()} run screen target {b.objectName() or b.text()} "
                                f"{b.width()}x{b.height()}")
     win.shell.set_theme("light", persist=False)
+    _restyle(app)
     assert not bad, "\n".join(dict.fromkeys(bad))
 
 
@@ -455,8 +464,16 @@ for n in ("information", "warning", "critical", "question"):
 from wiring import real_window
 import layout_audit as A
 w = real_window()
-w.show()
+if os.environ.get("MLASER_LAYOUT_STYLE"):
+    app.setStyle(os.environ["MLASER_LAYOUT_STYLE"])
 out = []
+# first start: the whole available screen, never larger
+w.shell.fit_to_screen()
+w.show()
+for _ in range(10):
+    app.processEvents()
+avail = w.screen().availableGeometry()
+first = [w.frameGeometry().x(), w.frameGeometry().y(), w.frameGeometry().width(), w.frameGeometry().height()]
 for size in ((1280, 800), (1512, 875)):
     w.resize(*size)
     for _ in range(5):
@@ -470,17 +487,39 @@ for size in ((1280, 800), (1512, 875)):
         if shots:
             os.makedirs(shots, exist_ok=True)
             w.grab().save(os.path.join(shots, f"{size[0]}x{size[1]}_{ws}.png"))
-print(json.dumps({"dpr": w.devicePixelRatioF(), "violations": out}))
+# a saved geometry larger than this screen (another monitor) comes back clamped
+w.resize(2400, 1400)
+w.move(300, 200)
+for _ in range(3):
+    app.processEvents()
+w.shell._on_close()
+w.resize(900, 600)
+w.shell.fit_to_screen()
+for _ in range(5):
+    app.processEvents()
+g = w.frameGeometry()
+print(json.dumps({"dpr": w.screen().devicePixelRatio(), "grab_dpr": w.grab().devicePixelRatio(), "violations": out, "avail": [avail.x(), avail.y(), avail.width(),
+                  avail.height()], "first": first, "restored": [g.x(), g.y(), g.width(), g.height()]}))
 w.close()
 """
 
+#: the user's MacBook Pro 14" screen: 3024 × 1964 pixels at 2x = 1512 × 982 points (offscreen
+#: platform screen; QT_SCALE_FACTOR=2 gives the widgets their 2x backing store)
+SCREEN_2X = {"screens": [{"name": "mbp14", "x": 0, "y": 0, "width": 3024, "height": 1964,
+                          "logicalDpi": 96, "dpr": 1}]}
 
-def test_scale_2x(tmp_path):
-    """2× device pixel ratio (Retina, 200 % on Windows): the same layout in logical pixels."""
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_SCALE_FACTOR="2",
+
+def test_scale_2x_and_first_start_geometry(tmp_path):
+    """2x device pixel ratio (Retina, 200 % on Windows) on a 1512 × 982 screen: the same layout
+    in logical pixels; the first start fills the available screen; a saved geometry larger than
+    the screen comes back inside it."""
+    cfg = tmp_path / "screen.json"
+    cfg.write_text(json.dumps(SCREEN_2X), encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM=f"offscreen:configfile={cfg}",
                MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
                MLASER_DATA_DIR=str(tmp_path / "data"))
     env.pop("_MLASER_CONFIG_AUTO", None)
+    env["QT_SCALE_FACTOR"] = "2"
     d = os.environ.get("MLASER_LAYOUT_SHOTS", "")
     if d:
         env["MLASER_LAYOUT_SHOTS_2X"] = str(Path(d) / (os.environ.get("MLASER_LAYOUT_TAG", "") or "run") / "shots_2x")
@@ -488,7 +527,12 @@ def test_scale_2x(tmp_path):
                        capture_output=True, text=True, timeout=600)
     assert r.returncode == 0, r.stderr[-3000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])
-    assert res["dpr"] == 2.0
+    assert res["dpr"] == 2.0 and res["grab_dpr"] == 2.0
+    ax, ay, aw, ah = res["avail"]
+    assert (aw, ah) == (1512, 982)
+    assert res["first"] == res["avail"], res
+    x, y, w, h = res["restored"]
+    assert ax <= x and ay <= y and x + w <= ax + aw and y + h <= ay + ah, res
     bad = [v for v in res["violations"] if not any(k in v for k in PENDING)]
     assert not bad, "\n".join(bad)
 

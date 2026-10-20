@@ -58,7 +58,7 @@ UI_MODULES = {
     # Review 2 plugin manager
     "test_plugin_manager_ui",
     # UI wave: responsive layout harness
-    "test_responsive_layout",
+    "test_responsive_layout", "test_responsive_helpers",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

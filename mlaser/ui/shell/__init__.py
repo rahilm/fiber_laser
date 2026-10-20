@@ -28,7 +28,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMenu, QMessageBox, QToolButton,
                                QVBoxLayout, QWidget)
@@ -49,6 +49,7 @@ SETTINGS = [
     Setting("shell.welcome_done", "bool", False, label="shell.welcome.title", section="shell", source="app"),
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
     Setting("shell.workspace", "str", "design", label="shell.rail", section="shell", source="app"),
+    Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
 ]
 LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
@@ -512,6 +513,8 @@ class Shell:
     # ------------------------------------------------------------------ layout
     def _first_show(self) -> None:
         w = self.w
+        if self._fit_screen:
+            self._clamp_to_screen()          # the frame is known now
         pol = self.dock_policy
         pol.enabled = True
         if self._default_state is None:
@@ -566,12 +569,59 @@ class Shell:
 
     def _on_close(self) -> None:
         """Remember the dock layout (only of a window that was shown: a test or a headless
-        window has no layout worth keeping)."""
+        window has no layout worth keeping) and, for a window placed by :meth:`fit_to_screen`,
+        its geometry."""
         if self._default_state is not None:
             try:
                 self.config.set("shell.layout", bytes(self.w.saveState(LAYOUT_VERSION).toBase64()).decode("ascii"))
+                if self._fit_screen:
+                    self.config.set("shell.geometry", bytes(self.w.saveGeometry().toBase64()).decode("ascii"))
             except Exception:  # noqa: BLE001
                 pass
+
+    # ------------------------------------------------------------------ window geometry
+    _fit_screen = False
+
+    def fit_to_screen(self, screen=None) -> None:
+        """Start-up geometry (the application calls it before ``show``): the saved geometry, or
+        on the first start the whole available screen (menu bar and Dock / taskbar excluded),
+        never larger than the screen and never smaller than what the content needs.  Checked
+        again once the window frame is known (:meth:`_clamp_to_screen`)."""
+        from PySide6.QtGui import QGuiApplication
+        w = self.w
+        self._fit_screen = True
+        scr = screen or w.screen() or QGuiApplication.primaryScreen()
+        if scr is None:
+            return
+        avail = scr.availableGeometry()
+        saved = self.config.get("shell.geometry", "") or ""
+        restored = False
+        if saved:
+            try:
+                restored = bool(w.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii"))))
+            except Exception:  # noqa: BLE001 - a broken saved geometry: first-start size
+                restored = False
+        if not restored:
+            w.setGeometry(avail)
+        self._clamp_to_screen(scr)
+
+    def _clamp_to_screen(self, screen=None) -> None:
+        w = self.w
+        scr = screen or w.screen()
+        if scr is None or w.isMaximized() or w.isFullScreen():
+            return
+        avail = scr.availableGeometry()
+        frame = w.frameGeometry()
+        extra_w = max(frame.width() - w.width(), 0)
+        extra_h = max(frame.height() - w.height(), 0)
+        size = w.size().boundedTo(avail.size() - QSize(extra_w, extra_h))
+        if size != w.size():
+            w.resize(size)
+        frame = w.frameGeometry()
+        x = min(max(frame.x(), avail.x()), avail.right() - frame.width() + 1)
+        y = min(max(frame.y(), avail.y()), avail.bottom() - frame.height() + 1)
+        if (x, y) != (frame.x(), frame.y()):
+            w.move(x, y)
 
     # ------------------------------------------------------------------ welcome / docs / import
     def show_welcome(self):

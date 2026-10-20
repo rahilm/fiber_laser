@@ -48,7 +48,7 @@ from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
 
 from ..icons import icon
-from ..responsive import CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout
+from ..responsive import CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout, keep_min_size
 from ..safety_texts import remedy
 from . import TOUCH, TOUCH_MIN, show_workspace, tr
 
@@ -92,9 +92,9 @@ QUEUE_MSGS = {
 
 
 def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, pt: float = 15.0, bold: bool = True) -> QPushButton:
-    btn.setMinimumHeight(h)
-    if w:
-        btn.setMinimumWidth(w)
+    # the touch size is kept against style sheets (an Operator-mode min-height rule used to
+    # drop it to 22 px after leaving Operator mode: responsive.keep_min_size)
+    keep_min_size(btn, QSize(w, h))
     f = btn.font()
     f.setPointSizeF(pt)
     f.setBold(bold)

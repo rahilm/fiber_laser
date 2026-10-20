@@ -151,6 +151,7 @@ def main(argv=None) -> int:
             win.log_panel.log("simulator unavailable: using the protocol-free demo controller")
     if logdir is not None:
         win.log_panel.log(f"log files: {logdir}")
+    win.shell.fit_to_screen()            # the saved geometry or the available screen, never larger
     win.show()
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
     return app.exec()
