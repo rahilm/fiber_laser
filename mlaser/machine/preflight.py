@@ -268,7 +268,7 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
         if homed is None:
             rep.add("homed_unknown", WARNING, "homing state unknown")
         elif not homed:
-            rep.add("not_homed", ERROR, "X/Y are not homed: run Go Origin first")
+            rep.add("not_homed", ERROR, "X/Y are not homed: run Home X/Y first")
     if emits and not armed:
         rep.add("not_armed", ERROR, "the job fires the laser but the machine is not armed")
     if document is not None:

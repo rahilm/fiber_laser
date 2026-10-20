@@ -541,7 +541,7 @@ class CraftExtension:
         for pi, _ci in marked:
             self.w.document.parts[pi].selected = True
         self.w.canvas.refresh_styles()
-        self.log(f"mf89: {len(marked)}")
+        self.log(f"mf89: {len(marked)} contour(s) marked")
         if not any(c.lead_in.kind for p in self.w.document.parts
                    for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
             self.log(self.t("craft.msg.no_leads"))
@@ -549,16 +549,16 @@ class CraftExtension:
     def lead_clear_mark(self) -> None:
         n = M.clear_lead_marks(self.w.document)          # no undo step in the original
         self.refresh()
-        self.log(f"mf91: {n}")
+        self.log(f"mf91: {n} mark(s) cleared")
 
     # ---------------------------------------------------------------- optimize sub-commands
     def replace_circle(self) -> None:
         n = self.edit(M.replace_circles)
-        self.log(f"mf472: {n}")
+        self.log(f"mf472: {n} circle(s) replaced")
 
     def adjust_start(self) -> None:
         n = self.edit(lambda d: M.adjust_starts([p for p in d.parts if p.selected]))
-        self.log(f"mf604: {n}")
+        self.log(f"mf604: {n} start point(s) adjusted")
 
     # ---------------------------------------------------------------- scan engraving
     def _engrave_dialog(self, title: str = "mf112_5") -> bool:

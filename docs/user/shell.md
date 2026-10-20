@@ -159,7 +159,7 @@ default.
 
 The first start shows a **welcome sheet**:
 
-* **Practise on the simulator** — *Connect the simulator* runs the built-in motion-card
+* **Practice on the simulator** — *Connect the simulator* runs the built-in motion-card
   simulator over the real protocol: import, simulate, frame and cut as on the machine.
 * **Your Mlaser parameters and languages** — *Import parameters…* reads `HardPara.xml` and
   `ManuPara.xml` from the `dat` folder of your original Mlaser install; *Import languages…*

@@ -118,6 +118,53 @@ class Setting:
 _XML_KEYS: dict[tuple[str, str], str] = {}  # (registry category, key) -> setting key
 
 
+#: settings that shared one label id with another setting of the same window (the original
+#: reused a lang key: Match code 1 three times, the fiber and CO2 laser ports, the edge-seek
+#: values under one "compensates distance" label...): each gets its own label (UI polish)
+LABEL_FIXES: dict[str, str] = {
+    "SOP.JoystickID4": "param.remote_control.match_code_4",
+    "SOP.JoystickID5": "param.remote_control.match_code_5",
+    "LGP.CO2LaserDAPort": "param.da.co2_da_port",
+    "LGP.CO2LaserDAType": "param.da.co2_da_range",
+    "LGP.CO2DORemoteStart": "param.io.co2_remote_key",
+    "LGP.CO2DOLaserGate": "param.io.co2_shutter",
+    "LGP.CO2DOLaser": "param.io.co2_laser_emission",
+    "LGP.CO2DORedLight": "param.io.co2_red_light",
+    "LGP.CO2LaserControlType": "param.general.co2_control_type",
+    "EC.ECIOType": "param.general.ec_io_type",
+    "LGP.LaserSerialPort": "param.pc_serial.laser_port_number",
+    "AF.SerialPort": "param.pc_serial.af_port_number",
+    "LGP.LaserSerialBaudRate": "param.pc_serial.laser_baud_rate",
+    "AF.SerialBaudRate": "param.pc_serial.af_baud_rate",
+    "MP.EnableVerCorrect": "param.precision_compensate.enable_squareness",
+    "MP.VerCorrectType": "param.precision_compensate.squareness_type",
+    "MP.VerCorrectABLength": "param.precision_compensate.squareness_ab",
+    "MP.VerCorrectACLength": "param.precision_compensate.squareness_ac",
+    "MP.VerCorrectL1Length": "param.precision_compensate.squareness_l1",
+    "MP.VerCorrectL2Length": "param.precision_compensate.squareness_l2",
+    "DI.AlarmDIStr": "param.di.alarm_inputs",
+    "MSC.TestCardID": "param.misc.test_card_id",
+    "MSC.TestPersonID": "param.misc.test_person_id",
+    "MSC.DockPtType": "param.misc.park_point_type",
+    "MSC.ToolCoordPtStr": "param.misc.tool_coordinate_points",
+    "ZF.ZFFastJogSpeed": "param.zf_run_property.fast_jog_speed",
+    "GRP.EdgeBoardSizeX": "param.normal_axis.edge_sheet_size_x",
+    "GRP.EdgeSeekStartPointX": "param.normal_axis.edge_seek_start_x",
+    "GRP.EdgeBoardSizeY": "param.normal_axis.edge_sheet_size_y",
+    "GRP.EdgeSeekMode": "param.normal_axis.edge_seek_mode",
+    "GRP.EdgeSeekStartPointY": "param.normal_axis.edge_seek_start_y",
+    "GRP.EdgeAutoBoardSize": "param.z_follower.edge_auto_sheet_size",
+    "GRP.EdgeSeekIsCurrentStart": "param.z_follower.edge_seek_from_current",
+    "GP.FocusGradualTime2": "param.third_pierce_basic.focus_gradual_time",
+    "GP.LayerFileName": "param.misc.layer_file_name",
+    "GP.PowerCurveSmoothType": "param.misc.power_curve_smoothing",
+    "GP.FreqCurveSmoothType": "param.misc.frequency_curve_smoothing",
+    "CO2LayerParam:GP.LayerFileName": "param.misc.layer_file_name",
+    "CO2LayerParam:GP.PowerCurveSmoothType": "param.misc.power_curve_smoothing",
+    "CO2LayerParam:GP.FreqCurveSmoothType": "param.misc.frequency_curve_smoothing",
+}
+
+
 def _registry_settings() -> dict[str, Setting]:
     """One Setting per registry entry.  The key is the parameter name (``GC.GasDelay``); the 13
     names that occur in two categories get ``"<category>:<name>"`` for the second one."""
@@ -145,7 +192,7 @@ def _registry_settings() -> dict[str, Setting]:
             d.min if has_range else None,
             d.max if has_range else None,
             tuple(o[0] or o[1] for o in d.options),
-            d.lang,
+            LABEL_FIXES.get(key, d.lang),
             d.category,
             d.file,
         )

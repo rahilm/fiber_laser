@@ -7,7 +7,7 @@ Format
     {
       "format": "mlaser-i18n/1",
       "language": "en", "name": "English",
-      "strings": {"cmd.machine.home": "Go Origin", "panel.estimate": "... {minutes} min ...", ...},
+      "strings": {"cmd.machine.home": "Home X/Y", "panel.estimate": "... {minutes} min ...", ...},
       "args":    {"panel.estimate": ["minutes", "seconds", ...]},
       "legacy":  {"mf15": "cmd.machine.home", ...}
     }

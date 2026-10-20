@@ -355,7 +355,7 @@ class ConnectionPart:
         if cleared:
             self.events.publish(EV.AlarmCleared(tuple(cleared), tuple(new_alarms)))
         if homing_done:
-            self._log("mp28: go origin done" if not new_alarms else "go origin ended with alarms")
+            self._log("Homing done" if not new_alarms else "Homing ended with alarms")
             self.events.publish(EV.HomingDone(not new_alarms))
         if raised and self._busy() and (not self._paused or self.pause_mode == "fifo"):
             # MainApp FUN_00598280: any alarm during a job -> "Sys Pause" (FUN_005b9a60).  The
