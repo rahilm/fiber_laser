@@ -241,6 +241,9 @@ class MainWindow(QMainWindow):
             self._load_entry_points()
         # ---
         self.shell.finish()       # commands, keys, palette, theme, user mode, layout
+        # --- commands that cannot act say why (ui/command_feedback.py), disabled entries too
+        from . import command_feedback
+        command_feedback.install(self)
         # --- the Settings window's preferences (ui/settings_apply.py): migrated, applied, live
         settings_apply.install(self)
 
@@ -569,14 +572,26 @@ class MainWindow(QMainWindow):
         elif spec.checkable:
             self.ribbon.actions[spec.id].setCheckable(True)
 
+    command_feedback = None      # ui.command_feedback.CommandFeedback (installed in __init__)
+
     def _dispatch(self, cmd: str, checked=None) -> None:
+        """Run a command; one that cannot act (no drawing, no selection, nothing to paste ...)
+        is not called and the status bar says why, and a command whose result shows nowhere
+        else reports it there (:mod:`.command_feedback`; stop, hold and off-commands always run
+        at once).  A toggle (``checked``) always runs: its checked state is the feedback."""
+        fb = self.command_feedback
+        if checked is None and fb is not None and not fb.before(cmd):
+            return
         try:
             if checked is None:
-                self.commands.run(cmd)
+                result = self.commands.run(cmd)
             else:
-                self.commands.run(cmd, bool(checked))
+                result = self.commands.run(cmd, bool(checked))
         except UnknownCommandError:
             self.not_implemented(cmd)
+            return
+        if checked is None and fb is not None:
+            fb.after(cmd, result)
 
     # ------------------------------------------------------------------ helpers
     def run(self, cmd: str) -> None:

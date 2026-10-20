@@ -511,6 +511,29 @@
   "extcard.set": "Set",
   "extcard.software_version": "Software Version",
   "extcard.speed": "Speed",
+  "feedback.copied": "{n} parts copied",
+  "feedback.hold_idle": "No job is running: nothing to hold",
+  "feedback.need_clipboard": "Nothing to paste: copy parts first",
+  "feedback.need_connection": "Connect the machine first",
+  "feedback.need_document": "The drawing is empty: draw or import parts first",
+  "feedback.need_groups": "The drawing has no groups",
+  "feedback.need_manual_sort": "Manual sort is not running: start it first",
+  "feedback.need_nest_result": "Run the nest first",
+  "feedback.need_orders": "No order lines to load: add orders first",
+  "feedback.need_parts": "This needs at least {n} parts in the drawing",
+  "feedback.need_redo": "Nothing to redo",
+  "feedback.need_selected_group": "Select a group first",
+  "feedback.need_selection": "Select parts first",
+  "feedback.need_selection_n": "Select at least {n} parts first",
+  "feedback.need_undo": "Nothing to undo",
+  "feedback.needs_mode": "Needs {mode} mode",
+  "feedback.nest_new": "New nest project",
+  "feedback.preview_cleared": "Preview cleared",
+  "feedback.queue_not_waiting": "The queue is not waiting for a sheet",
+  "feedback.selected": "{n} parts selected",
+  "feedback.sim_stopped": "Simulation stopped",
+  "feedback.stop_sent": "Stop sent",
+  "feedback.tip_check": "{n} pieces can tip",
   "flow.jog": "Jog",
   "ftc.additional_information": "Additional Information",
   "ftc.alarm_status": "Alarm status",
@@ -4004,6 +4027,24 @@
   "craft.msg.leads": [
    "n",
    "where"
+  ],
+  "feedback.copied": [
+   "n"
+  ],
+  "feedback.need_parts": [
+   "n"
+  ],
+  "feedback.need_selection_n": [
+   "n"
+  ],
+  "feedback.needs_mode": [
+   "mode"
+  ],
+  "feedback.selected": [
+   "n"
+  ],
+  "feedback.tip_check": [
+   "n"
   ],
   "help.not_packaged": [
    "target"
