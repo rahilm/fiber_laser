@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
 from mlaser.services import safety_io as S
 from mlaser.services.config import MAX_INPUT, MAX_OUTPUT
 
+from . import style
 from .workspaces import tr
 
 TITLE_KEYS = {"gas": "safety.io.gas", "door": "safety.io.door", "laser": "safety.io.laser",
@@ -212,7 +213,7 @@ class SafetyIODialog(QDialog):
         self.message = QLabel()
         self.message.setObjectName("safety_io_message")
         self.message.setWordWrap(True)
-        self.message.setStyleSheet("color:#b71c1c;")
+        style.styled(self.message, lambda: f"color:{style.css('danger')};")
         lay.addWidget(self.message)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)

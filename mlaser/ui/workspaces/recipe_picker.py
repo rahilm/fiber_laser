@@ -10,6 +10,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import QComboBox, QLabel, QToolButton, QVBoxLayout, QWidget
 
 from mlaser.services import technology as T
+from mlaser.ui import style
 from mlaser.ui.techform import FlowLayout, ResponsiveForm
 
 
@@ -44,7 +45,7 @@ class MaterialPicker(QWidget):
         self.setObjectName("material_picker")
         self.lay = QVBoxLayout(self)
         self.lay.setContentsMargins(0, 0, 0, 0)
-        self.lay.setSpacing(4)
+        self.lay.setSpacing(style.SP1)
         self.chips: dict[tuple[str, float], QToolButton] = {}
         self._rows: list[QWidget] = []
 
@@ -92,7 +93,7 @@ class RecipePicker(QWidget):
         t = tr.tr
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(4)
+        v.setSpacing(style.SP1)
         self.matrix = MaterialPicker()
         self.matrix.picked.connect(self._matrix_picked)
         v.addWidget(self.matrix)

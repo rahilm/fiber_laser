@@ -23,12 +23,18 @@ from PySide6.QtWidgets import (QComboBox, QFormLayout, QGraphicsEllipseItem, QGr
                                QVBoxLayout, QWidget)
 
 from mlaser.services import units
+from mlaser.ui import style
 from mlaser.services.preview import CUT, DWELL, DWELL_ON, PROCESS, TRAVEL, Timeline
 
 SPEEDS = (1, 2, 5, 10, 20, 50)
-CUT_COLOR = "#ffb000"         # amber: the cut so far (readable on the dark and light canvas)
-RAPID_COLOR = "#4da3ff"
-HEAD_ON = "#ff3030"
+
+
+def _c(role: str) -> str:
+    """A preview colour of the current theme (shell/theme.py ``c_preview_*``: the cut so far in
+    amber, rapids, the head; readable on the light and the dark canvas)."""
+    from mlaser.ui.canvas import CANVAS_COLORS
+    from mlaser.ui.shell import theme
+    return CANVAS_COLORS.get(f"preview_{role}") or theme.canvas_colors(theme.DARK)[f"preview_{role}"]
 
 
 def fmt_time(s: float) -> str:
@@ -60,15 +66,15 @@ class PreviewOverlay:
         sc = self._scene()
         if self._cut is None or self._cut.scene() is not sc:
             self._cut = QGraphicsPathItem()
-            pen = QPen(QColor(CUT_COLOR), 2.0)
+            pen = QPen(QColor(_c("cut")), 2.0)
             pen.setCosmetic(True)
             self._cut.setPen(pen)
             self._rapid = QGraphicsPathItem()
-            pen = QPen(QColor(RAPID_COLOR), 1.0, Qt.DashLine)
+            pen = QPen(QColor(_c("rapid")), 1.0, Qt.DashLine)
             pen.setCosmetic(True)
             self._rapid.setPen(pen)
             self._pierce = QGraphicsPathItem()
-            pen = QPen(QColor(HEAD_ON), 1.2)
+            pen = QPen(QColor(_c("head")), 1.2)
             pen.setCosmetic(True)
             self._pierce.setPen(pen)
             self._head = QGraphicsEllipseItem(-6, -6, 12, 12)
@@ -118,8 +124,8 @@ class PreviewOverlay:
         assert self._head is not None
         self._head.setPos(st.x, st.y)
         on = st.laser
-        self._head.setPen(QPen(QColor(HEAD_ON if on else "#c0c0c0"), 2.0))
-        self._head.setBrush(QBrush(QColor(HEAD_ON)) if on else QBrush(Qt.NoBrush))
+        self._head.setPen(QPen(QColor(_c("head") if on else _c("head_off")), 2.0))
+        self._head.setBrush(QBrush(QColor(_c("head"))) if on else QBrush(Qt.NoBrush))
 
 
 class ScrubberWidget(QWidget):
@@ -135,7 +141,7 @@ class ScrubberWidget(QWidget):
         self.setObjectName("preview_scrubber")
         t = tr.tr
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 2, 4, 2)
+        style.margins(lay, "tight")
         row = QHBoxLayout()
         from mlaser.ui.icons import icon
 
@@ -331,7 +337,7 @@ class CostCardWidget(QWidget):
         self.tr_ = tr
         self.setObjectName("cost_card")
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(4, 4, 4, 4)
+        style.margins(lay, "tight")
         self.title = QLabel(f"<b>{tr.tr('cost.title')}</b>")
         lay.addWidget(self.title)
         self.hint = QLabel(tr.tr("cost.hint"))
@@ -370,7 +376,7 @@ class CostCardWidget(QWidget):
                 if ln.kind == "estimate":
                     txt = "≈ " + txt
             if ln.kind == "missing":
-                txt += f" <span style='color:#d08000'>⚠ {note}</span>" if note else ""
+                txt += f" <span style='color:{style.css('warning')}'>⚠ {note}</span>" if note else ""
             elif note:
                 txt += f" <small>({note})</small>"
             lab.setText(txt)

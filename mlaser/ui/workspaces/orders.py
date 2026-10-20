@@ -41,9 +41,17 @@ from mlaser.services import units as U
 from mlaser.services.parts import RecognitionRules, recognize
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed, set_cell
 
+from .. import style
 from . import TOUCH_MIN, show_workspace, tr
 
 OVERRIDE_CODES = (MC.MISMATCH,)
+
+
+def _preview_color(role: str) -> str:
+    """The canvas preview colour of the current theme (shell/theme.py ``c_preview*``)."""
+    from ..canvas import CANVAS_COLORS
+    from ..shell import theme
+    return CANVAS_COLORS.get(role) or theme.canvas_colors(theme.DARK)[role]
 
 
 def _dialogs(window: Any) -> bool:
@@ -92,8 +100,11 @@ def parts_pixmap(parts, size: QSize, palette: QPalette, rings=None, tol: float =
             p.setPen(QPen(palette.color(QPalette.Mid), 0))
             p.setBrush(palette.color(QPalette.AlternateBase))
             p.drawPath(sheet)
-        p.setPen(QPen(QColor("#1565c0"), 0))
-        p.setBrush(QColor(21, 101, 192, 70))
+        part = style.color("info")
+        p.setPen(QPen(part, 0))
+        fill = QColor(part)
+        fill.setAlpha(70)
+        p.setBrush(fill)
         p.drawPath(path)
     finally:
         p.end()
@@ -205,7 +216,7 @@ class ImportReviewDialog(QDialog):
         if not where or canvas is None:
             return
         try:
-            canvas.set_preview((), [tuple(where)], "#e53935")
+            canvas.set_preview((), [tuple(where)], _preview_color("preview_alert"))
             x, y = where
             canvas.fitInView(QRectF(x - 20, y - 20, 40, 40), Qt.KeepAspectRatio)
         except Exception:  # noqa: BLE001 - zoom is a convenience
@@ -217,7 +228,7 @@ class ImportReviewDialog(QDialog):
         canvas = getattr(w, "canvas", None)
         if canvas is not None:
             marks = [f.where for f in self.report.findings if f.where is not None]
-            canvas.set_preview(lines, marks, "#e6e600")
+            canvas.set_preview(lines, marks, _preview_color("preview"))
         self.result.setText(self.plugin.describe(done, preview=True))
         return done
 
@@ -328,7 +339,7 @@ class OrdersWorkspace(QWidget):
         self.setObjectName("orders_workspace")
         self.setAcceptDrops(True)
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(8, 8, 8, 8)
+        style.margins(lay, "dense")
         bar = QHBoxLayout()
         for key, text, fn in (("orders.btn.csv", "Import parts list...", plugin.import_csv),
                               ("orders.btn.files", "Add drawings...", plugin.add_files),

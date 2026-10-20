@@ -30,6 +30,7 @@ from mlaser.ui.inherited_field import InheritedField
 from mlaser.ui.techform import quantity
 from mlaser.ui.techform import FlowLayout, Section, TechForm
 
+from .. import style
 from .recipe_picker import RecipePicker
 
 #: the layer-level craft values (ids of services.inheritance) shown in the inspector
@@ -77,8 +78,8 @@ class LayerInspector(QWidget):
         self._loading = False
         t = self.tr_.tr
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 4, 0, 0)
-        lay.setSpacing(4)
+        lay.setContentsMargins(0, style.SP1, 0, 0)
+        lay.setSpacing(style.SP1)
         self.title = QLabel()
         f = self.title.font()
         f.setBold(True)

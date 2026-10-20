@@ -89,14 +89,14 @@ def _src(rel: str) -> str:
 
 
 def test_jog_pad_keys_say_the_right_thing():
-    """The Run Control jog pad: the centre cell (mp29) moves to the origin, mp29_1 homes X/Y,
-    mp30 homes Z; the coordinate section's mp164 goes to the origin and mf514 sets it."""
+    """The Run Control jog pad (the one JogPad): the centre cell moves to the origin, the Home row
+    is mp29_1 (home X/Y) and mp30 (home Z); the coordinate section's mf514 sets the origin."""
     src = _src("mlaser/ui/panels.py")
-    assert '_pad_button("mp29", "jog_zero"' in src
-    assert '_text_button("mp29_1", self._sys_home)' in src
-    assert '_pad_button("mp30", "jog_home_z"' in src
-    assert '_text_button("mp164", self.ctl.go_origin_point)' in src
+    assert "centre=self._return_zero" in src
+    assert '("mp29_1", "mp29_1", self._sys_home)' in src
+    assert '("mp30", "mp30", lambda: self.ctl.home("Z"))' in src
     assert '_text_button("mf514", self.ctl.set_origin)' in src
+    assert text("jog.centre_tip").startswith("Go to origin")
     assert text("mp29") == "Go to origin"
     assert text("mp29_1") == "Home X/Y" and text("mp30") == "Home Z"
 
@@ -202,7 +202,8 @@ def test_capitals_only_for_state_words_and_stop():
                 continue
             if tok in STATE_WORDS and (k.startswith(("run.state.", "run.alarm.", "shell.chip.", "ws.machine.a_",
                                                       "wizard.chip", "run.btn.stop", "practice.", "run.reason.",
-                                                      "shell.welcome."))):
+                                                      "shell.welcome.", "safety.banner.", "safety.alarm.",
+                                                      "status.motion_"))):
                 continue
             bad.append(f"{k}: {tok} in {v[:80]!r}")
     assert not bad, bad

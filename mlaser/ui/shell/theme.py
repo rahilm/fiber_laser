@@ -54,6 +54,9 @@ THEMES: dict[str, dict[str, str]] = {
         "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#d62828", "c_marker": "#0b7285",
         "c_sim": "#101418",
         # the planned toolpath: leads and the kerf-compensated path in their own colours
+        # the toolpath preview (preview_scrubber, Orders' sheet preview)
+        "c_preview_cut": "#b36b00", "c_preview_rapid": "#1f6fd1", "c_preview_head": "#d62828",
+        "c_preview_head_off": "#7b818b", "c_preview": "#8a6d00", "c_preview_alert": "#c62828",
         "c_lead_in": "#c2187a", "c_lead_out": "#6d28d9", "c_kerf": "#a86b00", "c_pierce": "#c2187a",
     },
     DARK: {
@@ -71,6 +74,8 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
         "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ff4040", "c_marker": "#00ffff",
         "c_sim": "#ffffff",
+        "c_preview_cut": "#ffb000", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
+        "c_preview_head_off": "#c0c0c0", "c_preview": "#e6e600", "c_preview_alert": "#e53935",
         "c_lead_in": "#ff4fa0", "c_lead_out": "#b28cff", "c_kerf": "#ffc53d", "c_pierce": "#ff4fa0",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
@@ -88,6 +93,8 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
         "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ff1744", "c_marker": "#00e5ff",
         "c_sim": "#ffffff",
+        "c_preview_cut": "#ffd740", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
+        "c_preview_head_off": "#ffffff", "c_preview": "#ffff00", "c_preview_alert": "#ff5252",
         "c_lead_in": "#ff40ff", "c_lead_out": "#c9a0ff", "c_kerf": "#ffd740", "c_pierce": "#ff40ff",
     },
 }

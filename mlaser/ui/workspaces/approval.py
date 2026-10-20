@@ -20,6 +20,7 @@ from mlaser.services import units as U
 from mlaser.services.intake import IntakeError
 from mlaser.ui.units_qt import on_units_changed
 
+from .. import style
 from . import TOUCH_MIN, tr
 
 SOURCE_TEXT = {"api": ("approval.source.api", "automation API"), "cli": ("approval.source.cli", "command line")}
@@ -38,9 +39,10 @@ class ApprovalPanel(QFrame):
         w = ws.window
         self.setObjectName("queue_approval")
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("QFrame#queue_approval{border:2px solid #ff8f00;border-radius:4px;}")
+        style.styled(self, lambda: (f"QFrame#queue_approval{{border:2px solid {style.css('warning')};"
+                                    f"border-radius:{style.SP1}px;}}"))
         v = QVBoxLayout(self)
-        v.setContentsMargins(6, 6, 6, 6)
+        style.margins(v, "dense")
         self.title = QLabel()
         self.title.setObjectName("queue_approval_title")
         f = self.title.font()

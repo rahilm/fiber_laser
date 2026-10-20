@@ -21,6 +21,7 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
+from . import style
 from .homes import bind_editor, edit_in
 
 
@@ -44,7 +45,7 @@ class InheritedField(QWidget):
         col.setSpacing(0)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(2)
+        row.setSpacing(style.SP1)
         row.addWidget(editor, 1)
         self.reset_btn = QToolButton()
         self.reset_btn.setIcon(icon("arrow-back-up"))

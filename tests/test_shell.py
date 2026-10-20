@@ -352,15 +352,22 @@ def test_chips_carry_text(win, app):
     win._poll()
     sh._poll()
     chips = sh.topbar.chips
-    assert not chips["SIMULATOR"].isHidden() and "SIMULATOR" in chips["SIMULATOR"].text()
+    banner = win.safety_ui.banner
+    # one display per state: the banner shows SIMULATOR (disarmed), no chip repeats it
+    assert banner.kind == "SIMULATOR" and chips["SIMULATOR"].isHidden() and chips["DISARMED"].isHidden()
+    assert "SIMULATOR" in chips["SIMULATOR"].text()             # every chip carries its text
     win.ctl.connect()
     assert win.ctl.arm()
+    win.safety_ui.refresh()
     sh._poll()
-    assert not chips["ARMED"].isHidden() and "ARMED" in chips["ARMED"].text()
+    # ARMED is the banner's; the second state (on the simulator) is a chip
+    assert banner.kind == "ARMED" and chips["ARMED"].isHidden() and not chips["SIMULATOR"].isHidden()
     assert chips["DISARMED"].isHidden()
     win.ctl.raise_fault("test fault")
+    win.safety_ui.refresh()
     sh._poll()
-    assert not chips["FAULT"].isHidden() and "test fault" in chips["FAULT"].toolTip()
+    assert banner.kind == "FAULT" and "test fault" in banner.label.text() and chips["FAULT"].isHidden()
+    assert not chips["SIMULATOR"].isHidden()
     win.ctl.reset_fault()
 
 

@@ -34,25 +34,11 @@ ALLOWLIST: dict[str, dict[str, int]] = {
     # Process workspace, cutting strategy) and the canvas (the original's layer / drawing
     # colours are data; the HUD belongs to that track).  Everything else is migrated.
     "mlaser/ui/canvas.py": {"colour": 14, "font": 1, "margin": 3},
-    "mlaser/ui/ext_practice.py": {"colour": 2, "font": 1, "margin": 1},
-    "mlaser/ui/help_browser.py": {"margin": 1},
-    "mlaser/ui/inherited_field.py": {"margin": 1},
-    "mlaser/ui/preview_scrubber.py": {"colour": 5, "margin": 2},
     "mlaser/ui/properties/panel.py": {"margin": 1},
-    "mlaser/ui/responsive.py": {"margin": 5},
     "mlaser/ui/ribbon.py": {"margin": 5},
-    "mlaser/ui/safety_io.py": {"colour": 1},
-    "mlaser/ui/settings_dialog.py": {"margin": 11},
-    "mlaser/ui/shell/topbar.py": {"margin": 4},
-    "mlaser/ui/shell/workspace_host.py": {"margin": 3},
     "mlaser/ui/techform.py": {"margin": 7},
-    "mlaser/ui/workspaces/approval.py": {"colour": 1, "margin": 1},
     "mlaser/ui/workspaces/cutting_strategy.py": {"margin": 1},
-    "mlaser/ui/workspaces/layer_inspector.py": {"margin": 2},
-    "mlaser/ui/workspaces/orders.py": {"colour": 4, "margin": 1},
     "mlaser/ui/workspaces/process.py": {"margin": 8},
-    "mlaser/ui/workspaces/recipe_picker.py": {"margin": 2},
-    "mlaser/ui/workspaces/report.py": {"colour": 2, "font": 1, "margin": 2},
 }
 
 HEX = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b")
@@ -65,8 +51,8 @@ FONT = [re.compile(r"\.setPointSizeF?\(\s*[\d.]+\s*\)"), re.compile(r"\.setPixel
         re.compile(r"\bQFont\(\s*[^,()]+,\s*\d+"), re.compile(r"pointSizeF?\(\)\s*[-+]\s*[\d.]"),
         re.compile(r"max\([^()]*pointSizeF?\(\)\s*,\s*[\d.]+\)")]
 FONT_CSS = re.compile(r"font-size\s*:\s*\d+(?:\.\d+)?\s*(?:pt|px)", re.I)
-MARGIN = [re.compile(r"\.setContentsMargins\([^)]*(?<![\w.])[1-9]\d*(?![\w.])"),
-          re.compile(r"\.set(?:Horizontal|Vertical)?Spacing\([^)]*(?<![\w.])[1-9]\d*(?![\w.])"),
+MARGIN = [re.compile(r"\.setContentsMargins\(\s*[\d\s,]*[1-9][\d\s,]*\)"),
+          re.compile(r"\.set(?:Horizontal|Vertical)?Spacing\(\s*[1-9]\d*\s*\)"),
           re.compile(r"(?:margins|spacing)\s*=\s*[1-9]\d*\b")]
 MARGIN_CSS = re.compile(r"(?:padding|margin)(?:-\w+)?\s*:\s*[1-9]\d*\s*px", re.I)
 TABLE_START, TABLE_END = "# style-lint: colour table", "# style-lint: end"

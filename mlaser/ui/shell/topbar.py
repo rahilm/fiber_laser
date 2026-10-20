@@ -20,6 +20,7 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QSizeP
 
 from mlaser.services import usermodes as um
 
+from .. import style
 from ..icons import icon
 from ..safety_ui import COLORS
 
@@ -34,6 +35,20 @@ CHIPS = {
     "OFFLINE": ("shell.chip.offline", "–", "OFFLINE"),
 }
 ORDER = ("FAULT", "ALARM", "ARMED", "DISARMED", "DRY-RUN", "SIMULATOR", "OFFLINE")
+
+
+def covered(st, alarms) -> set[str]:
+    """The states the safety banners already show in full (the state banner's kind, "disarmed"
+    in the SIMULATOR banner's text, the alarm banner's alarms): their chips would only repeat
+    them (UI audit D-3: one display per state on one screen)."""
+    if st is None:
+        return {"OFFLINE"}
+    out = {st.banner}
+    if st.banner == "SIMULATOR" and not st.armed:
+        out.add("DISARMED")
+    if alarms:
+        out.add("ALARM")
+    return out
 
 
 def chip_kinds(st, alarms) -> list[str]:
@@ -99,8 +114,8 @@ class TopBar(QWidget):
         self.setObjectName("shell_topbar")
         self.setAttribute(Qt.WA_StyledBackground, True)
         h = QHBoxLayout(self)
-        h.setContentsMargins(6, 3, 6, 3)
-        h.setSpacing(8)
+        h.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
+        h.setSpacing(style.SP2)
         self.menu_btn = QToolButton()
         self.menu_btn.setObjectName("shell_menu")
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
@@ -128,7 +143,7 @@ class TopBar(QWidget):
         self.chip_box = QWidget()
         cb = QHBoxLayout(self.chip_box)
         cb.setContentsMargins(0, 0, 0, 0)
-        cb.setSpacing(4)
+        cb.setSpacing(style.SP1)
         self.chips: dict[str, QLabel] = {}
         for kind in ORDER:
             key, sym, col = CHIPS[kind]
@@ -136,7 +151,8 @@ class TopBar(QWidget):
             lab.setObjectName(f"chip_{kind.lower().replace('-', '_')}")
             lab.setProperty("chip", True)
             bg, fg = COLORS[col]
-            lab.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:9px; padding:2px 8px; font-weight:bold;")
+            lab.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:{style.SP2}px; "
+                              f"padding:0 {style.SP2}px; font-weight:bold;")
 
             def setter(t, lab=lab, sym=sym):
                 lab.setText(f"{sym} {t}")
@@ -195,7 +211,10 @@ class TopBar(QWidget):
         self.file.setAccessibleName(name + (", " + tr.tr("shell.unsaved") if dirty else ""))
 
     def refresh_chips(self, st, alarms) -> None:
-        kinds = tuple(chip_kinds(st, alarms))
+        """The chips of the states the banners do not already show (a second state next to the
+        banner's: SIMULATOR while ARMED, DRY-RUN...)."""
+        hide = covered(st, alarms)
+        kinds = tuple(k for k in chip_kinds(st, alarms) if k not in hide)
         if kinds == self._shown:
             return
         self._shown = kinds
@@ -205,4 +224,4 @@ class TopBar(QWidget):
             self.chips["FAULT"].setToolTip(f"{self.shell.tr.tr('shell.chip.fault.tip')}\n{st.fault}")
 
 
-__all__ = ["TopBar", "chip_kinds", "CHIPS"]
+__all__ = ["TopBar", "chip_kinds", "covered", "CHIPS"]

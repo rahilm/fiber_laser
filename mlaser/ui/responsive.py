@@ -38,7 +38,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QLabel, QLayout, QLayoutItem
 STATE_PROP = "responsive_state"
 LIST_PROP = "responsive_scroll"
 #: touch targets (px, logical): the primary run / safety controls, every other touch control
-from .style import TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
+from .style import SP1, SP2, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
 
 
 class _KeepMin(QObject):
@@ -395,7 +395,7 @@ class CollapsibleSection(QWidget):
         self.user_choice: Optional[bool] = None     # the user opened / closed it (None: automatic)
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
-        v.setSpacing(2)
+        v.setSpacing(SP1)
         # the header: a tool button with an arrow (keyboard and screen readers can open and
         # close it), a plain bold label when the section does not fold
         self.header: QWidget
@@ -420,7 +420,7 @@ class CollapsibleSection(QWidget):
         self.frame.setObjectName("section_body")
         self.frame.setFrameShape(QFrame.StyledPanel)
         fl = QVBoxLayout(self.frame)
-        fl.setContentsMargins(6, 6, 6, 6)
+        fl.setContentsMargins(SP2, SP2, SP2, SP2)
         v.addWidget(self.frame)
         self.body = body
         if body is not None:
