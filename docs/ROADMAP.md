@@ -225,17 +225,32 @@ deliberately out of scope for now.
 - ☐ tests: pytest-xdist in CI (timing tests grouped), `.python-version` 3.12, README numbers
 
 ### Wave C: shop workflow (quoting excluded)
-- ☐ part recognition and DXF repair on import
-- ☐ order intake: multi-file and CSV (quantity, material, thickness, customer, due date)
-- ☐ material check against the technology, "load this sheet" card
+- ☑ part recognition and DXF repair on import: outline + holes + features by containment,
+  layer, block or whole file, identical parts counted (not mirror images), merge/split before
+  nesting; the import review (open contours with the gap, duplicates, overlaps, tiny and
+  zero-length geometry, self-intersections, unconverted text) with preview and one-undo-step
+  fixes, after import and from the pre-flight's single "N open contours: Repair..." line
+  (docs/user/import.md; the DxfParse-faithful import and the goldens are unchanged)
+- ☑ order intake: multi-file and CSV parts lists (quantity, material, thickness, customer,
+  order, due date, priority; bad rows reported; template), material and thickness entered once
+  (Nest follows the layers' technology, orders apply it), customer/order references through
+  the nest, the queue and the production report
+- ☑ material check against the technology (blocking pre-flight error and start guard,
+  audited override), "load this sheet" card (material, thickness, size, remnant id, sheet n/N,
+  picture of the sheet's nest, technology and nozzle, orders)
 - ☑ nesting quality in the Nest workspace: common line, part-in-part, mirror/rotation, scrap
   cut-up, remnant separation cut, run comparison with cut length and pierces
   ([cutting-strategy.md](user/cutting-strategy.md))
 - ☑ lead-in collision check, automatic lead placement, tip-avoiding cut order (slat-bed model in
   ConfigService `bed.*`; pre-flight `lead_collision` / `tip_risk` warnings)
-- ☐ simulator/practice runs excluded from production statistics; guided practice mode
-- ☐ CLI (compile, nest, estimate) and an automation API whose queued jobs need operator approval
-- ☐ notifications (sheet done, alarm, waiting for sheet, maintenance due): ntfy / e-mail / webhook
-- ☐ part labels, part-ID etching, QR job tickets, remnant labels
+- ☑ simulator/practice runs excluded from production statistics (job source on every record,
+  Runs filter, counters real-only); guided practice mode (six lessons, docs/user/practice.md)
+- ☑ CLI (compile, estimate, nest, validate, convert, queue add/list) and an automation API
+  (read-only REST + WebSocket, queue intake whose jobs need operator approval;
+  docs/user/automation.md, docs/dev/API.md)
+- ☑ notifications (sheet done, alarm, waiting for sheet, job finished, maintenance due): ntfy /
+  e-mail / webhook (docs/user/notifications.md)
+- ☑ part labels, part-ID etching, QR job tickets, remnant labels (docs/user/labels.md); open:
+  scanning a ticket's QR on the Run screen to select the queue entry
 - ☐ project hygiene: SECURITY.md (safety reports), CONTRIBUTING, CHANGELOG, CODEOWNERS, CI guard on
   golden and parity-port changes; command palette "no matches"

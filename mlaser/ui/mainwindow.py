@@ -43,7 +43,12 @@ EXTENSIONS = ("ext_cam", "ext_nest", "ext_devices", "ext_card",
               "ext_process",   # Wave 3 Process track: technology, Process workspace, properties, preview
               "ext_project",   # .mlz projects, autosave (File > Open / Save through its providers)
               # Wave 3 workspaces (full module paths; plugin names run / nest / report)
-              "mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report")
+              "mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report",
+              # Review 2 Import & orders: import review, part recognition, orders, material check
+              "mlaser.ui.workspaces.orders",
+              # Review 2 shop floor (after run / report: they use the queue, intake and ledger)
+              "mlaser.ui.ext_automation", "mlaser.ui.ext_notify", "mlaser.ui.ext_labels",
+              "mlaser.ui.ext_practice")
 
 
 def _clear_joints(doc) -> None:      # old name, kept for callers of mlaser.ui.mainwindow
@@ -880,6 +885,7 @@ class MainWindow(QMainWindow):
         self._snapshot()
         self.set_document(doc, path if ext == ".chf" else None)
         self.log_panel.log(f"{os.path.basename(path)}: {len(doc.parts)} parts")
+        self.hooks.emit("document_imported", path, self.document)   # import review (orders plugin)
         return True
 
     def file_open(self) -> None:

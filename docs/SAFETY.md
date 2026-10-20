@@ -174,8 +174,10 @@ first on the document to show the dialog.
 | `layer_undefined` (no parameters in the document or the machine layer table; UI placeholders count as undefined) | error for a cut, warning laser-off |
 | `out_of_travel` (card soft limits read back at connect, else `MAC*.SoftLimitMaxLen`) | error |
 | `bad_geometry` (NaN/inf) | error |
-| `open_contour`, `zero_length`, `travel_unknown`, `homed_unknown` | warning |
+| `open_contour` (one line with the count), `zero_length`, `travel_unknown`, `homed_unknown` | warning |
 | `start_gate` (the start gate refused it, §5a) | error |
+| `material_mismatch` (the sheet's material/thickness, from the queue entry or the nest, differs from the technology on a used layer; added by the Orders plugin as a pre-flight contributor and enforced by its `JobService` start guard) | error for a cut; the operator may override it for that one sheet with a confirmation, audited as `material_override` in `audit.log` (`machine/audit.py`) |
+| `material_unverified` (a layer set by hand, a sheet without material), `technology_example` | warning |
 
 The extent of a compiled job is translated to the head: the wire is relative steps, so from a
 head away from the job's start it would run shifted by (head - start).
@@ -354,3 +356,33 @@ these rules:
   test of the watchdog relay; it can only ever drop the relay.  The checklist releases it when
   the question is answered, aborted or finished.
 * A dry run uses a private simulator controller; nothing is sent to the real card.
+
+## 15. Automation, notifications and practice (Review 2)
+
+Nothing outside the machine can start it.
+
+* **The automation API** (`mlaser.api`, [dev/API.md](dev/API.md)) is off by default, on
+  `127.0.0.1` by default, token-protected and limited like the LAN monitor. It serves a status
+  dict and events the application publishes and has exactly one write: queue intake. It holds no
+  controller, window or queue object, and an import-linter contract forbids `mlaser.api` (and
+  `mlaser.notify`) to import the controller, the devices, the card protocol, the streamer,
+  `machine.api` and `machine.safety`. There is no remote start, stop, hold, resume, arm, move,
+  home or approval; control-sounding paths answer `403 no_remote_control`. A remote Stop is
+  deliberately not offered: stopping belongs to the e-stop chain (§11) and the operator at the
+  machine ([dev/API.md](dev/API.md#why-no-remote-stop)).
+* **Intake needs the operator.** A job from the API or the CLI (`mlaser queue add`,
+  `mlaser.services.intake`) waits in `pending.json`, never in `queue.json`, until the operator
+  approves it on the Run screen; approval only adds a queue entry, which runs after **Sheet
+  loaded: start** through the normal Start (arming, pre-flight, start gate). A submission carries
+  no cutting parameters. Submissions, approvals and rejections are audited (`intake_*`).
+* **The CLI** (`mlaser.cli`) has no controller: it compiles, estimates, nests, validates and
+  converts files and never opens a card connection.
+* **Notifications** (`mlaser.notify`) are send-only; nothing received can control the machine.
+  Sending runs on its own thread with a bounded queue, so a slow server never blocks the GUI or
+  the streamer.
+* **Practice lessons** (`mlaser.services.practice`) refuse any controller that is not the
+  simulator, inject their alarm through the simulator's e-stop input, and halt on abort; their
+  jobs are recorded as `practice` and never count as production.
+
+`tests/safety/test_automation_api.py` runs every method on every path against the real wiring
+with a spy controller and asserts that nothing reaches a motion, arming or output method.

@@ -332,7 +332,7 @@ def send_to_queue(job: NestJob, queue: Any, directory: str, name: str = "nest", 
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name) or "nest"
     for n, key in enumerate(order, 1):
         k, doc, info, count = groups[key]
-        ext = ".mlz" if (has_strategy(doc) and not custom_save) else ".chf"
+        ext = ".mlz" if has_strategy(doc) else ".chf"      # a custom ``save`` gets the same path
         path = os.path.join(directory, f"{safe}_{stamp}_sheet{n}{ext}")
         save(doc, path)
         est = float(estimate(doc)) if estimate is not None else 0.0

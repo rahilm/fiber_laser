@@ -401,6 +401,12 @@ def test_queue_writes_mlz_with_the_strategy(tmp_path):
     assert {p.extra.get("cut_phase", 0) for p in doc.parts} == {0, 2, 3}
     plain = send_to_queue(nested(), q, str(tmp_path / "sheets2"), "u")
     assert plain[0].path.endswith(".chf")
+    # a caller's own ``save`` (the Nest workspace tags order references) gets the same paths,
+    # so a strategy sheet is still written as .mlz
+    seen: list[str] = []
+    custom = send_to_queue(job, q, str(tmp_path / "sheets3"), "v",
+                           save=lambda d, path: (seen.append(path), open(path, "wb").close()))
+    assert seen == [custom[0].path] and seen[0].endswith(".mlz")
 
 
 def test_queue_sheets_get_common_line_cutting():

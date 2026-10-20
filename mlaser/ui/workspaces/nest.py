@@ -22,11 +22,12 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout,
-                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListView, QListWidget,
-                               QListWidgetItem, QProgressBar, QPushButton, QSizePolicy, QSpinBox,
-                               QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDoubleSpinBox,
+                               QFileDialog, QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QLineEdit, QListView, QListWidget, QListWidgetItem, QProgressBar,
+                               QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget,
+                               QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
+                               QWidget)
 
 from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT,
                          GRAVITY_RIGHT, GRAVITY_TOP, NestJob, NestSheet)
@@ -249,9 +250,19 @@ class NestWorkspace(QWidget):
         self.thickness.setMinimumHeight(TOUCH_MIN - 8)
         self.material.editingFinished.connect(self.refresh_stock)
         self.thickness.valueChanged.connect(lambda _v: self.refresh_stock())
+        # Import & orders: material and thickness are set once; they come from the layers'
+        # technology (Process) until typed here, and "Technology" applies the matching one
+        self._material_auto = True
+        self._prefilling = False
+        self.material.textChanged.connect(self._material_typed)
+        self.thickness.valueChanged.connect(self._material_typed)
         mat.addWidget(self.material, 2)
         mat.addWidget(self.thickness, 1)
+        self.tech_btn = self._button("nestws.btn.technology", "Technology", self.apply_technology)
+        self.tech_btn.setObjectName("nestws_technology")
+        mat.addWidget(self.tech_btn)
         lv.addLayout(mat)
+        self.setAcceptDrops(True)
         self.stock = QListWidget()
         self.stock.setObjectName("nestws_stock")
         self.stock.itemChanged.connect(self._stock_checked)
@@ -539,6 +550,7 @@ class NestWorkspace(QWidget):
     def refresh(self) -> None:
         job = self.job
         p = job.params
+        self._prefill_material()
         self._sync = True
         self.spacing.setValue(p.spacing)
         self.margin.setValue(p.margin)
@@ -704,17 +716,120 @@ class NestWorkspace(QWidget):
         return {"bed": self.bed(), "tip_strategy": str(self.job.extra.get("tip_strategy", "joint"))}
 
     # ------------------------------------------------------------------ actions
-    def add_from_drawing(self) -> int:
-        ext = self.ext
-        n = ext.add_part_from_selection() if ext is not None else 0
-        self.refresh()
-        return n
+    # ---- intake entry points (Import & orders track: recognised parts, several files, CSV)
+    def _orders(self) -> Any:
+        e = self.window_.extension("orders") if hasattr(self.window_, "extension") else None
+        return e[0] if isinstance(e, tuple) else e
 
-    def import_part(self, path: Optional[str] = None) -> int:
-        ext = self.ext
-        n = ext.import_part(path) if ext is not None else 0
+    def add_from_drawing(self) -> int:
+        """The drawing's recognised parts (outline + holes + features, identical parts counted;
+        the selection, else everything), after the review dialog.  Returns the parts added."""
+        orders = self._orders()
+        if orders is None:                       # without the orders plugin: one part per object
+            ext = self.ext
+            n = ext.add_part_from_selection() if ext is not None else 0
+            self.refresh()
+            return n
+        doc = self.window_.document
+        sel = [i for i, p in enumerate(doc.parts) if p.selected and p.contours]
+        nps = orders.recognize_drawing(sel or None)
+        for np_ in nps:
+            self.job.add_part(np_)
+        if nps:
+            self._mark_dirty()
+            self.status.setText(tr(self.window_, "nestws.msg.recognized", "{n} parts ({k} different) added",
+                                   n=sum(p.quantity for p in nps), k=len(nps)))
         self.refresh()
-        return n
+        return len(nps)
+
+    def import_part(self, path: Optional[Any] = None) -> int:
+        """Import drawings (several at once) as recognised parts, or a parts list (.csv) into
+        the Orders tab.  ``path``: a path or a list of paths (None: the file dialog)."""
+        w = self.window_
+        if path is None:
+            paths, _ = QFileDialog.getOpenFileNames(w, tr(w, "nestws.btn.import", "Import file..."), "",
+                                                    "Parts (*.dxf *.chf *.svg *.csv);;All (*)")
+        else:
+            paths = [path] if isinstance(path, (str, os.PathLike)) else list(path)
+        paths = [str(p) for p in paths if p]
+        if not paths:
+            return 0
+        orders = self._orders()
+        if orders is None:
+            ext = self.ext
+            n = sum(ext.import_part(p) for p in paths) if ext is not None else 0
+            self.refresh()
+            return n
+        from mlaser.services.orders import lines_from_files, nest_parts_for
+        csvs = [p for p in paths if p.lower().endswith((".csv", ".txt"))]
+        for p in csvs:
+            orders.import_csv(p)
+        lines = lines_from_files([p for p in paths if p not in csvs])
+        nps, problems = nest_parts_for(lines, orders.rules())
+        for np_ in nps:
+            self.job.add_part(np_)
+        for msg in problems:
+            self.ctx.log(f"nest: {msg}")
+        if nps:
+            self._mark_dirty()
+        self.status.setText("\n".join([tr(w, "nestws.msg.imported", "{n} parts from {k} files",
+                                           n=sum(p.quantity for p in nps), k=len(lines))] + problems))
+        self.refresh()
+        return len(nps)
+
+    def dragEnterEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if ev.mimeData().hasUrls():
+            ev.acceptProposedAction()
+
+    def dropEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        paths = [u.toLocalFile() for u in ev.mimeData().urls() if u.isLocalFile()]
+        if paths:
+            self.import_part(paths)
+        ev.acceptProposedAction()
+
+    # ---- material: one place (the layers' technology, the Process selection)
+    def _material_typed(self, *_a) -> None:
+        if not self._prefilling:
+            self._material_auto = False
+
+    def _prefill_material(self) -> None:
+        """Material and thickness from the technology on the drawing's layers while the operator
+        has not typed one; the completer offers the technology database's materials."""
+        orders = self._orders()
+        store = orders.store() if orders is not None else None
+        if store is not None and self.material.completer() is None:
+            try:
+                comp = QCompleter(list(store.materials()), self.material)
+                comp.setCaseSensitivity(Qt.CaseInsensitive)
+                self.material.setCompleter(comp)
+            except Exception:  # noqa: BLE001 - a completion is a convenience
+                pass
+        if not self._material_auto:
+            return
+        from mlaser.services.material_check import layer_techs
+        keys = {(r["key"].get("material", ""), float(r["key"].get("thickness_mm", 0.0) or 0.0))
+                for r in layer_techs(self.window_.document).values() if r and isinstance(r.get("key"), dict)}
+        if len(keys) == 1:
+            m, t = next(iter(keys))
+            if m != self.material.text() or abs(t - self.thickness.value()) > 1e-9:
+                self._prefilling = True
+                try:
+                    self.material.setText(m)
+                    self.thickness.setValue(t)
+                finally:
+                    self._prefilling = False
+
+    def apply_technology(self) -> Any:
+        """Apply the technology of the material and thickness above to the layers the nest
+        parts use (the Process workspace shows it as applied)."""
+        orders = self._orders()
+        if orders is None:
+            return None
+        tech = orders.use_technology(self.material.text().strip(), self.thickness.value(), list(self.job.parts))
+        if tech is None:
+            self.status.setText(tr(self.window_, "nestws.msg.no_tech", "No technology for {material} {t} mm",
+                                   material=self.material.text().strip() or "?", t=f"{self.thickness.value():g}"))
+        return tech
 
     def remove_part(self) -> None:
         rows = sorted({i.row() for i in self.parts.selectedIndexes()}, reverse=True)
@@ -877,11 +992,37 @@ class NestWorkspace(QWidget):
         from mlaser.services.config import data_dir
         d = os.path.join(str(w.settings.get("data_dir") or data_dir()), "production", "sheets")
         name = (self.ext.path and os.path.splitext(os.path.basename(self.ext.path))[0]) if self.ext else None
+        # the order references of each sheet travel with its queue entry (Import & orders);
+        # the path's extension (.mlz for cutting-strategy sheets, .chf) picks the format
+        from mlaser.services.orders import sheet_order_refs
         job = self._strategy_job(run)
+        refs: dict[str, list] = {}
+
+        def save(doc, path: str) -> None:
+            refs[path] = sheet_order_refs(doc, job)
+            if path.endswith(".mlz"):
+                from mlaser.project.format import save_project
+                save_project(path, doc)
+            else:
+                from mlaser.cam.raster_engraving import expand_document
+                from mlaser.formats.chf import save_chf
+                save_chf(expand_document(doc), path)
+        material = self.material.text().strip()
         entries = send_to_queue(job, q, d, name or "nest", layers=copy.deepcopy(w.document.layers),
-                                material=self.material.text().strip(), thickness_mm=self.thickness.value(),
-                                remnants=self.remnants, strategy=self.strategy_options())
-        self.status.setText(tr(w, "nestws.msg.queued", "{n} sheet jobs added to the queue", n=len(entries)))
+                                material=material, thickness_mm=self.thickness.value(),
+                                remnants=self.remnants, strategy=self.strategy_options(), save=save)
+        tagged = False
+        for e in entries:
+            if refs.get(e.path):
+                e.extra["orders"] = refs[e.path]
+                tagged = True
+        if tagged:
+            q.changed()
+        msg = tr(w, "nestws.msg.queued", "{n} sheet jobs added to the queue", n=len(entries))
+        if not material or not self.thickness.value():
+            msg += " · " + tr(w, "nestws.msg.no_material", "no material set: the sheets are not checked "
+                              "against the technology")
+        self.status.setText(msg)
         self.refresh_stock()
         return entries
 
@@ -901,6 +1042,9 @@ class NestWorkspace(QWidget):
             return False
         doc, _info = sheet_document(job, lays[min(row, len(lays) - 1)], base.layers, **opts)
         doc.layers = copy.deepcopy(base.layers)
+        if self.material.text().strip() or self.thickness.value():   # the material check (Start)
+            from mlaser.services.material_check import SheetSpec, set_sheet
+            set_sheet(doc, SheetSpec(self.material.text().strip(), self.thickness.value(), "nest"))
         self.ctx.replace_document(doc, tr(self.window_, "nestws.undo.to_drawing", "nest result"))
         return True
 

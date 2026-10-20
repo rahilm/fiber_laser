@@ -37,7 +37,7 @@ busy or misbehaving clients on the network:
 |---|---|---|
 | idle connection | 10 s | a connection that sends nothing (or an unfinished request) is closed |
 | connection lifetime | 30 s | a connection is closed after 30 s, however slowly the client sends; a browser simply reconnects |
-| connections at once | 16, at most 4 per client address | more connections are answered *503* and closed at once |
+| connections at once | 16, at most 4 per client address | more connections are answered *503* and answered with a 503 (Retry-After) and closed |
 | requests per client address | 5 per second (bursts of 20) | more requests are answered *429* (*Retry-After: 1*) |
 
 One phone or tablet with the page open uses well under these limits (one status request every

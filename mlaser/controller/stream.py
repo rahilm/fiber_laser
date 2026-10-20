@@ -489,15 +489,42 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
         except Exception:  # noqa: BLE001 - parent gone
             pass
 
+    # --- ci-fixes: the self-halt runs to completion (begin) ---------------------------------
+    # The watchdog (a daemon thread) runs the halt, and ``cancel.set()`` makes the main thread
+    # return from the job at once: before, its ``finally`` closed the halt socket and the process
+    # exited, killing the daemon thread after the first halt write (CI, 3.13: only "stop motion"
+    # reached the card, the beam stayed on).  ``halt_lock`` is held for the whole halt and the
+    # main thread takes it before it closes the sockets and returns.  With the parent gone nobody
+    # else will halt the card, so that halt is repeated until every step is acknowledged.
+    halt_lock = threading.Lock()
+    closed = [False]
+    orphan_halt_s = float(policy.get("orphan_halt_s", 3.0))
+
     def self_halt(kind: str, why: str) -> None:
-        if fault:
-            return
-        fault.update(kind=kind, why=why)
-        flags["halted"].value = 1
-        cancel.set()
-        put(("fault", kind, why))           # tell the parent first: the halt may take a while
-        res = run_halt(hmc, halt, f"streaming child: {why}", channel="child")
-        put(("halted", kind, why, res.ok, [(n, ok) for n, ok, _e in res.steps]))
+        with halt_lock:
+            if fault or closed[0]:
+                return
+            fault.update(kind=kind, why=why)
+            flags["halted"].value = 1
+            cancel.set()
+            put(("fault", kind, why))           # tell the parent first: the halt may take a while
+            res = run_halt(hmc, halt, f"streaming child: {why}", channel="child")
+            t_end = time.monotonic() + orphan_halt_s
+            while kind == "parent_lost" and not res.ok and time.monotonic() < t_end:
+                time.sleep(0.02)
+                res = run_halt(hmc, halt, f"streaming child: {why} (retry)", channel="child")
+            put(("halted", kind, why, res.ok, [(n, ok) for n, ok, _e in res.steps]))
+
+    def wait_halt_and_close() -> None:
+        got = halt_lock.acquire(timeout=orphan_halt_s + 5.0)   # bounded: never hang the child
+        try:
+            closed[0] = True
+            mc.close()
+            hmc.close()
+        finally:
+            if got:
+                halt_lock.release()
+    # --- ci-fixes (end) ------------------------------------------------------------------------
 
     def watchdog() -> None:
         hb, hb_t = flags["hb"].value, time.monotonic()
@@ -591,8 +618,7 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
             put(("error", str(e), getattr(e, "code", 0), js.exec_index, "error"))
     finally:
         cancel.set()
-        mc.close()
-        hmc.close()
+        wait_halt_and_close()               # ci-fixes: never cut a running self-halt short
 
 
 class ProcessStreamer:

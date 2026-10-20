@@ -16,6 +16,9 @@ P1-7, wireframe §4.4).
   (:class:`mlaser.services.queue.QueueRunner`).  After a cut sheet from a nest the leftover is
   stored as a remnant (:mod:`mlaser.services.remnants`); a remnant sheet is marked used.
 * **LAN monitor** (optional, off by default): the read-only status page of :mod:`mlaser.web`.
+* **Approval** (:class:`mlaser.ui.workspaces.approval.ApprovalPanel`): jobs submitted by the
+  automation API or the CLI (:mod:`mlaser.services.intake`) wait above the queue until the
+  operator approves them here; approving only adds them to the queue.
 
 Targets are at least 56 px (primary) / 44 px (all others); the layout works at 1280 x 800 and
 at 150 % scaling on 1920 x 1080 (``tests/test_ws_run.py``).  F11 toggles full screen in the
@@ -31,7 +34,7 @@ import time
 from typing import Any, Optional
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QListWidget, QListWidgetItem, QMessageBox,
                                QProgressBar, QPushButton, QSizePolicy, QSpinBox, QTableWidget,
@@ -39,6 +42,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayo
 
 from mlaser.machine import events as EV
 from mlaser.services.config import Setting
+from mlaser.services.intake import IntakeStore
 from mlaser.services.operator import RunStatus, fmt_duration, run_status
 from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
@@ -96,6 +100,94 @@ def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, pt: float = 15.0, bold: b
     btn.setFont(f)
     btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     return btn
+
+
+# ============================================================================== load card
+class LoadSheetCard(QFrame):
+    """"Load this sheet": shown while the queue waits for the next sheet.  Material, thickness,
+    size, remnant id, sheet n/N in large type, a picture of the sheet with its nest (not the
+    previous drawing), the technology and nozzle, the orders on it, and a red line when the
+    sheet does not match the technology (Import & orders track,
+    :func:`mlaser.services.material_check.load_card`)."""
+
+    def __init__(self, window: Any) -> None:
+        super().__init__()
+        self.window_ = window
+        self.setObjectName("run_load_card")
+        self.setFrameShape(QFrame.StyledPanel)
+        self.setStyleSheet("#run_load_card{border:2px solid #1565c0;border-radius:8px;}")
+        lay = QHBoxLayout(self)
+        lay.setContentsMargins(8, 6, 8, 6)
+        self.picture = QLabel()
+        self.picture.setObjectName("run_load_picture")
+        self.picture.setFixedSize(220, 140)
+        self.picture.setAlignment(Qt.AlignCenter)
+        lay.addWidget(self.picture)
+        col = QVBoxLayout()
+        self.title = QLabel(tr(window, "run.load.title", "Load this sheet"))
+        f = self.title.font()
+        f.setBold(True)
+        f.setPointSizeF(12)
+        self.title.setFont(f)
+        col.addWidget(self.title)
+        self.material = QLabel()
+        self.material.setObjectName("run_load_material")
+        f = self.material.font()
+        f.setBold(True)
+        f.setPointSizeF(20)
+        self.material.setFont(f)
+        self.material.setWordWrap(True)
+        col.addWidget(self.material)
+        self.sheet = QLabel()
+        self.sheet.setObjectName("run_load_sheet")
+        f = self.sheet.font()
+        f.setBold(True)
+        f.setPointSizeF(15)
+        self.sheet.setFont(f)
+        self.sheet.setWordWrap(True)
+        col.addWidget(self.sheet)
+        self.details = QLabel()
+        self.details.setObjectName("run_load_details")
+        self.details.setWordWrap(True)
+        col.addWidget(self.details)
+        self.warning = QLabel()
+        self.warning.setObjectName("run_load_warning")
+        self.warning.setWordWrap(True)
+        self.warning.setStyleSheet("background:#b71c1c;color:#ffffff;padding:4px 8px;border-radius:4px;")
+        self.warning.setVisible(False)
+        col.addWidget(self.warning)
+        col.addStretch(1)
+        lay.addLayout(col, 1)
+        self.data: dict = {}
+        self._key: Any = None
+
+    def show_card(self, data: dict, doc: Any, key: Any) -> None:
+        if key == self._key:
+            return
+        self._key = key
+        self.data = data
+        w = self.window_
+        self.material.setText(" ".join(x for x in (data["material"], data["thickness"]) if x))
+        bits = [tr(w, "run.load.size", "Sheet {size}", size=data["size"]) if data["size"] else ""]
+        if data["remnant_id"]:
+            bits.append(tr(w, "run.load.remnant", "remnant {id}", id=data["remnant_id"]))
+        bits.append(tr(w, "run.load.n", "sheet {n}", n=data["sheet"]))
+        self.sheet.setText("  ·  ".join(b for b in bits if b))
+        det = []
+        if data["technology"]:
+            det.append(tr(w, "run.load.tech", "Technology: {tech}", tech="; ".join(data["technology"])))
+        if data["nozzle"]:
+            det.append(tr(w, "run.load.nozzle", "Nozzle: {nozzle}", nozzle=data["nozzle"]))
+        if data["parts"]:
+            det.append(tr(w, "run.load.parts", "{n} parts · {name}", n=data["parts"], name=data["name"]))
+        det += data["orders"][:6]
+        self.details.setText("\n".join(det))
+        mm = data["mismatch"]
+        self.warning.setVisible(bool(mm))
+        self.warning.setText("⚠ " + "\n⚠ ".join(mm) if mm else "")
+        from .orders import parts_pixmap
+        parts = [p for p in getattr(doc, "parts", []) if p.contours] if doc is not None else []
+        self.picture.setPixmap(parts_pixmap(parts, QSize(216, 136), self.palette(), data.get("rings")))
 
 
 # ============================================================================== canvas
@@ -225,6 +317,9 @@ class QueuePanel(QWidget):
         self.ws = ws
         w = ws.window
         v = QVBoxLayout(self)
+        from .approval import ApprovalPanel
+        self.approval = ApprovalPanel(ws)            # submitted jobs waiting for the operator
+        v.addWidget(self.approval)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.setObjectName("queue_table")
         self.table.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COLS])
@@ -278,6 +373,7 @@ class QueuePanel(QWidget):
     def refresh(self) -> None:
         q = self.ws.queue
         w = self.ws.window
+        self.approval.refresh()
         keep = self.selected_id()
         self._sync = True
         self.table.setRowCount(len(q))
@@ -426,7 +522,16 @@ class OperatorScreen(QWidget):
         self.monitor_chip.setObjectName("run_monitor_chip")
         self.monitor_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
         self.monitor_chip.setVisible(False)
-        hl.addWidget(self.monitor_chip, 1, 2, alignment=Qt.AlignRight)
+        # the automation API (mlaser.ui.ext_automation): read-only, queue intake needs approval
+        self.api_chip = QLabel()
+        self.api_chip.setObjectName("run_api_chip")
+        self.api_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        self.api_chip.setVisible(False)
+        chips = QHBoxLayout()
+        chips.addStretch(1)
+        chips.addWidget(self.api_chip)
+        chips.addWidget(self.monitor_chip)
+        hl.addLayout(chips, 1, 2)
         self.progress = QProgressBar()
         self.progress.setObjectName("run_progress")
         self.progress.setRange(0, 1000)
@@ -464,6 +569,9 @@ class OperatorScreen(QWidget):
         self.tabs.addTab(self.canvas, tr(w, "run.tab.live", "Live view"))
         self.queue_panel = QueuePanel(ws)
         self.tabs.addTab(self.queue_panel, tr(w, "run.tab.queue", "Queue"))
+        self.load_card = LoadSheetCard(w)          # "Load this sheet" (queue waiting for a sheet)
+        self.load_card.setVisible(False)
+        left.addWidget(self.load_card)
         left.addWidget(self.tabs, 1)
         self.values = QLabel()
         self.values.setObjectName("run_values")
@@ -711,7 +819,19 @@ class OperatorScreen(QWidget):
                                                    total=r.current.quantity,
                                                    sheet=f", {r.current.remnant_id or r.current.sheet}"
                                                    if (r.current.remnant_id or r.current.sheet) else "")
+        n_pending = len(self.ws.intake.pending)
+        if n_pending:
+            msg = (msg + "\n" if msg else "") + tr(w, "run.queue.pending", "{n} submitted job(s) wait for approval "
+                                                   "(Queue tab)", n=n_pending)
         self.queue_msg.setText(msg)
+        waiting = r.state == "confirm" and r.current is not None and not job
+        if waiting:
+            ent = r.current
+            doc = self.ws.entry_document(ent)
+            from mlaser.services.material_check import load_card
+            self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)))
+        if waiting != self.load_card.isVisibleTo(self):
+            self.load_card.setVisible(waiting)
         b["confirm_sheet"].setVisible(r.state in ("confirm", "starting"))
         b["confirm_sheet"].setEnabled(r.state == "confirm" and connected and not fault and not job)
         b["queue_mode"].setText(tr(w, "run.btn.queue_leave", "Leave queue") if r.state != "idle"
@@ -723,6 +843,14 @@ class OperatorScreen(QWidget):
         if mon is not None and mon.running:
             h, port = mon.address
             self.monitor_chip.setText(tr(w, "run.monitor_on", "LAN monitor ON {host}:{port}", host=h, port=port))
+        hooks = getattr(w, "hooks", None)
+        api_fn = hooks.provider("automation.server") if hooks is not None else None
+        api = api_fn() if api_fn is not None else None
+        on = api is not None and api.running
+        self.api_chip.setVisible(on)
+        if on:
+            h, port = api.address
+            self.api_chip.setText(tr(w, "run.api_on", "Automation API ON {host}:{port}", host=h, port=port))
         # canvas
         doc, sheet = self.ws.view_document()
         self.canvas.set_document(doc, sheet)
@@ -781,6 +909,9 @@ class RunWorkspace:
         if self.queue.load_error:
             self.log(f"queue: {self.queue.load_error} (the file was kept as queue.json.bad)")
         self.remnants = RemnantStore(os.path.join(d, "remnants.json"))
+        # jobs from the automation API / CLI: pending until the operator approves them here
+        self.intake = IntakeStore(d)
+        self.intake.scan()
         self.runner = QueueRunner(self.queue, load=self._load_entry, start=self._start_sheet,
                                   start_allowed=self._start_allowed,
                                   disarm=lambda why: self.window.ctl.disarm(why))
@@ -791,6 +922,7 @@ class RunWorkspace:
         self._job_t0 = 0.0
         self._run_plan: Any = None
         self._sheet_doc: Any = None
+        self._entry_docs: dict = {}          # path -> (mtime, document): the next sheet's picture
         self.alarm_since: dict = {}
         self._unsub: list = []
         self._attached: Any = None
@@ -798,7 +930,9 @@ class RunWorkspace:
         ctx.add_workspace("run", self.screen, tr(self.window, "ws.run", "Run"))
         self.queue.subscribe(self._queue_changed)
         self.runner.subscribe(self._queue_changed)
+        self.intake.subscribe(self._queue_changed)
         ctx.provide("queue", lambda: self.queue)
+        ctx.provide("intake", lambda: self.intake)
         ctx.provide("remnants", lambda: self.remnants)
         ctx.provide("queue_runner", lambda: self.runner)
         ctx.on_controller_changed(lambda _c: self.attach())
@@ -885,10 +1019,14 @@ class RunWorkspace:
         running = ms is not None and ms.mode in ("process", "dry_run", "frame", "pause")
         plan = self._run_plan if running and self._run_plan is not None else getattr(self.window, "plan", None)
         doc = getattr(plan, "document", None) if plan is not None else None
+        ent = self.runner.current
+        if not running and self.runner.state == "confirm" and ent is not None:
+            nxt = self.entry_document(ent)          # the sheet to load, not the previous drawing
+            if nxt is not None:
+                doc = nxt
         if doc is None:
             doc = self.window.document
         sheet = None
-        ent = self.runner.current
         if ent is not None and ent.extra.get("sheet_bounds"):
             b = ent.extra["sheet_bounds"]
             off = (doc.extra.get("job_offset") or (0.0, 0.0)) if hasattr(doc, "extra") else (0.0, 0.0)
@@ -911,6 +1049,37 @@ class RunWorkspace:
             return svc.start_allowed("process")
         return True, ""
 
+    def entry_document(self, e: QueueEntry) -> Any:
+        """The entry's sheet document with the layer parameters it was queued with (cached per
+        file modification time; None when it cannot be read).  For the load card and the live
+        view while the queue waits; the copy that is cut is read again by :meth:`_load_entry`."""
+        try:
+            mt = os.path.getmtime(e.path)
+        except OSError:
+            return None
+        hit = self._entry_docs.get(e.path)
+        if hit is not None and hit[0] == mt:
+            return hit[1]
+        doc = self._read_entry(e)
+        if len(self._entry_docs) > 8:
+            self._entry_docs.clear()
+        self._entry_docs[e.path] = (mt, doc)
+        return doc
+
+    @staticmethod
+    def _read_entry(e: QueueEntry) -> Any:
+        from ..ext_nest import _load_doc
+        doc = _load_doc(e.path)
+        if doc is None or not doc.parts:
+            return None
+        from mlaser.model import LayerParams
+        for k, d in (e.extra.get("layers") or {}).items():    # the parameters it was queued with
+            try:
+                doc.layers.setdefault(int(k), LayerParams(**d))
+            except (TypeError, ValueError):
+                continue
+        return doc
+
     def _load_entry(self, e: QueueEntry) -> bool:
         if self.job_running():
             e.note = tr(self.window, "queue.note.busy", "a job is running")
@@ -918,17 +1087,14 @@ class RunWorkspace:
         if not os.path.exists(e.path):
             e.note = tr(self.window, "queue.note.missing", "file not found: {path}", path=e.path)
             return False
-        from ..ext_nest import _load_doc
-        doc = _load_doc(e.path)
-        if doc is None or not doc.parts:
+        doc = self._read_entry(e)
+        if doc is None:
             e.note = tr(self.window, "queue.note.unreadable", "cannot read {path}", path=e.path)
             return False
-        from mlaser.model import LayerParams
-        for k, d in (e.extra.get("layers") or {}).items():    # the parameters it was queued with
-            try:
-                doc.layers.setdefault(int(k), LayerParams(**d))
-            except (TypeError, ValueError):
-                continue
+        # the sheet it is cut from: the material check before Start (services.material_check)
+        from mlaser.services.material_check import SheetSpec, set_sheet
+        set_sheet(doc, SheetSpec(e.material, float(e.thickness_mm or 0.0), "queue", e.id, e.done + 1,
+                                 e.sheet, e.remnant_id))
         base = self.window.document
         for k, lp in getattr(base, "layers", {}).items():     # keep layer parameters the file lacks
             if not lp.extra.get("placeholder"):
@@ -1002,6 +1168,12 @@ class RunWorkspace:
 
     def tick(self) -> None:
         self.runner.tick()
+        try:
+            for job in self.intake.scan():
+                self.log(tr(self.window, "approval.msg.submitted", "Job submitted for approval: {name} ({src})",
+                            name=job.name, src=f"{job.source} {job.client}".strip()))
+        except OSError as exc:  # noqa: PERF203 - the inbox must never stop the Run screen
+            log.debug("intake scan failed: %s", exc)
         if self.monitor is not None and self.monitor.running:
             self.publish_monitor()
 

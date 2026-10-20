@@ -13,6 +13,16 @@ through callables, so the UI decides how to show them:
 * ``notify(kind, text)``: ``kind`` is ``"log"``, ``"popup"``, ``"alarm"`` or ``"plan_reached"``
   (text ``"done/plan"``).
 
+Only **real** jobs count (review 2 P1-7): ``job_source(mode)`` (default: always ``"real"``;
+the application passes :func:`mlaser.services.runsource.window_job_source`) classifies each
+job when it starts, and a simulator, dry-run or practice job adds nothing to the device
+counters (processing hours, which drive the maintenance plan), the production counter (the
+planned quantity) or the report.exe statistics (``TotalReport.txt``).  The interlock itself
+(:meth:`start_allowed`) applies to every start.
+
+``maintenance_listeners``: ``fn(key, status, message)`` for every newly due maintenance item
+(the notifications, :mod:`mlaser.notify`).
+
 The planned-quantity interlock (SOP.PlanManuCount / SOP.AfterPlanFinishedActionType = 2
 "prohibit") is enforced twice: :meth:`start_allowed` is a JobService start guard (the job is
 refused before anything is sent), and a job that still starts is stopped at once (the original's
@@ -56,23 +66,30 @@ class ProductionService:
         stats: Any = None,
         flush: Callable[[], None] = lambda: None,
         bus: Any = None,
+        job_source: Optional[Callable[[str], str]] = None,
     ) -> None:
         """``stats``: the job-statistics recorder (:class:`mlaser.report.recorder.StatsRecorder`,
-        which draws thumbnails with Qt, so the application passes it in); None records none."""
+        which draws thumbnails with Qt, so the application passes it in); None records none.
+        ``job_source(mode)``: ``real`` / ``simulator`` / ``dry_run`` / ``practice`` of a job
+        starting now (:mod:`mlaser.services.runsource`); only ``real`` jobs are counted."""
         self.settings = settings
         self.data_dir = data_dir
         self.stop, self.notify, self.flush = stop, notify, flush
+        self.job_source: Callable[[str], str] = job_source or (lambda mode: "real")
+        self.current_source = ""             # source of the job being tracked ("" = none)
         migrate_state_file(settings, data_dir)
         self.counters = DR.DeviceCounters.from_settings(settings)
         self.use_timer = DR.UseTimer(self.counters)
         self.watcher = JobWatcher()
         self.stats = stats
+        self.watcher.start_listeners.append(self._classify)
         if stats is not None:
-            self.watcher.start_listeners.append(stats.on_start)
+            self.watcher.start_listeners.append(self._stats_start)
         self.watcher.start_listeners.append(self.job_started)
         if stats is not None:
-            self.watcher.finish_listeners.append(stats.on_finish)
+            self.watcher.finish_listeners.append(self._stats_finish)
         self.watcher.finish_listeners.append(self.job_finished)
+        self.maintenance_listeners: list[Callable[[str, str, str], None]] = []
         self.production = B.ProductionCounter(settings)
         self.maintain_plan = M.MaintainPlan.from_text(settings.get(M.PARAM_KEY))
         self.job_done_listeners: list[Callable[[bool], None]] = []  # batch runner
@@ -80,6 +97,28 @@ class ProductionService:
         self._announced: set = set()
         if bus is not None:
             self.attach(bus)
+
+    # ------------------------------------------------------------------ job source
+    def _classify(self, mode: str, info: str) -> None:
+        try:
+            self.current_source = str(self.job_source(mode) or "real")
+        except Exception:  # noqa: BLE001 - an unknown source counts as real (never hides a cut)
+            self.current_source = "real"
+
+    @property
+    def counting(self) -> bool:
+        """The tracked job is a real job (it counts)."""
+        return (self.current_source or "real") == "real"
+
+    def _stats_start(self, mode: str, info: str) -> None:
+        if self.counting:
+            self.stats.on_start(mode, info)
+
+    def _stats_finish(self, ev) -> None:
+        if self.counting:
+            self.stats.on_finish(ev)
+        elif getattr(self.stats, "current", None) is not None:
+            self.stats.current = None
 
     # ------------------------------------------------------------------ events
     def attach(self, bus: Any) -> None:
@@ -119,6 +158,11 @@ class ProductionService:
     def job_finished(self, ev) -> None:
         if ev.mode != "process":
             return
+        if not self.counting:
+            # a simulator / dry-run / practice job: no processing hours, no production count
+            for fn in list(self.job_done_listeners):
+                fn(ev.ok)
+            return
         if ev.ok:
             self.counters.add_job(ev.duration_s)
             if self.production.job_done() == "prompt":
@@ -148,6 +192,11 @@ class ProductionService:
             elif it.prompt == M.PROMPT_ERRBAR:
                 self.notify("alarm", msg)
             self.notify("log", msg)
+            for fn in list(self.maintenance_listeners):
+                try:
+                    fn(it.key if it.custom else str(it.key), str(status), msg)
+                except Exception:  # noqa: BLE001 - a listener must not stop the check
+                    pass
         return due
 
     # ------------------------------------------------------------------ state
