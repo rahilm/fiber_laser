@@ -194,11 +194,13 @@ def at_rest(win, app) -> None:
     layout signature has not changed for three event-loop turns."""
     from PySide6.QtCore import QTimer
     jobs = getattr(win, "jobs", None)
-    if jobs is not None:
-        # the document's plan (a selection or a new document starts one, in another process):
-        # delivered now, not whenever it happens to arrive (it fills the Process page's
-        # estimate card and the preview, so the page's minimum depends on it)
-        jobs.settle()
+    t = getattr(jobs, "preview", None)
+    if jobs is not None and (getattr(jobs, "pending", None) or (t is not None and not t.done_event.is_set())):
+        # the document's plan in flight (a selection or a new document starts one, in another
+        # process): delivered now, not whenever it happens to arrive (it fills the Process
+        # page's estimate card and the preview, so the page's minimum depends on it); a plan
+        # already delivered is left alone
+        jobs.settle(timeout=60.0)
     last, same = None, 0
     for _ in range(200):
         _pump(app, rounds=1)
