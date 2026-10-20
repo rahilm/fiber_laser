@@ -302,6 +302,8 @@ def _child_main(conn, cancel) -> None:
             pass
     try:
         _child_loop(conn, cancel)
+    except OSError:                          # the parent went away (a broken pipe): just end
+        pass
     finally:
         parallel.shutdown()                  # a spawned child exits without atexit handlers
 
@@ -414,6 +416,10 @@ def _child_loop(conn, cancel) -> None:
             conn.send(("cancelled", rid))
         except ChildSetupError as e:
             conn.send(("setup", rid, str(e)))
+        except OSError as e:
+            if isinstance(e, (BrokenPipeError, ConnectionResetError, EOFError)) or getattr(e, "errno", None) == 32:
+                raise                          # the parent is gone (handled in _child_main)
+            conn.send(("error", rid, pickle.dumps(RuntimeError(f"{type(e).__name__}: {e}"), protocol=5)))
         except BaseException as e:  # noqa: BLE001 - reported to the parent
             try:
                 data = pickle.dumps(e, protocol=5)
@@ -516,6 +522,7 @@ class PlanProcess:
         return self.proc is not None and self.proc.is_alive()
 
     def close(self) -> None:
+        self.cancel.value = self.rid + 1          # a compile in progress stops at its next chain
         with self._lock:
             p, c = self.proc, self.conn
             self.proc = self.conn = None

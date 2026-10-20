@@ -290,5 +290,5 @@ jobs of at least 600 cut chains, `MLASER_COMPILE_MIN_CHAINS`); `compile_items(wo
 from about 250 chains (100 parts: 0.29 s serial, 0.10 s with 8 workers), a cold one, which
 starts the workers, from about 600.  Workers are spawned (like the streamer process), kept for
 the process lifetime, run at nice 10 / below-normal priority, never start inside a
-multiprocessing child, and auto mode stays serial when the main script has no `__main__`
+multiprocessing child other than the JobService's plan process (§8), and auto mode stays serial when the main script has no `__main__`
 guard.  A broken pool finishes the compile serially (with a warning).

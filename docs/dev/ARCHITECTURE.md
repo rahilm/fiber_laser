@@ -204,7 +204,9 @@ planned in worker processes (`mlaser/nc/parallel.py`, `MLASER_COMPILE_WORKERS`),
 the serial result.
 
 The active profile is a process-wide global (worker threads see it); `use_profile` switches it
-for a block. The goldens and the parity run always use `"original"`.
+for a block. The JobService's plan process (`services/planproc.py`) receives the profile *name*
+with every request and selects it there; a profile registered at run time that the plan process
+does not know makes that plan compile in the GUI process's worker thread instead. The goldens and the parity run always use `"original"`.
 
 ## 4. Typing and enums
 
@@ -249,7 +251,7 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `CommandRegistry` (`commands.py`) | one handler per command id; duplicates raise and are recorded; failures logged | `QAction.triggered` rebinding by the extensions |
 | `PluginContext` (`plugins.py`) | the plugin API, hooks, providers, entry-point discovery | `register(window)` and monkeypatching (docs/dev/PLUGINS.md) |
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
-| `JobService` (`jobs.py`) | `PlannedJob`s: compiled in a worker, debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
+| `JobService` (`jobs.py`, `planproc.py`) | `PlannedJob`s: compiled in a separate plan process (spawn; in the worker thread when no process can run), debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
 | procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
 | `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
