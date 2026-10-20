@@ -432,3 +432,27 @@ def test_comfortable_width_counts_whole_titles(app):
     assert s.header.text() != s.title()                    # cut while narrow
     assert p.comfortable_width() == cw0
     p.close()
+
+
+def test_comfortable_width_ignores_folded_summaries(app):
+    """A folded section's summary does not change the panel's preferred width (it made the
+    Properties dock's natural width depend on which sections were folded)."""
+    p = R.ColumnsPanel(max_columns=1)
+    secs = []
+    for i in range(2):
+        body = QWidget()
+        QVBoxLayout(body).addWidget(QPushButton(f"button {i}"))
+        s = R.CollapsibleSection(f"Section {i}", body, fit_title=True)
+        p.add_section(s)
+        secs.append(s)
+    p.resize(p.sizeHint())
+    p.show()
+    _pump(app)
+    cw0 = p.comfortable_width()
+    secs[1].set_summary("in: Line 3 mm · out: None · a summary longer than any body " * 2)
+    secs[1].user_choice = False
+    secs[1].set_expanded(False)
+    _pump(app)
+    assert not secs[1].expanded()
+    assert p.comfortable_width() == cw0
+    p.close()

@@ -1110,14 +1110,17 @@ class ColumnsPanel(QWidget):
 
     @staticmethod
     def _section_want(s: "CollapsibleSection") -> int:
-        """The width a section asks for, with its whole title: an elided title's hint is the
-        cut text's, so the panel's preferred width depended on how narrow it had been (live
-        resizing ended with the Properties dock 45 px wider than it started)."""
-        w = s.sizeHint().width()
+        """The width a section asks for: its body's preferred width in the frame, or its whole
+        title.  Not the header row's hint: a folded section's summary ("in: Line 3 mm ...") and
+        an elided title made the panel's preferred width depend on how it was folded and how
+        narrow it had been (live resizing ended with the Properties dock 7-45 px wider)."""
+        fl = s.frame.layout()
+        m = fl.contentsMargins()
+        body = s.body.sizeHint().width() if s.body is not None else 0
+        w = body + m.left() + m.right() + 2 * s.frame.frameWidth()
         h = s.header
-        if isinstance(h, ElidedToolButton):
-            w = max(w, h.full_width())
-        return w
+        title = h.hint_for(s.title()).width() if isinstance(h, ElidedToolButton) else h.sizeHint().width()
+        return max(w, title, s.min_width())
 
     def comfortable_width(self) -> int:
         lo = self._col_min()
