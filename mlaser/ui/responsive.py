@@ -856,9 +856,9 @@ def set_compact(root: QWidget, on: bool, ratio: float = 0.5) -> None:
     # 2 px and the DO form 3-5 px short on the X11, Windows and macOS runners)
     for w in reversed([root, *root.findChildren(QWidget)]):
         lay = w.layout()
-        if lay is not None:
+        if lay is not None:          # only containers: their sizes follow their layouts'
             lay.invalidate()
-        w.updateGeometry()
+            w.updateGeometry()
 
 
 class CompactWhenNarrow(QObject):
