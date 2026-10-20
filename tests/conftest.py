@@ -71,6 +71,8 @@ UI_MODULES = {
     "test_dialog_frame",
     # UI wave: polish (the design system's helpers)
     "test_style", "test_jogpad",
+    # UI wave: polish (commands say what happened)
+    "test_command_feedback",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

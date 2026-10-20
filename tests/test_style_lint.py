@@ -43,7 +43,6 @@ ALLOWLIST: dict[str, dict[str, int]] = {
     "mlaser/ui/ribbon.py": {"margin": 5},
     "mlaser/ui/safety_io.py": {"colour": 1},
     "mlaser/ui/settings_dialog.py": {"margin": 11},
-    "mlaser/ui/shell/palette.py": {"margin": 2},
     "mlaser/ui/shell/topbar.py": {"margin": 4},
     "mlaser/ui/shell/workspace_host.py": {"margin": 3},
     "mlaser/ui/techform.py": {"margin": 7},
