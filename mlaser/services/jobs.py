@@ -535,7 +535,7 @@ class JobService:
         )
 
     def _compile_thread(self, t: JobTicket, deliver: bool, t0: float) -> PlannedJob:
-        from mlaser.controller.stream import responsive_gil
+        from mlaser._sched import responsive_gil
 
         from .planproc import run_compile
 
