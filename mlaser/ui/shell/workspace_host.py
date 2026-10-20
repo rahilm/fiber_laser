@@ -122,6 +122,9 @@ class WorkspacePage(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
         self._toolbar_need = 0            # the tool bar's width with icons only (fit_toolbar)
+        self._user_split = False          # the user dragged the canvas / page splitter
+        self._fitting_split = False
+        self._wide_need: Optional[int] = None    # fit_split widened the page: its narrow need
         self.toolbar = QToolBar()
         self.toolbar.setObjectName("shell_ws_toolbar")
         self.toolbar.setIconSize(QSize(20, 20))
@@ -177,6 +180,8 @@ class WorkspacePage(QWidget):
                 self.splitter.setStretchFactor(0, 3)
                 self.splitter.setStretchFactor(1, 2)
                 self.splitter.setSizes([600, 400])
+                self._user_split = False
+                self.splitter.splitterMoved.connect(self._split_moved)
             self.body_lay.addWidget(self.splitter)
         else:
             if own is None:
@@ -266,6 +271,50 @@ class WorkspacePage(QWidget):
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
         self.fit_toolbar()
+        self.fit_split()
+
+    def _split_moved(self, _pos: int, _index: int) -> None:
+        if not self._fitting_split:
+            self._user_split = True          # the user's split stays (until a reset)
+
+    def fit_split(self) -> None:
+        """The page beside the canvas gets the width its content asks for (its size hint) and,
+        if that is not enough for the height it has, more, until it fits or the canvas is down
+        to CANVAS_MIN; the canvas takes the rest.  A fixed share (40 %) left the Process page
+        so narrow that its wrapped rows pushed the window taller than the screen with the
+        Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
+        sp = self.splitter
+        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+            return
+        own = sp.widget(1)
+        total = sp.width() - sp.handleWidth()
+        if total <= 0 or own is None:
+            return
+        most = max(total - CANVAS_MIN, own.minimumSizeHint().width())
+        pw = min(max(own.sizeHint().width(), own.minimumSizeHint().width()), most)
+        areas = [own] if isinstance(own, FitArea) else own.findChildren(FitArea)
+        area = next((a for a in areas if a.isVisibleTo(own)), None)
+        if area is not None:
+            # a page whose minimum height (sections folded at its width, wrapped rows) does not
+            # fit the height it has gets every pixel the canvas can spare: wider, it folds into
+            # fewer rows (its own minimum follows its width once it is laid out)
+            avail = sp.height() - (own.height() - area.viewport().height())
+            chrome_w = own.width() - area.viewport().width()
+            if self._wide_need is not None and avail >= self._wide_need:
+                self._wide_need = None        # the height its narrow minimum needs is back
+            if self._wide_need is None and own.width() < most:
+                need = area.need(own.width() - chrome_w).height()
+                if need > avail:
+                    self._wide_need = need    # remembered: back to the hint once this fits
+            if self._wide_need is not None:
+                pw = most
+        sizes = [total - pw, pw]
+        if sp.sizes() != sizes:
+            self._fitting_split = True
+            try:
+                sp.setSizes(sizes)
+            finally:
+                self._fitting_split = False
 
     def fit_toolbar(self) -> None:
         """Labels beside the icons when they fit, icons only (labels in the tooltips and the
