@@ -520,3 +520,26 @@ def test_cli_hosts(isolated):
     assert ConfigService(cfg).get(P.NETWORK_KEY) == {"onshape": ["acme.onshape.com"]}
     code, res, _ = cli("plugin", "hosts", "onshape", "--add", "*.x.com", "--yes", "--json", "--config", cfg)
     assert code == 2
+
+
+def test_repository_template_builds_a_valid_plugin(isolated, tmp_path):
+    """docs/dev/plugin-repo-template: the wheel passes the manager's checks, its icon is found,
+    and the index tool its release workflow runs accepts it."""
+    from plugin_fixtures import wheel_from_project
+
+    from mlaser.services import plugin_index as T
+    tpl = ROOT / "docs/dev/plugin-repo-template"
+    whl = wheel_from_project(tpl, tmp_path / "dist")
+    info = PM.inspect_wheel(whl.read_bytes(), whl.name)
+    assert info.id == "example" and info.manifest["plugin"]["icon"] == "icon.svg"
+    assert T.main(["build", str(whl), "-o", str(tmp_path / "i.json"), "--sha256sums", str(tmp_path / "S")]) == 0
+    wf = (tpl / ".github/workflows/release.yml").read_text()
+    assert "python -m mlaser.services.plugin_index build" in wf and "SHA256SUMS" in wf
+    assert manager(isolated).install(str(whl))["id"] == "example"
+
+
+def test_bundle_self_check(isolated, tmp_path):
+    """What ``mlaser --bundle-check`` runs in the frozen app: install, site dir, discovery, import."""
+    path = list(sys.path)
+    assert "discovered and imported" in PM.self_check(tmp_path / "check")
+    assert sys.path == path and "mlaser_selfcheck_plugin" not in sys.modules

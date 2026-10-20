@@ -102,7 +102,7 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="plugin_index", description=__doc__.split("\n\n")[0])
     sub = ap.add_subparsers(dest="cmd", required=True)
     b = sub.add_parser("build", help="build or update an index from wheels")
-    b.add_argument("wheels", nargs="+")
+    b.add_argument("wheels", nargs="*", help="the wheels (none: an empty index)")
     b.add_argument("-o", "--out", default="mlaser-plugin-index.json")
     b.add_argument("--base-url", default="", help="prefix of the wheel URLs (default: relative to the index)")
     b.add_argument("--name", default="")

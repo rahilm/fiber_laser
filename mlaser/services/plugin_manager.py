@@ -1521,6 +1521,52 @@ class PluginManager:
             raise PluginError(f"the configuration could not be saved ({exc})", "output") from None
 
 
+def self_check(work_dir: os.PathLike | str) -> str:
+    """Install a tiny plugin wheel into ``work_dir`` through the whole manager path (verification,
+    unpack, the site directory on ``sys.path``, entry-point discovery, manifest, import), then
+    undo it.  The frozen bundle's ``--bundle-check`` runs it: PyInstaller must ship zipfile,
+    tomllib, email, csv, importlib.metadata and keep the path finder working."""
+    from .config import ConfigService
+    from .plugins import discover, resolve
+    work = Path(work_dir)
+    mod, pid, ver = "mlaser_selfcheck_plugin", "selfcheck", "1.0.0"
+    di = f"{mod}-{ver}.dist-info"
+    manifest = (f'[plugin]\nid = "{pid}"\nname = "self check"\nversion = "{ver}"\nentry = "{mod}:plugin"\n'
+                'api = ">=2"\nmlaser = ""\n[permissions]\n')
+    files = {f"{mod}/__init__.py": b"PLUGIN_API = 2\nplugin = None\nOK = True\n",
+             f"{mod}/{MANIFEST_NAME}": manifest.encode(),
+             f"{di}/METADATA": f"Metadata-Version: 2.1\nName: {mod}\nVersion: {ver}\n".encode(),
+             f"{di}/WHEEL": b"Wheel-Version: 1.0\nRoot-Is-Purelib: true\nTag: py3-none-any\n",
+             f"{di}/entry_points.txt": f"[mlaser.plugins]\n{pid} = {mod}:plugin\n".encode()}
+
+    def h(d: bytes) -> str:
+        return "sha256=" + base64.urlsafe_b64encode(hashlib.sha256(d).digest()).rstrip(b"=").decode()
+    files[f"{di}/RECORD"] = ("".join(f"{n},{h(d)},{len(d)}\n" for n, d in files.items())
+                             + f"{di}/RECORD,,\n").encode()
+    whl = work / f"{mod}-{ver}-py3-none-any.whl"
+    work.mkdir(parents=True, exist_ok=True)
+    with zipfile.ZipFile(whl, "w") as zf:
+        for n, d in files.items():
+            zf.writestr(n, d)
+    pm = PluginManager(ConfigService(work / "config.json", load=False), root=work / "plugins", plugin_api=2)
+    path_before = list(sys.path)
+    try:
+        rec = pm.install(str(whl))
+        site = activate_site(pm.site)
+        info = next((i for i in discover((), entry_points=True) if i.name == pid), None)
+        if info is None or info.manifest is None:
+            raise RuntimeError("the installed plugin was not discovered with its manifest")
+        resolve(info.target)
+        if not getattr(sys.modules.get(mod), "OK", False):
+            raise RuntimeError("the installed plugin could not be imported")
+        pm.uninstall(pid)
+        return f"installed, discovered and imported from {site}, removed ({len(rec['files'])} files)"
+    finally:
+        sys.path[:] = path_before
+        sys.modules.pop(mod, None)
+        importlib.invalidate_caches()
+
+
 def parse_sha256sums(text: str) -> dict[str, str]:
     """``<hex>  <file>`` lines (``sha256sum`` output, ``*file`` binary marker allowed)."""
     out = {}
