@@ -19,7 +19,8 @@ that exposes the card methods but not the socket, the guard or ``close``.
 :meth:`safe_halt` sends, each command on its own and best effort, in the order the original
 uses for a program stop (parity ``test_stop_sequence``): decelerated stop ``[1, 0x1f, 2,
 decel, 200000]``, PWM off ``[9999, 3, f, 0, 0]`` and ``[9999, 17, f, 0, 0]``, process outputs off
-``[9999, 2, mask, 0]`` (+ 13 for outputs 17..32), follower stop ``[118, 5, 0]``, FIFO stop
+``[9999, 2, mask, 0]`` for outputs 1..10 and ``[9999, 13, mask, 0]`` for the extended IO
+outputs 11..26 (:func:`mlaser.protocol.frames.output_bit`), follower stop ``[118, 5, 0]``, FIFO stop
 (103 := 3), FIFO clear (103 := 1).  A halt that did not go through completely is repeated by
 the monitor every ``halt_retry_s`` until one succeeds (the link may come back).
 
@@ -62,7 +63,7 @@ class HaltParams:
     """Words of the halt sequence (UiController supplies them from the machine parameters)."""
     decel: int = 4000                 # [1, 0x1f, 2, decel, 200000] (FUN_10038de0)
     pwm_freq: int = 5000              # LC.PtLaserFreq
-    outputs_mask: int = 0             # process outputs (gas valves, laser DO), bit n = output n+1
+    outputs_mask: int = 0             # process + laser outputs, bit n-1 = output n (1..26)
     follower: bool = True
 
 
@@ -91,12 +92,10 @@ def halt_steps(mc, p: HaltParams, pause: bool = False) -> list[tuple[str, Callab
         ("pwm off", lambda: mc.command(F.mailbox_sys(F.SYS_PWM, f, 0, 0))),
         ("pwm off (bus)", lambda: mc.command(F.mailbox_sys(F.SYS_PWM_BUS, f, 0, 0))),
     ]
-    if p.outputs_mask & 0xFFFF:
-        steps.append(("process outputs off",
-                      lambda: mc.command(F.mailbox_sys(F.SYS_OUTPUTS, p.outputs_mask & 0xFFFF, 0))))
-    if (p.outputs_mask >> 16) & 0xFFFF:
-        steps.append(("process outputs off (ext)",
-                      lambda: mc.command(F.mailbox_sys(F.SYS_OUTPUTS_EXT, (p.outputs_mask >> 16) & 0xFFFF, 0))))
+    for sub, m16 in F.sub_masks_of_ports(p.outputs_mask):
+        # outputs 1..10: [9999, 2, mask, 0]; outputs 11..26 (extended IO): [9999, 13, mask, 0]
+        steps.append(("process outputs off" if sub == F.SYS_OUTPUTS else "process outputs off (ext)",
+                      lambda sub=sub, m16=m16: mc.command(F.mailbox_sys(sub, m16, 0))))
     if p.follower:
         steps.append(("follower stop", lambda: mc.command([F.OP_FOLLOW, 5, 0])))
     if not pause:
@@ -120,7 +119,9 @@ def run_halt(mc, p: HaltParams, reason: str, pause: bool = False, channel: str =
 
 class CardHandle:
     """The card methods the UI, diag and devices may use; every call goes through the guarded
-    main channel.  No access to the socket, the guard, ``open``/``close`` or ``connect``."""
+    main channel.  No access to the socket, the guard, ``open``/``close`` or ``connect``: an
+    allowed name returns a plain function that forwards the call (not a bound method, whose
+    ``__self__`` would be the raw channel), and the supervisor is held in a closure."""
 
     ALLOWED = frozenset({
         "read_regs", "read_reg", "write_regs", "write_reg", "transact", "command", "set_outputs",
@@ -133,27 +134,42 @@ class CardHandle:
         "write_fast_map", "read_status_fast", "read_servo_info", "set_timeout",
     })
 
+    __slots__ = ("_channel",)
+
     def __init__(self, sup: "SafetySupervisor"):
-        object.__setattr__(self, "_sup", sup)
+        def channel() -> Optional[MotionController]:
+            return sup._mc
+        object.__setattr__(self, "_channel", channel)
 
     def __getattr__(self, name: str):
         if name not in CardHandle.ALLOWED:
             raise AttributeError(f"card handle: {name!r} is not available outside the safety supervisor")
-        mc = object.__getattribute__(self, "_sup")._mc
-        if mc is None:
+        channel = object.__getattribute__(self, "_channel")
+        mc0 = channel()
+        if mc0 is None:
             raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
-        return getattr(mc, name)
+        v = getattr(mc0, name)
+        if not callable(v):
+            return v                     # a data value (pulses_per_mm, fast_len, ...)
+
+        def call(*a, **kw):
+            mc = channel()
+            if mc is None:
+                raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
+            return getattr(mc, name)(*a, **kw)
+        call.__name__ = call.__qualname__ = name
+        return call
 
     def __setattr__(self, name, value):
         raise AttributeError("card handle is read-only")
 
     @property
     def cfg(self) -> TransportConfig:
-        mc = object.__getattribute__(self, "_sup")._mc
+        mc = object.__getattribute__(self, "_channel")()
         return replace(mc.cfg) if mc is not None else TransportConfig()
 
     def __bool__(self) -> bool:
-        return object.__getattribute__(self, "_sup")._mc is not None
+        return object.__getattribute__(self, "_channel")() is not None
 
     def __repr__(self) -> str:
         return f"<CardHandle connected={bool(self)}>"
@@ -181,7 +197,7 @@ class SafetySupervisor:
         self.on_link_restored = on_link_restored
         self.halt_params = halt_params or HaltParams
         self._guarded = 0                     # bit n = output n+1 needs arming to switch on
-        self.guarded_fn: Optional[Callable[[], int]] = None   # live mask (owner's output map)
+        self._guarded_fn: Optional[Callable[[], int]] = None  # live mask (owner's output map)
         self._mc: Optional[MotionController] = None
         self._halt: Optional[MotionController] = None
         self.card = CardHandle(self)
@@ -192,6 +208,7 @@ class SafetySupervisor:
         self.link_ok = False
         self._lost = False
         self.halts: list[HaltResult] = []
+        self.halt_count = 0                   # halts so far (the controller's start generation)
         self._retry: Optional[tuple[str, bool]] = None
         self._mon: Optional[threading.Thread] = None
         self._mon_stop = threading.Event()
@@ -208,12 +225,13 @@ class SafetySupervisor:
 
     @property
     def guarded_outputs(self) -> int:
-        fn = self.guarded_fn
+        fn = self._guarded_fn
         if fn is not None:
             try:
                 return int(fn())
-            except Exception:  # noqa: BLE001 - fall back to the last fixed mask
-                pass
+            except Exception:  # noqa: BLE001 - fails closed: every output but the heartbeat
+                hb = self.heartbeat_output
+                return F.ALL_OUTPUTS_MASK & ~((1 << (hb - 1)) if 1 <= hb <= F.N_OUTPUTS else 0)
         return self._guarded
 
     @guarded_outputs.setter
@@ -222,24 +240,17 @@ class SafetySupervisor:
 
     # ------------------------------------------------------------------ channels
     @property
-    def mc(self) -> Optional[MotionController]:
-        """The raw main channel (the owner's internals only)."""
-        return self._mc
-
-    @property
     def connected(self) -> bool:
         return self._mc is not None
 
     def open(self, cfg: TransportConfig, pulses_per_mm: float) -> MotionController:
         """Create the main channel (guarded) and the halt channel; does not send anything."""
         self.close()
-        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm)
-        mc.guard = self._guard
+        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm, guard=self._guard)
         self._mc = mc
         hcfg = replace(cfg, timeout_ms=self.halt_timeout_ms,
                        fifo_time_ms=self.halt_timeout_ms * self.halt_sends, max_recv=1)
-        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm)
-        self._halt.guard = self._halt_guard
+        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm, guard=self._halt_guard)
         self._latch = False
         self.link_ok = False
         self._lost = False
@@ -316,12 +327,16 @@ class SafetySupervisor:
         n = self.heartbeat_output
         if not n or req.addr != F.REG_MAILBOX or len(req.values) < 4:
             return False
-        bit = 1 << ((n - 1) if n <= 16 else (n - 17))
-        return req.values[1] in (F.SYS_OUTPUTS, F.SYS_OUTPUTS_EXT) and req.values[2] == bit
+        try:
+            sub, bit = F.output_bit(n)
+        except ValueError:
+            return False
+        return req.values[1] == sub and req.values[2] == 1 << bit
 
     # ------------------------------------------------------------------ halt
     def safe_halt(self, reason: str, pause: bool = False, latch: bool = True) -> HaltResult:
         """Bring the card to a safe state (see the module doc); idempotent, never raises."""
+        self.halt_count += 1                  # every halt makes pending start requests stale
         if latch:
             self._latch = True
             self._latch_reason = reason

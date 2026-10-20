@@ -121,7 +121,7 @@ def test_excepthooks_halt_and_latch(make_ctl):
         assert ctl.fsm.state == SafetyState.FAULT and "buggy-thread" in ctl.fsm.fault
         assert wait_until(lambda: safe(sim), 0.5) is not None
         assert ctl.wait_job(5)
-        assert ctl.reset_fault() and ctl.fsm.state == SafetyState.DISARMED
+        assert ctl.reset_fault() and ctl.fsm.state == SafetyState.PAUSED     # breakpoint kept
         # the main-thread hook (Qt routes slot exceptions there)
         try:
             raise ValueError("main-thread bug")
@@ -149,7 +149,7 @@ def test_close_event_halts_and_disconnects(make_ctl, monkeypatch):
     win.close()
     dt, travel = w.until_safe(1.0)
     assert dt is not None and dt < 0.5 and travel < 20.0
-    assert not ctl.sup.connected
+    assert not ctl._sup.connected
     sim.stop()
 
 

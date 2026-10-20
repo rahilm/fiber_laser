@@ -86,6 +86,9 @@ class Job:
     process_time_s: float = 0.0        # estimated card time in timed waits / Z moves (not in duration_s)
     manu: list = field(default_factory=list)   # (wire index, process.ManuItem) in emission order
     cut_blocks: list = field(default_factory=list)   # (first wire index, end wire index, layer) per LaserOn..LaserOff
+    # the layer parameters the job was compiled with (the document's, merged with the machine
+    # layer table by compile_job): a resume re-pierces with these (resume_items)
+    layers: dict = field(default_factory=dict)
     pulse_carry: tuple[float, float] = (0.0, 0.0)    # FUN_00473bd0 remainder after the last motion item
     # wire index where each ManuItem's FIFO expansion starts (frame size test granularity,
     # FUN_10043c20); only valid for this Job's own ``wire`` list (not copied by dataclasses.replace)
@@ -360,7 +363,8 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     if PACK_WIRE and type(em) is Emitter and isinstance(getattr(em, "wire", None), list) and not em.wire:
         builder = WireBuilder()              # packed numpy storage, same items (nc/packed.py)
         em.wire, em.starts = builder, builder.starts()  # type: ignore[assignment]
-    job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run)
+    job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run,
+              layers=dict(doc.layers) if doc is not None else {})
     period = m.period_ms
     rapid_len = 0.0
     pierces = 0
@@ -673,6 +677,10 @@ def resume_items(job: Job, wire_index: int, doc: Optional[Document] = None) -> l
     the layer of the cut block (``Job.cut_blocks``, LaserOn .. LaserOff) containing
     ``wire_index``, otherwise ``[]``.  Like the job loop it sends no laser sync on (parity
     JB-04).  INFERRED: the original's resume path was not traced.
+
+    The layer values are the ones the job was compiled with (``Job.layers``: the document's
+    merged with the machine layer table), so the re-pierce cuts like the original start-cut;
+    ``doc`` only supplies them for a job without (older pickles, hand-made jobs).
     """
     if not job.machine.process_config().enabled:
         return []
@@ -683,7 +691,9 @@ def resume_items(job: Job, wire_index: int, doc: Optional[Document] = None) -> l
             break
     if layer is None:
         return []
-    layers = dict(doc.layers) if doc is not None else {}
+    layers = dict(getattr(job, "layers", None) or {})
+    if not layers and doc is not None:
+        layers = dict(doc.layers)
     cfg = job.machine.process_config()
     seq = P.ProcessSequencer(cfg, layers, job.dry_run)
     return active_profile().process.ManuEncoder(cfg, layers, job.dry_run).encode_all(seq.start_cut(layer))

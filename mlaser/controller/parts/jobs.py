@@ -67,7 +67,7 @@ class JobRunnerPart:
         return lim or PF.travel_from_machine(self.machine)
 
     def job_emits(self, job) -> bool:
-        return (not getattr(job, "dry_run", False)) and wire_emits(job.wire, self.sup.guarded_outputs)
+        return (not getattr(job, "dry_run", False)) and wire_emits(job.wire, self._sup.guarded_outputs)
 
     def _refuse(self, rep) -> bool:
         refused = super()._refuse(rep)
@@ -78,14 +78,23 @@ class JobRunnerPart:
     # ------------------------------------------------------------------ start
     def start(self, document, selected_only: bool = False) -> None:
         if self.breakpoint is not None and not self._busy():
-            self.resume()
+            self.resume(document=document)       # refused when it is not the paused job's document
             return
         self._start_doc(document, selected_only, False, "process")
 
     def dry_run(self, document) -> None:
         self._start_doc(document, False, True, "dry_run")
 
+    def _fresh_head(self) -> tuple[float, float]:
+        """The head position read from the card now (the poll's cached one when the read
+        fails); also stored as the state's position, which compiles and placements use."""
+        x, y = self._current_xy()
+        with self._slock:
+            self._s.x, self._s.y = x, y
+        return x, y
+
     def _start_doc(self, document, selected_only, dry, mode) -> None:
+        gen = self.start_generation()               # the request: a Stop from now on cancels it
         if not self._motion_ok("start"):
             return
         if self._busy():
@@ -97,12 +106,14 @@ class JobRunnerPart:
         if not getattr(document, "parts", None) or (selected_only and not any(p.selected for p in document.parts)):
             self._log("mp74: graphic data is empty, cannot start")
             return
-        self.document = document
+        if not self._start_gate(mode if mode == "dry_run" else "start", generation=gen):
+            return                                  # not idle (jog, move, coasting): no compile
         for fn in list(self.job_start_hooks):
             try:
                 fn(document)
             except Exception as e:  # noqa: BLE001 - a hook must not stop the job
                 self._log(f"job start hook failed: {e}")
+        self._fresh_head()                          # compile from where the head is now
         try:
             job = self._compile(document, selected_only, dry)
         except Exception as e:  # noqa: BLE001 - surface CAM errors to the user
@@ -112,17 +123,72 @@ class JobRunnerPart:
             self._log("mp74: nothing to cut")
             return
         emits = self.job_emits(job)
-        rep = self.preflight("start" if emits else "dry_run", document, selected_only, job=job, emits=emits)
+        action = "start" if emits else "dry_run"
+        rep = self.preflight(action, document, selected_only, job=job, emits=emits)
         if self._refuse(rep):
+            return
+        if not self._start_gate(action, job=job, generation=gen, emits=emits):
             return
         if job.dry_run and mode == "process":
             self._log("laser disabled: running the job as a dry run")
-        self._run_job(job, mode, job.summary(), emits=emits)
+        self.document = document
+        self._run_job(job, mode, job.summary(), emits=emits, generation=gen)
+
+    def start_job(self, job, generation: Optional[int] = None) -> bool:
+        """Run a :class:`mlaser.services.jobs.PlannedJob` (the JobSubmitter protocol: the plan
+        the canvas shows, compiled off the GUI thread) without recompiling it: connected, idle,
+        no alarms, the job-start hooks with the unplaced document, the pre-flight on the plan,
+        then the start gate (``generation`` = :meth:`start_generation` read when the operator
+        asked for the start; a Stop or a halt since then refuses it, as does a head that moved
+        away from the plan's start).  Returns True when the job started."""
+        plan = job
+        frame = plan.mode == "frame"
+        action = "frame" if frame else "start"
+        if not self._motion_ok(action):
+            return False
+        if self._busy():
+            self._log("a job is already running")
+            return False
+        job = plan.job
+        if frame:
+            if self._refuse(self.preflight("frame", job=job, emits=False)):
+                return False
+            if not self._start_gate("frame", job=job, generation=generation):
+                return False
+            x0, y0, x1, y1 = plan.document.bbox()
+            return self._run_job(job, "frame", f"frame {x1 - x0:.1f} x {y1 - y0:.1f} mm", track=False,
+                                 generation=generation)
+        if self.active_alarms:
+            self._log("mp74: cannot start while alarms are active (Clear Alarm first)")
+            return False
+        src = plan.source if plan.source is not None else plan.document
+        for hook in list(self.job_start_hooks):
+            try:
+                hook(src)
+            except Exception as e:  # noqa: BLE001 - a hook must not stop the job
+                self._log(f"job start hook failed: {e}")
+        if not job.wire:
+            self._log("mp74: nothing to cut")
+            return False
+        emits = self.job_emits(job)
+        action = "start" if emits else "dry_run"
+        if self._refuse(self.preflight(action, src, plan.selected_only, job=job, emits=emits)):
+            return False
+        if not self._start_gate(action, job=job, generation=generation, emits=emits):
+            return False
+        if job.dry_run and plan.mode == "process":
+            self._log("laser disabled: running the job as a dry run")
+        self.document = src
+        return self._run_job(job, plan.mode, job.summary(), emits=emits, generation=generation)
 
     def frame(self, document) -> None:
         """mp58 Frame: trace the job bounding box with the laser off."""
+        gen = self.start_generation()
         if not self._motion_ok("frame") or self._busy():
             return
+        if not self._start_gate("frame", generation=gen):
+            return
+        head = self._fresh_head()
         if hasattr(document, "bbox"):
             from ...nc.compiler import placed_document
             bb = placed_document(self.place(document)).bbox()
@@ -132,11 +198,13 @@ class JobRunnerPart:
             self._log("mp78: graphic data is empty, cannot go frame")
             return
         from ...nc import compile_items, frame_items
-        job = compile_items(frame_items(bb, self.machine.frame_speed), self.machine,
-                            (self._s.x, self._s.y), dry_run=True)
+        job = compile_items(frame_items(bb, self.machine.frame_speed), self.machine, head, dry_run=True)
         if self._refuse(self.preflight("frame", job=job, emits=False)):
             return
-        self._run_job(job, "frame", f"frame {bb[2] - bb[0]:.1f} x {bb[3] - bb[1]:.1f} mm", track=False)
+        if not self._start_gate("frame", job=job, generation=gen):
+            return
+        self._run_job(job, "frame", f"frame {bb[2] - bb[0]:.1f} x {bb[3] - bb[1]:.1f} mm", track=False,
+                      generation=gen)
 
     # ------------------------------------------------------------------ streaming
     def _halt_params(self):
@@ -151,9 +219,9 @@ class JobRunnerPart:
         from .. import stream as S
         kw = dict(max_buffer_ms=self.max_buffer_ms, pwm_freq=int(self.machine.pt_laser_freq))
         if self._use_process():
-            policy = dict(armed=bool(emits and self.fsm.armed), guarded=self.sup.guarded_outputs,
-                          halt=asdict(self._halt_params()), link_deadline_ms=self.sup.link_deadline_ms,
-                          halt_timeout_ms=self.sup.halt_timeout_ms, parent_timeout_s=self.child_parent_timeout_s,
+            policy = dict(armed=bool(emits and self.fsm.armed), guarded=self._sup.guarded_outputs,
+                          halt=asdict(self._halt_params()), link_deadline_ms=self._sup.link_deadline_ms,
+                          halt_timeout_ms=self._sup.halt_timeout_ms, parent_timeout_s=self.child_parent_timeout_s,
                           follower_regs=(PF.REG_ONBZF, PF.N_ONBZF) if (self._zf_type() and self.interlocks.cfg.follower) else None)
             ps = S.ProcessStreamer(self.cfg, self.position_ppm, policy=policy, stall_s=self.child_stall_s, **kw)
             ps.on_status = self._stream_status
@@ -166,7 +234,7 @@ class JobRunnerPart:
         return js
 
     def _child_alive(self) -> None:
-        self.sup.child_seen = time.monotonic()
+        self._sup.child_seen = time.monotonic()
 
     def _use_process(self) -> bool:
         if self.stream_process is not None:
@@ -175,10 +243,18 @@ class JobRunnerPart:
 
     def _run_job(self, job, mode: str, what: str, track: bool = True, base_job=None,
                  offset: int = 0, after: Optional[Callable[[bool], None]] = None,
-                 emits: Optional[bool] = None, resume: bool = False) -> bool:
+                 emits: Optional[bool] = None, resume: bool = False,
+                 generation: Optional[int] = None) -> bool:
         """Stream ``job`` in a worker thread.  ``base_job``/``offset`` map the streaming wire index
         to the breakpoint job (resume jobs); ``track=False`` for frame/laser-test/aux moves.
-        Returns False when the safety state refused the start."""
+        Returns False when the safety state refused the start (or a Stop came after the
+        request ``generation``: the gate checked it, this closes the window up to the worker)."""
+        # the job's cancel flag exists before the last generation check: a Stop that advances
+        # the generation after the check sets this flag (stop() always sets the current one)
+        self._cancel = threading.Event()
+        if generation is not None and generation != self.start_generation():
+            self._gate_refuse(mode, "Stop or a halt since the request (press Start again)")
+            return False
         if emits is None:
             emits = self.job_emits(job)
         why = self.fsm.job_started(bool(emits))
@@ -186,7 +262,7 @@ class JobRunnerPart:
             self._log(why, logging.WARNING)
             audit("start_refused", logging.WARNING, mode=mode, reason=why)
             return False
-        self.sup.clear_latch(f"{mode} start")
+        self._sup.clear_latch(f"{mode} start")
         if base_job is None and track:
             self.job = job
         self._bp_job = (base_job or job) if track else None
@@ -194,7 +270,6 @@ class JobRunnerPart:
         self._run_offset = offset
         self._exec_index = -1
         self._program_ran = True             # VM +0x38 (FUN_10055840, event 9 "start manu")
-        self._cancel = threading.Event()
         self._paused = False
         self._pausing = False
         self._stop_reason = ""
@@ -211,7 +286,7 @@ class JobRunnerPart:
         if hasattr(streamer, "on_event"):
             streamer.on_event = self._stream_event
         markers = (base_job or job).markers
-        f0 = (self.sup.fifo_frames, self.sup.fifo_emitting)
+        f0 = (self._sup.fifo_frames, self._sup.fifo_emitting)
         self.events.publish(EV.JobStarted(mode, what, resume=resume, tracked=track))
         last_pub = [0.0]
 
@@ -245,8 +320,8 @@ class JobRunnerPart:
                 # process streamer: the parent's link watch starts with the child's first
                 # message (0 = not seen yet; the child's start-up is bounded by
                 # ProcessStreamer.startup_s, and the card has nothing of this job before it)
-                self.sup.child_seen = 0.0
-                self.sup.streaming = "process" if self._use_process() else "thread"
+                self._sup.child_seen = 0.0
+                self._sup.streaming = "process" if self._use_process() else "thread"
                 streamer.run_job(job, progress, self._cancel, lambda: self._paused)
                 if self._cancel.is_set():
                     reason = self._stop_reason or ("paused" if self._pausing else "stopped")
@@ -271,20 +346,20 @@ class JobRunnerPart:
                 logging.getLogger("mlaser.controller").exception("job worker")
                 self.raise_fault(f"{mode}: unexpected error {type(e).__name__}: {e}")
             finally:
-                if self.sup.streaming == "process" and self._mc is not None and self.sup.child_seen:
+                if self._sup.streaming == "process" and self._mc is not None and self._sup.child_seen:
                     # the child owned the link during the job and relayed the card's status
                     # until child_seen; the parent's own connection last heard the card before
                     # the job, so without this the idle deadline (1.5 s) counted the whole job
                     # as silence and a stop / hold right after it read as a lost link
-                    self._mc.last_ok = max(self._mc.last_ok, self.sup.child_seen)
-                self.sup.streaming = None
+                    self._mc.last_ok = max(self._mc.last_ok, self._sup.child_seen)
+                self._sup.streaming = None
                 if not ok:
-                    self.sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
+                    self._sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
                 self._exec_index = getattr(streamer, "exec_index", self._exec_index)
                 b = getattr(streamer, "buf", None)
                 self.stream_stats = b if isinstance(b, dict) else (b.__dict__.copy() if b else {})
-                frames = self.sup.fifo_frames - f0[0]
-                audit("fifo", mode=mode, frames=frames, emitting=self.sup.fifo_emitting - f0[1],
+                frames = self._sup.fifo_frames - f0[0]
+                audit("fifo", mode=mode, frames=frames, emitting=self._sup.fifo_emitting - f0[1],
                       ok=ok, reason=reason[:160])
                 if (not ok and track and self._bp_job is not None and self.fsm.faulted
                         and self.breakpoint is None and not self._pausing):
@@ -333,6 +408,7 @@ class JobRunnerPart:
         """Latch a FAULT: halt the card at once (halt channel), cancel the job (the worker keeps a
         breakpoint), publish the state change.  Callable from any thread."""
         first = self.fsm.raise_fault(reason)
+        self._invalidate_starts("fault")
         self._log(f"FAULT: {reason}" if first else f"(fault already latched) {reason}", logging.ERROR)
         audit("fault", logging.ERROR, reason=reason, first=first, job=self._busy())
         if self._busy():
@@ -342,19 +418,20 @@ class JobRunnerPart:
             self._cancel.set()
         self._jogging = None
         self._jog_active = False
-        if self.sup.connected:
-            self.sup.safe_halt(f"fault: {reason}")
+        if self._sup.connected:
+            self._sup.safe_halt(f"fault: {reason}")
 
     def reset_fault(self) -> bool:
         """Operator reset of a latched FAULT: link must answer, the card alarms are cleared
         (``[9999, 5, 0, 0]``) and must stay clear, no interlock may hold.  The machine is
-        disarmed afterwards; a breakpoint is kept for Resume."""
+        disarmed afterwards; a breakpoint is kept for Resume, and with it the job stays active
+        (FSM PAUSED, :meth:`job_active`): the document stays locked until Resume or Stop."""
         if not self.fsm.faulted and not self.fsm.fault:
             return True
         if self._busy():
             self._log("fault reset refused: the job worker is still stopping")
             return False
-        if self.sup.connected:
+        if self._sup.connected:
             try:
                 self._mc.reset_alarms()
                 st = self._mc.read_status()
@@ -381,8 +458,8 @@ class JobRunnerPart:
             self._log(f"fault reset refused: interlock active: {why}", logging.WARNING)
             return False
         reason = self.fsm.fault
-        self.fsm.reset()
-        self.sup.clear_latch("fault reset")
+        self.fsm.reset(paused=self.breakpoint is not None)
+        self._sup.clear_latch("fault reset")
         audit("fault_reset", reason=reason)
         self._log("fault reset: the machine is disarmed" + (" (breakpoint kept: Resume continues there)"
                                                             if self.breakpoint is not None else ""))
@@ -394,8 +471,9 @@ class JobRunnerPart:
     def safe_halt(self, reason: str = "") -> None:
         """Stop motion, PWM 0, process outputs off, follower stop, FIFO stop + clear (each
         command independent), and stop the worker without waiting for it."""
-        if self.sup.connected:
-            self.sup.safe_halt(reason or "safe_halt")
+        self._invalidate_starts("safe_halt")
+        if self._sup.connected:
+            self._sup.safe_halt(reason or "safe_halt")
         self._jogging = None
         self._jog_active = False
         if self._busy():
@@ -419,12 +497,18 @@ class JobRunnerPart:
         if st is not None and hasattr(st, "set_hold"):
             st.set_hold(True)
         if self.pause_mode == "fifo":
-            hc = self.sup._halt_channel()
+            hc = self._sup._halt_channel()
             self._try("pause", hc.fifo_stop) if hc is not None else None
             self._s.mode = "pause"
             self.fsm.job_paused()
             self._log("paused (FIFO stop)")
             return
+        self._pause_to_breakpoint()
+
+    def _pause_to_breakpoint(self, blocking: bool = False) -> None:
+        """The breakpoint pause: cancel the stream, halt (pause halt), keep the executed wire
+        index as the breakpoint once the worker ended (``blocking``: wait for it here)."""
+        st = self._streamer
         bp_job, offset = self._bp_job, self._run_offset
         self._pausing = True
         self._stop_reason = "paused"
@@ -434,14 +518,14 @@ class JobRunnerPart:
         self._cancel.set()
         if st is not None and hasattr(st, "set_cancel"):
             st.set_cancel()
-        self.sup.safe_halt("pause", pause=True)
+        self._sup.safe_halt("pause", pause=True)
 
         def finish():
             if self._worker is not None:
                 self._worker.join(timeout=10.0)
             if bp_job is None:                    # frame / laser test: a plain stop
                 self._paused = self._pausing = False
-                hc = self.sup._halt_channel()
+                hc = self._sup._halt_channel()
                 if hc is not None:
                     self._try("stop", hc.fifo_clear)
                 with self._slock:
@@ -458,19 +542,23 @@ class JobRunnerPart:
 
         w = self._worker
         if w is not None and w is not threading.current_thread():
-            w.join(timeout=0.5)
+            w.join(timeout=10.0 if blocking else 0.5)
         if w is None or not w.is_alive():
             finish()
         else:
             threading.Thread(target=finish, name="mlaser-pause", daemon=True).start()
 
     def _set_breakpoint(self, job, idx: int, why: str) -> None:
-        from ...nc.resume import Breakpoint, BreakpointStore, position_mm
-        hc = self.sup._halt_channel()
+        from ...nc.resume import Breakpoint, BreakpointStore, document_key, position_mm
+        hc = self._sup._halt_channel()
         if hc is not None:
             self._try("pause", hc.fifo_clear)
         x, y = position_mm(job, idx)
-        self.breakpoint = Breakpoint(job, idx, x, y)
+        try:
+            key = document_key(self.document)
+        except Exception:  # noqa: BLE001 - unknown: Resume then cannot compare (logged)
+            key = ""
+        self.breakpoint = Breakpoint(job, idx, x, y, doc_key=key)
         self._paused = False
         with self._slock:
             self._s.mode = "pause"
@@ -486,45 +574,62 @@ class JobRunnerPart:
         audit("breakpoint", index=idx, x=round(x, 3), y=round(y, 3), why=why[:120])
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
 
-    def resume(self, mode: str = "exact") -> None:
-        """Continue: from the breakpoint (re-run the contour's pierce block there, laser-off
-        rapid from the current position), or release the FIFO hold in ``fifo`` mode.  Refused
-        while a fault is latched; a resume that fires the laser needs the machine armed and
-        passes the pre-flight check (travel, homed, alarms)."""
+    def resume(self, mode: str = "exact", document=None) -> None:
+        """Continue from the breakpoint: laser-off rapid from the head back to it, the
+        contour's start-cut (re-pierce) there, then the rest of the wire.  Refused while a
+        fault is latched; it passes the pre-flight (travel, homed, alarms, arming when it fires)
+        and the start gate.  ``document``: the document open now - refused when it is not the
+        one the paused job was started from (open it again, or Stop to drop the breakpoint).
+
+        ``pause_mode="fifo"``: the FIFO hold is not released in place (the beam would restart
+        mid-contour with no checks); the hold becomes a breakpoint first (the stream is
+        cancelled and the card halted) and the resume runs from it like any other."""
         if self._busy() and self._paused:
             if self.fsm.faulted:
                 self._log(f"resume refused: a fault is latched ({self.fsm.fault})")
                 return
-            self._paused = False                   # the streamer restarts its own hold
-            st = self._streamer
-            if st is not None and hasattr(st, "set_hold"):
-                st.set_hold(False)
-            self._s.mode = self._job_mode or "process"
-            self.fsm.job_resumed()
-            self._log("resumed")
-            return
+            if self.pause_mode == "fifo" and not self._pausing:
+                self._log("resume from the FIFO hold: continuing through a breakpoint (re-pierce)")
+                self._pause_to_breakpoint(blocking=True)
+                if self._busy() or self.breakpoint is None:
+                    self._log("resume refused: the held job did not stop in time", logging.WARNING)
+                    return
+            else:
+                return                             # a breakpoint pause is still being taken
+        gen = self.start_generation()
         bp = self.breakpoint
         if bp is None or self._busy() or not self._motion_ok("resume"):
             return
         if self.active_alarms:
             self._log("cannot resume while alarms are active (Clear Alarm first)")
             return
+        if document is not None and getattr(bp, "doc_key", ""):
+            from ...nc.resume import document_key
+            if document_key(document) != bp.doc_key:
+                self._gate_refuse("resume", "the open document is not the one the paused job was "
+                                  "started from: open that document again, or Stop to abandon the breakpoint")
+                return
+        if not self._start_gate("resume", generation=gen, resume=True):
+            return
         from ...nc.resume import resume_job
-        rj = resume_job(bp.job, bp.index, (self._s.x, self._s.y), mode=mode, doc=self.document)
+        head = self._fresh_head()                   # the laser-off rapid back starts here
+        rj = resume_job(bp.job, bp.index, head, mode=mode, doc=self.document)
         emits = self.job_emits(rj)
         if self._refuse(self.preflight("resume", self.document, job=rj, emits=emits)):
+            return
+        if not self._start_gate("resume", job=rj, generation=gen, emits=emits, resume=True):
             return
         self.breakpoint = None
         self.events.publish(EV.BreakpointChanged(None))
         if not self._run_job(rj, bp.mode, f"resume from wire {bp.index}", base_job=bp.job,
-                             offset=-rj.resume_offset, emits=emits, resume=True):
+                             offset=-rj.resume_offset, emits=emits, resume=True, generation=gen):
             self.breakpoint = bp                   # refused by the safety state: keep it
             self.events.publish(EV.BreakpointChanged(bp))
 
     def resume_saved(self, document, autosave_dir: Optional[str] = None, mode: str = "contour") -> bool:
         """BreakCon after a restart: compile ``document`` and continue from the newest
         AutosaveParam record (rebuild index convention, see mlaser.nc.resume)."""
-        from ...nc.resume import Breakpoint, BreakpointStore, position_mm
+        from ...nc.resume import Breakpoint, BreakpointStore, document_key, position_mm
         d = autosave_dir or self.autosave_dir
         if not d or not self._ok():
             return False
@@ -537,7 +642,7 @@ class JobRunnerPart:
             return False
         x, y = position_mm(job, idx)
         self.job = job
-        self.breakpoint = Breakpoint(job, idx, x, y)
+        self.breakpoint = Breakpoint(job, idx, x, y, doc_key=document_key(document))
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
         self.resume(mode)
         return True
@@ -557,23 +662,27 @@ class JobRunnerPart:
           (state 11) skips the ``[101]``.
         """
         done = threading.Event()
+        # first: every start requested before this Stop is stale (a plan still compiling, a
+        # start between its gate and its worker: _run_job checks it after making its cancel
+        # flag, which is set just below)
+        self._invalidate_starts("stop")
         running = self._busy()
         self._stop_reason = "stopped by operator"
+        self._cancel.set()
         if running:
             self._paused = True                      # hold: no FIFO activity from the streamer
             st = self._streamer
             if st is not None and hasattr(st, "set_cancel"):
                 st.set_cancel()
-            self._cancel.set()
         self._jogging = None
         self._jog_active = False
         audit("stop", running=running, breakpoint=self.breakpoint is not None)
 
         def do_stop():
             try:
-                if self.sup.connected:
+                if self._sup.connected:
                     if running:
-                        self.sup.safe_halt("stop")
+                        self._sup.safe_halt("stop")
                     else:
                         if self.breakpoint is None and self._s.connected:
                             self._try("stop", self._mc.command, [CANCEL_CMD])
@@ -597,7 +706,7 @@ class JobRunnerPart:
                 self._log("stopped")
             except Exception:  # noqa: BLE001 - a stop must always complete
                 logging.getLogger("mlaser.controller").exception("stop")
-                self.sup.safe_halt("stop (after an error)")
+                self._sup.safe_halt("stop (after an error)")
             finally:
                 done.set()
 
@@ -607,25 +716,37 @@ class JobRunnerPart:
         return done
 
     def _along(self, distance: float) -> None:
+        """Backward/Forward along the path from the breakpoint.  The move replays the path's
+        step deltas from the breakpoint position; it starts with a laser-off rapid from the head
+        (read back from the card) to the breakpoint, so a jog or a move while paused never
+        shifts it, and the pre-flight checks the move's whole extent from the head, not only
+        its end.  The start gate checks the head is still where the move starts."""
+        gen = self.start_generation()
         bp = self.breakpoint
         if bp is None:
             self._log("mp61/mp62: Backward/Forward only while a job is paused")
             return
         if self._busy() or not self._motion_ok("Backward/Forward"):
             return
+        if not self._start_gate("move", generation=gen, resume=True):
+            return
         from ...nc.resume import Breakpoint, along_path
-        seg, new = along_path(bp.job, bp.index, distance)
+        # from the head as it is (a laser-off rapid back to the breakpoint first when the head
+        # is elsewhere): the pre-flight below then checks the extent that is really travelled
+        seg, new = along_path(bp.job, bp.index, distance, self._fresh_head())
         if not seg.wire:
             self._log("Backward/Forward: at the end of the path")
             return
-        if self._refuse(self.preflight("move", target=seg.end_mm)):
+        if self._refuse(self.preflight("move", job=seg, target=seg.end_mm)):
+            return
+        if not self._start_gate("move", job=seg, generation=gen, resume=True):
             return
         keep = bp
 
         def after(ok: bool) -> None:
             idx = new if ok else keep.index
             x, y = seg.end_mm if ok else (keep.x, keep.y)
-            self.breakpoint = Breakpoint(keep.job, idx, x, y, keep.mode)
+            self.breakpoint = Breakpoint(keep.job, idx, x, y, keep.mode, keep.doc_key)
             with self._slock:
                 self._s.mode = "pause"
             self.events.publish(EV.BreakpointChanged(self.breakpoint))
@@ -633,7 +754,7 @@ class JobRunnerPart:
         self.breakpoint = None
         if not self._run_job(seg, "pause", f"{'backward' if distance < 0 else 'forward'} "
                              f"{abs(distance):.2f} mm along the path (laser off)", track=False,
-                             after=after, emits=False):
+                             after=after, emits=False, generation=gen):
             self.breakpoint = keep
 
     def step_backward(self, length_mm: float) -> None:

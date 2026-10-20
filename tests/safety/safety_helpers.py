@@ -65,7 +65,10 @@ class Watch:
 
 
 def start_and_run(ctl, doc=None, run_s: float = 0.6):
-    """Start a long job and wait until the card is cutting for ``run_s``."""
+    """Start a long job and wait until the card is cutting for ``run_s``.  Like an operator, it
+    waits for the card to come to rest first (the start gate refuses a start while the axes
+    still move, e.g. the pessimistic simulator's halt lag after a stop)."""
+    wait_until(lambda: stopped(ctl.sim), 5)
     ctl.start(doc or rect_doc())
     assert wait_until(lambda: ctl.sim.state.fifo_running and ctl.sim.state.laser, 20), "job did not start"
     time.sleep(run_s)

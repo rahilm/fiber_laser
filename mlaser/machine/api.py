@@ -75,7 +75,6 @@ class MachineAPI(Protocol):
     a feature a controller cannot do is a logged no-op, never a missing attribute."""
 
     events: EV.EventBus
-    laser_enabled: bool              # False: dry-run mode (--laser-off), arming impossible
     active_alarms: list              # controller.alarms.Alarm (card) or text
     breakpoint: Any                  # nc.resume.Breakpoint while paused at a breakpoint
     connect_hooks: list              # fn(controller) after a successful connect
@@ -85,6 +84,12 @@ class MachineAPI(Protocol):
     stream_process: Optional[bool]
     scaling: Any                     # controller.client.CardScaling read from the card, or None
     last_preflight: Optional[PF.PreflightReport]   # report of the last checked action
+
+    @property
+    def laser_enabled(self) -> bool: ...     # False: dry-run mode (--laser-off), arming impossible; read-only
+
+    @property
+    def require_homed(self) -> bool: ...     # pre-flight policy (read-only; configure_safety)
 
     # -- listeners (sugar over ``events``)
     def add_log_listener(self, fn: Callable[[str], None]) -> None: ...
@@ -101,7 +106,11 @@ class MachineAPI(Protocol):
 
     # -- safety
     def safety(self) -> SafetyStatus: ...
-    def arm(self) -> bool: ...
+    def arm(self, reason: str = "", source: str = "operator") -> bool: ...
+    def set_plugin_policy(self, fn: Optional[Callable[[str, str, str], Optional[str]]]) -> None: ...
+    def plugin_policy_check(self, source: str, action: str, reason: str = "") -> Optional[str]: ...
+    def start_generation(self) -> int: ...
+    def start_job(self, job: Any, generation: Optional[int] = None) -> bool: ...
     def disarm(self, reason: str = "") -> None: ...
     def reset_fault(self) -> bool: ...
     def safe_halt(self, reason: str = "") -> None: ...
@@ -142,7 +151,7 @@ class MachineAPI(Protocol):
     def dry_run(self, document: Any) -> None: ...
     def frame(self, document: Any) -> None: ...
     def pause(self) -> None: ...
-    def resume(self, mode: str = "exact") -> None: ...
+    def resume(self, mode: str = "exact", document: Any = None) -> None: ...
     def stop(self, wait: bool = False) -> threading.Event: ...
     def step_backward(self, length_mm: float) -> None: ...
     def step_forward(self, length_mm: float) -> None: ...
@@ -156,7 +165,8 @@ class MachineAPI(Protocol):
 def api_members() -> list[str]:
     """Names of every :class:`MachineAPI` member (methods and attributes)."""
     names = set(getattr(MachineAPI, "__annotations__", {}))
-    names |= {n for n, v in vars(MachineAPI).items() if callable(v) and not n.startswith("_")}
+    names |= {n for n, v in vars(MachineAPI).items()
+              if (callable(v) or isinstance(v, property)) and not n.startswith("_")}
     return sorted(names)
 
 
@@ -166,10 +176,16 @@ def _done_event() -> threading.Event:
     return ev
 
 
+# actions a plugin may only take when the plugin policy allows them (docs/SAFETY.md §3a)
+PLUGIN_PRIVILEGED = ("arm", "reset_fault", "operator_action", "configure_safety")
+
+
 class ControllerFacade(ABC):
     """Shared base of the controllers (MCC + FTC + laser): events, listeners, safety FSM."""
 
-    laser_enabled: bool = True
+    _laser_enabled: bool = True
+    _require_homed: bool = True
+    _plugin_policy: Optional[Callable[[str, str, str], Optional[str]]] = None
     autosave_dir: Optional[str] = None
     stream_process: Optional[bool] = None
     scaling: Any = None
@@ -181,8 +197,10 @@ class ControllerFacade(ABC):
         self.connect_hooks: list = []
         self.job_start_hooks: list = []
         self.coords = None
-        self.require_homed = True            # pre-flight policy (simulator: off, see connect_simulator)
+        self._require_homed = True           # pre-flight policy (simulator: off, see connect_simulator)
         self.fsm = SafetyFSM(self._on_safety_change)
+        self._gen = 0                        # start generation (Stop, halt, fault, disarm, connect)
+        self._gen_lock = threading.Lock()
 
     # -- events ------------------------------------------------------------
     def add_log_listener(self, fn: Callable[[str], None]) -> None:
@@ -207,12 +225,71 @@ class ControllerFacade(ABC):
                 and old in (SafetyState.ARMED, SafetyState.RUNNING, SafetyState.PAUSED):
             self.events.publish(EV.Disarmed(reason))
 
+    # -- start generation (docs/SAFETY.md §5a) --------------------------------
+    def start_generation(self) -> int:
+        """Changes on every Stop, halt, fault, disarm, connect and disconnect.  A caller that
+        takes time between the operator's start request and the start (a plan compiling) reads
+        it at the request and passes it to ``start_job(plan, generation=...)``: a stale
+        generation refuses the start."""
+        return int(self._gen)
+
+    def _invalidate_starts(self, why: str = "") -> None:
+        with self._gen_lock:
+            self._gen += 1
+
+    # -- read-only safety configuration ---------------------------------------
+    @property
+    def laser_enabled(self) -> bool:
+        """False: dry-run mode (``--laser-off``), arming impossible.  Fixed at construction
+        (read-only: a plugin or script cannot lift the dry-run mode)."""
+        return bool(self._laser_enabled)
+
+    @property
+    def require_homed(self) -> bool:
+        """The pre-flight requires X/Y homed (read-only; ``configure_safety`` / the simulator)."""
+        return bool(self._require_homed)
+
+    def _sync_dry_run(self) -> None:
+        if not self.laser_enabled:
+            self.fsm.dry_run = True              # one way: the FSM never lifts it
+
+    # -- plugin policy (docs/SAFETY.md §3a) ----------------------------------
+    def set_plugin_policy(self, fn: Optional[Callable[[str, str, str], Optional[str]]]) -> None:
+        """``fn(source, action, reason) -> None (allowed) | refusal text`` decides what a plugin
+        (``source`` "plugin:<name>") may do of :data:`PLUGIN_PRIVILEGED` (arm, fault reset, a
+        new operator action, safety configuration).  Without a policy those are refused for
+        plugins.  The plugin allowlist UI installs it; every change is audited."""
+        from .audit import audit
+        self._plugin_policy = fn
+        audit("plugin_policy", installed=fn is not None)
+
+    def plugin_policy_check(self, source: str, action: str, reason: str = "") -> Optional[str]:
+        """None when ``source`` may take ``action``, else the refusal (logged and audited).
+        Only plugin sources ("plugin:...") are checked; a failing policy refuses."""
+        if not str(source).startswith("plugin:") or action not in PLUGIN_PRIVILEGED:
+            return None
+        fn = self._plugin_policy
+        if fn is None:
+            why: Optional[str] = (f"{action} refused for {source}: no plugin policy allows it "
+                                  "(the operator grants it in the plugin settings)")
+        else:
+            try:
+                why = fn(source, action, reason)
+            except Exception as e:  # noqa: BLE001 - a broken policy refuses
+                why = f"{action} refused for {source}: plugin policy error ({type(e).__name__}: {e})"
+        if why:
+            from .audit import audit
+            self._log(why, logging.WARNING)
+            audit("plugin_refused", logging.WARNING, source=source, action=action, reason=reason[:120],
+                  refused=why)
+        return why
+
     # -- safety ------------------------------------------------------------
     def safety(self) -> SafetyStatus:
         st = self.fsm.status()
         if st.simulator != self.is_simulator() or st.dry_run != (not self.laser_enabled):
             self.fsm.simulator = self.is_simulator()
-            self.fsm.dry_run = not self.laser_enabled
+            self._sync_dry_run()
             st = self.fsm.status()
         return st
 
@@ -240,9 +317,16 @@ class ControllerFacade(ABC):
         """Commissioning test of the watchdog relay: stop toggling (output off) while held.
         Stopping the heartbeat only ever drops the relay, so it is always allowed."""
 
-    def arm(self) -> bool:
-        self.fsm.dry_run = not self.laser_enabled
+    def arm(self, reason: str = "", source: str = "operator") -> bool:
+        """Arming (laser emission allowed until a disarm, a fault, a disconnect).  ``source``:
+        who asks ("operator" for the UI's confirmed path, "plugin:<name>" for a plugin, which
+        the plugin policy must allow); ``reason`` is audited."""
+        from .audit import audit
+        if self.plugin_policy_check(source, "arm", reason):
+            return False
+        self._sync_dry_run()
         why = self.fsm.arm()
+        audit("arm", logging.WARNING, source=source, reason=reason[:120] or None, refused=why)
         if why:
             self._log(why, logging.WARNING)
             return False
@@ -250,6 +334,7 @@ class ControllerFacade(ABC):
         return True
 
     def disarm(self, reason: str = "") -> None:
+        self._invalidate_starts("disarm")
         if self.job_active() and self.fsm.armed:
             self.stop()
         if self.fsm.disarm(reason or "disarmed by operator"):
@@ -266,6 +351,7 @@ class ControllerFacade(ABC):
     def raise_fault(self, reason: str) -> None:
         """Latch a FAULT and bring the machine to a safe state."""
         first = self.fsm.raise_fault(reason)
+        self._invalidate_starts("fault")
         self._log(f"FAULT: {reason}" if first else f"(fault already latched) {reason}", logging.ERROR)
         self.safe_halt(reason)
 
@@ -393,7 +479,7 @@ class ControllerFacade(ABC):
     @abstractmethod
     def pause(self) -> None: ...
     @abstractmethod
-    def resume(self, mode: str = "exact") -> None: ...
+    def resume(self, mode: str = "exact", document: Any = None) -> None: ...
     @abstractmethod
     def stop(self, wait: bool = False) -> threading.Event: ...
     @abstractmethod

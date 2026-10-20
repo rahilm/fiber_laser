@@ -233,7 +233,7 @@ def apply(ctl: Any, sio: SafetyIO) -> str:
 
     Uses ``ctl.configure_safety(interlocks=, heartbeat_output=, heartbeat_hz=,
     source="operator") -> bool`` (the Safety-core API: refused while a job is active, audited).
-    A controller without it gets :func:`_apply_direct` (temporary shim, see there)."""
+    A controller without it has no interlocks to configure ("unsupported")."""
     if not controller_supports(ctl):
         return "unsupported"
     omap = output_map(ctl)
@@ -246,47 +246,8 @@ def apply(ctl: Any, sio: SafetyIO) -> str:
     if busy(ctl):
         return "pending"
     fn = getattr(ctl, "configure_safety", None)
-    if callable(fn):
-        if not fn(**sio.kwargs(), source="operator"):
-            return "pending" if busy(ctl) else "refused"
-        return "applied"                 # configure_safety audits itself
-    _apply_direct(ctl, sio)
-    _audit(sio)
-    return "applied"
-
-
-def _apply_direct(ctl: Any, sio: SafetyIO) -> None:
-    """TEMPORARY SHIM, remove when r2-safety-core is merged (``configure_safety`` then exists on
-    every controller and ``ctl.sup`` becomes private): sets the monitor's configuration and the
-    supervisor's heartbeat directly, switching the old heartbeat output off first."""
-    ctl.interlocks.cfg = replace(sio.interlocks)
-    ctl.heartbeat_output = int(sio.heartbeat_output)
-    ctl.heartbeat_hz = float(sio.heartbeat_hz)
-    sup = getattr(ctl, "sup", None)
-    if sup is None:
-        return
-    old = int(getattr(sup, "heartbeat_output", 0) or 0)
-    if old != sio.heartbeat_output and getattr(sup, "_hb_state", False):
-        try:
-            sup._heartbeat_write(False)          # the old output off before it is forgotten
-        except Exception:  # noqa: BLE001 - best effort; the watchdog relay drops anyway
-            pass
-    sup.heartbeat_output = int(sio.heartbeat_output)
-    sup.heartbeat_hz = float(sio.heartbeat_hz)
-    if hasattr(sup, "_hb_next"):
-        sup._hb_next = 0.0
-
-
-def _audit(sio: SafetyIO) -> None:
-    c = sio.interlocks
-    try:
-        from mlaser.machine.audit import audit
-        audit("safety_io", gas_low_input=c.gas_low_input, door_input=c.door_input,
-              laser_alarm_input=c.laser_alarm_input, follower=c.follower,
-              heartbeat_output=sio.heartbeat_output, heartbeat_hz=sio.heartbeat_hz)
-    except Exception:  # noqa: BLE001 - the audit log is best effort here
-        log.info("safety I/O applied: %s", sio)
-
-
-__all__ = ["SafetyIO", "Notice", "INTERLOCKS", "NAMES", "KEYS", "from_config", "problems", "notices",
-           "preflight_issues", "heartbeat_problems", "effective", "apply", "current", "busy", "controller_supports"]
+    if not callable(fn):
+        return "unsupported"
+    if not fn(**sio.kwargs(), source="operator"):
+        return "pending" if busy(ctl) else "refused"
+    return "applied"                     # configure_safety audits itself

@@ -117,12 +117,18 @@ def offset_index(job, index: int, distance_mm: float) -> int:
     return i
 
 
-def along_path(job, index: int, distance_mm: float):
+def along_path(job, index: int, distance_mm: float,
+               current_mm: Optional[tuple[float, float]] = None):
     """(laser-off :class:`Job` that moves along the path, new wire index).
 
     Backward replays the step deltas between the new and the current index in reverse with the
     sign flipped; Forward replays them as they are.  All duty/power fields are cleared, so the
     beam stays off; non-step items (process, IO) are skipped.
+
+    The deltas start at the breakpoint position.  With ``current_mm`` (the head, read from the
+    card) away from it - the head decelerated past the breakpoint, or was jogged or moved while
+    paused - the move begins with a laser-off rapid from the head to the breakpoint, so it is
+    never replayed offset; the job's ``start_mm`` is then the head.
     """
     from .compiler import Job
     new = offset_index(job, index, distance_mm)
@@ -139,9 +145,16 @@ def along_path(job, index: int, distance_mm: float):
     sx, sy = pos[max(0, min(index, len(pos) - 1))]
     ex, ey = pos[max(0, min(new, len(pos) - 1))]
     px, py = _ppm(job)
-    j = Job(wire=wire, machine=m, start_mm=(sx / px, sy / py), start_pulses=(sx, sy),
-            end_pulses=(ex, ey), end_mm=(ex / px, ey / py), steps=len(wire),
-            duration_s=len(wire) * m.period_ms / 1000.0, dry_run=True)
+    start_mm, start_pulses = (sx / px, sy / py), (sx, sy)
+    if wire and current_mm is not None and math.dist(current_mm, start_mm) > 1e-6:
+        cur = (float(current_mm[0]), float(current_mm[1]))
+        pre, start_pulses = _rapid_to_pulses(cur, start_mm, (sx, sy), m)
+        wire = pre + wire
+        start_mm = cur
+    steps = sum(1 for w in wire if _is_step(w))
+    j = Job(wire=wire, machine=m, start_mm=start_mm, start_pulses=(int(start_pulses[0]), int(start_pulses[1])),
+            end_pulses=(ex, ey), end_mm=(ex / px, ey / py), steps=steps,
+            duration_s=steps * m.period_ms / 1000.0, dry_run=True)
     return j, new
 
 
@@ -307,9 +320,41 @@ class BreakpointStore:
 
 @dataclass
 class Breakpoint:
-    """A held breakpoint (what UiController keeps while paused)."""
+    """A held breakpoint (what UiController keeps while paused).  ``doc_key`` is the
+    :func:`document_key` of the document the job was started from ("" = unknown): Resume
+    refuses an open document with another key."""
     job: object
     index: int
     x: float
     y: float
     mode: str = "process"
+    doc_key: str = ""
+
+
+def document_key(doc) -> str:
+    """A fingerprint of a document's cutting content: parts in order, their layer, contours
+    (closed flag, every segment's end points, arc centres and direction, rounded to 1 µm) and the
+    layer table's cutting values.  Two snapshots of the same drawing have the same key; an
+    edit, another file or a new document gives another one.  "" for None."""
+    if doc is None:
+        return ""
+    import hashlib
+    h = hashlib.sha1()
+
+    def r(p) -> tuple:
+        return (round(float(p[0]), 3), round(float(p[1]), 3))
+    for part in getattr(doc, "parts", ()) or ():
+        craft = getattr(part, "craft", None)
+        h.update(repr(("P", getattr(craft, "layer", None))).encode())
+        for c in getattr(part, "contours", ()) or ():
+            segs = []
+            for sg in getattr(c, "segments", ()) or ():
+                cen = getattr(sg, "center", None)
+                segs.append((r(sg.start), r(sg.end)) if cen is None else
+                            (r(sg.start), r(sg.end), r(cen), bool(getattr(sg, "ccw", True))))
+            h.update(repr(("C", bool(getattr(c, "closed", True)), segs)).encode())
+    for li, lp in sorted((getattr(doc, "layers", None) or {}).items()):
+        h.update(repr(("L", li, getattr(lp, "speed", None), getattr(lp, "power_pct", None),
+                       getattr(lp, "frequency_hz", None), getattr(lp, "duty_pct", None),
+                       getattr(lp, "gas", None))).encode())
+    return h.hexdigest()

@@ -95,16 +95,11 @@ class ReservedCommandError(PermissionError):
 
 def controller_for(ctl: Any, plugin: str, origin: str) -> Any:
     """What ``ctx.controller`` returns: the controller itself for a built-in plugin, the
-    Safety-core ``plugin_view(ctl, plugin)`` for any other.
-
-    TEMPORARY SHIM (remove the ImportError branch when r2-safety-core is merged): without
-    ``mlaser.controller.plugin_view`` a third-party plugin gets the controller, as before."""
+    Safety-core ``plugin_view(ctl, plugin)`` for any other.  Fails closed: there is no fallback
+    that would hand a third-party plugin the controller itself."""
     if origin == "builtin" or ctl is None:
         return ctl
-    try:
-        from mlaser.controller.plugin_view import plugin_view
-    except ImportError:
-        return ctl
+    from mlaser.controller.plugin_view import plugin_view
     return plugin_view(ctl, plugin)
 
 
@@ -130,7 +125,7 @@ def plugin_policy(config: Any) -> Callable[[str, str, str], Optional[str]]:
 
 def install_policy(ctl: Any, config: Any) -> bool:
     """Give the controller :func:`plugin_policy` (``ctl.set_plugin_policy``, Safety core);
-    False for a controller without that API (feature check until the merge)."""
+    every MachineAPI controller has it (the demo's base implementation included)."""
     fn = getattr(ctl, "set_plugin_policy", None)
     if not callable(fn):
         return False
@@ -315,6 +310,10 @@ class PluginContext:
         locked = getattr(self.host, "document_locked", None)
         if callable(locked) and locked(f"{self.name}: replace the document"):
             raise DocumentLockedError("the document is locked while a job runs or a breakpoint is pending")
+        ctl = getattr(self.host, "ctl", None)
+        job_active = getattr(ctl, "job_active", None)
+        if not callable(locked) and callable(job_active) and job_active():
+            raise DocumentLockedError("the document is locked while a job is active (Stop it first)")
         self.host.docs.replace(doc, path, label or f"{self.name}: replace")
 
     # ------------------------------------------------------------------ hooks

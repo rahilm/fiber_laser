@@ -6,5 +6,5 @@
 * :mod:`.jobs`        compile, pre-flight, the job worker, pause / resume / stop, breakpoints
 
 They share the state ``UiController.__init__`` sets up and talk to the card only through the
-safety supervisor (``self.sup``; ``self._mc`` is its guarded main channel).
+safety supervisor (``self._sup``; ``self._mc`` is its guarded main channel).
 """

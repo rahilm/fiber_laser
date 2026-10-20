@@ -567,7 +567,10 @@ class CardSimulator:
         st = self.state
         p = p + [0] * 4
         if sub == F.SYS_OUTPUTS:
-            m, v = p[0] & 0xFFFF, p[1] & 0xFFFF
+            # the base board has outputs 1..10 only: bits 10..15 of sub 2 address nothing (a
+            # word that puts an output 11..16 there must not switch it, or the simulator would
+            # hide a halt that never reaches the extended IO board)
+            m, v = p[0] & 0x3FF, p[1] & 0x3FF
             st.outputs = (st.outputs & ~m) | (v & m)
         elif sub == F.SYS_OUTPUTS_EXT:
             m, v = (p[0] & 0xFFFF) << 10, (p[1] & 0xFFFF) << 10
@@ -656,9 +659,19 @@ class CardSimulator:
             # [1, mask] / [1, 0x1f, 2, decel, jerk] (FUN_10054900): stop axes; with the
             # decelerating form the running program (FIFO) stops too.
             mask = p[0] if p else 0x1F
+            decel = _s32(p[2]) if len(p) >= 3 else 0
             for a, ax in enumerate(st.axes):
-                if mask >> a & 1:
-                    ax.target, ax.vel, ax.mode = None, 0.0, 0
+                if not mask >> a & 1:
+                    continue
+                if self.pessimistic and decel > 0 and ax.target is not None and ax.mode in (3, 5):
+                    # pessimistic: a jog / move decelerates (v^2 / 2a at its speed) instead of
+                    # stopping dead, so the head is still moving for a moment after the stop
+                    # (the start gate must see it)
+                    left = ax.target - ax.pos
+                    d = min(abs(left), ax.speed * ax.speed / (2.0 * decel * self.ppm))
+                    ax.target = ax.pos + (d if left > 0 else -d)
+                    continue
+                ax.target, ax.vel, ax.mode = None, 0.0, 0
             if len(p) >= 2:
                 self._halt_fifo()
         elif op == F.OP_STOP:

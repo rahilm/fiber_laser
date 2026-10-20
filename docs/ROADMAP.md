@@ -196,18 +196,19 @@ Source: the second review (features, performance, code health), summarised in th
 deliberately out of scope for now.
 
 ### Wave A: safety (first)
-- ☐ one controller start gate: no Stop since the request, card idle, head at the plan start, no
+- ☑ one controller start gate: no Stop since the request, card idle, head at the plan start, no
   breakpoint conflict, interlocks clear (closes P0-2 Stop vs compiling Start, P0-3 stale head
-  position, start-during-jog, Backward/Forward travel after a jog)
-- ☐ P0-1 extended IO (ports 11–26): arming classification, FIFO emission detection, halt words;
-  simulator models the IO split
+  position, start-during-jog, Backward/Forward travel after a jog) (SAFETY.md §5a)
+- ☑ P0-1 extended IO (ports 11–26): arming classification, FIFO emission detection, halt words;
+  simulator models the IO split; the guarded mask fails closed
 - ☐ P0-4 interlocks (gas-low, door, laser alarm) and the heartbeat output configurable through
   ConfigService, Options and the commissioning wizard
-- ☐ disarm after the queue finishes; breakpoint/document lock across fault reset;
+- ☑ disarm after the queue finishes; breakpoint/document lock across fault reset;
   `replace_document` locked during a job; FIFO pause mode latches e-stop; resume re-pierce uses the
   layer table; laser-source guard per device (no simulator hijack); raw laser query guarded;
   guarded-output mask fails closed
-- ☐ plugin trust model: no public bypass of the guard, audited arming, opt-in allowlist
+- ◐ plugin trust model: no public bypass of the guard, audited arming (done, SAFETY.md §3a: the
+  plugin view, the plugin policy hook), opt-in allowlist (the Options UI on the policy hook)
 - ☐ untrusted input limits: .mlz zip-bomb and depth limits, DXF/SVG expansion caps off the GUI
   thread, LAN monitor timeouts and connection cap
 - ☐ the Run screen's controls never hidden by docks (the old Nest panel case)

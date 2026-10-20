@@ -236,7 +236,7 @@ def test_window_preview_is_the_plan_and_start_streams_it(app):
         assert all(a is b for a, b in zip(w.canvas.toolpath, plan.toolpath))
         assert w.canvas.contour_order() == markers(plan.toolpath)
         got = []
-        ctl.start_job = lambda job: got.append(job)
+        ctl.start_job = lambda job, generation=None: got.append(job)
         compiles = w.jobs.stats["compiles"]
         w.control.buttons["mp54"].click()  # the run controls' Start
         w.jobs.settle(w.jobs.last_run, timeout=60)

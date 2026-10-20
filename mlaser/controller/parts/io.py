@@ -20,31 +20,70 @@ class IOPart:
             self._safe("output", self._mc.set_output, int(port), bool(on))
 
     def _port_guarded(self, port: int) -> bool:
-        return bool(port and 1 <= port <= 32 and self.sup.guarded_outputs >> (port - 1) & 1)
+        return bool(port and 1 <= port <= F.N_OUTPUTS and self._sup.guarded_outputs >> (port - 1) & 1)
 
-    def _guarded_outputs_mask(self) -> int:
-        """Outputs that need arming to switch on: the laser outputs only - the shutter/gate and
-        the laser/gate DOs of the laser parameters (``ProcessConfig.do_laser`` too).  Gas
-        valves, red light, follower, dust extraction, lube are not a laser hazard: operators test
-        them by hand while disarmed.  Never the heartbeat output."""
-        m = 0
+    # names of the output map that are never a laser output (operators test them by hand)
+    NON_LASER_OUTPUTS = ("gas", "red_light", "dedust", "lube", "follow")
+
+    def _laser_ports(self) -> tuple[set, bool]:
+        """The configured laser outputs: the shutter/gate of the output map, the process
+        config's laser DO and the laser DOs of the laser parameters (``LGP.DOLaserGate``,
+        ``LGP.DOLaser`` and the CO2 pair).  Returns (ports, complete): ``complete`` is False when
+        a parameter could not be read."""
         pc = getattr(self.machine, "process", None)
         ports = {self.output_map.get("shutter"), getattr(pc, "do_laser", 0) if pc is not None else 0}
+        complete = True
         mp = self.machine
         for k in ("LGP.DOLaserGate", "LGP.DOLaser", "LGP.CO2DOLaserGate", "LGP.CO2DOLaser"):
             try:
-                ports.add(mp.iparam(k, 0))
-            except Exception:  # noqa: BLE001
-                pass
-        for p in ports:
-            if p and 1 <= p <= 32:
-                m |= 1 << (p - 1)
+                ports.add(int(mp.iparam(k, 0)))
+            except Exception:  # noqa: BLE001 - reported by the caller, fails closed
+                complete = False
+        return {int(p) for p in ports if p and 1 <= int(p) <= F.N_OUTPUTS}, complete
+
+    def _mask_warn(self, why: str) -> None:
+        if getattr(self, "_mask_warned", None) != why:
+            self._mask_warned = why
+            self._log(f"guarded outputs: {why}", logging.WARNING)
+
+    def _guarded_outputs_mask(self) -> int:
+        """Outputs that need arming to switch on (port mask, bit n-1 = output n, 1..26): the
+        laser outputs only (:meth:`_laser_ports`).  Gas valves, red light, follower, dust
+        extraction, lube are not a laser hazard: operators test them by hand while disarmed.
+        Never the heartbeat output.
+
+        Fails closed: when a laser parameter cannot be read, every output is guarded; when no
+        laser output is configured at all (the default machine), every output that is not a
+        named non-laser output of the output map is guarded - never mask 0."""
         hb = int(getattr(self, "heartbeat_output", 0) or 0)
-        if hb:
-            m &= ~(1 << (hb - 1))
-        return m
+        hb_bit = (1 << (hb - 1)) if 1 <= hb <= F.N_OUTPUTS else 0
+        try:
+            ports, complete = self._laser_ports()
+        except Exception as e:  # noqa: BLE001 - fail closed
+            ports, complete = set(), False
+            self._mask_warn(f"laser outputs unknown ({type(e).__name__}: {e}): every output is guarded")
+        if not complete:
+            self._mask_warn("a laser output parameter (LGP.DOLaser*) is unreadable: every output is guarded")
+            return F.ALL_OUTPUTS_MASK & ~hb_bit
+        if not ports:
+            m = F.ALL_OUTPUTS_MASK
+            for name, n in self.output_map.items():
+                if (name in self.NON_LASER_OUTPUTS or name.startswith("gas")) and n and 1 <= int(n) <= F.N_OUTPUTS:
+                    m &= ~(1 << (int(n) - 1))
+            pc = getattr(self.machine, "process", None)
+            for n in getattr(pc, "gas_valves", ()) or ():
+                if n and 1 <= int(n) <= F.N_OUTPUTS:
+                    m &= ~(1 << (int(n) - 1))
+            return m & ~hb_bit
+        m = 0
+        for p in ports:
+            m |= 1 << (p - 1)
+        return m & ~hb_bit
 
     def _process_outputs_mask(self) -> int:
+        """Outputs the halt switches off (port mask, bit n-1 = output n, 1..26): the process gas
+        valves, the process laser DO and the configured laser outputs (shutter/gate, laser DOs);
+        never the heartbeat output.  Outputs 11..26 go out with sub 13 (supervisor.halt_steps)."""
         pc = getattr(self.machine, "process", None)
         ports = set()
         if pc is not None:
@@ -54,9 +93,15 @@ class IOPart:
         g = self.output_map.get("gas")
         if g:
             ports.add(g)
+        try:
+            ports |= self._laser_ports()[0]
+        except Exception:  # noqa: BLE001 - the halt goes out with what is known
+            pass
+        hb = int(getattr(self, "heartbeat_output", 0) or 0)
         m = 0
         for p in ports:
-            if 1 <= p <= 16:
+            p = int(p)
+            if 1 <= p <= F.N_OUTPUTS and p != hb:
                 m |= 1 << (p - 1)
         return m
 
@@ -243,6 +288,7 @@ class IOPart:
         """mp51 'Laser': fire the beam in place for ``duration_s`` (zero-motion FIFO steps with the
         laser byte set).  INFERRED: the laser gate is the step item's laser byte.  Needs the
         machine armed."""
+        gen = self.start_generation()
         if not self._motion_ok("laser test") or self._busy():
             return
         if not self._armed_for("laser test"):
@@ -253,11 +299,13 @@ class IOPart:
         pct = self._s.laser_power_pct if power_pct is None else power_pct
         doc = Document(layers={1: LayerParams(1, power_pct=pct)})
         items = [I.LayerChange(1), I.LaserOn(1), I.Delay(duration_s), I.LaserOff()]
-        job = compile_items(items, self.machine, (self._s.x, self._s.y), doc)
+        job = compile_items(items, self.machine, self._fresh_head(), doc)
         if self._refuse(self.preflight("laser_test", emits=True)):
             return
+        if not self._start_gate("laser_test", job=job, generation=gen, emits=True):
+            return
         self._run_job(job, "process", f"laser test {duration_s * 1000:.0f} ms at {pct:.0f} %",
-                      track=False, emits=True)
+                      track=False, emits=True, generation=gen)
 
 
 __all__ = ["IOPart"]

@@ -95,6 +95,10 @@ def test_ui_runs_job_on_simulator(dxf_path):
         assert ctl.arm()
         app.processEvents()
         win.run("machine.home")                        # UNKNOWN protocol -> logged, no crash
+        t0 = time.monotonic()                          # the start gate refuses during Go Origin
+        while ctl._homing and time.monotonic() - t0 < 10:
+            app.processEvents()
+            time.sleep(0.02)
         ctl.start(win.document)
         positions = set()
         end = time.monotonic() + 20

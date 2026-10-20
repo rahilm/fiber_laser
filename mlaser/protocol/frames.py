@@ -591,6 +591,56 @@ def encode_da(channel: int, value: int) -> list[int]:
     return sys_item(SYS_DA, int(channel), int(value))
 
 
+# ----------------------------------------------------------------------------- output numbering
+# Digital outputs 1..10 are on the base board (sub 2, bit k = output k+1); outputs 11..26 are on
+# the extended IO board (sub 13, bit k = output 11+k).  Every encoder agrees (FUN_10030620 = the
+# client's set_output, class 1 sub 4 = encode_output, the start-up's _output_bit).  A *port
+# mask* everywhere in the rebuild (guarded outputs, the halt's process outputs) has bit n-1 =
+# output n, n = 1..26.
+N_OUTPUTS = 26
+N_BASE_OUTPUTS = 10
+ALL_OUTPUTS_MASK = (1 << N_OUTPUTS) - 1
+
+
+def output_bit(port: int) -> tuple[int, int]:
+    """Output ``port`` (1-based) -> (sub-command, bit): 1..10 -> (2, port-1), 11..26 -> (13,
+    port-11).  Raises ValueError for any other port."""
+    p = int(port)
+    if 1 <= p <= N_BASE_OUTPUTS:
+        return int(SYS_OUTPUTS), p - 1
+    if N_BASE_OUTPUTS < p <= N_OUTPUTS:
+        return int(SYS_OUTPUTS_EXT), p - N_BASE_OUTPUTS - 1
+    raise ValueError(f"output {port} out of range 1..{N_OUTPUTS}")
+
+
+def ports_of_sub_mask(sub: int, mask16: int) -> int:
+    """The port mask (bit n-1 = output n) that a sub 2 / sub 13 mask word addresses.
+
+    Sub 2 bits 10..15 are not outputs of the base board; they are mapped onto outputs 11..16
+    here so that a classification fails closed (a guarded output 11..16 is never let through
+    because a card variant might honour them)."""
+    m = int(mask16) & 0xFFFF
+    if sub == SYS_OUTPUTS:
+        return m
+    if sub == SYS_OUTPUTS_EXT:
+        return m << N_BASE_OUTPUTS
+    return 0
+
+
+def sub_masks_of_ports(port_mask: int) -> list[tuple[int, int]]:
+    """A port mask -> the non-empty ``(sub, mask16)`` words that address exactly those outputs:
+    ``(2, outputs 1..10)`` then ``(13, outputs 11..26)``."""
+    pm = int(port_mask) & ALL_OUTPUTS_MASK
+    out: list[tuple[int, int]] = []
+    base = pm & ((1 << N_BASE_OUTPUTS) - 1)
+    ext = (pm >> N_BASE_OUTPUTS) & 0xFFFF
+    if base:
+        out.append((int(SYS_OUTPUTS), base))
+    if ext:
+        out.append((int(SYS_OUTPUTS_EXT), ext))
+    return out
+
+
 def encode_output(port0: int, on: bool) -> list[int]:
     """Class 1 sub 4 (0x100441cd): 0-based output ``port0`` 0..9 -> ``[2, 1<<p, v<<p]``,
     10..25 -> ``[13, 1<<(p-10), v<<(p-10)]``; others produce nothing."""

@@ -91,7 +91,7 @@ def test_dry_run_mode_cannot_be_armed(make_ctl):
 
 def test_undefined_layer_is_refused(make_ctl):
     ctl = make_ctl()
-    sent = ctl.sup.fifo_frames
+    sent = ctl._sup.fifo_frames
     for doc in (rect_doc(w=50, h=50, define=False),
                 rect_doc(w=50, h=50, layer=3)):
         if doc.layers:
@@ -100,13 +100,13 @@ def test_undefined_layer_is_refused(make_ctl):
         rep = ctl.last_preflight
         assert not rep.ok and "layer_undefined" in {i.code for i in rep.errors}
     time.sleep(0.2)
-    assert ctl.sup.fifo_frames == sent and not ctl.sim.state.fifo
+    assert ctl._sup.fifo_frames == sent and not ctl.sim.state.fifo
 
 
 @pytest.mark.parametrize("x0", [50_000.0, -5_000.0])
 def test_out_of_travel_job_is_refused(make_ctl, x0):
     ctl = make_ctl()
-    sent = ctl.sup.fifo_frames
+    sent = ctl._sup.fifo_frames
     ctl.start(rect_doc(x0=x0, w=100, h=100))
     assert "out_of_travel" in ctl.last_preflight.codes()
     ctl.frame(rect_doc(x0=x0, w=100, h=100))
@@ -115,7 +115,7 @@ def test_out_of_travel_job_is_refused(make_ctl, x0):
     ctl.move_to(x0, 0.0)
     assert "out_of_travel" in ctl.last_preflight.codes()
     time.sleep(0.2)
-    assert ctl.sup.fifo_frames == sent and not any(c[0] == 5 for c in ctl.sim.state.commands[n:])
+    assert ctl._sup.fifo_frames == sent and not any(c[0] == 5 for c in ctl.sim.state.commands[n:])
 
 
 def test_card_soft_limits_read_back_define_the_travel(make_ctl):
@@ -128,7 +128,7 @@ def test_card_soft_limits_read_back_define_the_travel(make_ctl):
 
 def test_unhomed_machine_is_refused_when_required(make_ctl):
     ctl = make_ctl()
-    ctl.require_homed = True                          # the real-card default
+    assert ctl.configure_safety(require_homed=True)   # the real-card default
     ctl.start(rect_doc(w=50, h=50))
     assert "not_homed" in ctl.last_preflight.codes()
     ctl.home("XY")
@@ -185,12 +185,12 @@ def test_heartbeat_keeps_its_rate_with_late_timers(make_ctl, monkeypatch):
 
     monkeypatch.setattr(SV.threading, "Event", LateEvent)
     ctl = make_ctl(heartbeat_output=8, heartbeat_hz=2.0)
-    assert isinstance(ctl.sup._mon_stop, LateEvent)
+    assert isinstance(ctl._sup._mon_stop, LateEvent)
     time.sleep(1.0)                        # the lateness estimate settles
-    n0, t0 = ctl.sup.heartbeat_toggles, time.monotonic()
+    n0, t0 = ctl._sup.heartbeat_toggles, time.monotonic()
     time.sleep(4.0)
-    rate = (ctl.sup.heartbeat_toggles - n0) / (time.monotonic() - t0)
-    assert rate >= 0.85 * 4.0, f"{rate:.2f} edges/s at 2 Hz (4 expected), {ctl.sup.heartbeat_errors} failed"
+    rate = (ctl._sup.heartbeat_toggles - n0) / (time.monotonic() - t0)
+    assert rate >= 0.85 * 4.0, f"{rate:.2f} edges/s at 2 Hz (4 expected), {ctl._sup.heartbeat_errors} failed"
 
 
 def test_follower_alarm_holds_through_a_reset(make_ctl):
@@ -282,16 +282,16 @@ def test_heartbeat_output_toggles_and_stops_on_fault(make_ctl):
     while time.monotonic() < t_end:
         seen.add(bool(sim.state.outputs >> 7 & 1))
         time.sleep(0.01)
-    sup = ctl.sup
+    sup = ctl._sup
     assert seen == {True, False} and sup.heartbeat_toggles >= 8, (
         f"{sup.heartbeat_toggles} toggles, {sup.heartbeat_errors} failed writes, "
         f"{time.monotonic() - t0:.2f} s")
     ctl.raise_fault("test fault")
     time.sleep(0.3)
     assert not sim.state.outputs >> 7 & 1
-    n = ctl.sup.heartbeat_toggles
+    n = ctl._sup.heartbeat_toggles
     time.sleep(0.3)
-    assert ctl.sup.heartbeat_toggles == n             # stopped: the watchdog relay drops out
+    assert ctl._sup.heartbeat_toggles == n             # stopped: the watchdog relay drops out
 
 
 OFF_COMMANDS = [

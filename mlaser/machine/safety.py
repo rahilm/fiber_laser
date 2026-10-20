@@ -84,8 +84,10 @@ CMD_FOLLOWER_CANCEL = 101
 FOLLOW_STOP = 5          # [118, 5, 0]
 
 
-def _outputs_class(mask: int, value: int, guarded: int, shift: int = 0) -> Cmd:
-    on = (mask & value & 0xFFFF) << shift
+def _outputs_class(sub: int, mask: int, value: int, guarded: int) -> Cmd:
+    """``[sub, mask, value]`` of sub 2 (outputs 1..10) or sub 13 (outputs 11..26) against the
+    guarded port mask (bit n-1 = output n, :func:`mlaser.protocol.frames.output_bit`)."""
+    on = F.ports_of_sub_mask(sub, int(mask) & int(value))
     if on & guarded:
         return Cmd.EMISSION
     if on:
@@ -96,10 +98,8 @@ def _outputs_class(mask: int, value: int, guarded: int, shift: int = 0) -> Cmd:
 def classify_sys(sub: int, p: Sequence[int], guarded_outputs: int) -> Cmd:
     """A system command ``[9999, sub, p...]`` (mailbox) or FIFO sys item (params ``[sub, p...]``)."""
     p = list(p) + [0, 0, 0, 0]
-    if sub == F.SYS_OUTPUTS:
-        return _outputs_class(p[0], p[1], guarded_outputs)
-    if sub == F.SYS_OUTPUTS_EXT:
-        return _outputs_class(p[0], p[1], guarded_outputs, 16)
+    if sub in (F.SYS_OUTPUTS, F.SYS_OUTPUTS_EXT):
+        return _outputs_class(sub, p[0], p[1], guarded_outputs)
     if sub in (F.SYS_PWM, F.SYS_PWM_BUS):
         # [3, freq, duty, enable]: any duty counts (the enable word's meaning is INFERRED)
         return Cmd.EMISSION if p[1] & 0xFFFFFFFF else Cmd.HALT
@@ -161,7 +161,10 @@ def classify_request(req: F.Request, guarded_outputs: int = 0) -> Cmd:
         return classify_mailbox(req.values, guarded_outputs)
     if a == F.REG_FIFO_CTRL:
         v = req.values[0] if req.values else 0
-        return Cmd.MOTION if v == F.FIFO_START else Cmd.HALT
+        if v in (F.FIFO_CLEAR, F.FIFO_STOP):
+            return Cmd.HALT
+        # FIFO start, and any value the card might take as one (fails closed)
+        return Cmd.MOTION if v == F.FIFO_START else Cmd.MOTION | Cmd.CONFIG
     if a == F.REG_FIFO_DATA:
         try:
             items = F.parse_fifo_items(req.values[1:])
@@ -240,11 +243,23 @@ class SafetyFSM:
         self._fault = ""
         self._fault_t = 0.0
         self.simulator = False
-        self.dry_run = False
+        self._dry_run = False
         self.on_change = on_change
         self.transitions: list[tuple[float, str, str, str]] = []
 
     # ------------------------------------------------------------------ queries
+    @property
+    def dry_run(self) -> bool:
+        """Laser output disabled (``--laser-off``): arming impossible.  One way: it can be
+        switched on, never off again (a new controller is needed for that)."""
+        return self._dry_run
+
+    @dry_run.setter
+    def dry_run(self, v: bool) -> None:
+        if not v and self._dry_run:
+            raise AttributeError("dry-run mode cannot be lifted on a running controller")
+        self._dry_run = bool(v)
+
     @property
     def state(self) -> SafetyState:
         return self._state
@@ -375,14 +390,17 @@ class SafetyFSM:
             self.on_change(st, st, self.status(), reason)
         return first
 
-    def reset(self) -> Optional[str]:
-        """Operator reset of a latched fault (the caller has checked link and alarms)."""
+    def reset(self, paused: bool = False) -> Optional[str]:
+        """Operator reset of a latched fault (the caller has checked link and alarms).
+        ``paused``: a breakpoint of the faulted job is kept, so the job stays active (PAUSED,
+        disarmed) until it is resumed or stopped."""
         with self._lock:
             if not self._fault and self._state != SafetyState.FAULT:
                 return None
             self._fault, self._fault_t = "", 0.0
             self._armed = False
-            new = SafetyState.OFFLINE if self._state == SafetyState.OFFLINE else SafetyState.DISARMED
+            new = (SafetyState.OFFLINE if self._state == SafetyState.OFFLINE
+                   else SafetyState.PAUSED if paused else SafetyState.DISARMED)
         self._go(new, "fault reset by operator")
         return None
 

@@ -28,7 +28,7 @@ from typing import Optional, Sequence
 FOLLOWER_ALARM_WORD = 1        # follower status word 1 (register 10001)
 
 
-@dataclass
+@dataclass(frozen=True)
 class InterlockConfig:
     follower: bool = True
     gas_low_input: int = 0
@@ -42,13 +42,15 @@ class InterlockConfig:
     @classmethod
     def from_values(cls, values: Optional[dict]) -> "InterlockConfig":
         c = cls()
+        kw = {}
         for f in fields(cls):
             k = f"safety.{f.name}"
             if values and k in values:
                 v = values[k]
-                setattr(c, f.name, type(getattr(c, f.name))(v) if not isinstance(getattr(c, f.name), bool)
-                        else str(v).lower() in ("1", "true", "yes", "on"))
-        return c
+                d = getattr(c, f.name)
+                kw[f.name] = (type(d)(v) if not isinstance(d, bool)
+                              else str(v).lower() in ("1", "true", "yes", "on"))
+        return cls(**kw)
 
 
 @dataclass(frozen=True)
@@ -59,10 +61,20 @@ class Trip:
 
 class InterlockMonitor:
     def __init__(self, cfg: Optional[InterlockConfig] = None):
-        self.cfg = cfg or InterlockConfig()
+        self._cfg = cfg or InterlockConfig()
         self.active: dict[str, str] = {}      # source -> message while the condition holds
         self.tripped: set[str] = set()        # sources that tripped and still hold
         self.trips: list[tuple[float, Trip]] = []
+        self._last = 0.0
+
+    @property
+    def cfg(self) -> InterlockConfig:
+        """The configuration (frozen; the owner changes it with ``configure_safety``)."""
+        return self._cfg
+
+    def _configure(self, cfg: InterlockConfig) -> None:
+        self._cfg = cfg
+        self.active, self.tripped = {}, set()
         self._last = 0.0
 
     def _input(self, st, n: int) -> Optional[bool]:
