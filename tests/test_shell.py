@@ -460,3 +460,21 @@ def test_focus_order(win, app):
     while nxt is not None and not (nxt.focusPolicy() & Qt.TabFocus and nxt.isVisible()):
         nxt = nxt.nextInFocusChain()
     assert nxt is tb.mode_combo
+
+
+def test_theme_switch_repolishes_labels(win, app):
+    """Light -> dark where the platform cannot switch (offscreen): the widgets under the window's
+    style sheet take the new palette (their text used to stay black on the dark window)."""
+    from PySide6.QtGui import QPalette
+
+    from mlaser.ui.shell import theme as T
+    try:
+        for t in (T.LIGHT, T.DARK):
+            win.shell.set_theme(t, persist=False)
+            _pump(app)
+            lab = win.shell.topbar.file
+            want = QApplication.palette().color(QPalette.WindowText).name()
+            assert lab.palette().color(QPalette.WindowText).name() == want, t
+    finally:
+        win.shell.set_theme(T.LIGHT, persist=False)
+        _pump(app)

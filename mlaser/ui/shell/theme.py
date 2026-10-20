@@ -243,7 +243,9 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
     sheet and the canvas.  Returns the theme id actually applied."""
     theme = theme if theme in THEME_IDS else DEFAULT_THEME
     app = app or QApplication.instance()
+    changed = False
     if app is not None and app.property("mlaser_theme") != theme:
+        changed = True
         # application-wide changes only when the theme really changes: setStyle / setPalette
         # post a change event to every widget of every window
         native = native_style_name(app)
@@ -266,6 +268,11 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
         app.setProperty("mlaser_theme", theme)
     if window is not None:
         qss = style_sheet(theme)
+        if changed and window.styleSheet():
+            # widgets under a style sheet keep the palette they were polished with: a palette
+            # switch (light <-> dark where the platform cannot switch, offscreen, plain X11)
+            # left their text black on the dark window.  Re-polish them with the new palette.
+            window.setStyleSheet("")
         if window.styleSheet() != qss:
             window.setStyleSheet(qss)
         apply_canvas_theme(effective(theme, app), getattr(window, "canvas", None))

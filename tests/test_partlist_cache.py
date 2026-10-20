@@ -52,7 +52,8 @@ def test_only_changed_parts_are_measured(panel):
 def test_rows_follow_removals_and_open_contours(panel):
     doc = Document(parts=[sq(0, 0), sq(20, 0, closed=False), sq(40, 0, 5)])
     panel.set_document(doc)
-    assert panel.topLevelItem(1).foreground(1).color().name() == "#d00000"
+    from mlaser.ui import style
+    assert panel.topLevelItem(1).foreground(1).color().name() == style.color("danger").name()   # open contour
     doc.parts.pop(0)
     doc.parts[0].selected = True
     panel.refresh()
