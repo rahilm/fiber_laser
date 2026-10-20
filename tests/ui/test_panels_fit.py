@@ -390,3 +390,21 @@ def test_properties_minimum_height_is_its_folded_height(win, app, doc):
     pump(app, 0.1)
     need = pp.panel.folded_height(pp.viewport().width()) + 2 * pp.frameWidth()
     assert pp.minimumSizeHint().height() >= need
+
+
+def test_properties_size_hint_is_asked_now(win, app, doc):
+    """The Properties dock's natural width is the panel's preferred width as it is now, not the
+    first one QScrollArea cached (live resizing ended 45 px wider than it started)."""
+    pp = props(win)
+    win.shell.host.activate("design")
+    pump(app, 0.1)
+    pp.sizeHint()                                     # asked once (QScrollArea caches that)
+    sec = next(s for s in pp.panel.sections if not s.isHidden())
+    title = sec.title()
+    try:
+        sec.setTitle(title + " with a much longer title than before")
+        pump(app)
+        want = max(pp.panel.sizeHint().width() + 2 * pp.frameWidth(), pp.minimumSizeHint().width())
+        assert pp.sizeHint().width() == want
+    finally:
+        sec.setTitle(title)

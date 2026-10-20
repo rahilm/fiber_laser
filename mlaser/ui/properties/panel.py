@@ -327,6 +327,15 @@ class PropertiesPanel(QScrollArea):
             self._workspace_changed(getattr(host, "current", "") or "")
         self.refresh()
 
+    def sizeHint(self):  # noqa: N802 - Qt API
+        """The panel's own preferred width, asked now: QScrollArea keeps the first size hint of
+        its widget, so the dock's natural width was whatever the panel wanted when it was first
+        asked (live resizing ended with the Properties dock 249 -> 294 px, Ubuntu 3.13 CI)."""
+        from PySide6.QtCore import QSize
+        base = super().sizeHint()
+        w = self.panel.sizeHint().width() + 2 * self.frameWidth()
+        return QSize(max(w, self.minimumSizeHint().width()), base.height())
+
     def minimumSizeHint(self):  # noqa: N802 - Qt API
         """As narrow as the sections can be (never narrower: nothing scrolls sideways or is cut)."""
         from PySide6.QtCore import QSize
