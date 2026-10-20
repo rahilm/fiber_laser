@@ -18,13 +18,15 @@ import copy
 import math
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
-                               QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LeadParams, Part
+
+from mlaser.ui.quantity import QuantitySpinBox
+from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section
 
 from .lead_diagram import LeadDiagram
 
@@ -33,15 +35,24 @@ LEAD_KINDS = ("props.lead.none", "props.lead.line", "props.lead.arc", "props.lea
 KERF_KINDS = ((-1, "props.kerf.none"), (0, "props.kerf.inner"), (1, "props.kerf.outer"))
 
 
+_KIND = {"mm": "length", "°": "angle"}
+
+
 def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoubleSpinBox:
-    s = QDoubleSpinBox()
-    s.setRange(lo, hi)
-    s.setDecimals(dec)
-    s.setSingleStep(step)
+    """A unit-bearing field: lengths and angles are QuantitySpinBox (the Units track's widget:
+    shown in the user's units, stored in mm), other units (%) a plain spin box."""
+    kind = _KIND.get(unit)
+    if kind is not None:
+        s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, step=step)
+    else:
+        s = QDoubleSpinBox()
+        s.setRange(lo, hi)
+        s.setDecimals(dec)
+        s.setSingleStep(step)
+        if unit:
+            s.setSuffix(f" {unit}")
     s.setKeyboardTracking(False)
     s.setAccelerated(True)
-    if unit:
-        s.setSuffix(f" {unit}")
     return s
 
 
@@ -64,6 +75,7 @@ class PropertiesPanel(QScrollArea):
         self.technology_name = technology_name or (lambda layer: "")
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)   # rows reflow instead
         self.setObjectName("properties_panel")
         body = QWidget()
         self.setWidget(body)
@@ -81,7 +93,7 @@ class PropertiesPanel(QScrollArea):
         self.summary.setWordWrap(True)
         self.summary.setObjectName("props_summary")
         self.lay.addWidget(self.summary)
-        self.sections: list[QGroupBox] = []
+        self.sections: list[Section] = []
 
         # ---- transform
         g, f = self._section("props.transform")
@@ -157,7 +169,7 @@ class PropertiesPanel(QScrollArea):
         f.addRow(b)
 
         # ---- micro-joints
-        g, f = self._section("props.joints")
+        g, f = self._section("props.joints", expanded=False)
         self.mj_info = QLabel()
         f.addRow(self.mj_info)
         self.mj_count = QSpinBox()
@@ -167,7 +179,8 @@ class PropertiesPanel(QScrollArea):
         self.mj_len.setValue(0.5)
         self._row(f, "props.joint_count", self.mj_count)
         self._row(f, "props.joint_length", self.mj_len)
-        row = QHBoxLayout()
+        roww = QWidget()
+        row = FlowLayout(roww, 6)
         b1 = QPushButton(t("props.apply"))
         b1.clicked.connect(self._commit_joints)
         b2 = QPushButton(t("props.clear"))
@@ -176,10 +189,10 @@ class PropertiesPanel(QScrollArea):
         b3.clicked.connect(lambda: self._run("craft.microjoint"))
         for x in (b1, b2, b3):
             row.addWidget(x)
-        f.addRow(row)
+        f.addRow(roww)
 
         # ---- start point
-        g, f = self._section("props.start")
+        g, f = self._section("props.start", expanded=False)
         self.start = _spin(0.0, 100.0, 1, "%", 5.0)
         self._row(f, "props.start_pos", self.start)
         self.start.editingFinished.connect(self._commit_start)
@@ -188,34 +201,39 @@ class PropertiesPanel(QScrollArea):
         f.addRow(b)
 
         # ---- cooling points
-        g, f = self._section("props.cool")
+        g, f = self._section("props.cool", expanded=False)
         self.cool_info = QLabel()
         f.addRow(self.cool_info)
         self.cool_angle = _spin(1.0, 179.0, 0, "°", 5.0)
         self.cool_angle.setValue(90.0)
         self._row(f, "props.cool_angle", self.cool_angle)
-        row = QHBoxLayout()
+        roww = QWidget()
+        row = FlowLayout(roww, 6)
         b1 = QPushButton(t("props.cool_auto"))
         b1.clicked.connect(self._cool_auto)
         b2 = QPushButton(t("props.clear"))
         b2.clicked.connect(self._cool_clear)
         row.addWidget(b1)
         row.addWidget(b2)
-        f.addRow(row)
+        f.addRow(roww)
         self.lay.addStretch(1)
+        for cb in body.findChildren(QComboBox):          # no combo forces the dock wider
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(6)
         self.refresh()
 
     # ---------------------------------------------------------------- helpers
     def _t(self, key: str) -> str:
         return self.tr_.tr(key)
 
-    def _section(self, key: str) -> tuple[QGroupBox, QFormLayout]:
-        g = QGroupBox(self._t(key))
-        f = QFormLayout(g)
-        f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+    def _section(self, key: str, expanded: bool = True) -> tuple[Section, QFormLayout]:
+        """A collapsible section whose rows put the label above the field when the dock is
+        too narrow for both side by side (ResponsiveForm)."""
+        form = ResponsiveForm()
+        g = Section(key.replace(".", "_"), self._t(key), form, expanded)
         self.lay.addWidget(g)
         self.sections.append(g)
-        return g, f
+        return g, form.form
 
     def _row(self, form: QFormLayout, key: str, w: QWidget) -> None:
         lab = QLabel(self._t(key))
@@ -316,6 +334,7 @@ class PropertiesPanel(QScrollArea):
         self.diagram.set_leads(copy.deepcopy(c0.lead_in), copy.deepcopy(c0.lead_out))
         self.kerf_kind.setCurrentIndex(max(0, self.kerf_kind.findData(int(c0.kerf_comp))))
         self.kerf_w.setValue(c0.kerf_width)
+        self.diagram.set_kerf(int(c0.kerf_comp), c0.kerf_width)
         nj = sum(len(p.craft.micro_joints) for p in sel)
         self.mj_info.setText(self.tr_.format("props.joint_info", n=nj))
         from mlaser.cam.manual import contour_craft, start_distance
@@ -466,6 +485,7 @@ class PropertiesPanel(QScrollArea):
         if self._updating:
             return
         k, w = self._kerf()
+        self.diagram.set_kerf(k, w)
         self._schedule_preview(lambda d: ops.apply_kerf(d, k, w))
 
     def _commit_kerf(self) -> None:
