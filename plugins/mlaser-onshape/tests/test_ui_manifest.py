@@ -111,3 +111,12 @@ def test_workspace_reports_errors(ws, fake):
     ws.service.save_keys("x", "y")
     ws.test_connection()
     assert "refused" in ws.status.text()
+
+
+def test_offline_example_runs(tmp_path, capsys):
+    import runpy
+    mod = runpy.run_path(str(ROOT / "examples" / "offline_demo.py"), run_name="example")
+    assert mod["main"](tmp_path) == 0
+    out = capsys.readouterr().out
+    assert "8 order lines" in out and "Aluminium AlMg3 3 mm" in out
+    assert len(list((tmp_path / "data" / "dxf").rglob("*.dxf"))) == 8

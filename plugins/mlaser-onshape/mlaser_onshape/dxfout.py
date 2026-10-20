@@ -13,6 +13,15 @@ from pathlib import Path
 
 from .geometry import FlatFace, iter_entities
 
+class _NoR12Units(logging.Filter):
+    """ezdxf says "units are not exported for DXF R12" on every save: known, mm by convention."""
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "INSUNITS" not in record.getMessage()
+
+
+logging.getLogger("ezdxf").addFilter(_NoR12Units())
+
 _UNSAFE = re.compile(r"[^A-Za-z0-9._ +=#@()\[\]-]+")
 
 
@@ -47,9 +56,6 @@ def write_dxf(flat: FlatFace, path: os.PathLike | str) -> Path:
     out.parent.mkdir(parents=True, exist_ok=True)
     fd, tmp = tempfile.mkstemp(prefix=".dxf-", suffix=".dxf", dir=str(out.parent))
     os.close(fd)
-    log = logging.getLogger("ezdxf")
-    level = log.level
-    log.setLevel(logging.ERROR)          # "units are not exported for R12": known, mm by convention
     try:
         doc.saveas(tmp)
         os.replace(tmp, out)
@@ -59,6 +65,4 @@ def write_dxf(flat: FlatFace, path: os.PathLike | str) -> Path:
         except OSError:
             pass
         raise
-    finally:
-        log.setLevel(level)
     return out
