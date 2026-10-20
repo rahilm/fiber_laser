@@ -140,8 +140,7 @@ def test_design_dialogs_show_no_metric_text_in_imperial(win, app, monkeypatch):
     _capture(monkeypatch, got)
     _rect(win)
     win.canvas.select_parts([len(win.document.parts) - 1])
-    win.options_dialog("app.options")
-    win.options_dialog("hw.options")
+    got.append(win.settings_dialog())          # app.options: the Settings window (modeless)
     win.lead_dialog()
     win.kerf_dialog()
     win.microjoint_dialog()
@@ -166,7 +165,13 @@ def test_design_dialogs_show_no_metric_text_in_imperial(win, app, monkeypatch):
     assert len(got) >= 25
     bad = {}
     for d in got:
-        hits = [h for h in offenders(d, visible_only=False) if not any(a in h for a in DESIGN_ALLOW)]
+        if type(d).__name__ == "SettingsDialog":
+            # the unit choosers list every unit by name; every other row must show imperial
+            widgets = [r for k, r in d.rows.items() if not k.startswith("units.")]
+            hits = [h for r in widgets for h in offenders(r, visible_only=False)
+                    if not any(a in h for a in DESIGN_ALLOW)]
+        else:
+            hits = [h for h in offenders(d, visible_only=False) if not any(a in h for a in DESIGN_ALLOW)]
         if hits:
             bad[d.windowTitle()] = hits
     assert not bad, bad

@@ -129,10 +129,10 @@ The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operatio
 | Currency | `costing.currency` | EUR | The ISO code of the currency (EUR, USD, CHF...) of every cost: the cost card, quotes, the CLI estimate and the production ledger. |
 | Machine hour rate | `costing.machine_per_h` | 0 /h | What one machine hour costs (depreciation, operator, overhead). Used by the cost estimate and the ledger. |
 | Electricity price | `costing.power_per_kwh` | 0 /kWh | Per kWh, for the energy part of the estimate. |
-| Oxygen price | `costing.gas_o2_per_m3` | 0 /m³ | Per m³ at atmospheric pressure. |
-| Nitrogen price | `costing.gas_n2_per_m3` | 0 /m³ | Per m³ at atmospheric pressure. |
-| Compressed air price | `costing.gas_air_per_m3` | 0 /m³ | Per m³ at atmospheric pressure. |
-| Material price (per kg) | `costing.material_per_kg` | 0 /kg | The sheet material for the estimate; the sheet is the job's sheet, else the cut parts' bounding box. |
+| Oxygen price | `costing.gas_o2_per_m3` | 0 /m³ | By volume at atmospheric pressure. |
+| Nitrogen price | `costing.gas_n2_per_m3` | 0 /m³ | By volume at atmospheric pressure. |
+| Compressed air price | `costing.gas_air_per_m3` | 0 /m³ | By volume at atmospheric pressure. |
+| Material price (by weight) | `costing.material_per_kg` | 0 /kg | The sheet material for the estimate; the sheet is the job's sheet, else the cut parts' bounding box. |
 | Laser wall-plug efficiency | `costing.wall_plug_pct` | 35 % | The laser source's electrical efficiency (an assumption for the energy estimate). |
 | Machine power besides the laser | `costing.machine_kw` | 0 kW | Drives, chiller and extraction. |
 | Nozzle discharge coefficient | `costing.nozzle_cd` | 0.8 | An assumption for the gas estimate when the technology gives no flow. |
@@ -141,7 +141,7 @@ The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operatio
 | Power (per hour) | `costing.power_per_h` | 0 /h | The ledger's electricity cost per hour of cutting. |
 | Wear per metre cut | `costing.per_cut_m` | 0 /m | Nozzle and lens wear per metre of cut. |
 | Cost per pierce | `costing.per_pierce` | 0 | Consumable wear per pierce. |
-| Material (per m²) | `costing.material_per_m2` | 0 /m² | The ledger's material cost per m² of the used sheet. |
+| Material (by sheet area) | `costing.material_per_m2` | 0 /m² | The ledger's material cost by area of the used sheet. |
 
 
 ## Run & Queue
