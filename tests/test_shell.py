@@ -158,7 +158,7 @@ def test_palette_finds_runs_and_remembers(win, app):
     ids = {e.id for e in entries}
     assert len(entries) >= 256 - 40 and "craft.microjoint" in ids and "hw.upgrade" not in ids
     e = next(e for e in entries if e.id == "craft.microjoint")
-    assert e.label == "Micro Joint" and e.workspace == "Process" and e.shortcut == "J"
+    assert e.label == "Micro joint" and e.workspace == "Process" and e.shortcut == "J"
     assert next(e for e in entries if e.id == "file.save").shortcut == keymap.key_for("file.save")  # ⌘S on macOS
     sh.open_palette()
     pal = sh.palette
