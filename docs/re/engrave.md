@@ -1,6 +1,6 @@
 # Raster engraving tool (Bitmap/Bitmap.exe = next_cut.dll)
 
-Rebuild package: `mlaser/engrave/` (`image_ops.py`, `raster.py`, `dialog.py`).
+Rebuild package: `mlaser/engrave/` (`image_ops.py`, `raster.py`); the dialog is `mlaser/ui/engrave_dialog.py`.
 Original: `$ORIG/Bitmap/Bitmap.exe` (.NET apphost) + `next_cut.dll` (.NET 8 WinForms, OpenCvSharp
 4.11, Costura/Fody), form title "PicConvert(1.06)", G-code header "(BitmapRaster)".
 

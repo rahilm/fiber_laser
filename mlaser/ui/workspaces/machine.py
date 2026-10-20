@@ -27,7 +27,7 @@ from mlaser.services.alarm_history import AlarmHistory, fmt_time
 from mlaser.services import units as U
 from mlaser.services.procedures import MIN_MODES, mode_allows
 
-from .. import homes, icons
+from .. import homes, icons, style
 from ..responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, CurrentPageStack, FlowLayout, ResponsiveForm, flow,
                           mark_list)
 from ..units_qt import QuantitySpinBox, kind_for, on_units_changed, spin_for_unit
@@ -163,11 +163,9 @@ def current_mode(ctx: Any) -> Optional[str]:
         return None
 
 
-def _big(label: QLabel, scale: float = 1.6, bold: bool = True) -> QLabel:
-    f = label.font()
-    f.setPointSizeF(f.pointSizeF() * scale)
-    f.setBold(bold)
-    label.setFont(f)
+def _big(label: QLabel, role: str = "display") -> QLabel:
+    """A label in a type-scale role (style.py: ratios of the platform font)."""
+    style.set_font(label, role)
     return label
 
 
@@ -619,7 +617,7 @@ class MachineWorkspace(QWidget):
         pos = QWidget()
         h = QHBoxLayout(pos)
         h.setContentsMargins(0, 0, 0, 0)
-        self.pos_lbl = _big(QLabel("X –   Y –   Z –"), 1.8)
+        self.pos_lbl = _big(QLabel("X –   Y –   Z –"), "display")
         self.pos_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         h.addWidget(self.pos_lbl, 1)
         self.homed_lbl = QLabel()
@@ -632,7 +630,7 @@ class MachineWorkspace(QWidget):
                                         ("ws.machine.home_xyz", "machine.home_xyz"),
                                         ("ws.machine.home_focus", "wizard.focus_home"))], uniform=True)
         page.add_section(CollapsibleSection(T(w, "ws.machine.homing_box"), homing, priority=2))
-        self.jog = JogPad(w, lambda: self.ctx.controller, z=True, home=True)     # the jog values' home
+        self.jog = JogPad(w, lambda: self.ctx.controller, z=True, home=True, hint=True)     # the jog values' home
         self.jog.log.connect(self.ctx.log)
         page.add_section(CollapsibleSection(T(w, "ws.machine.jog_box"), self.jog, priority=3))
         cb = QWidget()
@@ -675,9 +673,9 @@ class MachineWorkspace(QWidget):
             v = QVBoxLayout(card)
             head = QHBoxLayout()
             pic = QLabel()
-            pic.setPixmap(icons.icon(ic).pixmap(24, 24))     # the procedure's icon on its title
+            pic.setPixmap(icons.icon(ic).pixmap(style.ICON_M, style.ICON_M))   # the procedure's icon: on its title
             head.addWidget(pic)
-            t = _big(QLabel(T(w, title)), 1.15)
+            t = _big(QLabel(T(w, title)), "title")
             t.setWordWrap(True)
             head.addWidget(t, 1)
             v.addLayout(head)
@@ -685,10 +683,12 @@ class MachineWorkspace(QWidget):
             d.setWordWrap(True)
             v.addWidget(d, 1)
             mode = MIN_MODES.get(pid, "operator")
-            m = QLabel(T(w, "ws.machine.min_mode", mode=T(w, f"ws.machine.mode_{mode}")))
-            m.setEnabled(False)
+            m = style.caption(T(w, "ws.machine.min_mode", mode=T(w, f"ws.machine.mode_{mode}")))
             v.addWidget(m)
-            b = _button(w, "ws.machine.start_procedure", lambda c=cmd: self.ctx.commands.run(c))
+            # the card's action opens the procedure's wizard: text only (the icon is the title's)
+            # and never "Start", which is the job's word (DESIGN.md §2, §6)
+            b = _button(w, "ws.machine.open_procedure", lambda c=cmd: self.ctx.commands.run(c))
+            b.setAccessibleName(f"{b.text()} {T(w, title)}")
             b.setProperty("min_mode", mode)
             v.addWidget(b)
             self.proc_buttons[cmd] = b
@@ -750,7 +750,7 @@ class MachineWorkspace(QWidget):
         page = QWidget()
         lay = QVBoxLayout(page)
         top = QHBoxLayout()
-        self.active_lbl = _big(QLabel(), 1.2)
+        self.active_lbl = _big(QLabel(), "title")
         top.addWidget(self.active_lbl, 1)
         top.addWidget(_button(w, "ws.machine.alarm_reset", lambda: self.ctx.commands.run("card.clear_alarms"),
                               "bell-off"))
@@ -840,7 +840,9 @@ class MachineWorkspace(QWidget):
             ok = mode_allows(mode, need)
             it.setFlags((it.flags() | Qt.ItemIsEnabled) if ok else (it.flags() & ~Qt.ItemIsEnabled))
         for b in self.proc_buttons.values():
-            b.setEnabled(mode_allows(mode, b.property("min_mode") or "operator"))
+            need = b.property("min_mode") or "operator"
+            style.set_enabled(b, mode_allows(mode, need), T(self.w, "ws.machine.min_mode",
+                                                            mode=T(self.w, f"ws.machine.mode_{need}")))
         self.settings_panel.set_editable(mode_allows(mode, SETTINGS_EDIT_MODE))
         if not mode_allows(mode, dict((s[0], s[3]) for s in SECTIONS).get(self.section(), "operator")):
             self.nav.setCurrentRow(0)

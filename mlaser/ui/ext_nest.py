@@ -18,9 +18,8 @@ import os
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog,
-                               QDialogButtonBox, QDoubleSpinBox, QFileDialog,
-                               QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDoubleSpinBox, QFileDialog,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
                                QMessageBox,
                                QProgressDialog, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
@@ -31,6 +30,9 @@ from ..nest import (NestJob,
                     NestPart, NestSheet, apply_result, nest, stats)
 from ..nest.engine import NestEngineUnavailable
 from ..nest.apply import layout_parts
+from . import style as S
+from .dialogs import split_unit
+from .style import Dialog
 from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 
 PROJECT_FILTER = "Nest project (*.nestproj);;All (*)"
@@ -66,34 +68,28 @@ def _spin(lo, hi, val, dec=2) -> QDoubleSpinBox:
 
 
 # ---------------------------------------------------------------------------- dialogs
-class SheetDialog(QDialog):
+class SheetDialog(Dialog):
     """Standard sheet (``mf473``/``np_StdSheet``): width ``pd769``, height ``pd768``,
-    count ``pd767``."""
+    count ``pd767``, on the one dialog frame (sizes in the display units)."""
 
     def __init__(self, window, sheet: Optional[NestSheet] = None, parent=None):
-        super().__init__(parent)
         sheet = sheet or NestSheet()
-        self.setWindowTitle(_tr(window, "np_StdSheet", "Std Sheet"))
-        lay = QVBoxLayout(self)
-        f = QFormLayout()
-        lay.addLayout(f)
+        super().__init__(parent, _tr(window, "np_StdSheet", "Std Sheet"))
+        f = self.form()
         self.name = QLineEdit(sheet.name)
-        self.width = _len(1, 100000, sheet.width)
-        self.height = _len(1, 100000, sheet.height)
+        self.width_spin = _len(1, 100000, sheet.width)
+        self.height_spin = _len(1, 100000, sheet.height)
         self.count = QSpinBox()
         self.count.setRange(1, 9999)
         self.count.setValue(sheet.quantity)
-        f.addRow(_tr(window, "np_SheetName", "Sheet Name"), self.name)
-        f.addRow(_label(window, "pd769", "Sheet Width"), self.width)
-        f.addRow(_label(window, "pd768", "Sheet Height"), self.height)
-        f.addRow(_label(window, "pd767", "Sheet Number"), self.count)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        S.form_row(f, _tr(window, "np_SheetName", "Sheet Name"), self.name)
+        S.form_row(f, split_unit(_label(window, "pd769", "Sheet Width"))[0], self.width_spin, unit_kind="length")
+        S.form_row(f, split_unit(_label(window, "pd768", "Sheet Height"))[0], self.height_spin, unit_kind="length")
+        S.form_row(f, split_unit(_label(window, "pd767", "Sheet Number"))[0], self.count)
+        self.adjustSize()
 
     def sheet(self) -> NestSheet:
-        return NestSheet(self.width.value(), self.height.value(), self.count.value(), self.name.text())
+        return NestSheet(self.width_spin.value(), self.height_spin.value(), self.count.value(), self.name.text())
 
 
 # ---------------------------------------------------------------------------- panel

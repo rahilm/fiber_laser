@@ -28,8 +28,8 @@ def test_register_and_dialogs(app, tmp_path):
     d = X.FollowerDialog(w, str(p))
     assert d.grid.rowCount() == 3 and d.plot.points[1] == (101, 410429)
     d.grab()
-    d.refresh()                               # demo controller: no card -> "not connected"
-    assert "not connected" in d.status_lbl.text()
+    d.refresh()                               # demo controller: no card -> "Not connected"
+    assert "Not connected" in d.status_lbl.text()
     X.LaserDialog(w).grab()
     pd = X.PendantDialog(w)
     pd.grab()

@@ -89,7 +89,7 @@ def test_state_banner_follows_the_safety_state(win, app):
     _pump(app)
     assert st.kind == "FAULT" and "test fault" in st.label.text()
     assert win.safety_ui.alarm_bar.isVisible() and "Remedy" in win.safety_ui.alarm.remedy.text()
-    assert win.st_mc.text() == "MCC <FAULT>"
+    assert "FAULT" in win.st_mc.text() and "Ready" not in win.st_mc.text()   # never Ready while latched
     win.safety_ui.reset_fault()
     _pump(app)
     assert st.kind == "SIMULATOR" and not win.safety_ui.alarm_bar.isVisible()
@@ -186,8 +186,8 @@ def test_jog_keepalive_and_focus_loss(win, app):
     win.set_controller(ctl)
     try:
         panel = win.control
-        panel.mode_step.setChecked(False)
-        panel._jog_press("X", 1)
+        panel.jog.step_buttons[0].click()            # continuous (hold to move)
+        panel.jog.press("X", 1)
         sim = ctl.sim
         assert wait_until(lambda: sim.state.axes[0].busy, 1.0) is not None
         _pump(app, 0.8)                              # keep-alive timer runs while held

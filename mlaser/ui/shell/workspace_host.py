@@ -33,6 +33,7 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScroll
 from mlaser.services import usermodes as um
 from mlaser.services.workspaces import BUILTIN, SLOTS, WorkspaceSpec, slot_for
 
+from .. import style
 from ..icons import command_icon, icon
 from ..responsive import CurrentPageStack, FitArea
 from .dock_policy import CANVAS_MIN
@@ -53,7 +54,7 @@ class EmptyState(QWidget):
         self.spec = spec
         tr = host.tr
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(32, 24, 32, 24)
+        outer.setContentsMargins(style.SP5, style.SP4, style.SP5, style.SP4)
         self.title = QLabel()
         self.title.setObjectName("shell_empty_title")
         tr.bind(self.title, spec.title, self.title.setText)
@@ -70,8 +71,8 @@ class EmptyState(QWidget):
         outer.addWidget(self.note)
         grid_box = QWidget()
         self.grid = QGridLayout(grid_box)
-        self.grid.setContentsMargins(0, 12, 0, 0)
-        self.grid.setSpacing(8)
+        self.grid.setContentsMargins(0, style.SP3, 0, 0)
+        self.grid.setSpacing(style.SP2)
         self.buttons: dict[str, QToolButton] = {}
         self.commands = commands
         sa = QScrollArea()

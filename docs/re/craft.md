@@ -181,7 +181,7 @@ Rebuild: `manual.explode_joints`.
 - **Bitmap (FUN_004b2f90):** CreateProcess `Bitmap\Bitmap.exe`, make it topmost, disable the main
   window until it exits, check `Bitmap\status.ini` (FUN_004ae380; the companion writes `0` at
   start and `1` after Generate), then the same flow as the G-code import with `Bitmap\newGcode.nc`.
-  `newSVG.svg` is referenced only by MainApp (U). Rebuild (R): the `mlaser.engrave.BitmapDialog`
+  `newSVG.svg` is referenced only by MainApp (U). Rebuild (R): the `mlaser.ui.engrave_dialog.BitmapDialog`
   runs in-process with `out_dir` = `<tmp>/mlaser_bitmap`, then `import_bitmap_result()` checks
   status.ini = 1 and imports `newGcode.nc` as a type-5 scan (one row contour per raster row, so a
   picture does not become thousands of parts as it would through `io.gcode.parse_gcode`).

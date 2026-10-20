@@ -24,6 +24,7 @@ named ``{minutes}`` ones and the printf ones of imported texts.
 from __future__ import annotations
 
 import os
+import re
 import sys
 import weakref
 from dataclasses import dataclass
@@ -33,6 +34,13 @@ from mlaser import i18n as cat
 from mlaser.i18n import importer
 
 _MAC = sys.platform == "darwin"
+
+#: a log line that starts with an opaque key of the original: ``mp29: ...``, ``mf625 upgrade: ...``
+_LOG_KEY = re.compile(r"^([a-z]{1,3}\d+(?:_\d+)?)\b((?:\s+[A-Za-z][\w-]*){0,3})?\s*(?::\s*(.*))?$", re.S)
+#: card command words in a log line: ``([9999, 5, 0, 0])``, ``(mode 0, [2, 0x3, 0])``, ``, INFERRED``
+_LOG_CMD = re.compile(r"\s*\((?:[^()]*\[[\d, x.:+-]*\][^()]*|INFERRED)\)|,\s*INFERRED\b|\s*\[[\d, x]+\]")
+#: an opaque key inside a log line, in parentheses: ``(pd2415)``, ``(mp22 offline)``
+_LOG_INLINE = re.compile(r"\s*\(([a-z]{1,3}\d+(?:_\d+)?)(?:\s+[a-z]+)?\)")
 
 
 def _native_keys(text: str) -> str:
@@ -190,6 +198,36 @@ class Translator:
         sid = self.en.resolve(key)
         names = self.en.args.get(sid, []) if sid else []
         return cat.format_text(self.tr(key, default), names, args, kwargs)
+
+    def log_text(self, msg: str) -> str:
+        """A log line as the user reads it: never an opaque key of the original program.
+
+        Emitters write ``"<key>: <detail>"`` (``"mp29: move to (0.000, 0.000)"``), sometimes
+        ``"<key> <word>: <detail>"``; the key becomes its text (``"Go to origin: move to ..."``).
+        A key without a text, or whose text needs placeholders the line does not carry, is
+        dropped and the detail stays.  Opaque keys inside the detail (``(mp22 offline)``,
+        ``(pd2415)``) and the card command words (``([9999, 5, 0, 0])``, ``INFERRED``) are
+        removed: they are in the file log, not for the operator (UI audit T-5)."""
+        m = _LOG_KEY.match(msg)
+        if m is not None:
+            key, words, detail = m.group(1), (m.group(2) or "").strip(), (m.group(3) or "").strip()
+            text = self.tr(key) if self.has(key) else ""
+            if "{" in text or "%" in text:
+                text = ""
+            if words and all(w.lower() in text.lower() for w in words.split()):
+                words = ""                       # "mf625 upgrade" -> "Extended card upgrade"
+            head = " ".join(x for x in (text.rstrip(".:"), words) if x) if text else ""
+            if head and detail:
+                msg = f"{head}: {detail}"
+            elif head:
+                msg = head
+            else:
+                msg = " ".join(x for x in (words, detail) if x) or text
+        msg = _LOG_CMD.sub("", msg)
+        msg = _LOG_INLINE.sub(lambda mm: "" if not self.has(mm.group(1)) else mm.group(0), msg)
+        msg = _LOG_INLINE.sub("", msg)
+        msg = " ".join(msg.split())
+        return msg[:1].upper() + msg[1:] if msg else msg
 
     def tr_param(self, key: str, default: Optional[str] = None) -> tuple[str, str]:
         """Split a parameter label ``Group.Name`` into (group, name)."""

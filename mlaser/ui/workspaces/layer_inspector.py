@@ -31,6 +31,7 @@ from mlaser.ui.techform import quantity
 from mlaser.ui.responsive import FlowLayout
 from mlaser.ui.techform import TechForm
 
+from .. import style
 from .recipe_picker import RecipePicker
 
 #: the layer-level craft values (ids of services.inheritance) shown in the inspector
@@ -78,8 +79,8 @@ class LayerInspector(QWidget):
         self._loading = False
         t = self.tr_.tr
         lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 4, 0, 0)
-        lay.setSpacing(4)
+        lay.setContentsMargins(0, style.SP1, 0, 0)
+        lay.setSpacing(style.SP1)
         # one line: the layer and the recipe it follows (a link to it in the Library)
         self.title = QLabel()
         self.title.setObjectName("layer_title")
@@ -116,7 +117,7 @@ class LayerInspector(QWidget):
         self.assign_btn.setToolTip(t("layer.assign_tip"))
         self.assign_btn.clicked.connect(self.assign_picked)
         acts = QWidget()
-        fl = FlowLayout(acts, justify=False, hspacing=6, vspacing=6)
+        fl = FlowLayout(acts, justify=False, hspacing=style.SP1, vspacing=style.SP1)
         fl.addWidget(self.assign_btn)
         self.action_buttons: dict[str, QPushButton] = {}
         for key, fn in (("layer.save_new", self.save_as_recipe), ("layer.push", self.push_into_recipe),

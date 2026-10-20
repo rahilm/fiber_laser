@@ -171,7 +171,7 @@ def test_laser_wizard_asks_before_arming(app, win, monkeypatch):
     d.dry.setChecked(True)
     drive(app, d, "arm")
     d.run()                                                   # Cancel in the confirmation: nothing armed
-    assert asked and "ARM" in asked[0] and "arm" not in d.proc.done and not d.rig.safety().armed
+    assert asked and "Arm the laser" in asked[0] and "arm" not in d.proc.done and not d.rig.safety().armed
     d.abort()
     d.done(0)
 

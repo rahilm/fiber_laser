@@ -16,13 +16,13 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QCheckBox, QDialog, QHBoxLayout, QLabel, QListWidget, QListWidgetItem,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QLabel, QListWidget, QListWidgetItem,
                                QMessageBox, QPushButton, QStackedWidget, QVBoxLayout, QWidget)
 
 from mlaser.services.procedures import engine as PE
 from mlaser.services.procedures import simrig
 
-from .. import icons
+from .. import icons, style
 from ..units_qt import on_units_changed
 from .common import MIN_TARGET, Bridge, JogPad, SafetyNotes, T, unit_values
 
@@ -44,23 +44,22 @@ class WizardDialog(QDialog):
         self.jog: Optional[JogPad] = None
         self.resize(900, 620)
         self.setMinimumSize(720, 520)
-        outer = QHBoxLayout(self)
+        outer = style.hbox(self, "dialog", sp=style.SP3)
         self.steps_list = QListWidget()
         self.steps_list.setFocusPolicy(Qt.NoFocus)
         self.steps_list.setMaximumWidth(240)
-        self.steps_list.setSpacing(3)
+        self.steps_list.setSpacing(style.SP1)
         outer.addWidget(self.steps_list)
-        right = QVBoxLayout()
+        right = style.vbox()
         self.right = right
         outer.addLayout(right, 1)
         self.mode_chip = QLabel()
         self.mode_chip.setAlignment(Qt.AlignRight)
+        style.chip(self.mode_chip, "info")
+        self.mode_chip.setVisible(False)
         self.title = QLabel()
-        f = self.title.font()
-        f.setPointSizeF(f.pointSizeF() * 1.4)
-        f.setBold(True)
-        self.title.setFont(f)
-        top = QHBoxLayout()
+        style.set_font(self.title, "title")
+        top = style.hbox()
         top.addWidget(self.title, 1)
         top.addWidget(self.mode_chip)
         right.addLayout(top)
@@ -80,15 +79,19 @@ class WizardDialog(QDialog):
         self.dry.setToolTip(T(window, "wizard.dry_run_tip"))
         self.dry.toggled.connect(self._dry_toggled)
         right.addWidget(self.dry)
-        bl = QHBoxLayout()
-        self.b_abort = self._button("wizard.abort", self.abort, "player-stop", "#ffffff")
-        self.b_abort.setStyleSheet("QPushButton { color: white; background: #c92a2a; border: 1px solid #8a1c1c; "
-                                   "border-radius: 4px; padding: 6px 14px; font-weight: bold; }"
-                                   "QPushButton:pressed { background: #a51111; }")
+        bl = style.hbox()
+        # Abort is this window's STOP (it stops the machine): filled in the danger colour like
+        # STOP, the only filled red button; the step actions are plain text buttons
+        self.b_abort = self._button("wizard.abort", self.abort)
+        style.styled(self.b_abort, lambda: (
+            self.b_abort.setIcon(icons.icon("player-stop", style.css("on_danger"))),
+            f"QPushButton {{ color: {style.css('on_danger')}; background: {style.css('danger_fill')}; "
+            f"border-radius: {style.SP1}px; padding: {style.SP1}px {style.SP3}px; font-weight: bold; }}"
+            f"QPushButton:pressed {{ background: {style.css('danger')}; }}")[1])
         bl.addWidget(self.b_abort)
         bl.addStretch(1)
         self.b_back = self._button("wizard.back", self.back)
-        self.b_run = self._button("wizard.run", self.run, "player-play", icons.GREEN)
+        self.b_run = self._button("wizard.run", self.run)
         self.b_yes = self._button("wizard.yes", lambda: self.answer(True))
         self.b_no = self._button("wizard.no", lambda: self.answer(False))
         self.b_next = self._button("wizard.next", self.next)
@@ -184,7 +187,7 @@ class WizardDialog(QDialog):
         w = QWidget()
         lay = QVBoxLayout(w)
         if step.jog:
-            self.jog = JogPad(self.w, self.machine, z=False)
+            self.jog = JogPad(self.w, self.machine, z=False, hint=True)
             lay.addWidget(self.jog)
         lay.addStretch(1)
         return w
@@ -216,8 +219,7 @@ class WizardDialog(QDialog):
             self.steps_list.addItem(it)
         chip = T(self.w, "wizard.chip_dry") if p.dry_run else ""
         self.mode_chip.setText(chip)
-        self.mode_chip.setStyleSheet(f"color: white; background: {icons.BLUE}; padding: 2px 8px; border-radius: 4px;"
-                                     if chip else "")
+        self.mode_chip.setVisible(bool(chip))
         final = p.state in PE.FINAL
         if s is not None and not final:
             n = [x.id for x in vis].index(s.id) + 1 if s in vis else 0

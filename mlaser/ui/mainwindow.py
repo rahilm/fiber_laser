@@ -21,7 +21,7 @@ from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
-from . import dialogs, homes, settings_apply
+from . import dialogs, homes, settings_apply, style
 from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
@@ -126,6 +126,60 @@ class _CloseWatch(QObject):
 
 _LEAD_IDS = tuple(f"craft.lead_{n}.{f}" for n in ("in", "out") for f in ("kind", "angle_deg", "length", "radius"))
 _KERF_IDS = ("craft.kerf_comp", "craft.kerf_width")
+
+
+class StatusChip(QLabel):
+    """A status-bar chip: "<device>: <state>" with a frame from the palette, muted while the
+    device is offline.  The state text of the catalogue may carry the original's "MCC <Ready>"
+    form: only the state is shown."""
+
+    def __init__(self, name: str) -> None:
+        super().__init__()
+        self.setObjectName(name)
+        self.setProperty("chip", True)
+        self._muted: Optional[bool] = None
+        self.alert = ""                    # a latched fault / alarm (safety_ui): shown instead
+        self._style()
+
+    @staticmethod
+    def state_text(text: str) -> str:
+        import re
+        m = re.search(r"<([^<>]*)>", text)
+        if m:
+            return m.group(1).strip()
+        return text.split(":", 1)[1].strip() if ":" in text else text.strip()
+
+    def show_state(self, device: str, state: str, muted: bool) -> None:
+        text = self.alert or f"{device}: {self.state_text(state)}"
+        if self.text() != text:
+            self.setText(text)
+            self.setAccessibleName(text)
+        if muted != self._muted:
+            self._muted = muted
+            self._style()
+
+    def set_alert(self, text: str) -> None:
+        """Show a latched fault or alarm (never "Ready" then: docs/SAFETY.md §10), in the
+        safety colours; "" clears it."""
+        if text != self.alert:
+            self.alert = text
+            if text:
+                self.setText(text)
+                self.setAccessibleName(text)
+            self._style()
+
+    def _style(self) -> None:
+        muted, alert = bool(self._muted), bool(self.alert)
+
+        def qss() -> str:
+            if alert:
+                bg, fg = style.state_colors("ALARM")
+                return (f"QLabel#{self.objectName()} {{ background: {bg}; color: {fg}; font-weight: bold; "
+                        f"border-radius: {style.SP2}px; padding: 0 {style.SP2}px; }}")
+            return (f"QLabel#{self.objectName()} {{ border: 1px solid {style.css('border')}; "
+                    f"border-radius: {style.SP2}px; padding: 0 {style.SP2}px; "
+                    f"color: {style.css('muted' if muted else 'text')}; }}")
+        style.styled(self, qss)
 
 
 class MainWindow(QMainWindow):
@@ -241,6 +295,9 @@ class MainWindow(QMainWindow):
             self._load_entry_points()
         # ---
         self.shell.finish()       # commands, keys, palette, theme, user mode, layout
+        # --- commands that cannot act say why (ui/command_feedback.py), disabled entries too
+        from . import command_feedback
+        command_feedback.install(self)
         # --- the Settings window's preferences (ui/settings_apply.py): migrated, applied, live
         settings_apply.install(self)
 
@@ -416,13 +473,23 @@ class MainWindow(QMainWindow):
         return d
 
     def _status_bar(self) -> None:
-        """Panes observed in MainApp (CBCGPRibbonStatusBar AddElement ids MC, ZF, LF, XY, CV, PD, DA)."""
+        """The panes of the original (CBCGPRibbonStatusBar ids MC, ZF, LF, XY, CV, PD, DA) as
+        chips: the motion card, the height follower (shown when it reports) and the laser as
+        "<device>: <state>", the head position and speed with units, and the cursor position on
+        the right, each labelled (UI audit D-4).  The machine's safety state is the banner's and
+        the run bar's, not repeated here (D-3)."""
         sb = self.statusBar()
-        self.st_mc, self.st_zf, self.st_lf = QLabel(), QLabel(), QLabel()
+        self.st_mc, self.st_zf, self.st_lf = StatusChip("st_motion"), StatusChip("st_follower"), StatusChip("st_laser")
         self.st_xy, self.st_cv, self.st_pd, self.st_da = QLabel(), QLabel(), QLabel(), QLabel()
+        for name, w in (("st_position", self.st_xy), ("st_speed", self.st_cv), ("st_pd", self.st_pd),
+                        ("st_cursor", self.st_da)):
+            w.setObjectName(name)
+        self.st_pd.hide()
         for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd):
             sb.addWidget(w)
         sb.addPermanentWidget(self.st_da)
+        self.tr_.bind(self.st_da, "status.cursor_tip", self.st_da.setToolTip)
+        self.tr_.bind(self.st_xy, "status.head_tip", self.st_xy.setToolTip)
         from .units_qt import on_units_changed
         self._mouse_xy = (0.0, 0.0)
         on_units_changed(self.st_da, lambda _u: self._show_mouse_xy(*self._mouse_xy))
@@ -569,14 +636,26 @@ class MainWindow(QMainWindow):
         elif spec.checkable:
             self.ribbon.actions[spec.id].setCheckable(True)
 
+    command_feedback = None      # ui.command_feedback.CommandFeedback (installed in __init__)
+
     def _dispatch(self, cmd: str, checked=None) -> None:
+        """Run a command; one that cannot act (no drawing, no selection, nothing to paste ...)
+        is not called and the status bar says why, and a command whose result shows nowhere
+        else reports it there (:mod:`.command_feedback`; stop, hold and off-commands always run
+        at once).  A toggle (``checked``) always runs: its checked state is the feedback."""
+        fb = self.command_feedback
+        if checked is None and fb is not None and not fb.before(cmd):
+            return
         try:
             if checked is None:
-                self.commands.run(cmd)
+                result = self.commands.run(cmd)
             else:
-                self.commands.run(cmd, bool(checked))
+                result = self.commands.run(cmd, bool(checked))
         except UnknownCommandError:
             self.not_implemented(cmd)
+            return
+        if checked is None and fb is not None:
+            fb.after(cmd, result)
 
     # ------------------------------------------------------------------ helpers
     def run(self, cmd: str) -> None:
@@ -858,16 +937,16 @@ class MainWindow(QMainWindow):
         """Machine position and speed in the status bar, in the display units."""
         self._last_status = st
         u = _units.current()
-        self.st_xy.setText(f"X: {u.number(st.x, 'length')}  Y: {u.number(st.y, 'length')}  "
-                           f"Z: {u.number(st.z, 'length')} {u.suffix('length')}")
-        self.st_cv.setText(self.tr_.format("mp80", unit=f" ({u.suffix('speed')})",
-                                           speed=u.to_display(st.speed, "speed")))   # status.speed
+        self.st_xy.setText(self.tr_.format("status.head", x=u.number(st.x, 'length'), y=u.number(st.y, 'length'),
+                                           z=u.number(st.z, 'length'), unit=u.suffix('length')))
+        self.st_cv.setText(self.tr_.format("status.speed_value", speed=u.fmt(st.speed, "speed", decimals=1)))
 
     def _show_mouse_xy(self, x: float, y: float) -> None:
         """The cursor position in the status bar, in the display units."""
         self._mouse_xy = (x, y)
         u = _units.current()
-        self.st_da.setText(f"X: {u.number(x, 'length')} Y: {u.number(y, 'length')} {u.suffix('length')}")
+        self.st_da.setText(self.tr_.format("status.cursor", x=u.number(x, 'length'), y=u.number(y, 'length'),
+                                           unit=u.suffix('length')))
 
     def paste(self) -> None:
         """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
@@ -1168,17 +1247,18 @@ class MainWindow(QMainWindow):
         self.log_panel.log(f"mf103: {n} micro-joints")
 
     def rotate_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf185", "pd339", 30.0, -360, 360, self)
+        d = dialogs.ValueDialog(self.tr_, "mf185", "pd339", 30.0, -360, 360, self, suffix=" °")
         if d.exec():
             self._edit(ops.rotate, d.value.value(), label="rotate")
 
     def scale_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf60", "pd348", 100.0, 0.1, 10000, self)
+        d = dialogs.ValueDialog(self.tr_, "mf60", "pd348", 100.0, 0.1, 10000, self, suffix=" %")
         if d.exec():
             self._edit(ops.scale, d.value.value() / 100.0, label="scale")
 
     def sim_speed_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf121", "mf121", self.canvas.sim_speed, 0.1, 100, self)
+        d = dialogs.ValueDialog(self.tr_, "mf121", "mf121", self.canvas.sim_speed, 0.1, 100, self,
+                                  suffix=" ×")
         if d.exec():
             self.canvas.sim_speed = d.value.value()
 
@@ -1251,12 +1331,11 @@ class MainWindow(QMainWindow):
     def _poll(self) -> None:
         st = self.ctl.state()
         t = self.tr_.tr
-        mc = t(self._MC.get(st.mode, "mp22"))
-        if not mc.startswith("MCC") and "<" not in mc:
-            mc = f"MCC <{mc}>"
-        self.st_mc.setText(mc)
-        self.st_zf.setText(t(self._ZF.get(st.ftc, "mp23")))
-        self.st_lf.setText(t("mp25" if st.laser == "ready" else "mp24"))
+        self.st_mc.show_state(t("status.dev.motion"), t(self._MC.get(st.mode, "mp22")), st.mode == "offline")
+        self.st_zf.show_state(t("status.dev.follower"), t(self._ZF.get(st.ftc, "mp23")), st.ftc == "offline")
+        self.st_zf.setVisible(st.ftc != "offline")         # no follower reporting: no chip
+        self.st_lf.show_state(t("status.dev.laser"), t("mp25" if st.laser == "ready" else "mp24"),
+                              st.laser != "ready")
         self._status_position(st)
         if not self.canvas.simulation_running():
             self.canvas.set_head_position(st.x, st.y)

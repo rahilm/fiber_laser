@@ -20,10 +20,12 @@ from PySide6.QtCore import QByteArray, QPoint, QRect, QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QGuiApplication, QIcon, QIconEngine, QPainter, QPalette, QPixmap
 from PySide6.QtSvg import QSvgRenderer
 
+from .style import ICON_TINTS
+
 ICON_DIR = os.path.join(os.path.dirname(__file__), "resources", "icons", "tabler")
 
 # Semantic accent colours (also readable on a dark background).
-GREEN, AMBER, RED, BLUE = "#2f9e44", "#e67700", "#e03131", "#1c7ed6"
+GREEN, AMBER, RED, BLUE = (ICON_TINTS[k] for k in ("success", "warning", "danger", "info"))
 
 #: command id -> Tabler icon name. Menu entries, extension commands and the control panel use
 #: this table; top-level ribbon buttons carry their icon in ribbon_spec.
@@ -185,7 +187,7 @@ class SvgIconEngine(QIconEngine):
     def _palette_color(group) -> QColor:
         app = QGuiApplication.instance()
         if app is None:
-            return QColor("#333333")
+            return QColor(ICON_TINTS["neutral"])
         return QGuiApplication.palette().color(group, QPalette.ButtonText)
 
     def paint(self, painter: QPainter, rect: QRect, mode, state) -> None:

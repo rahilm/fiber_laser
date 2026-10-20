@@ -43,7 +43,7 @@ from PySide6.QtCore import Qt, QTimer, QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
-                               QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
+                               QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget)
@@ -55,7 +55,10 @@ from mlaser.diag.measure import DataRecorder
 from mlaser.diag.paramset import ParamSet, find_def
 from mlaser.services import units as U
 from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
+from mlaser.ui import style as S
+from mlaser.ui.dialogs import split_unit, suffix_for
 from mlaser.ui.help_browser import HelpBrowser
+from mlaser.ui.style import Dialog
 from mlaser.ui.units_qt import QuantitySpinBox, kind_for, on_units_changed
 
 
@@ -76,6 +79,39 @@ def _parent(window):
     return window if isinstance(window, QWidget) else None
 
 
+def _table_need(t: QTableWidget) -> int:
+    """The width a table needs to show its columns without scrolling sideways (a stretched
+    column at its minimum)."""
+    hh = t.horizontalHeader()
+    w = 0
+    for c in range(t.columnCount()):
+        if t.isColumnHidden(c):
+            continue
+        if hh.sectionResizeMode(c) == QHeaderView.Stretch:
+            w += max(hh.minimumSectionSize(), hh.sectionSizeHint(c))
+        else:
+            w += max(hh.sectionSize(c), hh.sectionSizeHint(c), t.sizeHintForColumn(c))
+    vh = t.verticalHeader()
+    return w + (vh.width() if vh.isVisible() else 0) + 2 * t.frameWidth() + t.verticalScrollBar().sizeHint().width()
+
+
+def _fit_screen(d: QWidget) -> None:
+    """A window with a table or a log grows to its content (its tables' columns), up to most of
+    the screen."""
+    scr = d.screen().availableGeometry() if d.screen() is not None else None
+    for t in d.findChildren(QTableWidget):
+        # the table's minimum is what its columns need (content, not a constant), within the screen
+        tn = _table_need(t)
+        t.setMinimumWidth(min(tn, int(scr.width() * 0.85)) if scr is not None else tn)
+    hint = d.sizeHint()
+    need = hint.width()
+    if scr is None:
+        d.resize(need, hint.height())
+        return
+    d.resize(min(max(need, scr.width() // 2), int(scr.width() * 0.9)),
+             min(max(hint.height(), scr.height() // 2), int(scr.height() * 0.8)))
+
+
 def _log(window, msg: str) -> None:
     lp = getattr(window, "log_panel", None)
     if lp is not None:
@@ -92,11 +128,17 @@ def _lang(window) -> str:
     return getattr(getattr(window, "tr_", None), "language", "en")
 
 
-def _table(headers: list[str]) -> QTableWidget:
+def _table(headers: list[str], stretch: Optional[int] = None) -> QTableWidget:
+    """A table; ``stretch``: the key column that takes the rest of the width and elides (rule
+    R2), else the last column stretches."""
     t = QTableWidget(0, len(headers))
     t.setHorizontalHeaderLabels(headers)
     t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-    t.horizontalHeader().setStretchLastSection(True)
+    if stretch is None:
+        t.horizontalHeader().setStretchLastSection(True)
+    else:
+        t.horizontalHeader().setSectionResizeMode(stretch, QHeaderView.Stretch)
+        t.setTextElideMode(Qt.ElideRight)
     t.verticalHeader().hide()
     t.setEditTriggers(QAbstractItemView.NoEditTriggers)
     return t
@@ -121,7 +163,7 @@ class ParamForm(QWidget):
         super().__init__(parent)
         self.pset = pset
         self.editors: dict[str, QWidget] = {}
-        form = QFormLayout(self)
+        form = S.form(self)
         tr = getattr(window, "tr_", None)
         for key in keys or pset.keys:
             d = find_def(key)
@@ -157,16 +199,18 @@ class ParamForm(QWidget):
                     w.setRange(lo, hi)
                     w.setDecimals(3)
                 w.setValue(float(v))
-            if isinstance(w, QuantitySpinBox):
-                lab = QLabel()
-                on_units_changed(lab, lambda u, lb=lab, base=label, kk=w.kind(): lb.setText(f"{base} ({u.suffix(kk)})"))
-                form.addRow(lab, w)
-                self.editors[key] = w
-                continue
-            # a convertible unit the registry puts on a switch or a choice is not shown
-            if d is not None and d.unit and not (isinstance(w, (QComboBox, QCheckBox)) and kind_for(d.unit)):
-                label = f"{label} ({d.unit})"
-            form.addRow(label, w)
+            # the unit goes in the field's suffix, never in the label too (DESIGN.md §3): a
+            # QuantitySpinBox shows the display unit; another number shows the registry's unit
+            label, lunit = split_unit(label)
+            if isinstance(w, (QSpinBox, QDoubleSpinBox)) and not w.suffix():
+                unit = d.unit if d is not None and d.unit and not kind_for(d.unit) else lunit
+                if unit:
+                    w.setSuffix(suffix_for(unit))
+            if isinstance(w, QCheckBox):
+                w.setText(label)
+                S.form_row(form, "", w)
+            else:
+                S.form_row(form, label, w)
             self.editors[key] = w
 
     def store(self) -> None:
@@ -183,26 +227,22 @@ class ParamForm(QWidget):
                 self.pset.set(key, w.value())
 
 
-class ParamDialog(QDialog):
-    """OK / Cancel property dialog (FUN_005ee240 equivalent)."""
+class ParamDialog(Dialog):
+    """OK / Cancel property dialog (FUN_005ee240 equivalent) on the one dialog frame."""
 
     def __init__(self, window, title: str, pset: ParamSet, extra: Optional[QWidget] = None):
-        super().__init__(_parent(window))
-        self.setWindowTitle(title)
-        lay = QVBoxLayout(self)
-        self.form = ParamForm(window, pset, parent=self)
-        lay.addWidget(self.form)
+        super().__init__(_parent(window), title)
+        self.params_form = ParamForm(window, pset, parent=self)
+        self.body.addWidget(self.params_form)
         if extra is not None:
-            lay.addWidget(extra)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(_tr(window, "ap1", "OK"))
-        bb.button(QDialogButtonBox.Cancel).setText(_tr(window, "ap0", "Cancel"))
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+            self.body.addWidget(extra)
+        self.buttons.button(QDialogButtonBox.Ok).setText(_tr(window, "ap1", "OK"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(_tr(window, "ap0", "Cancel"))
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._ok)
 
     def _ok(self) -> None:
-        self.form.store()
+        self.params_form.store()
         self.accept()
 
 
@@ -394,7 +434,7 @@ class ControllerMonitor(QDialog):
         for key, rows in pages.items():
             _fill(self.tables[key], rows)
         for lb, on in zip(self.di, snap.inputs()):
-            lb.setStyleSheet("background:#3c3" if on else "")
+            lb.setStyleSheet(f"background:{S.css('success_fill')}; color:{S.css('on_success')};" if on else "")
         for b, on in zip(self.do, snap.outputs()):
             if b.isChecked() != on:
                 b.setChecked(on)
@@ -644,29 +684,19 @@ def device_rows(counters, tr=None) -> list[tuple[str, str, str]]:
     return out
 
 
-class DeviceReportDialog(QDialog):
+class DeviceReportDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
+        super().__init__(_parent(ext.w), _tr(ext.w, "mf801", "Device Report"), buttons=QDialogButtonBox.Close)
         self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "mf801", "Device Report"))
-        lay = QVBoxLayout(self)
-        self.table = _table(["", _tr(w, "hp40", "Name"), "Value"])
+        self.table = _table(["", _tr(w, "hp40", "Name"), "Value"], stretch=1)
         self.table.setColumnHidden(0, True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        lay.addWidget(self.table)
-        row = QHBoxLayout()
-        b = QPushButton(_tr(w, "ap20", "Set Zero"))
-        b.clicked.connect(self.zero_selected)
-        row.addWidget(b)
-        b = QPushButton(_tr(w, "ap21", "All Set Zero"))
-        b.clicked.connect(lambda: self.zero_all())
-        row.addWidget(b)
-        row.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        row.addWidget(bb)
-        lay.addLayout(row)
+        self.body.addWidget(self.table, 1)
+        for key, default, fn in (("ap20", "Set Zero", self.zero_selected), ("ap21", "All Set Zero", lambda: self.zero_all())):
+            b = self.buttons.addButton(_tr(w, key, default), QDialogButtonBox.ActionRole)
+            b.clicked.connect(lambda _=False, f=fn: f())
         self.refresh()
+        _fit_screen(self)
 
     def refresh(self) -> None:
         _fill(self.table, device_rows(self.ext.counters, getattr(self.ext.w, "tr_", None)))
@@ -689,31 +719,27 @@ class DeviceReportDialog(QDialog):
         self.refresh()
 
 
-class LogViewer(QDialog):
+class LogViewer(Dialog):
     """Log directory viewer (mf431): files of the log directories, filter and level."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
+        super().__init__(_parent(ext.w), _tr(ext.w, "mf431", "Open Log Directory"), buttons=QDialogButtonBox.Close)
         self.ext = ext
-        self.setWindowTitle(_tr(ext.w, "mf431", "Open Log Directory"))
-        self.resize(900, 560)
-        lay = QVBoxLayout(self)
-        top = QHBoxLayout()
+        top = S.hbox()
         self.filter = QLineEdit()
-        self.filter.setPlaceholderText("filter")
+        self.filter.setPlaceholderText("Filter")
+        self.filter.setAccessibleName("Filter")
         self.filter.textChanged.connect(self._show)
         self.level = QComboBox()
         self.level.addItems(["", "Info", "Warning", "Error"])
+        self.level.setAccessibleName("Level")
         self.level.currentIndexChanged.connect(self._show)
         top.addWidget(self.filter, 1)
         top.addWidget(self.level)
-        b = QPushButton("Refresh")
-        b.clicked.connect(self.reload)
-        top.addWidget(b)
-        b = QPushButton(_tr(ext.w, "mf431", "Open Log Directory"))
+        top.addWidget(S.button("Refresh", on_click=self.reload))
+        self.body.addLayout(top)
+        b = self.buttons.addButton(_tr(ext.w, "mf431", "Open Log Directory"), QDialogButtonBox.ActionRole)
         b.clicked.connect(self.open_folder)
-        top.addWidget(b)
-        lay.addLayout(top)
         sp = QSplitter()
         self.files = QListWidget()
         self.files.currentRowChanged.connect(self._load)
@@ -721,10 +747,12 @@ class LogViewer(QDialog):
         self.text.setReadOnly(True)
         sp.addWidget(self.files)
         sp.addWidget(self.text)
-        sp.setSizes([250, 650])
-        lay.addWidget(sp, 1)
+        sp.setStretchFactor(0, 1)
+        sp.setStretchFactor(1, 3)
+        self.body.addWidget(sp, 1)
         self.lines: list = []
         self.reload()
+        _fit_screen(self)
 
     def reload(self) -> None:
         self.paths = L.list_logs(self.ext.log_dirs())
@@ -734,7 +762,7 @@ class LogViewer(QDialog):
         if self.paths:
             self.files.setCurrentRow(0)
         else:
-            self.text.setPlainText("no log files in: " + ", ".join(self.ext.log_dirs()))
+            self.text.setPlainText("No log files in: " + ", ".join(self.ext.log_dirs()))
 
     def _load(self, row: int) -> None:
         if 0 <= row < len(self.paths):
@@ -751,35 +779,31 @@ class LogViewer(QDialog):
         QDesktopServices.openUrl(QUrl.fromLocalFile(d))
 
 
-class MeasureWindow(QDialog):
+class MeasureWindow(Dialog):
     """Data measurement samples (mf229)."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
+        super().__init__(_parent(ext.w), _tr(ext.w, "mf229", "Data measurement"), buttons=QDialogButtonBox.Close)
         self.ext = ext
-        self.setWindowTitle(_tr(ext.w, "mf229", "Data measurement"))
-        self.resize(620, 420)
-        lay = QVBoxLayout(self)
         self.summary = QLabel("")
-        lay.addWidget(self.summary)
-        self.table = _table(["t (s)", "X", "Y", "Z", "speed", "laser", "mode"])
-        lay.addWidget(self.table, 1)
-        row = QHBoxLayout()
-        b = QPushButton("Save CSV...")
-        b.clicked.connect(lambda: self.save())
-        row.addWidget(b)
-        b = QPushButton("Clear")
-        b.clicked.connect(self.ext.measure.start)
-        row.addWidget(b)
-        lay.addLayout(row)
+        self.body.addWidget(self.summary)
+        self.table = _table(["t (s)", "X", "Y", "Z", "Speed", "Laser", "Mode"])
+        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.table.horizontalHeader().setStretchLastSection(False)
+        self.body.addWidget(self.table, 1)
+        for text, fn in (("Save CSV…", lambda: self.save()), ("Clear", self.ext.measure.start)):
+            b = self.buttons.addButton(text, QDialogButtonBox.ActionRole)
+            b.clicked.connect(lambda _=False, f=fn: f())
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.refresh)
         self._timer.start(500)
+        self.refresh()
+        _fit_screen(self)
 
     def refresh(self) -> None:
         u = U.current()
         self.table.setHorizontalHeaderLabels(["t (s)", u.header("X", "length"), u.header("Y", "length"),
-                                              u.header("Z", "length"), u.header("speed", "speed"), "laser", "mode"])
+                                              u.header("Z", "length"), u.header("Speed", "speed"), "Laser", "Mode"])
         s = self.ext.measure.samples[-200:]
         d = u.decimals("small_length")
         _fill(self.table, [(f"{x.t:.2f}", u.number(x.x, "length", d), u.number(x.y, "length", d),
@@ -804,29 +828,33 @@ class MeasureWindow(QDialog):
 
 
 # =========================================================================== aux
-class CustomIODialog(QDialog):
+class CustomIODialog(Dialog):
     """Custom IO buttons of one type plus the DO.CustomDOStr editor."""
 
     def __init__(self, ext, self_locking: bool):
-        super().__init__(_parent(ext.w))
-        self.ext, self.self_locking = ext, self_locking
         w = ext.w
-        self.setWindowTitle(_tr(w, "newLang301" if self_locking else "newLang300",
-                                "Custom IO [self-locking]" if self_locking else "Custom IO [non-self-locking]"))
-        lay = QVBoxLayout(self)
-        self.grid = QGridLayout()
-        lay.addLayout(self.grid)
-        self.buttons: dict[int, QPushButton] = {}
-        lay.addWidget(QLabel("DO.CustomDOStr (pd521): name / DO / self-locking"))
-        self.editor = _table([_tr(w, "hp40", "Name"), "DO", "self-locking"])
+        super().__init__(_parent(w), _tr(w, "newLang301" if self_locking else "newLang300",
+                                         "Custom IO [self-locking]" if self_locking else "Custom IO [non-self-locking]"),
+                         buttons=QDialogButtonBox.Close)
+        self.ext, self.self_locking = ext, self_locking
+        gridw = QWidget()
+        self.grid = QGridLayout(gridw)
+        S.margins(self.grid, "none")
+        self.body.addWidget(gridw)
+        self.io_buttons: dict[int, QPushButton] = {}
+        sec, sl = S.section("Custom outputs (DO.CustomDOStr, pd521)")
+        self.editor = _table([_tr(w, "hp40", "Name"), "DO", "Self-locking"])
         self.editor.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
-        lay.addWidget(self.editor)
-        row = QHBoxLayout()
-        for text, fn in (("+", self._add_row), ("-", self._del_row), (_tr(w, "cp3", "Save"), self.save)):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
+        sl.addWidget(self.editor)
+        row = S.hbox()
+        for text, tip, fn in (("Add", "Add a row", self._add_row), ("Remove", "Remove the selected row", self._del_row)):
+            b = S.button(text, tooltip=tip, on_click=fn)
             row.addWidget(b)
-        lay.addLayout(row)
+        row.addStretch(1)
+        sl.addLayout(row)
+        self.body.addWidget(sec, 1)
+        save = self.buttons.addButton(_tr(w, "cp3", "Save"), QDialogButtonBox.ApplyRole)
+        save.clicked.connect(self.save)
         self._load_editor()
         self._build_buttons()
 
@@ -838,10 +866,10 @@ class CustomIODialog(QDialog):
             it = self.grid.takeAt(0)
             if it.widget():
                 it.widget().deleteLater()
-        self.buttons.clear()
+        self.io_buttons.clear()
         items = self.items()
         if not items:
-            self.grid.addWidget(QLabel("no custom DO of this type configured"), 0, 0)
+            self.grid.addWidget(QLabel("No custom output of this type is configured."), 0, 0)
         for i, c in enumerate(items):
             b = QPushButton(f"{c.name} (DO{c.port})")
             if self.self_locking:
@@ -852,12 +880,12 @@ class CustomIODialog(QDialog):
                 b.pressed.connect(lambda c=c: self.ext.outputs.set(c.port, True))
                 b.released.connect(lambda c=c: self.ext.outputs.set(c.port, False))
             self.grid.addWidget(b, i // 4, i % 4)
-            self.buttons[c.port] = b
+            self.io_buttons[c.port] = b
 
     def press(self, c) -> bool:
         """FUN_004bc460: type 1 toggles its DO."""
         on = self.ext.outputs.toggle(c.port)
-        b = self.buttons.get(c.port)
+        b = self.io_buttons.get(c.port)
         if b is not None:
             b.setChecked(on)
         return on
@@ -892,32 +920,24 @@ class CustomIODialog(QDialog):
         self._build_buttons()
 
 
-class LightTestDialog(QDialog):
+class LightTestDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
+        super().__init__(_parent(ext.w), _tr(ext.w, "newLang200", "Light test"), buttons=QDialogButtonBox.Close)
         self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "newLang200", "Light test"))
-        lay = QVBoxLayout(self)
         self.p = lighttest.params(ext.settings)
-        self.form = ParamForm(w, self.p, parent=self)
-        lay.addWidget(self.form)
+        self.params_form = ParamForm(w, self.p, parent=self)
+        self.body.addWidget(self.params_form)
         self.remain = QLabel("")
-        lay.addWidget(self.remain)
-        row = QHBoxLayout()
-        b = QPushButton(_tr(w, "mp54", "Start"))
-        b.clicked.connect(self.start)
-        row.addWidget(b)
-        b = QPushButton(_tr(w, "mp56", "Stop"))
-        b.clicked.connect(self.stop)
-        row.addWidget(b)
-        lay.addLayout(row)
+        self.body.addWidget(self.remain)
+        self.body.addWidget(S.button_row(S.button(_tr(w, "mp54", "Start"), on_click=self.start),
+                                         S.button(_tr(w, "mp56", "Stop"), on_click=self.stop), align="leading"))
         self.test = lighttest.LightTest(ext.w.ctl, self.p, log=lambda m: _log(w, m))
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.finished.connect(lambda _r: self.stop())   # FUN_005686c0: stop before EndDialog
 
     def start(self) -> None:
-        self.form.store()
+        self.params_form.store()
         self.test.ctl = self.ext.w.ctl
         if self.test.start():
             self._timer.start(200)
@@ -927,7 +947,7 @@ class LightTestDialog(QDialog):
         on = self.test.tick()
         label = _tr(self.ext.w, "newLang206", "Remaining light time")
         self.remain.setText(f"{label}: {self.test.remaining} s" if on and self.test.timed else
-                            ("laser on" if on else ""))
+                            ("Laser on" if on else ""))
         if not on:
             self._timer.stop()
 
@@ -937,35 +957,30 @@ class LightTestDialog(QDialog):
         self.remain.setText("")
 
 
-class BurnInDialog(QDialog):
+class BurnInDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
-        self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "newLang1", "Burn-in test"))
-        lay = QVBoxLayout(self)
+        w = ext.w
+        super().__init__(_parent(w), _tr(w, "newLang1", "Burn-in test"), buttons=QDialogButtonBox.Close)
+        self.ext = ext
         self.p = burnin.params(ext.settings)
-        self.form = ParamForm(w, self.p, parent=self)
-        lay.addWidget(self.form)
+        self.params_form = ParamForm(w, self.p, parent=self)
+        self.body.addWidget(self.params_form)
         self.count = QLabel("")
-        lay.addWidget(self.count)
+        self.body.addWidget(self.count)
         warn = QLabel(_tr(w, "newLang24", "When this page is exited, the baking test will stop!"))
-        warn.setStyleSheet("color:#c00")
-        lay.addWidget(warn)
-        row = QHBoxLayout()
-        b = QPushButton(_tr(w, "mp54", "Start"))
-        b.clicked.connect(self.start)
-        row.addWidget(b)
-        b = QPushButton(_tr(w, "mp56", "Stop"))
-        b.clicked.connect(self.stop)
-        row.addWidget(b)
-        lay.addLayout(row)
+        warn.setWordWrap(True)
+        S.chip(warn, "warning")
+        self.warning = warn
+        self.body.addWidget(warn)
+        self.body.addWidget(S.button_row(S.button(_tr(w, "mp54", "Start"), on_click=self.start),
+                                         S.button(_tr(w, "mp56", "Stop"), on_click=self.stop), align="leading"))
         self.test: Optional[burnin.BurnIn] = None
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.finished.connect(lambda _r: self.stop())
 
     def start(self) -> None:
-        self.form.store()
+        self.params_form.store()
         self.test = burnin.BurnIn(self.ext.w.ctl, self.p, self.ext.w.document, self.ext.marks(),
                                   log=lambda m: _log(self.ext.w, m))
         if self.test.start():
@@ -1148,36 +1163,33 @@ class InterferometerPanel(QWidget):
         self.set_table(IF.PitchTable())
 
 
-class BatchDialog(QDialog):
+class BatchDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
-        self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "mf705", "Batch Cut"))
-        self.resize(640, 520)
-        lay = QVBoxLayout(self)
+        w = ext.w
+        super().__init__(_parent(w), _tr(w, "mf705", "Batch Cut"))
+        self.ext = ext
         self.p = B.params(ext.settings)
-        self.form = ParamForm(w, self.p, parent=self)
-        lay.addWidget(self.form)
+        self.params_form = ParamForm(w, self.p, parent=self)
+        self.body.addWidget(self.params_form)
         self.files = _table([_tr(w, "ap101", "File Path"), _tr(w, "ap102", "Planned quantity"),
                              _tr(w, "ap103", "Done quantity")])
         self.files.setEditTriggers(QAbstractItemView.DoubleClicked)
-        lay.addWidget(self.files, 1)
-        row = QHBoxLayout()
-        for text, fn in (("+", self.add_file), ("-", self.remove_file), ("0", self.reset_done)):
-            b = QPushButton(text)
-            b.clicked.connect(lambda _=False, f=fn: f())
-            row.addWidget(b)
+        self.body.addWidget(self.files, 1)
+        row = S.hbox()
+        for text, tip, fn in (("Add…", "Add drawings to the batch", self.add_file),
+                              ("Remove", "Remove the selected drawing", self.remove_file),
+                              ("Reset done", "Set every done quantity to 0", self.reset_done)):
+            row.addWidget(S.button(text, tooltip=tip, on_click=fn))
         row.addStretch(1)
-        lay.addLayout(row)
-        box = QGroupBox(_tr(w, "pd858", "Plan Count").split(".")[0])
-        self.counter = ParamForm(w, ParamSet(B.COUNTER_KEYS, ext.settings), parent=box)
-        QVBoxLayout(box).addWidget(self.counter)
-        lay.addWidget(box)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.body.addLayout(row)
+        sec, sl = S.section(_tr(w, "pd858", "Plan Count").split(".")[0])
+        self.counter = ParamForm(w, ParamSet(B.COUNTER_KEYS, ext.settings), parent=sec)
+        sl.addWidget(self.counter)
+        self.body.addWidget(sec)
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._ok)
         self._load()
+        _fit_screen(self)
 
     def _load(self) -> None:
         _fill(self.files, [(e.path, e.planned, e.done) for e in self.ext.batch_list.entries])
@@ -1211,7 +1223,7 @@ class BatchDialog(QDialog):
         self._load()
 
     def _ok(self) -> None:
-        self.form.store()
+        self.params_form.store()
         self.counter.store()
         self._collect()
         self.ext.settings[B.TABLE_KEY] = self.ext.batch_list.to_text()
@@ -1219,37 +1231,32 @@ class BatchDialog(QDialog):
         self.accept()
 
 
-class MaintainDialog(QDialog):
+class MaintainDialog(Dialog):
     COLS = ("A251113_7", "A251113_8", "A251113_9", "A251113_10")
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
-        self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "A251113_0", "Maintain"))
-        self.resize(900, 560)
-        lay = QVBoxLayout(self)
-        heads = ["", _tr(w, "hp40", "Name")] + [_tr(w, k, k) for k in self.COLS] + ["status"]
-        self.table = _table(heads)
+        w = ext.w
+        super().__init__(_parent(w), _tr(w, "A251113_0", "Maintain"))
+        self.ext = ext
+        heads = ["", _tr(w, "hp40", "Name")] + [_tr(w, k, k) for k in self.COLS] + ["Status"]
+        self.table = _table(heads, stretch=1)
         self.table.setColumnHidden(0, True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        lay.addWidget(self.table, 1)
-        row = QHBoxLayout()
-        b = QPushButton(_tr(w, "A251113_3", "Operation") + " OK")
-        b.clicked.connect(self.mark_done)
-        row.addWidget(b)
+        self.body.addWidget(self.table, 1)
+        row = S.hbox()
+        row.addWidget(S.button("Mark as done", tooltip="The selected items were maintained now",
+                               on_click=self.mark_done))
         self.custom = QLineEdit()
         self.custom.setPlaceholderText(_tr(w, "A251113_13", "Customized maintenance items"))
+        self.custom.setAccessibleName(self.custom.placeholderText())
         row.addWidget(self.custom, 1)
-        b = QPushButton("+")
-        b.clicked.connect(self.add_custom)
-        row.addWidget(b)
-        lay.addLayout(row)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        row.addWidget(S.button("Add", tooltip="Add this maintenance item", on_click=self.add_custom))
+        self.body.addLayout(row)
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._ok)
         self.editors: list[tuple] = []
         self._build()
+        _fit_screen(self)
 
     def _build(self) -> None:
         w = self.ext.w

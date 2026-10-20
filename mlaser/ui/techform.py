@@ -73,6 +73,7 @@ def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
 # the layouts are the responsive ones (docs/dev/RESPONSIVE.md): FlowLayout, ResponsiveForm and
 # the collapsible sections of a ColumnsPanel
 from .responsive import LIST_PROP, CollapsibleSection, ColumnsPanel, FlowLayout, ResponsiveForm  # noqa: E402
+from . import style  # noqa: E402
 
 
 class Section(CollapsibleSection):
@@ -309,7 +310,7 @@ class TechField:
         col.setSpacing(0)
         row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
-        row.setSpacing(2)
+        row.setSpacing(style.SP1 // 2)
         row.addWidget(w, 1)
         row.addWidget(self.reset)
         col.addLayout(row)
@@ -478,7 +479,7 @@ class TechForm(QWidget):
         t = tr.tr
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
-        outer.setSpacing(3)
+        outer.setSpacing(style.SP1)
         # ---- header: what the values are based on, search, all parameters
         self.base_info = QLabel()
         self.base_info.setObjectName("techform_base_info")

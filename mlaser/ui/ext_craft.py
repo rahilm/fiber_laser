@@ -31,14 +31,16 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPointF, Qt
 from PySide6.QtGui import QBrush, QColor, QPen
-from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDialog, QGridLayout,
-                               QGraphicsEllipseItem, QGraphicsItem, QRadioButton, QVBoxLayout)
+from PySide6.QtWidgets import (QButtonGroup, QDialogButtonBox, QFileDialog, QGridLayout,
+                               QGraphicsEllipseItem, QGraphicsItem, QRadioButton, QWidget)
 
 from mlaser.cam import manual as M
 from mlaser.model import Craft, Document, Part
 from mlaser.services import units
 
+from . import style as S
 from .ext_cam import FieldDialog
+from .style import Dialog
 
 
 # --------------------------------------------------------------------------- canvas click tools
@@ -155,7 +157,8 @@ class ToolHost(QObject):
             return
         if self._marker is None:
             it = QGraphicsEllipseItem(-4, -4, 8, 8)
-            it.setPen(QPen(QColor("#ffcc00"), 1.5))
+            from .canvas import CANVAS_COLORS     # the pick marker in the canvas's own colours
+            it.setPen(QPen(QColor(CANVAS_COLORS.get("index") or CANVAS_COLORS["marker"]), 1.5))
             it.setBrush(QBrush(Qt.NoBrush))
             it.setFlag(QGraphicsItem.ItemIgnoresTransformations)
             it.setZValue(30)
@@ -541,7 +544,7 @@ class CraftExtension:
         for pi, _ci in marked:
             self.w.document.parts[pi].selected = True
         self.w.canvas.refresh_styles()
-        self.log(f"mf89: {len(marked)}")
+        self.log(f"mf89: {len(marked)} contour(s) marked")
         if not any(c.lead_in.kind for p in self.w.document.parts
                    for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
             self.log(self.t("craft.msg.no_leads"))
@@ -549,16 +552,16 @@ class CraftExtension:
     def lead_clear_mark(self) -> None:
         n = M.clear_lead_marks(self.w.document)          # no undo step in the original
         self.refresh()
-        self.log(f"mf91: {n}")
+        self.log(f"mf91: {n} mark(s) cleared")
 
     # ---------------------------------------------------------------- optimize sub-commands
     def replace_circle(self) -> None:
         n = self.edit(M.replace_circles)
-        self.log(f"mf472: {n}")
+        self.log(f"mf472: {n} circle(s) replaced")
 
     def adjust_start(self) -> None:
         n = self.edit(lambda d: M.adjust_starts([p for p in d.parts if p.selected]))
-        self.log(f"mf604: {n}")
+        self.log(f"mf604: {n} start point(s) adjusted")
 
     # ---------------------------------------------------------------- scan engraving
     def _engrave_dialog(self, title: str = "mf112_5") -> bool:
@@ -612,7 +615,7 @@ class CraftExtension:
         then imports Bitmap\\newGcode.nc like a scan G-code; the rebuild opens the
         ``mlaser.engrave`` dialog in-process and imports its G-code the same way."""
         try:
-            from mlaser.engrave.dialog import BitmapDialog
+            from mlaser.ui.engrave_dialog import BitmapDialog
         except Exception as exc:  # noqa: BLE001
             self.log(f"A250622_0: mlaser.engrave unavailable ({exc})")
             return None
@@ -723,33 +726,29 @@ class CraftExtension:
         self.log(self.t("mf209"))
 
 
-class DockDialog(QDialog):
+class DockDialog(Dialog):
     """mf192 "Home Ref Parameters" (MainApp FUN_005e0cd0): radio 20000 = manual pick on the
     canvas, radios 20001..20009 = 3x3 grid ap2..ap10 (top-left .. bottom-right) of the
     graphics bounding box; the choice is SoftParam 0x497c."""
 
     def __init__(self, tr, mode: int = 0, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr.tr("mf192"))
-        lay = QVBoxLayout(self)
+        super().__init__(parent, tr.tr("mf192"))
         self.group = QButtonGroup(self)
         manual = QRadioButton(tr.tr("mp207", "Manual"))   # label of radio 20000 is U
         self.group.addButton(manual, 0)
-        lay.addWidget(manual)
-        grid = QGridLayout()
+        self.body.addWidget(manual)
+        gridw = QWidget()
+        grid = QGridLayout(gridw)
+        S.margins(grid, "none")
         for i, k in enumerate(DOCK_KEYS):
             b = QRadioButton(tr.tr(k))
             self.group.addButton(b, i + 1)
             grid.addWidget(b, i // 3, i % 3)
-        lay.addLayout(grid)
+        self.body.addWidget(gridw)
         btn = self.group.button(mode if 0 <= mode <= 9 else 0)
         btn.setChecked(True)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr.tr("ap1"))
-        bb.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0"))
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr.tr("ap1"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0"))
 
     def mode(self) -> int:
         return max(0, self.group.checkedId())

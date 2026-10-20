@@ -36,6 +36,12 @@ DEFAULT_THEME = SYSTEM
 
 THEMES: dict[str, dict[str, str]] = {
     LIGHT: {
+        # semantic roles (mlaser.ui.style.color): text colours >= 4.5:1 on the window and on
+        # their fill; STOP's fill is the same in every theme (docs/SAFETY.md)
+        "danger": "#c62828", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#9a4a06", "warning_fill": "#fff4e5", "on_warning": "#7a3a04",
+        "info": "#1b5fc1", "info_fill": "#e8f0fc", "on_info": "#123f80",
+        "success": "#2f7d32", "success_fill": "#e8f5e9", "on_success": "#1e5420",
         "window": "#f3f4f6", "base": "#ffffff", "alt_base": "#f6f7f9", "text": "#1d2127",
         "muted": "#59616d", "button": "#e8eaee", "button_text": "#1d2127", "border": "#c4c9d1",
         "accent": "#1b5fc1", "accent_text": "#ffffff", "tooltip": "#ffffe8", "tooltip_text": "#1d2127",
@@ -48,9 +54,16 @@ THEMES: dict[str, dict[str, str]] = {
         "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#d62828", "c_marker": "#0b7285",
         "c_sim": "#101418",
         # the planned toolpath: leads and the kerf-compensated path in their own colours
+        # the toolpath preview (preview_scrubber, Orders' sheet preview)
+        "c_preview_cut": "#b36b00", "c_preview_rapid": "#1f6fd1", "c_preview_head": "#d62828",
+        "c_preview_head_off": "#7b818b", "c_preview": "#8a6d00", "c_preview_alert": "#c62828",
         "c_lead_in": "#c2187a", "c_lead_out": "#6d28d9", "c_kerf": "#a86b00", "c_pierce": "#c2187a",
     },
     DARK: {
+        "danger": "#ef5350", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#f59e0b", "warning_fill": "#3a2a10", "on_warning": "#ffd089",
+        "info": "#7fb0ff", "info_fill": "#16243a", "on_info": "#cfe0ff",
+        "success": "#66bb6a", "success_fill": "#163a1a", "on_success": "#c8e6c9",
         "window": "#1f2226", "base": "#16181b", "alt_base": "#1c1f23", "text": "#e6e8eb",
         "muted": "#a3aab4", "button": "#2b2f35", "button_text": "#e6e8eb", "border": "#3d434b",
         "accent": "#4d8ff0", "accent_text": "#0b0d10", "tooltip": "#2b2f35", "tooltip_text": "#e6e8eb",
@@ -61,9 +74,15 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
         "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ff4040", "c_marker": "#00ffff",
         "c_sim": "#ffffff",
+        "c_preview_cut": "#ffb000", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
+        "c_preview_head_off": "#c0c0c0", "c_preview": "#e6e600", "c_preview_alert": "#e53935",
         "c_lead_in": "#ff4fa0", "c_lead_out": "#b28cff", "c_kerf": "#ffc53d", "c_pierce": "#ff4fa0",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
+        "danger": "#ff5252", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#ffd400", "warning_fill": "#000000", "on_warning": "#ffd400",
+        "info": "#00e5ff", "info_fill": "#000000", "on_info": "#00e5ff",
+        "success": "#69f0ae", "success_fill": "#000000", "on_success": "#69f0ae",
         "window": "#000000", "base": "#000000", "alt_base": "#0a0a0a", "text": "#ffffff",
         "muted": "#ffffff", "button": "#000000", "button_text": "#ffffff", "border": "#ffffff",
         "accent": "#ffd400", "accent_text": "#000000", "tooltip": "#000000", "tooltip_text": "#ffffff",
@@ -74,6 +93,8 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
         "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ff1744", "c_marker": "#00e5ff",
         "c_sim": "#ffffff",
+        "c_preview_cut": "#ffd740", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
+        "c_preview_head_off": "#ffffff", "c_preview": "#ffff00", "c_preview_alert": "#ff5252",
         "c_lead_in": "#ff40ff", "c_lead_out": "#c9a0ff", "c_kerf": "#ffd740", "c_pierce": "#ff40ff",
     },
 }
@@ -222,7 +243,9 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
     sheet and the canvas.  Returns the theme id actually applied."""
     theme = theme if theme in THEME_IDS else DEFAULT_THEME
     app = app or QApplication.instance()
+    changed = False
     if app is not None and app.property("mlaser_theme") != theme:
+        changed = True
         # application-wide changes only when the theme really changes: setStyle / setPalette
         # post a change event to every widget of every window
         native = native_style_name(app)
@@ -245,6 +268,11 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
         app.setProperty("mlaser_theme", theme)
     if window is not None:
         qss = style_sheet(theme)
+        if changed and window.styleSheet():
+            # widgets under a style sheet keep the palette they were polished with: a palette
+            # switch (light <-> dark where the platform cannot switch, offscreen, plain X11)
+            # left their text black on the dark window.  Re-polish them with the new palette.
+            window.setStyleSheet("")
         if window.styleSheet() != qss:
             window.setStyleSheet(qss)
         apply_canvas_theme(effective(theme, app), getattr(window, "canvas", None))

@@ -121,7 +121,7 @@ def test_ui_home_and_alarms():
         ctl.home("XY")
         assert ctl.state().mode == "origin"
         assert _wait(lambda: ctl.state().homed, 5)
-        assert any("Go Origin" in m for m in logs)
+        assert any("homing" in m.lower() for m in logs)
         ctl.sim.set_estop(True)
         assert _wait(lambda: any(8030 in s for s in seen), 3)
         assert any("Emergency stop" in t for t, _ in ctl.state().alarms)

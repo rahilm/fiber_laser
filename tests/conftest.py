@@ -47,7 +47,7 @@ import pytest  # noqa: E402
 
 # modules (file stems under tests/) that build Qt widgets
 UI_MODULES = {
-    "test_camx_ui", "test_card_ui", "test_craft_ui", "test_devices_ui", "test_diag_monitors",
+    "test_glossary", "test_camx_ui", "test_card_ui", "test_craft_ui", "test_devices_ui", "test_diag_monitors",
     "test_diag_ui", "test_draw_geometry", "test_draw_tools", "test_engrave_dialog",
     "test_integration", "test_lead_hooks", "test_machine_ops", "test_nest_ui_project",
     "test_report_window", "test_ui", "test_ui_lead", "test_help_browser", "test_project_ui",
@@ -67,6 +67,12 @@ UI_MODULES = {
     # display units (units track)
     "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
     "test_units_sweep_machine",
+    # UI wave polish: the one dialog frame
+    "test_dialog_frame",
+    # UI wave: polish (the design system's helpers)
+    "test_style", "test_jogpad",
+    # UI wave: polish (commands say what happened)
+    "test_command_feedback",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

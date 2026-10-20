@@ -158,7 +158,7 @@ def test_palette_finds_runs_and_remembers(win, app):
     ids = {e.id for e in entries}
     assert len(entries) >= 256 - 40 and "craft.microjoint" in ids and "hw.upgrade" not in ids
     e = next(e for e in entries if e.id == "craft.microjoint")
-    assert e.label == "Micro Joint" and e.workspace == "Process" and e.shortcut == "J"
+    assert e.label == "Micro joint" and e.workspace == "Process" and e.shortcut == "J"
     assert next(e for e in entries if e.id == "file.save").shortcut == keymap.key_for("file.save")  # ⌘S on macOS
     sh.open_palette()
     pal = sh.palette
@@ -352,15 +352,22 @@ def test_chips_carry_text(win, app):
     win._poll()
     sh._poll()
     chips = sh.topbar.chips
-    assert not chips["SIMULATOR"].isHidden() and "SIMULATOR" in chips["SIMULATOR"].text()
+    banner = win.safety_ui.banner
+    # one display per state: the banner shows SIMULATOR (disarmed), no chip repeats it
+    assert banner.kind == "SIMULATOR" and chips["SIMULATOR"].isHidden() and chips["DISARMED"].isHidden()
+    assert "SIMULATOR" in chips["SIMULATOR"].text()             # every chip carries its text
     win.ctl.connect()
     assert win.ctl.arm()
+    win.safety_ui.refresh()
     sh._poll()
-    assert not chips["ARMED"].isHidden() and "ARMED" in chips["ARMED"].text()
+    # ARMED is the banner's; the second state (on the simulator) is a chip
+    assert banner.kind == "ARMED" and chips["ARMED"].isHidden() and not chips["SIMULATOR"].isHidden()
     assert chips["DISARMED"].isHidden()
     win.ctl.raise_fault("test fault")
+    win.safety_ui.refresh()
     sh._poll()
-    assert not chips["FAULT"].isHidden() and "test fault" in chips["FAULT"].toolTip()
+    assert banner.kind == "FAULT" and "test fault" in banner.label.text() and chips["FAULT"].isHidden()
+    assert not chips["SIMULATOR"].isHidden()
     win.ctl.reset_fault()
 
 
@@ -412,7 +419,17 @@ def test_layout_fits_and_reset(win, app, size):
 
 def test_welcome_sheet(win, app):
     d = win.shell.show_welcome()
-    assert "hw.connect_sim" in d.buttons and "shell.import_params" in d.buttons and "app.import_language" in d.buttons
+    assert "hw.connect_sim" in d.actions and "shell.import_params" in d.actions and "app.import_language" in d.actions
+    assert "practice.open" in d.actions
+    # one frame: QDialogButtonBox, no group boxes, the text reflows and is never clipped
+    from PySide6.QtWidgets import QDialogButtonBox, QGroupBox
+    assert isinstance(d.buttons, QDialogButtonBox) and not d.findChildren(QGroupBox)
+    for width in (380, 520, 760, 1100):
+        d.fit(width)
+        _pump(app)
+        assert d.sections_clipped() == [], width
+        sc = d.scroll
+        assert not sc.horizontalScrollBar().isVisible()
     d.again.setChecked(False)
     d.close()
     assert win.config.get("shell.welcome_done") is True
@@ -443,3 +460,21 @@ def test_focus_order(win, app):
     while nxt is not None and not (nxt.focusPolicy() & Qt.TabFocus and nxt.isVisible()):
         nxt = nxt.nextInFocusChain()
     assert nxt is tb.mode_combo
+
+
+def test_theme_switch_repolishes_labels(win, app):
+    """Light -> dark where the platform cannot switch (offscreen): the widgets under the window's
+    style sheet take the new palette (their text used to stay black on the dark window)."""
+    from PySide6.QtGui import QPalette
+
+    from mlaser.ui.shell import theme as T
+    try:
+        for t in (T.LIGHT, T.DARK):
+            win.shell.set_theme(t, persist=False)
+            _pump(app)
+            lab = win.shell.topbar.file
+            want = QApplication.palette().color(QPalette.WindowText).name()
+            assert lab.palette().color(QPalette.WindowText).name() == want, t
+    finally:
+        win.shell.set_theme(T.LIGHT, persist=False)
+        _pump(app)

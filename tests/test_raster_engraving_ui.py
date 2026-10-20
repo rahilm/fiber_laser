@@ -108,7 +108,7 @@ def test_canvas_lod_many_contours(app):
 
 
 def test_dialog_raster_output(app, tmp_path):
-    from mlaser.engrave.dialog import BitmapDialog
+    from mlaser.ui.engrave_dialog import BitmapDialog
 
     d = BitmapDialog(out_dir=tmp_path)
     d.set_image(_img(48, 64))

@@ -22,6 +22,7 @@ from mlaser.services.config import Setting
 from mlaser.services.operator import fmt_duration
 from mlaser.services.procedures import engine as PE
 
+from mlaser.ui import style
 from mlaser.ui.units_qt import on_units_changed
 
 from .workspaces import TOUCH_MIN, tr
@@ -70,7 +71,7 @@ class CoachWindow(QWidget):
         self.sim_note = QLabel(_t(w, "practice.error.not_simulator"))
         self.sim_note.setObjectName("practice_sim_note")
         self.sim_note.setWordWrap(True)
-        self.sim_note.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        style.chip(self.sim_note, "warning")
         v.addWidget(self.sim_note)
         self.connect_btn = self._button("practice_connect", tr(w, "practice.btn.connect", "Connect the simulator"),
                                         plugin.connect_simulator)
@@ -85,19 +86,14 @@ class CoachWindow(QWidget):
         # current lesson
         self.lesson_title = QLabel()
         self.lesson_title.setObjectName("practice_lesson_title")
-        f = self.lesson_title.font()
-        f.setBold(True)
-        f.setPointSizeF(f.pointSizeF() + 2)
-        self.lesson_title.setFont(f)
+        style.set_font(self.lesson_title, "title")
         v.addWidget(self.lesson_title)
         self.progress = QProgressBar()
         self.progress.setObjectName("practice_progress")
         v.addWidget(self.progress)
         self.step_title = QLabel()
         self.step_title.setObjectName("practice_step_title")
-        f = self.step_title.font()
-        f.setBold(True)
-        self.step_title.setFont(f)
+        style.set_font(self.step_title, "label_strong")
         self.step_title.setWordWrap(True)
         v.addWidget(self.step_title)
         self.step_text = QLabel()
@@ -114,7 +110,10 @@ class CoachWindow(QWidget):
         self.next_btn = self._button("practice_next", tr(w, "practice.btn.next", "Next"), self._next)
         self.abort_btn = self._button("practice_abort", tr(w, "practice.btn.abort", "Abort the lesson"),
                                       self._abort)
-        self.abort_btn.setStyleSheet("QPushButton{background:#c62828;color:#ffffff;}")
+        # Abort stops the lesson's machine: the danger role (text, not a second STOP)
+        pal = self.abort_btn.palette()
+        pal.setColor(pal.ColorRole.ButtonText, style.color("danger"))
+        self.abort_btn.setPalette(pal)
         for b in (self.run_btn, self.next_btn, self.abort_btn):
             row.addWidget(b)
         v.addLayout(row)

@@ -38,27 +38,27 @@ class MotionPart:
 
         ``"Z"`` is the panel's Z回原 (mp30, FUN_005bec40): only with a follower (ZF.ZFType != 0,
         cfg +0x4994); without one the original sends nothing."""
-        if not self._motion_ok("Go Origin"):
+        if not self._motion_ok("Homing"):
             return
         if self._busy():
-            self._log("Go Origin refused: a job is running")
+            self._log("Homing refused: a job is running")
             return
         mode = HOME_MODES.get(axes.upper())
         if mode is None:
-            self._log(f"Go Origin: unknown axes {axes!r}")
+            self._log(f"Homing: unknown axes {axes!r}")
             return
         if mode == HOME_ZF and not self._zf_type():
             self._log("mp30: no follower configured (ZF.ZFType = 0), nothing to home")
             return
         self._sup.clear_latch("go origin")
-        mask = self._safe("Go Origin", self._mc.home_mode, mode, AXES["X"], AXES["Y"], AXES["W"])
+        mask = self._safe("Homing", self._mc.home_mode, mode, AXES["X"], AXES["Y"], AXES["W"])
         if mask:
             self._home_mask = mask
             self._homing = True
             self.breakpoint = None
             with self._slock:
                 self._s.mode, self._s.homed = "origin", False
-            self._log(f"mf15: Go Origin {axes} (mode {mode}, [2, 0x{mask:x}, 0])")
+            self._log(f"mf15: homing {axes} (mode {mode}, [2, 0x{mask:x}, 0])")
 
     def startup_homing(self, confirm: Optional[Callable[[str], bool]] = None,
                        normal_exit: bool = True) -> bool:

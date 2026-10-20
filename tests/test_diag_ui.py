@@ -131,13 +131,13 @@ def test_ball_arm_and_custom_io(win):
     assert w.document is not doc
     ext.settings["DO.CustomDOStr"] = "Clamp#7#-,Blow#8#0"
     d = ext.custom_io_dialog(True)
-    assert list(d.buttons) == [7]
-    assert d.press(ext.custom_io()[0]) is True and d.buttons[7].isChecked()
+    assert list(d.io_buttons) == [7]
+    assert d.press(ext.custom_io()[0]) is True and d.io_buttons[7].isChecked()
     nl = ext.custom_io_dialog(False)
-    assert list(nl.buttons) == [8]
-    nl.buttons[8].pressed.emit()
+    assert list(nl.io_buttons) == [8]
+    nl.io_buttons[8].pressed.emit()
     assert ext.outputs.get(8)
-    nl.buttons[8].released.emit()
+    nl.io_buttons[8].released.emit()
     assert not ext.outputs.get(8)
     nl.editor.setRowCount(0)
     nl._add_row()
@@ -148,9 +148,9 @@ def test_ball_arm_and_custom_io(win):
 def test_dialog_contents(win):
     w, ext = win
     lt = ext.light_test()
-    assert len(lt.form.editors) == 5
+    assert len(lt.params_form.editors) == 5
     bi = ext.burn_in()
-    assert "ST.Type" in bi.form.editors
+    assert "ST.Type" in bi.params_form.editors
     bd = ext.batch_cut()
     bd.add_file(__file__, planned=3)
     bd._ok()

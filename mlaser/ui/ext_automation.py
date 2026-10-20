@@ -26,13 +26,15 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QTimer
 from PySide6.QtGui import QGuiApplication
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QSpinBox, QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QDialog, QLabel, QLineEdit,
+                               QMessageBox, QSpinBox, QWidget)
 
 from mlaser.machine import events as EV
 from mlaser.services import runsource as RS
 from mlaser.services.config import Setting
 
+from . import style as S
+from .style import Dialog
 from .workspaces import tr
 
 log = logging.getLogger("mlaser.ui.automation")
@@ -327,21 +329,17 @@ class AutomationPlugin:
         return d
 
 
-class ApiSettingsDialog(QDialog):
+class ApiSettingsDialog(Dialog):
     def __init__(self, plugin: AutomationPlugin) -> None:
-        super().__init__(plugin.window)
-        self.p = plugin
         w = plugin.window
+        super().__init__(w, tr(w, "api.dlg.title", "Automation API"),
+                         explanation=tr(w, "api.dlg.note", "Read-only status and events for the shop's own tools, "
+                                        "and optional queue intake. Jobs from the API wait for your approval on the "
+                                        "Run screen. The API cannot start, stop, hold, arm or move the machine."))
+        self.p = plugin
         s = plugin.settings
         self.setObjectName("api_settings")
-        self.setWindowTitle(tr(w, "api.dlg.title", "Automation API"))
-        v = QVBoxLayout(self)
-        note = QLabel(tr(w, "api.dlg.note", "Read-only status and events for the shop's own tools, and optional queue "
-                         "intake. Jobs from the API wait for your approval on the Run screen. The API cannot start, "
-                         "stop, hold, arm or move the machine."))
-        note.setWordWrap(True)
-        v.addWidget(note)
-        f = QFormLayout()
+        f = self.form()
         self.host = QLineEdit(str(s["host"]))
         self.port = QSpinBox()
         self.port.setRange(1024, 65535)
@@ -355,32 +353,28 @@ class ApiSettingsDialog(QDialog):
         self.token = QLineEdit(str(s["token"]))
         self.token.setReadOnly(True)
         self.token.setEchoMode(QLineEdit.Password)
-        trow = QHBoxLayout()
+        tok = QWidget()
+        trow = S.hbox(tok)
         trow.addWidget(self.token, 1)
         for key, text, fn in (("show", tr(w, "api.dlg.show", "Show"), self._show),
                               ("copy", tr(w, "api.dlg.copy", "Copy"), self._copy),
                               ("new", tr(w, "api.dlg.new_token", "New token"), self._new)):
-            b = QPushButton(text)
+            b = S.button(text, on_click=fn)
             b.setObjectName(f"api_token_{key}")
-            b.clicked.connect(lambda _=False, fn=fn: fn())
             trow.addWidget(b)
-        f.addRow(tr(w, "api.set.host", "Listen on (address)"), self.host)
-        f.addRow(tr(w, "api.set.port", "Port"), self.port)
-        f.addRow(tr(w, "api.set.token", "Token"), trow)
-        f.addRow(self.intake)
-        f.addRow(self.uploads)
-        f.addRow(tr(w, "api.set.job_folders", "Job folders"), self.folders)
-        v.addLayout(f)
+        S.form_row(f, tr(w, "api.set.host", "Listen on (address)"), self.host)
+        S.form_row(f, tr(w, "api.set.port", "Port"), self.port)
+        S.form_row(f, tr(w, "api.set.token", "Token"), tok)
+        S.form_row(f, "", self.intake)
+        S.form_row(f, "", self.uploads)
+        S.form_row(f, tr(w, "api.set.job_folders", "Job folders"), self.folders)
         self.state = QLabel()
         self.state.setObjectName("api_state")
+        self.state.setWordWrap(True)
         srv = plugin.server
         self.state.setText(tr(w, "api.dlg.on", "Running: {url}", url=srv.url()) if srv is not None and srv.running
                            else tr(w, "api.dlg.off", "Not running (command: Automation API on/off)"))
-        v.addWidget(self.state)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        v.addWidget(bb)
+        self.body.addWidget(self.state)
 
     def _show(self) -> None:
         self.token.setEchoMode(QLineEdit.Normal if self.token.echoMode() == QLineEdit.Password else QLineEdit.Password)

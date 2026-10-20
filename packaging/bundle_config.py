@@ -108,7 +108,7 @@ QT_DROP_PLUGIN_DIRS += ["egldeviceintegrations"]
 #   plugin, which is not shipped (QT_DROP_PLUGIN_DIRS "tls"); Python's own ssl/hashlib use
 #   libcrypto-3.dll / libssl-3.dll, which stay;
 # * Pillow's AVIF codec (_avif and libavif, 5-8 MB): AVIF is not an engrave input format
-#   (the open dialog offers PNG, JPEG, BMP; mlaser.engrave.dialog.FILE_FILTER)
+#   (the open dialog offers PNG, JPEG, BMP; mlaser.ui.engrave_dialog.FILE_FILTER)
 DROP_FILES = ["opengl32sw.dll", "libcrypto-3-x64.dll", "libssl-3-x64.dll"]
 _DROP_FILE_RE = re.compile(r"(?:^|[/\\])PIL[/\\]_avif\.", re.IGNORECASE)
 

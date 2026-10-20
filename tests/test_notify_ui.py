@@ -51,7 +51,7 @@ def test_plugin_wiring_and_test_send(win, tmp_path):
         assert p.notifier.flush(60)
         assert srv.got.wait(10)
         d.show_results()
-        assert "webhook" in d.result.text()
+        assert "webhook" in d.result_label.text()
     finally:
         srv.close()
     body = json.loads(srv.requests[0]["body"])
