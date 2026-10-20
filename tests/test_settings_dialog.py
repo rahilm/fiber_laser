@@ -443,3 +443,39 @@ def test_users_page_shows_mode_and_pins(win):
     links = [b.property("command") for b in d.pages["users"].findChildren(type(d.reset_page_btn))]
     assert "shell.user_mode" in links and "shell.set_pins" in links
     d.close()
+
+
+def test_settings_editors_are_the_only_editors_of_their_values(win, app):
+    """mlaser.ui.homes: a cfg:<key> the Settings window edits has no editor anywhere else."""
+    from mlaser.ui import homes
+    d = dialog(win)
+    for ws in ["design", "process", "nest", "run", "report", "machine"]:
+        win.show_workspace(ws)
+        app.processEvents()
+    mine = {w.property(homes.PROP_VALUE) for w in homes.editors(d)}
+    assert "cfg:costing.machine_per_h" in mine and "cfg:shell.language" in mine
+    elsewhere = [w for w in homes.editors(win) if w.property(homes.PROP_VALUE) in mine and d not in _ancestors(w)]
+    assert not elsewhere, [w.property(homes.PROP_VALUE) for w in elsewhere]
+    # every mirror and editor of the window has a home; search hits that live elsewhere go there
+    for w in homes.editors(d) + homes.editors(d, role=homes.MIRROR):
+        assert homes.home_of(w.property(homes.PROP_VALUE)) is not None
+    assert homes.home_of("cfg:bed.slat_pitch").workspace == "machine"
+    assert homes.home_of("cfg:MC.JogFastSpeed").workspace == "machine"
+    d.close()
+
+
+def _ancestors(w):
+    out = []
+    p = w.parentWidget()
+    while p is not None:
+        out.append(p)
+        p = p.parentWidget()
+    return out
+
+
+def test_edit_in_opens_the_settings_window_at_the_value(win):
+    from mlaser.ui import homes
+    homes.edit_in(win, "cfg:costing.per_pierce")
+    d = win._settings_window
+    assert d.isVisible() and d.current_page().page_id == "costing"
+    d.close()

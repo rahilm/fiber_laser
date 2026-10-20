@@ -204,6 +204,13 @@ class SettingRow(QWidget):
         self.label_text = label
         self.editor = self._make_editor()
         self.editor.setObjectName(f"editor_{setting.key}")
+        # one home per value (mlaser.ui.homes): this window edits its keys; a read-only summary
+        # is a mirror of a value edited elsewhere
+        from . import homes
+        if self.memory or (entry is not None and entry.readonly):
+            homes.bind_mirror(self.editor, f"cfg:{setting.key}", dlg.tr)
+        else:
+            homes.bind_editor(self.editor, f"cfg:{setting.key}")
         self.editor.setAccessibleName(label)
         self.editor.setAccessibleDescription(help_text)
         self.label.setBuddy(self.editor)
@@ -1018,10 +1025,13 @@ class SettingsDialog(QDialog):
         return out
 
     def _go_home(self, s: Setting) -> None:
+        """Open the value's home (``homes.edit_in``: the workspace, its section, the field)."""
+        from . import homes
         if s.home == "machine" and hasattr(self.w, "machine_setup"):
-            self.w.machine_setup()
-        else:
-            self.w.show_workspace(s.home)
+            self.w.machine_setup()                 # Machine › Setup (its section)
+        if homes.home_of(f"cfg:{s.key}") is None or homes.edit_in(self.w, f"cfg:{s.key}") is None:
+            if s.home != "machine":
+                self.w.show_workspace(s.home)
 
     def _fill_elsewhere(self, text: str) -> None:
         while self.elsewhere_box.count():
@@ -1062,6 +1072,22 @@ class SettingsDialog(QDialog):
         for p in self.pages.values():
             p.empty.setText(_t(self.tr, "settings.no_match", "No setting matches the search."))
             p.empty.setVisible(first is None)
+
+    def focus_key(self, key: str) -> bool:
+        """Show the row of ``key`` and focus its field (``homes.edit_in`` of a Settings value)."""
+        r = self.rows.get(key)
+        if r is None:
+            return False
+        page = r.parentWidget()
+        while page is not None and not isinstance(page, SettingsPage):
+            page = page.parentWidget()
+        if page is not None:
+            self.show_page(page.page_id)
+            sc = self.stack.currentWidget()
+            if isinstance(sc, _Scroll):
+                sc.ensureWidgetVisible(r)
+        r.editor.setFocus()
+        return True
 
     def matches(self) -> list[str]:
         """The keys of the rows the search shows (tests)."""

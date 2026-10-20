@@ -867,6 +867,10 @@ EXTRA_KEYS: dict[str, tuple[str, str]] = {
         "state", "tool notes (cam.ordering, cad.primitives, raster frame, alpha corner source)"),
     "Craft.pwm_mode / cool_positions": ("opaque", ".chf <PWM Control> mode and <coolPos> fractions"),
     "LayerParams.placeholder / gp / name": ("state", "layer table notes (ui)"),
+    "LayerParams.overrides / craft": ("state", "values set on the layer, layer-level craft values "
+                                               "(services.inheritance)"),
+    "Craft.overrides": ("state", "craft values set on this part / contour, a start set by hand "
+                                 "(services.inheritance); not written to .chf"),
 }
 
 

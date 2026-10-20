@@ -56,7 +56,7 @@ def rank(mode: str) -> int:
 _OPERATOR_IDS = {
     "file.open", "file.task_import", "machine.home", "machine.home_x", "machine.home_y",
     "machine.home_xyz", "machine.home_zf_then_xy", "machine.home_af", "coord.return_origin",
-    "view.zoom_in", "view.zoom_out", "view.zoom_fit", "view.pan_mode", "view.select_mode",
+    "view.zoom_in", "view.zoom_out", "view.zoom_fit", "view.fit_table", "view.pan_mode", "view.select_mode",
     "card.alarms", "card.clear_alarms", "card.break_resume", "diag.log", "diag.work_report",
     "diag.work_report_all", "app.about", "app.help", "app.exit", "app.import_language",
     "hw.connect_sim", "hw.reconnect", "sim.stop", "sim.speed", "job.offline",

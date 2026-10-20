@@ -330,7 +330,13 @@ class CraftExtension:
         def click(p, mods):
             h = self._hit(p, closed_only=True)
             if h is not None:
-                f = self.edit(lambda d: M.set_start_at(d.parts[h.part], h.contour, h.dist))
+                from mlaser.services.inheritance import mark_start
+
+                def do(d):
+                    f = M.set_start_at(d.parts[h.part], h.contour, h.dist)
+                    mark_start(d.parts[h.part], h.contour)       # lead edits keep it
+                    return f
+                f = self.edit(do)
                 self.log(f"mf93: start {f:.4f}")
             return True
         self.start_tool("start_point", click, "mf93")
@@ -446,7 +452,14 @@ class CraftExtension:
     # ---------------------------------------------------------------- gap / seal / overcut
     def _gap(self, mode: int) -> None:
         """CCAD 0x100c46a0(mode, value): selected graphs only (groups expanded); a contour is
-        changed when |v - current| > 0.02 and |v| < 0.33 * length."""
+        changed when |v - current| > 0.02 and |v| < 0.33 * length.  With nothing selected it
+        says so (it used to log "mf97: 0" and do nothing)."""
+        if not any(p.selected for p in self.w.document.parts):
+            self.log(self.t("craft.msg.select_first"))
+            sb = getattr(self.w, "statusBar", None)
+            if sb is not None:
+                sb().showMessage(self.t("craft.msg.select_first"), 6000)
+            return
         if mode == M.GAP and not self.ask("mf95", self.gap_p, [("value", "pd323", "float", (0, 100, 3))]):
             return
         if mode == M.OVERCUT and not self.ask("mf97", self.gap_p, [("value", "pd324", "float", (0, 100, 3))]):
@@ -528,6 +541,9 @@ class CraftExtension:
             self.w.document.parts[pi].selected = True
         self.w.canvas.refresh_styles()
         self.log(f"mf89: {len(marked)}")
+        if not any(c.lead_in.kind for p in self.w.document.parts
+                   for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
+            self.log(self.t("craft.msg.no_leads"))
 
     def lead_clear_mark(self) -> None:
         n = M.clear_lead_marks(self.w.document)          # no undo step in the original

@@ -111,6 +111,21 @@ class _CloseWatch(QObject):
         return False
 
 
+def _on_all_parts(fn):
+    """``fn(doc, ...)`` (an op acting on the selection, else all parts) applied to every part:
+    the selection is set to all parts for the call and restored."""
+    def run(doc, *args):
+        sel = [p.selected for p in doc.parts]
+        for p in doc.parts:
+            p.selected = True
+        try:
+            return fn(doc, *args)
+        finally:
+            for p, s in zip(doc.parts, sel):
+                p.selected = s
+    return run
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller: Optional[ControllerFacade] = None, tr: Optional[Translator] = None,
                  extensions: tuple = (), config: Optional[ConfigService] = None,
@@ -135,7 +150,7 @@ class MainWindow(QMainWindow):
         self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule)
         self.jobs.on_toolpath.append(self._plan_toolpath_ready)
         self.jobs.on_planned.append(self._plan_ready)
-        self.jobs.on_failed.append(lambda t, exc: self.log_panel.log(f"toolpath: {exc}"))
+        self.jobs.on_failed.append(self._plan_failed)
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
@@ -424,7 +439,7 @@ class MainWindow(QMainWindow):
             "view.pan_mode": lambda: self.set_mode(CanvasView.MODE_PAN),
             "view.node_edit": lambda: self.set_mode(CanvasView.MODE_NODE),
             "view.zoom_in": lambda: self.canvas.zoom(1.25), "view.zoom_out": lambda: self.canvas.zoom(0.8),
-            "view.zoom_fit": self.canvas.zoom_fit,
+            "view.zoom_fit": self.canvas.zoom_fit, "view.fit_table": self.canvas.zoom_fit_table,
             "edit.undo": self.undo, "edit.redo": self.redo,
             "select.all": lambda: self.canvas.select_parts(range(len(self.document.parts))),
             "select.invert": lambda: self._select(lambda p: not p.selected),
@@ -465,12 +480,16 @@ class MainWindow(QMainWindow):
         handlers["craft.mj_clear"] = lambda: self._edit(ops.clear_joints, label="clear micro-joints")
         handlers["hw.connect_sim"] = self.connect_simulator
         show = {"show.bbox": "show_bbox", "show.unclosed_red": "unclosed_red", "show.index": "show_index",
-                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path"}
+                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path",
+                "show.toolpath": "show_toolpath"}
         for cmd, attr in show.items():
             a[cmd].setChecked(getattr(self.canvas.options, attr))
-            # the view options are preferences (display.*, Settings > Display): settings_apply
+            # the view options are preferences (display.*, Settings › Canvas): settings_apply
             # applies the stored value to the canvas and keeps the toggle in step
             handlers[cmd] = lambda on, at=attr: self.config.set(f"display.{at}", bool(on))
+        # the canvas bar's Toolpath toggle and View > Show > Toolpath are one setting
+        handlers["show.toolpath"] = lambda on: self.canvas.set_show_toolpath(bool(on))
+        self.canvas.toolpathToggled.connect(lambda on: a["show.toolpath"].setChecked(bool(on)))
         # every QAction is connected once to the registry; plugins register handlers, not slots
         self.commands.on_register.append(self._command_registered)
         self.commands.on_error.append(lambda cmd, exc: self.log_panel.log(f"{cmd}: {type(exc).__name__}: {exc}"))
@@ -663,6 +682,7 @@ class MainWindow(QMainWindow):
             self.jobs.preview = None
             self.plan = None
             self._set_toolpath([])
+            self.canvas.set_plan_state("idle")
             return None
         req = build_request("process", self.docs, self.ctl, self.machine, self.cam_params)
         self._plan_head = req.start
@@ -671,6 +691,13 @@ class MainWindow(QMainWindow):
     def _plan_toolpath_ready(self, ticket) -> None:
         if ticket is self.jobs.preview:
             self._set_toolpath(ticket.toolpath or [])
+            if not self.jobs.pending:
+                self.canvas.set_plan_state("ready")
+
+    def _plan_failed(self, ticket, exc) -> None:
+        self.log_panel.log(f"toolpath: {exc}")
+        if ticket is self.jobs.preview:
+            self.canvas.set_plan_state("failed")
 
     def _plan_ready(self, plan, ticket) -> None:
         if ticket is not self.jobs.preview:
@@ -718,7 +745,10 @@ class MainWindow(QMainWindow):
         self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
 
     def _update_toolpath(self) -> None:
-        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller."""
+        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller.
+        The canvas says "Computing toolpath…" until the new toolpath arrives."""
+        if self.document.parts:
+            self.canvas.set_plan_state("planning")
         self.jobs.schedule_preview(self._preview_request)
 
     def _refresh(self) -> None:
@@ -960,9 +990,9 @@ class MainWindow(QMainWindow):
             self.shell.mark_saved()
 
     # ------------------------------------------------------------------ dialogs
-    def settings_dialog(self):
+    def settings_dialog(self, key: Optional[str] = None):
         """The Settings window (``app.options`` / ``app.settings``, Cmd+, / Ctrl+,): modeless,
-        one instance (ui/settings_dialog.py)."""
+        one instance (ui/settings_dialog.py); ``key`` focuses that setting (``homes.edit_in``)."""
         from .settings_dialog import SettingsDialog
         d = getattr(self, "_settings_window", None)
         if d is None:
@@ -971,6 +1001,8 @@ class MainWindow(QMainWindow):
         d.show()
         d.raise_()
         d.activateWindow()
+        if key:
+            d.focus_key(key)
         return d
 
     def machine_setup(self) -> bool:
@@ -995,17 +1027,39 @@ class MainWindow(QMainWindow):
         self.log_panel.log("mf165" if ok else "mf166")
 
     def lead_dialog(self) -> None:
+        """mf205 Lead: applies to the selected parts; with nothing selected (or "only selected"
+        unticked) to every part, and the log says which and how many (it used to say "Lead
+        line done" also when nothing changed).  The dialog's "only closed" choice is used."""
         d = dialogs.LeadDialog(self.tr_, self.lead_in, self.lead_out, self)
+        d.only_closed.setChecked(self.lead_closed_only)
         if d.exec():
+            self.lead_closed_only = d.only_closed.isChecked()
             settings_apply.remember(self, "leads")       # the dialog starts from these next time
-            self._edit(ops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
-                       self.lead_start_mode, label="lead")
+            sel = any(p.selected for p in self.document.parts)
+            scope_all = not sel or not d.only_selected.isChecked()
+            fn = ops.apply_lead if not scope_all else _on_all_parts(ops.apply_lead)
+            from mlaser.services.inheritance import start_is_set
+            n = self._edit(fn, self.lead_in, self.lead_out, self.lead_closed_only, self.lead_start_mode,
+                           start_is_set, label="lead", scope="all" if scope_all else "targets")
             self.log_panel.log("mf207")
+            self._report_scope("craft.msg.leads", n or 0, scope_all)
+
+    def _report_scope(self, key: str, n: int, scope_all: bool) -> None:
+        """Log and status bar: how many parts a craft command changed, and whether it went to
+        the selection or (nothing selected) to every part."""
+        where = self.tr_.tr("craft.msg.scope_all" if scope_all else "craft.msg.scope_selection")
+        msg = self.tr_.format(key, n=n, where=where)
+        if n == 0:
+            msg += " " + self.tr_.tr("craft.msg.none_changed")
+        self.log_panel.log(msg)
+        self.statusBar().showMessage(msg, 6000)
 
     def kerf_dialog(self) -> None:
         d = dialogs.KerfDialog(self.tr_, 1, self._kerf_width(), self)
         if d.exec():
-            self._edit(ops.apply_kerf, *d.result_values(), label="kerf")
+            scope_all = not any(p.selected for p in self.document.parts)
+            n = self._edit(ops.apply_kerf, *d.result_values(), label="kerf")
+            self._report_scope("craft.msg.kerf", n or 0, scope_all)
 
     def sort(self, how: str, **flags) -> None:
         """Cutting order: every ordering mode is a ``CamParams.sort_mode`` of
@@ -1069,8 +1123,23 @@ class MainWindow(QMainWindow):
             return
         sim = _lazy("mlaser.motion.interp", "simulate")
         est = _lazy("mlaser.motion.interp", "estimate_time")
-        if not self.toolpath or sim is None or self.machine is None:
-            self.canvas.start_simulation()
+        tk = self.jobs.preview
+        if self.jobs.pending or tk is None or not tk.toolpath_event.is_set():
+            # the plan of the current drawing is still being computed: say so, then wait for it
+            # (the simulation runs the planned toolpath with its leads, kerf and gaps, never
+            # the raw drawing)
+            self.canvas.set_plan_state("simulating_wait")
+            self.statusBar().showMessage(self.tr_.tr("canvas.plan.sim_wait"), 5000)
+            from PySide6.QtCore import QEventLoop
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        toolpath = self.toolpath
+        self.canvas.set_plan_state("ready" if toolpath else "failed")
+        if not toolpath:
+            self.log_panel.log(self.tr_.tr("canvas.plan.sim_none"))
+            return
+        if sim is None or self.machine is None:
+            self.canvas.start_simulation()      # the toolpath (canvas.simulation_path)
             return
         cfg = self.machine.motion_config()
         self.estimate = e = est(self.toolpath, cfg)

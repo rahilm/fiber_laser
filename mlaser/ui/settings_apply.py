@@ -174,9 +174,23 @@ def _imported(w: Any, path: str, doc: Any) -> None:
             w.log(f"mf470: {res.get('before')} -> {res.get('after')} contours (Settings > Import: clean up on open)")
 
 
+def register_homes(cfg: Any) -> None:
+    """The value ids ``cfg:<key>`` of keys whose home is not the Settings window point at their
+    home (mlaser.ui.homes); the Settings window's own keys keep the ``cfg:`` default."""
+    from . import homes
+    where = {"machine": homes.H_SETUP, "nest": homes.H_NEST, "run": homes.H_RUN}
+    for key, s in cfg.schema.items():
+        h = where.get(s.home)
+        if s.home == "process":
+            h = homes.H_LAYERS if s.source == "registry" else homes.H_PROPS
+        if h is not None and homes.home_of(f"cfg:{key}") is homes.H_SETTINGS:
+            homes.register_home(f"cfg:{key}", h)
+
+
 def install(w: Any) -> None:
     cfg = w.config
     cfg.migrate_legacy()
+    register_homes(cfg)
     apply_display(w)
     apply_leads(w)
     apply_order(w, replan=False)
