@@ -16,7 +16,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
-from safety_helpers import head_mm, rect_doc, start_and_run, stopped, wait_until
+from safety_helpers import head_mm, rect_doc, start_and_run, stopped, thread_stacks, wait_until
 
 from mlaser.machine import events as EV
 
@@ -219,7 +219,7 @@ def test_a_new_job_is_refused_while_a_breakpoint_is_pending(ctl):
         res: list = []
         jobs.run(build_request(mode, docs, ctl, ctl.machine, None), ControllerSubmitter(ctl),
                  lambda ok, m: res.append(ok))
-        assert wait_until(lambda: res, 10) is not None
+        assert wait_until(lambda: res, 30) is not None, (mode, jobs.last_run, thread_stacks())
         assert res == [False]
         jobs.shutdown()
     ctl.dry_run(rect_doc(0, 0, 40, 40))

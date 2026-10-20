@@ -963,8 +963,21 @@ class RunWorkspace:
         doc = self._sheet_doc or self.window.document
         try:
             from mlaser.nest.shapes import parts_geometry
+            sep = e.extra.get("remnant_rings")
+            if sep:     # a separation cut freed this remnant (nest cutting strategy): store it as cut
+                poly = polygon_of(sep)
+                min_area = float(self.settings["remnant_min_area"])
+                made = [self.remnants.add_polygon(poly, e.material, e.thickness_mm,
+                                                  source=f"{e.name} (queue:{e.id})")] \
+                    if not poly.is_empty and poly.area >= min_area else []
+                for r in made:
+                    self.log(tr(self.window, "remnant.saved", "Remnant {label} saved", label=r.label()))
+                    self.runner.message = tr(self.window, "remnant.saved", "Remnant {label} saved",
+                                             label=r.label())
+                return
             sheet = polygon_of(rings)
-            used = parts_geometry([p for p in doc.parts if p.contours])
+            # cut-up / separation lines (nest cutting strategy) are not parts
+            used = parts_geometry([p for p in doc.parts if p.contours and not p.extra.get("strategy")])
             made = self.remnants.capture(sheet, used, e.material, e.thickness_mm,
                                          spacing=float(e.extra.get("spacing", 3.0)),
                                          gravity=str(e.extra.get("gravity", "left")),

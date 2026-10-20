@@ -613,6 +613,8 @@ class SafetyUI(QObject):
             rep = ctl.preflight(action, doc)
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
+        from .workspaces.cutting_strategy import augment_preflight as augment_cutting
+        rep = augment_cutting(self.w, rep, action, doc, self._selected_only())   # lead / tip warnings
         if not rep.issues:
             return True
         if not self._dialogs():

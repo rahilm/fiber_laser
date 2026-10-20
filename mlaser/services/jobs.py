@@ -659,11 +659,26 @@ class JobService:
         if not ok:
             on_result(False, msg)
             return None
-        t = self.plan(req)
-        self.last_run = t
+        # the listeners are in place before the plan is submitted: with an inline post the worker
+        # delivers on its own thread, possibly before ``self.plan`` has returned, and the
+        # delivery is one-shot (registering after the submit could lose it, and ``on_result``
+        # would never be called).  A delivery before the ticket is known is kept in ``early``
+        # and replayed; ``gate`` only orders that hand-over.
+        gate = threading.RLock()
+        mine: list[JobTicket] = []
+        early: list[tuple] = []        # a delivery that came before the ticket was known
 
         def done(plan: PlannedJob, ticket: JobTicket) -> None:
-            if ticket is not t:
+            with gate:
+                if not mine:
+                    early.append((_done, plan, ticket))
+                    return
+                if ticket is not mine[0]:
+                    return
+            _done(plan, ticket)
+
+        def _done(plan: PlannedJob, ticket: JobTicket) -> None:
+            if ticket is not mine[0]:
                 return
             self.on_planned.remove(done)
             self.on_failed.remove(failed)
@@ -682,16 +697,30 @@ class JobService:
             on_result(True, plan.summary())
 
         def failed(ticket: JobTicket, exc: BaseException) -> None:
-            if ticket is not t:
-                return
+            with gate:
+                if not mine:
+                    early.append((_failed, ticket, exc))
+                    return
+                if ticket is not mine[0]:
+                    return
+            _failed(ticket, exc)
+
+        def _failed(ticket: JobTicket, exc: BaseException) -> None:
             self.on_planned.remove(done)
             self.on_failed.remove(failed)
             on_result(False, f"compile failed: {exc}")
 
         self.on_planned.append(done)
         self.on_failed.append(failed)
-        if t.done_event.is_set():  # inline executor: already done, deliver now
-            self.settle(t)
+        t = self.plan(req)             # never under ``gate``: an executor may wait for its worker
+        with gate:
+            mine.append(t)
+            self.last_run = t
+            pending = [e for e in early if (e[2] if e[0] is _done else e[1]) is t]
+        for fn, *args in pending:      # inline executor: delivered inside ``self.plan``
+            fn(*args)
+        if t.done_event.is_set() and not pending:
+            self.settle(t)             # done, but not delivered yet (a queued post): now
         return t
 
     def cancel(self) -> None:

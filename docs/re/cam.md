@@ -545,8 +545,15 @@ almost every point is "within tolerance" for real sheets and the walk degenerate
 - **Rapid avoidance** `plan_rapids(order, start, clearance, avoid_parts)` / `route_rapid`: rapids that would
   cross an already-cut opening (even-depth closed contour; with `avoid_parts` also finished parts) are
   routed around it through a visibility graph over the obstacle outlines grown by `clearance`. An opening
-  that contains an end point (the hole just cut) is still avoided, without clearance. Not wired into
-  `build_toolpath` yet (see the requested change in the phase-2 report: `CamParams.avoid_cut`).
+  that contains an end point (the hole just cut) is still avoided, without clearance. Wired into
+  `build_toolpath` through `CamParams.avoid_cut`; `holes` / `avoid(node)` add the tip-risk pieces of
+  `cam.tipping` (review 2).
+- **Cutting strategy (review 2, docs/user/cutting-strategy.md)**: `cam.collision` (lead-in collision
+  check on the prepared toolpath; fix by moving the start, then shortening with the 0.7 rule of the
+  original's lead check, docs/re/craft.md §3), `cam.leadplace` (start candidates), `cam.tipping`
+  (slat-bed tip analysis), `nest.skeleton` (skeleton cut-up, remnant separation cut).  The toolpath
+  reads `Part.extra['cut_phase']` (stable reorder by the phase of each contour's outermost
+  ancestor) and the `tip_risk` marks; a document without them is cut exactly as before.
 - `rapid_length(order, start)` measures travel; the tests check that modes 1, 3, 5, 20, 21 cut the rapid
   length of a scattered layout to < 60 % of document order and that mode 20 ≤ nearest neighbour.
 

@@ -332,3 +332,43 @@ def test_planned_job_uses_the_packed_wire():
     plan = svc_inline().plan_sync(req_for(demo_doc()))
     assert isinstance(plan.job.wire, PackedWire)
     assert list(plan.iter_frames(5)) == plan.frames(5) == plan.job.frames(5)
+
+
+def test_run_result_is_not_lost_when_the_plan_finishes_before_submit_returns():
+    """A plan that completes on the worker thread before ``JobService.plan`` has returned (an
+    inline post delivers there) still reaches ``submitter.start_job`` and ``on_result``: the
+    one-shot delivery used to be consumed before ``run`` had registered its listener."""
+    import threading
+    from concurrent.futures import Future
+
+    class FinishFirst:
+        def submit(self, fn, *a, **kw):
+            fut: Future = Future()
+
+            def go():
+                try:
+                    fut.set_result(fn(*a, **kw))
+                except BaseException as e:  # noqa: BLE001
+                    fut.set_exception(e)
+            th = threading.Thread(target=go)
+            th.start()
+            th.join()                       # done (and delivered) before submit returns
+            return fut
+
+        def shutdown(self, *a, **kw):
+            pass
+
+    class Sub:
+        def __init__(self):
+            self.plans = []
+
+        def start_job(self, plan):
+            self.plans.append(plan)
+            return True
+
+    for _ in range(3):
+        svc = JobService(executor=FinishFirst(), debounce_s=0)
+        sub, res = Sub(), []
+        t = svc.run(req_for(demo_doc()), sub, lambda ok, m: res.append(ok))
+        assert t is not None and res == [True] and len(sub.plans) == 1
+        assert svc.on_planned == [] and svc.on_failed == []     # listeners removed

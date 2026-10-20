@@ -40,7 +40,10 @@ if mode != "0":
     ext_modules.append(
         Extension(
             "mlaser._native._emitter",
-            ["mlaser/_native/_emitter.c"],
+            # one module: the emitter loop and packed sink (_emitter.c), crtmath / CurveTable /
+            # smoothed-path sampling (_geom.c), ring sort (_ring.c)
+            ["mlaser/_native/_emitter.c", "mlaser/_native/_geom.c", "mlaser/_native/_ring.c"],
+            depends=["mlaser/_native/_geom.h"],
             extra_compile_args=cflags,
             optional=mode != "1",
         )

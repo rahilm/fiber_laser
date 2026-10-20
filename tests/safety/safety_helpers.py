@@ -72,3 +72,14 @@ def start_and_run(ctl, doc=None, run_s: float = 0.6):
     ctl.start(doc or rect_doc())
     assert wait_until(lambda: ctl.sim.state.fifo_running and ctl.sim.state.laser, 20), "job did not start"
     time.sleep(run_s)
+
+
+def thread_stacks() -> str:
+    """Every thread's stack, for the message of a timed-out wait (CI-only hangs)."""
+    import sys
+    import threading
+    import traceback
+    names = {t.ident: t.name for t in threading.enumerate()}
+    return "\n".join(f"--- {names.get(tid, tid)}\n" + "".join(traceback.format_stack(f))
+                     for tid, f in sys._current_frames().items())
+

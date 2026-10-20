@@ -139,7 +139,7 @@ class Nester:
             self.geoms[np_.id] = fit_geometry(g, np_.fit)
 
     def _orientations(self, np_: NestPart) -> list[tuple[float, bool]]:
-        angles = np_.angles if np_.angles else self.p.angles()
+        angles = self.p.part_angles(np_)
         mirrors = [False, True] if (np_.mirror or self.p.allow_mirror) else [False]
         return [(float(a) % 360.0, m) for m in mirrors for a in angles]
 

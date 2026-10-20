@@ -34,7 +34,8 @@ A technology holds:
 * **Craft defaults**: lead-in (type, length, angle, radius), kerf compensation and width,
   micro-joints per part and joint length.
 * **Rules**: *small features*, holes smaller than a size get a shorter lead and no micro-joints;
-  *corners*, cooling points at corners sharper than an angle.
+  *corners*, cooling points at corners sharper than an angle; *lead placement* and *tipping*
+  (see [Cutting strategy](cutting-strategy.md)).
 * Optional **gas flow** at the cut pressure (l/min) and **material density** (g/cm³), used by
   the cost estimate. Notes, and a *Tested on this machine* mark.
 
@@ -95,6 +96,22 @@ The **Layers** list shows each layer in use with its technology and its state:
   pre-flight check refuses it.
 
 **Save layer as technology…** stores a layer you tuned by hand as a new technology.
+
+The tab **Cutting strategy** (next to *Technology*, *What changed* and *History*) works on the
+drawing (details in [Cutting strategy](cutting-strategy.md)):
+
+* **Lead-ins**: *Check* lists the lead-ins that reach another contour, cross their own contour or
+  pierce at the sheet edge, and draws them red on the canvas; *Fix* moves their start or shortens
+  them (the original's 0.7 rule); *Place starts* puts every start on a corner or a long straight
+  segment by the rules (start on, smallest feature, clearance).
+* **Tipping on the slats**: the bed (slat pitch, width, position, direction; machine settings),
+  the strategy (micro-joint on the heavy side, cut last, rapids around), *Check* and *Fix*.
+
+Each change is one undo step. The pre-flight check of a Start warns about colliding lead-ins
+(and, when turned on, about pieces that can tip).
+
+A technology can carry per-material rules for these: `rules.lead_place` (applied with *Rules*)
+and `rules.tip`.
 
 ## 3. Properties panel
 
