@@ -734,6 +734,11 @@ def _dock_report(win) -> dict:
                 "parts": [(type(c).__name__, c.sizeHint().width()) for c in
                           (inner.findChildren(QWidget, options=Qt.FindDirectChildrenOnly) if inner is not None else [])
                           if c.isVisible()][:6]}
+    c = win.centralWidget()
+    out["window"] = {"size": (win.width(), win.height()),
+                     "central": (c.width(), c.minimumSizeHint().width()) if c is not None else None,
+                     "page_min": win.shell.host.stack.minimumSizeHint().width(),
+                     "targets": {d.objectName(): t for d, t in pol.targets().items()} if pol is not None else None}
     return out
 
 
