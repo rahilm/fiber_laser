@@ -15,6 +15,7 @@ from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
 from mlaser.ops.craft import MicroJointParams, default_lead_params  # noqa: F401 - re-exported
 from mlaser.services.commands import CommandRegistry, UnknownCommandError
+from mlaser.services import units as _units
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
@@ -35,6 +36,18 @@ from .ribbon import Ribbon
 # out-in / run are gone.
 SORT_MODES = {"left_right": 1, "right_left": 2, "bottom_top": 3, "top_bottom": 4, "nearest": 5,
               "run": 5, "in_out": 6, "out_in": 7, "keep": 0, "shortest": 20, "grid": 21}
+#: Geometric transformations > Size presets: the largest side scaled to (metric mm, imperial mm);
+#: imperial uses round inch sizes (1/2, 2, 4, 8 in), the menu labels follow the display units
+SIZE_PRESETS = {"xform.size_10mm": (10.0, 12.7), "xform.size_50mm": (50.0, 50.8),
+                "xform.size_100mm": (100.0, 101.6), "xform.size_200mm": (200.0, 203.2)}
+
+
+def size_preset(cmd: str) -> float:
+    """The size (mm) of a size preset command in the current display units."""
+    metric, imperial = SIZE_PRESETS[cmd]
+    return imperial if _units.current().unit("length") in ("in", "ft") else metric
+
+
 SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid": "Grid"}
 # Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
 # plugins come from the "mlaser.plugins" entry-point group.
@@ -138,6 +151,7 @@ class MainWindow(QMainWindow):
         # with its undo history, the command registry and the plugin hooks
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
         self.docs = DocumentService()
         self.commands = CommandRegistry()
         self.hooks = Hooks()
@@ -190,6 +204,7 @@ class MainWindow(QMainWindow):
 
         # left: layers + parts (tabbed dock)
         self.layer_panel = LayerPanel(self.tr_)
+        self.layer_panel.pressure_unit = lambda: int(self.config.get("UN.GasPressureUnit", 0) or 0)
         self.part_list = PartListPanel(self.tr_)
         left = QTabWidget()
         left.addTab(self.layer_panel, "")
@@ -419,7 +434,12 @@ class MainWindow(QMainWindow):
         for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd):
             sb.addWidget(w)
         sb.addPermanentWidget(self.st_da)
-        self.st_da.setText("X: 0.000 Y: 0.000")
+        from .units_qt import on_units_changed
+        self._mouse_xy = (0.0, 0.0)
+        on_units_changed(self.st_da, lambda _u: self._show_mouse_xy(*self._mouse_xy))
+        self._last_status = None
+        on_units_changed(self.st_xy, lambda _u: self._status_position(self._last_status)
+                         if self._last_status is not None else None, now=False)
 
     def _wire(self) -> None:
         a = self.ribbon.actions
@@ -457,7 +477,7 @@ class MainWindow(QMainWindow):
             "xform.scale_30": lambda: self._edit(ops.scale, 0.3, label="scale"),
             "xform.scale_75": lambda: self._edit(ops.scale, 0.75, label="scale"),
             "xform.scale_500": lambda: self._edit(ops.scale, 5.0, label="scale"),
-            **{f"xform.size_{mm}mm": (lambda mm=mm: self._edit(ops.scale_to, float(mm), label="size")) for mm in (10, 50, 100, 200)},
+            **{cmd: (lambda c=cmd: self._edit(ops.scale_to, size_preset(c), label="size")) for cmd in SIZE_PRESETS},
             "craft.lead": self.lead_dialog,
             "craft.lead_clear": lambda: self._edit(ops.apply_lead, LeadParams(0), LeadParams(0), False, label="clear leads"),
             "craft.kerf": self.kerf_dialog, "craft.kerf_set": self.kerf_dialog,
@@ -499,11 +519,21 @@ class MainWindow(QMainWindow):
         self.commands.register("edit.delete", self.delete_selected, "core", "cmd.edit.delete")
         for how, label in SORT_LABELS.items():
             self.ribbon.action(f"sort.{how}", label)
+        # size presets: labels in the display units (and again after a language change)
+        from .units_qt import on_units_changed
+        for cmd in SIZE_PRESETS:
+            act = a.get(cmd)
+            if act is not None:
+                relabel = (lambda _x=None, c=cmd, ac=act: (ac.setText(_units.current().fmt(size_preset(c), "length",
+                                                                                           trim=True)),
+                                                           ac.setToolTip(ac.text())))
+                self.tr_.bind(act, act.property("lang_key") or cmd, relabel)
+                on_units_changed(act, relabel)
         self.handlers = self.commands.handlers()
 
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._context_menu)
-        self.canvas.mouseMoved.connect(lambda x, y: self.st_da.setText(f"X: {x:.3f} Y: {y:.3f}"))
+        self.canvas.mouseMoved.connect(self._show_mouse_xy)
         self.canvas.selectionChanged.connect(self.part_list.sync_selection)
         self.part_list.selectionToCanvas.connect(lambda idx: self.canvas.select_parts(idx))
         self.layer_panel.assignLayer.connect(self.assign_layer)
@@ -815,6 +845,21 @@ class MainWindow(QMainWindow):
 
     def copy_selected(self) -> None:
         self._clipboard = clone_parts(p for p in self.document.parts if p.selected)
+
+    def _status_position(self, st) -> None:
+        """Machine position and speed in the status bar, in the display units."""
+        self._last_status = st
+        u = _units.current()
+        self.st_xy.setText(f"X: {u.number(st.x, 'length')}  Y: {u.number(st.y, 'length')}  "
+                           f"Z: {u.number(st.z, 'length')} {u.suffix('length')}")
+        self.st_cv.setText(self.tr_.format("mp80", unit=f" ({u.suffix('speed')})",
+                                           speed=u.to_display(st.speed, "speed")))   # status.speed
+
+    def _show_mouse_xy(self, x: float, y: float) -> None:
+        """The cursor position in the status bar, in the display units."""
+        self._mouse_xy = (x, y)
+        u = _units.current()
+        self.st_da.setText(f"X: {u.number(x, 'length')} Y: {u.number(y, 'length')} {u.suffix('length')}")
 
     def paste(self) -> None:
         """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
@@ -1157,8 +1202,7 @@ class MainWindow(QMainWindow):
         self.st_mc.setText(mc)
         self.st_zf.setText(t(self._ZF.get(st.ftc, "mp23")))
         self.st_lf.setText(t("mp25" if st.laser == "ready" else "mp24"))
-        self.st_xy.setText(f"X: {st.x:.3f}  Y: {st.y:.3f}  Z: {st.z:.3f}")
-        self.st_cv.setText(self.tr_.format("mp80", unit="", speed=st.speed))   # status.speed
+        self._status_position(st)
         if not self.canvas.simulation_running():
             self.canvas.set_head_position(st.x, st.y)
         if st.mode in ("process", "dry_run", "frame"):

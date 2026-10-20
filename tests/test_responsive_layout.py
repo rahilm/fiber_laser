@@ -159,8 +159,17 @@ def views(win, app, deep: bool = True):
 
 
 def _sub_views(page, app, label: str):
-    """Pages behind a navigation list (``responsive_views``, e.g. the Machine sections)."""
-    from PySide6.QtWidgets import QListWidget
+    """Views behind a navigation list or a section combo (``responsive_views``: the Machine
+    sections, the Setup sections) and panels behind a toggle (``responsive_views`` on a
+    checkable button: the Nest options)."""
+    from PySide6.QtWidgets import QAbstractButton, QComboBox, QListWidget
+    for b in page.findChildren(QAbstractButton):
+        if b.property("responsive_views") and b.isVisible() and b.isCheckable() and not b.isChecked():
+            b.setChecked(True)
+            _pump(app)
+            yield f"{label}/{b.objectName()}"
+            b.setChecked(False)
+            _pump(app)
     for nav in page.findChildren(QListWidget):
         if not nav.property("responsive_views") or not nav.isVisible():
             continue
@@ -171,6 +180,16 @@ def _sub_views(page, app, label: str):
             nav.setCurrentRow(r)
             _pump(app)
             yield f"{label}/{nav.item(r).text()}"
+            for combo in page.findChildren(QComboBox):
+                if combo.property("responsive_views") and combo.isVisible():
+                    c0 = combo.currentIndex()
+                    for i in range(combo.count()):
+                        if i != c0:
+                            combo.setCurrentIndex(i)
+                            _pump(app)
+                            yield f"{label}/{nav.item(r).text()}/{combo.itemText(i)}"
+                    combo.setCurrentIndex(c0)
+                    _pump(app)
         nav.setCurrentRow(cur)
         _pump(app)
 
@@ -292,6 +311,27 @@ def test_sample_sizes(win, app):
             rep.add("sample", s, label, v)
             rep.shot(win, s, label)
     rep.write("sample_sizes")
+    text = _fail_text(rep.rows)
+    assert not text, text
+
+
+def test_imperial_sample_sizes(win, app):
+    """Imperial display units (longer texts: "0.3937 in", "393.70 in/min"): no scroll bar, no
+    clipped widget either."""
+    rep = Report()
+    win.config.set("units.system", "imperial")
+    try:
+        _pump(app, 0.05)
+        for size in SAMPLES:
+            s = _fit(win, app, size)
+            for label in views(win, app):
+                rep.add("imperial", s, label, A.audit(win))
+                if size == (1512, 875):
+                    rep.shot(win, s, f"imperial_{label}")
+    finally:
+        win.config.set("units.system", "metric")
+        _pump(app, 0.05)
+    rep.write("imperial")
     text = _fail_text(rep.rows)
     assert not text, text
 

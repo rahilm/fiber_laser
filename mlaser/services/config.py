@@ -287,6 +287,9 @@ class ConfigService:
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
         self.schema: dict[str, Setting] = dict(registry_settings())
         self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS + BED_SETTINGS})
+        from mlaser.services.units import UNITS_SETTINGS   # display units (units.py; never the stored values)
+
+        self.schema.update({s.key: s for s in UNITS_SETTINGS})
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE

@@ -3,6 +3,7 @@ progress comes back through a queue that a timer on the GUI thread reads."""
 from __future__ import annotations
 
 import queue
+import re
 import threading
 from typing import Any, Callable, Optional
 
@@ -12,6 +13,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
                                QListWidgetItem, QMenu, QProgressBar, QPushButton, QRadioButton, QScrollArea,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
+from mlaser.services import units as U
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
+
 from . import pipeline as PL
 from .bom import MachineConfig
 from .materials import label_thickness, suggest
@@ -20,6 +24,8 @@ FILTERS = (("Recent", 5), ("My documents", 0), ("Created by me", 1), ("Shared wi
            ("Public", 4))
 COLS = ("Name", "P/N", "Material", "Sheet material", "t faces", "t volume", "t name", "BOM qty", "Made",
         "To cut", "Processes", "DXF face", "Status", "Notes")
+#: the thickness columns: their header carries the display unit ("t faces (in)")
+LENGTH_COLS = (4, 5, 6)
 C_NAME, C_PN, C_MAT, C_SHEET, C_TP, C_TV, C_TL, C_QTY, C_MADE, C_CUT, C_PROC, C_FACE, C_STATUS, C_NOTES = range(len(COLS))
 
 
@@ -34,7 +40,35 @@ def _fit_columns(table: Any, priorities: dict, key: int) -> None:
 
 
 def _mm(v: Optional[float]) -> str:
-    return "" if v is None else f"{v:.2f}"
+    """A thickness (mm) as a table cell in the display units (the unit is in the header)."""
+    if v is None:
+        return ""
+    u = U.current()
+    return u.number(v, "length", 2 if not u.imperial else 4)
+
+
+# "120 x 80 mm", "3.2 mm", "1500 mm²": the lengths the Qt-free pipeline and geometry write into
+# their notes, labels and group titles (always mm, as they compute); converted when shown
+_MM_TEXT = re.compile(r"(?P<nums>-?\d+(?:\.\d+)?(?:\s*[x×]\s*-?\d+(?:\.\d+)?)*)\s*mm(?P<sq>²)?(?![\w/²])")
+
+
+def mm_text(text: str) -> str:
+    """``text`` with its "<number> mm" / "<a> x <b> mm" / "<n> mm²" parts in the display units
+    (unchanged in metric)."""
+    u = U.current()
+    if not text or (u.unit("length") == "mm" and u.unit("area") == "mm²"):
+        return text
+
+    def one(m: re.Match) -> str:
+        kind = "area" if m.group("sq") else "length"
+        parts = re.split(r"\s*[x×]\s*", m.group("nums"))
+        out = []
+        for n in parts:
+            src = len(n.split(".")[1]) if "." in n else 0
+            dec = u.decimals("area") if kind == "area" else min(4, max(u.decimals("length"), src + 2))
+            out.append(u.number(float(n), kind, dec))
+        return " x ".join(out) + " " + u.suffix(kind)
+    return _MM_TEXT.sub(one, text)
 
 
 class OnshapeWorkspace(QWidget):
@@ -73,7 +107,7 @@ class OnshapeWorkspace(QWidget):
         self.title.setWordWrap(True)
         rl.addWidget(self.title)
         self.table = QTableWidget(0, len(COLS))
-        self.table.setHorizontalHeaderLabels(COLS)
+        self._headers()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
@@ -119,12 +153,10 @@ class OnshapeWorkspace(QWidget):
         # sheet groups
         sheet = QHBoxLayout()
         sheet.addWidget(QLabel("Sheet"))
-        self.sheet_w = QDoubleSpinBox()
-        self.sheet_h = QDoubleSpinBox()
+        self.sheet_w = QuantitySpinBox("length", decimals=1)
+        self.sheet_h = QuantitySpinBox("length", decimals=1)
         for s in (self.sheet_w, self.sheet_h):
-            s.setRange(10.0, 20000.0)
-            s.setDecimals(1)
-            s.setSuffix(" mm")
+            s.setRange(10.0, 20000.0)        # mm (the values stay mm whatever the display units)
             s.valueChanged.connect(self._sheet_changed)
         sheet.addWidget(self.sheet_w)
         sheet.addWidget(QLabel("x"))
@@ -143,6 +175,16 @@ class OnshapeWorkspace(QWidget):
         split.setStretchFactor(0, 2)
         split.setStretchFactor(1, 3)
         split.setSizes([420, 900])
+        # display units (docs/user/units.md): the tables, cards and headers follow a change
+        on_units_changed(self, lambda _u: self._units_changed(), now=False)
+
+    def _headers(self) -> None:
+        sfx = U.current().suffix("length")
+        self.table.setHorizontalHeaderLabels([f"{c} ({sfx})" if i in LENGTH_COLS else c for i, c in enumerate(COLS)])
+
+    def _units_changed(self) -> None:
+        self._headers()
+        self.refresh_table()                  # the cells, the materials table and the group cards
 
     def _browse_tab(self) -> QWidget:
         w = QWidget()
@@ -233,9 +275,8 @@ class OnshapeWorkspace(QWidget):
         self.ratio.setRange(1.0, 100.0)
         self.ratio.setToolTip("Sheet mode: a part is sheet when its smaller side is at least this many thicknesses")
         f.addRow("Sheet: width ≥ thickness ×", self.ratio)
-        self.max_t = QDoubleSpinBox()
-        self.max_t.setRange(0.1, 100.0)
-        self.max_t.setSuffix(" mm")
+        self.max_t = QuantitySpinBox("length")
+        self.max_t.setRange(0.1, 100.0)       # mm
         f.addRow("Sheet: up to", self.max_t)
         apply = QPushButton("Apply")
         apply.clicked.connect(self.apply_machine)
@@ -283,10 +324,8 @@ class OnshapeWorkspace(QWidget):
         self.customer = QLineEdit()
         self.customer.setPlaceholderText("empty: the document name")
         f.addRow("Customer / team", self.customer)
-        self.tol = QDoubleSpinBox()
-        self.tol.setRange(0.0, 5.0)
-        self.tol.setDecimals(2)
-        self.tol.setSuffix(" mm")
+        self.tol = QuantitySpinBox("small_length", decimals=2)
+        self.tol.setRange(0.0, 5.0)           # mm
         f.addRow("Thickness tolerance", self.tol)
         self.xcheck = QCheckBox("Cross-check the thickness with mass properties (one more call per part)")
         f.addRow(self.xcheck)
@@ -566,8 +605,8 @@ class OnshapeWorkspace(QWidget):
             procs = "; ".join(f"{k}: {v}" for k, v in pt.processes.items() if v)
             cells = [pt.name, pt.part_number, p.label or pt.material, p.sheet_material, _mm(p.t_plane), _mm(p.t_volume),
                      _mm(p.t_label if p.t_label is not None else label_thickness(pt.material)), str(pt.quantity),
-                     str(p.made), str(p.to_cut), procs, p.face_label, p.status,
-                     "; ".join([p.reason] + p.notes if p.reason and p.status != PL.READY else p.notes)]
+                     str(p.made), str(p.to_cut), procs, mm_text(p.face_label), p.status,
+                     mm_text("; ".join([p.reason] + p.notes if p.reason and p.status != PL.READY else p.notes))]
             for c, text in enumerate(cells):
                 it = QTableWidgetItem(text)
                 if c != C_MADE:
@@ -629,7 +668,7 @@ class OnshapeWorkspace(QWidget):
             self.status.setText("Download the part first: its flat faces are listed after that.")
             return None
         if pick is None:
-            labels = ["Automatic (largest flat side)"] + [lab for _, lab in p.faces]
+            labels = ["Automatic (largest flat side)"] + [mm_text(lab) for _, lab in p.faces]
             lab, ok = QInputDialog.getItem(self, "DXF face", f"Face of {p.part.label} to flatten:", labels, 0, False)
             if not ok:
                 return None
@@ -737,7 +776,7 @@ class OnshapeWorkspace(QWidget):
         for r, (lab, p) in enumerate(sorted(labels.items(), key=lambda x: x[0].casefold())):
             self.mat_table.setItem(r, 0, QTableWidgetItem(lab))
             t = label_thickness(lab)
-            self.mat_table.setItem(r, 1, QTableWidgetItem("" if t is None else f"{t:g} mm"))
+            self.mat_table.setItem(r, 1, QTableWidgetItem("" if t is None else U.current().fmt(t, "length", trim=True)))
             box = QComboBox()
             box.setEditable(True)
             box.addItem("")
@@ -771,6 +810,7 @@ class OnshapeWorkspace(QWidget):
         while self.cards.count() > 1:
             w = self.cards.takeAt(0).widget()
             if w is not None:
+                w.hide()                      # gone at once (deleted with the next event loop turn)
                 w.deleteLater()
         groups = self.service.groups(self.plans())
         for g in groups:
@@ -781,13 +821,15 @@ class OnshapeWorkspace(QWidget):
         f.setFrameShape(QFrame.StyledPanel)
         f.setObjectName("onshape_group")
         lay = QGridLayout(f)
-        lay.addWidget(QLabel(f"<b>{g.title}</b>"), 0, 0, 1, 2)
+        u = U.current()
+        area = lambda a: u.fmt(a, "large_area", decimals=3)  # noqa: E731
+        lay.addWidget(QLabel(f"<b>{mm_text(g.title)}</b>"), 0, 0, 1, 2)
         lay.addWidget(QLabel(f"{g.parts} part(s), {g.quantity} to cut"), 1, 0, 1, 2)
-        lay.addWidget(QLabel(f"area {g.net_area_mm2 / 1e6:.3f} m² (boxes {g.box_area_mm2 / 1e6:.3f} m²)"), 2, 0, 1, 2)
-        lay.addWidget(QLabel(f"about {g.sheets} sheet(s) of {self.sheet_w.value():g} x {self.sheet_h.value():g} mm"),
-                      3, 0, 1, 2)
+        lay.addWidget(QLabel(f"area {area(g.net_area_mm2)} (boxes {area(g.box_area_mm2)})"), 2, 0, 1, 2)
+        lay.addWidget(QLabel(f"about {g.sheets} sheet(s) of "
+                             f"{u.fmt_size(self.sheet_w.value(), self.sheet_h.value(), trim=True)}"), 3, 0, 1, 2)
         if g.too_big:
-            warn = QLabel("larger than the sheet: " + ", ".join(g.too_big))
+            warn = QLabel("larger than the sheet: " + mm_text(", ".join(g.too_big)))
             warn.setWordWrap(True)
             lay.addWidget(warn, 4, 0, 1, 2)
         b = QPushButton("Load into Nest")
@@ -802,6 +844,6 @@ class OnshapeWorkspace(QWidget):
         except Exception as exc:  # noqa: BLE001 - shown
             self.status.setText(str(exc))
             return None
-        self.status.setText(f"Loaded {key[0]} {key[1]:g} mm into Nest." if r else
+        self.status.setText(f"Loaded {key[0]} {U.current().fmt(key[1], 'length', trim=True)} into Nest." if r else
                             "Nothing was loaded: create the orders first (and check the Nest workspace).")
         return r

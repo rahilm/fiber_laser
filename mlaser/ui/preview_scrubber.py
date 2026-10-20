@@ -22,6 +22,7 @@ from PySide6.QtWidgets import (QComboBox, QFormLayout, QGraphicsEllipseItem, QGr
                                QGraphicsPathItem, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
                                QVBoxLayout, QWidget)
 
+from mlaser.services import units
 from mlaser.services.preview import CUT, DWELL, DWELL_ON, PROCESS, TRAVEL, Timeline
 
 SPEEDS = (1, 2, 5, 10, 20, 50)
@@ -173,6 +174,8 @@ class ScrubberWidget(QWidget):
         lay.addLayout(row)
         row2 = QHBoxLayout()
         self.state_label = QLabel(t("preview.no_plan"))
+        from mlaser.ui.units_qt import on_units_changed
+        on_units_changed(self.state_label, lambda _u: self._update_labels(), now=False)
         self.state_label.setWordWrap(True)
         row2.addWidget(self.state_label, 1)
         lab = QLabel(t("preview.goto_contour"))
@@ -312,7 +315,8 @@ class ScrubberWidget(QWidget):
         self.contour.blockSignals(False)
         self.state_label.setText(self.tr_.format(
             "preview.status", state=t(what), laser=t("preview.laser_on" if st.laser else "preview.laser_off"),
-            n=n, total=len(tl.markers), x=f"{st.x:.1f}", y=f"{st.y:.1f}"))
+            n=n, total=len(tl.markers), x=units.current().number(st.x, "length", 1),
+            y=units.current().fmt(st.y, "length", decimals=1)))
 
 
 class CostCardWidget(QWidget):
@@ -347,6 +351,8 @@ class CostCardWidget(QWidget):
             lab.setWordWrap(True)
             self.labels[key] = lab
             self.form.addRow(tr.tr(f"cost.line.{key}"), lab)
+        from mlaser.ui.units_qt import on_units_changed
+        on_units_changed(self, lambda _u: self.set_card(self.card) if self.card is not None else None, now=False)
 
     def set_card(self, card: Any) -> None:
         self.card = card
@@ -379,6 +385,13 @@ class CostCardWidget(QWidget):
             return f"{int(v)}"
         if u in ("€", "$", "£") or len(u) <= 3 and ln.key.startswith("cost."):
             return f"{v:.2f} {u}"
-        if u == "m³":
-            return f"{v:.3f} m³ ({v * 1000:.0f} l)"
+        cur = units.current()
+        if u == "m³":                      # gas: the services' m³ (= 1000 l) in the display units
+            if cur.unit("volume") == "l":
+                return f"{v:.3f} m³ ({v * 1000:.0f} l)"
+            return cur.fmt(v * 1000.0, "volume", decimals=3)
+        if u == "m":                       # cut / travel length (m in the services)
+            return cur.fmt(v * 1000.0, "long_length", decimals=2 if cur.unit("long_length") == "m" else 1)
+        if u == "kg":
+            return cur.fmt(v, "mass")
         return f"{v:.3g} {u}" if abs(v) < 100 else f"{v:.1f} {u}"

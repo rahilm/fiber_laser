@@ -57,7 +57,7 @@ TEXTS: dict[str, str] = {
         "This lesson runs on the simulator: nothing moves and no laser fires. Use the normal "
         "Run screen buttons; this panel tells you what to do and checks it.",
     "practice.step.load.title": "Load the practice sheet",
-    "practice.step.load.text": "Press Load to open the practice sheet: three parts on a 300 x 200 mm sheet. "
+    "practice.step.load.text": "Press Load to open the practice sheet: three parts on a {sheet} sheet. "
                                "Look at it in the live view: the parts, their holes and the start points.",
     "practice.step.loaded.title": "Sheet loaded",
     "practice.step.loaded.text": "The practice sheet is open with cutting parameters on every layer. On the real "

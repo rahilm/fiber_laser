@@ -481,6 +481,12 @@ class MaterialPicker(QWidget):
 
 
 # --------------------------------------------------------------------------- workspace
+def _thickness_label(v: float) -> str:
+    """A sheet thickness (mm, the technology key) in the display units: "3 mm", "0.118 in"."""
+    from mlaser.services import units
+    return units.current().fmt(float(v), "length", trim=True)
+
+
 class ProcessWorkspace(QWidget):
     """The Process workspace (see the module docstring)."""
 
@@ -522,6 +528,10 @@ class ProcessWorkspace(QWidget):
         self.thickness.currentIndexChanged.connect(lambda _i: self._cascade(2))
         self.gas.currentIndexChanged.connect(lambda _i: self._cascade(3))
         self.nozzle.currentIndexChanged.connect(lambda _i: self._picked())
+        # thickness items: data mm (the technology key), text in the display units
+        from mlaser.ui.units_qt import on_units_changed
+        on_units_changed(self.thickness, lambda _u: [self.thickness.setItemText(i, _thickness_label(
+            self.thickness.itemData(i))) for i in range(self.thickness.count())], now=False)
         self.target = QComboBox()
         self.target.setAccessibleName(t("process.apply_to"))
         self.target.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -778,7 +788,7 @@ class ProcessWorkspace(QWidget):
         m = self.material.currentData()
         recs = [t for t in self._all if t.key.material == m]
         if level <= 1:
-            self._combo_set(self.thickness, sorted({t.key.thickness_mm for t in recs}), lambda v: f"{v:g} mm")
+            self._combo_set(self.thickness, sorted({t.key.thickness_mm for t in recs}), _thickness_label)
         th = self.thickness.currentData()
         recs = [t for t in recs if th is None or abs(t.key.thickness_mm - th) < 1e-9]
         if level <= 2:
