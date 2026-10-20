@@ -1,5 +1,4 @@
-"""Feedback for commands that cannot act (UI audit D-5, docs/dev/STYLE.md "Commands say what
-happened").
+"""Feedback for commands that cannot act (the UI audit's D-5: "commands say what happened").
 
 A command run from the ribbon, a menu, the palette or a key goes through
 :meth:`mlaser.ui.mainwindow.MainWindow._dispatch`, which asks :class:`CommandFeedback`
@@ -136,7 +135,7 @@ NEEDS: dict[str, tuple[Need, ...]] = {
     "sort.manual_end": (MANUAL_SORT,), "sort.manual_prev": (MANUAL_SORT,),
     # technology and checks on the drawing
     "process.apply": (DOCUMENT,), "cam.lead_check": (DOCUMENT,), "cam.tip_check": (DOCUMENT,),
-    "parts.review": (DOCUMENT,), "view.zoom_fit": (DOCUMENT,),
+    "parts.review": (DOCUMENT,),
     # nest
     "nest.add_sheet": (SELECTION,), "nest.to_main": (NEST_RESULT,), "nest.export": (NEST_RESULT,),
 }
