@@ -54,7 +54,15 @@ controller (README, "Safety warning").
 
 Plugins run with the full privileges of the user (docs/dev/PLUGINS.md); a malicious plugin
 that the user installed and enabled is out of scope, but a way for a plugin to bypass the
-safety guard through a *public* API, or to load without being enabled, is in scope.
+safety guard through a *public* API, or to load without being enabled, is in scope. So are
+holes in the plugin manager's verification (docs/dev/PLUGIN_STANDARD.md §7): a wheel that
+installs although its hash, `RECORD`, manifest or index entry does not match, a file written
+outside the plugin site directory, a top-level module that shadows a core module, a plugin that
+reaches a host, the secrets or the controller its declared permissions do not allow through
+the plugin API, or a repository index or download that exhausts memory or disk.
+
+**Plugin authors**: report a vulnerability in a third-party plugin to its author; report one in
+a plugin of this repository (`plugins/`) here.
 
 ## What to include
 

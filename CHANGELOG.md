@@ -12,6 +12,26 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Added
 
+- Plugin manager (Options+ > Plugins, `app.plugin_manager`; `mlaser plugin list | search |
+  info | install | uninstall | update | enable | disable | hosts | repo ...`): plugins from
+  repositories (an index URL or `github:owner/repo`), a wheel URL or file; every install is
+  verified first (sha256, `RECORD`, pure wheel, manifest = index, compatibility, dependencies,
+  no module that shadows the core), unpacked into the data directory and recorded; installing
+  never enables; updates keep a plugin enabled only when its entry point and permissions are
+  unchanged; exact uninstall; everything audited (docs/user/plugins.md).
+- The plugin standard v1 and plugin API 2 (docs/dev/PLUGIN_STANDARD.md): the manifest
+  `mlaser-plugin.toml` (read without importing), declared permissions enforced on the plugin
+  API (network hosts, secrets, the controller, the document, orders, queue), `ctx.http`
+  (https only, host allowlist, checked redirects, size cap, retries), `ctx.secrets`,
+  `ctx.data_dir`, `ctx.run_in_background` with progress, `ctx.services`, `ctx.show_message`,
+  `ctx.icon`; the index format with a JSON Schema, the index builder
+  (`python -m mlaser.services.plugin_index`, `tools/plugin_index.py`), a template for plugin
+  repositories with a release workflow, and the project's plugin wheels and index published
+  with every release (the default repository). `mlaser.__version__`.
+- **Safety**: a plugin with a manifest gets `ctx.controller` only when it declares `machine`
+  and the service engineer granted it machine authority; a plugin whose declared permissions
+  changed since it was enabled is not loaded until it is enabled again.
+
 - Command line: `mlaser compile | estimate | nest | validate | convert | queue add | queue list`
   (also `python -m mlaser ...`, `mlaser-cli`), JSON output with `--json`, documented exit codes,
   the GUI's services, no card connection (docs/user/automation.md).

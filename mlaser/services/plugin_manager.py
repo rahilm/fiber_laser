@@ -68,7 +68,7 @@ from .pep440 import (InvalidRequirement, InvalidSpecifier, InvalidVersion, Requi
 from .plugin_http import HostNotAllowedError, HttpClient, InsecureURLError, check_url, is_local_host
 from .plugin_manifest import (ID_RE, MANIFEST_NAME, ManifestError, Permissions, app_version, check_identity,
                               compatibility_errors, manifest_path_for, normalize_permissions, parse_manifest,
-                              permission_errors)
+                              permission_errors, unknown_keys)
 
 log = logging.getLogger("mlaser.plugins.manager")
 
@@ -1056,6 +1056,7 @@ class PluginManager:
                          "homepage": rec.get("homepage", ""), "source": rec.get("source", {}),
                          "status": self.status(pid, rec.get("entry", ""), rec.get("permissions")),
                          "authority": pid in granted, "installed_by_manager": True,
+                         "unknown_keys": rec.get("unknown_keys", []),
                          "granted_hosts": self.granted_hosts(pid)}
         try:
             infos = discover((), entry_points=True)
@@ -1076,6 +1077,7 @@ class PluginManager:
                                "status": self.status(info.name, info.target,
                                                      normalize_permissions(perms) if perms is not None else None),
                                "authority": info.name in granted, "installed_by_manager": False,
+                               "unknown_keys": unknown_keys(info.manifest) if info.manifest else [],
                                "granted_hosts": self.granted_hosts(info.name)}
         return sorted(rows.values(), key=lambda r: r["id"])
 
@@ -1313,6 +1315,7 @@ class PluginManager:
                    "files": list(info.files), "top_level": info.top_level, "permissions": info.permissions,
                    "api": p.get("api", ""), "mlaser": p.get("mlaser", ""), "requires": info.requires,
                    "summary": p.get("summary", ""), "homepage": p.get("homepage", ""), "source": origin,
+                   "unknown_keys": unknown_keys(info.manifest),
                    "installed": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())}
             if replacing and replacing != info.id:
                 inst.pop(replacing, None)

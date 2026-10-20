@@ -381,6 +381,8 @@ class PluginManagerDialog(QDialog):
             lines = [f"{r['name']} {r['version']}", r.get("summary") or "",
                      f"entry point: {r['entry']}" + (f"  ({r['dist']})" if r.get("dist") else ""),
                      "permissions:"] + [f"  - {x}" for x in _perm_lines(r["permissions"])]
+            if r.get("unknown_keys"):
+                lines.append("unknown manifest keys (ignored): " + ", ".join(r["unknown_keys"]))
             if r.get("granted_hosts"):
                 lines.append("granted hosts: " + ", ".join(r["granted_hosts"]))
             if r.get("authority"):
