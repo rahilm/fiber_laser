@@ -4822,6 +4822,19 @@
   "approval.title": [
    "n"
   ],
+  "cutstrat.from_recipe": [
+   "recipe"
+  ],
+  "cutstrat.rules": [
+   "clear",
+   "min",
+   "prefer",
+   "source"
+  ],
+  "cutstrat.tip.rule": [
+   "source",
+   "strategy"
+  ],
   "report.note.hidden": [
    "n"
   ],
@@ -4889,6 +4902,17 @@
   "labels.msg.written": [
    "n",
    "path"
+  ],
+  "nestws.kerf_from": [
+   "cut",
+   "kerf",
+   "n"
+  ],
+  "nestws.kerf_none": [
+   "cut"
+  ],
+  "nestws.tip_from": [
+   "strategy"
   ],
   "practice.attempts": [
    "n"
@@ -5000,6 +5024,29 @@
   ],
   "practice.step.load.text": [
    "sheet"
+  ],
+  "props.contour_hole": [
+   "n"
+  ],
+  "props.contour_open": [
+   "n"
+  ],
+  "props.contour_outer": [
+   "n"
+  ],
+  "props.sum.leads": [
+   "lin",
+   "lout"
+  ],
+  "props.sum.start": [
+   "contour",
+   "pos"
+  ],
+  "props.sum.transform": [
+   "h",
+   "w",
+   "x",
+   "y"
   ],
   "settings.elsewhere_more": [
    "n"

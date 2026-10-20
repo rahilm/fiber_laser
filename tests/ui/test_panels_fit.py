@@ -232,8 +232,6 @@ def _recipe_with_rules(win, rules: dict):
 
 
 def test_cutting_strategy_rules_are_the_recipes(win, app, doc):
-    from mlaser.services import inheritance as I
-
     ext = win.extension("ext_process")
     panel = ext.strategy
     # no input in the panel: the rules are shown, Check / Fix stay

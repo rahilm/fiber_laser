@@ -119,6 +119,7 @@ class PropertiesPanel(QScrollArea):
         self.panel = ColumnsPanel(max_columns=2, scroll_overflow=True)
         self.panel.setObjectName("props_columns")
         self.panel.column_min = lambda: beside_width(self.panel)
+        self.panel.layoutChanged.connect(self.updateGeometry)     # its minimum width is the dock's
         self.setWidget(self.panel)
         self._updating = False
         self._preview_timer = QTimer(self)
@@ -323,6 +324,15 @@ class PropertiesPanel(QScrollArea):
             host.listeners.append(self._workspace_changed)
             self._workspace_changed(getattr(host, "current", "") or "")
         self.refresh()
+
+    def minimumSizeHint(self):  # noqa: N802 - Qt API
+        """As narrow as the sections can be (never narrower: nothing scrolls sideways or is cut)."""
+        from PySide6.QtCore import QSize
+        base = super().minimumSizeHint()
+        w = self.panel.minimumSizeHint().width() + 2 * self.frameWidth()
+        if self.verticalScrollBar().isVisible():
+            w += self.verticalScrollBar().sizeHint().width()
+        return QSize(max(base.width(), w), base.height())
 
     # ---------------------------------------------------------------- helpers
     def _t(self, key: str) -> str:
