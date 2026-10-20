@@ -2,6 +2,7 @@
 pre-flight warnings, through the real window wiring (docs/user/cutting-strategy.md).
 
 ``MLASER_SHOT_DIR=<dir>`` saves screenshots of the Nest workspace with the options open."""
+
 import os
 
 import pytest
@@ -12,13 +13,18 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 from PySide6.QtCore import Qt  # noqa: E402
 
 from mlaser.model import Contour, Craft, Document, LayerParams, LeadParams, Line, Part  # noqa: E402
-from test_ws_run import app, pump, shot, wait, win  # noqa: E402,F401  (fixtures)
+import test_ws_run as _wr  # noqa: E402
+from test_ws_run import pump, shot, wait  # noqa: E402
+
+app, win = _wr.app, _wr.win  # the real-window fixtures of the Run / Nest workspace tests
 
 
 def rect(x0, y0, w, h, lead=2.0, layer=1):
     pts = [(x0, y0), (x0 + w, y0), (x0 + w, y0 + h), (x0, y0 + h)]
-    return Part([Contour([Line(pts[i], pts[(i + 1) % 4]) for i in range(4)], True)],
-                Craft(layer=layer, lead_in=LeadParams(kind=1, length=lead)))
+    return Part(
+        [Contour([Line(pts[i], pts[(i + 1) % 4]) for i in range(4)], True)],
+        Craft(layer=layer, lead_in=LeadParams(kind=1, length=lead)),
+    )
 
 
 def layers():
@@ -28,6 +34,7 @@ def layers():
 def test_nest_options_strategy_and_queue(win, app, tmp_path):
     from mlaser.nest import NestPart
     from mlaser.services.remnants import polygon_of
+
     ws = win.extension("nest")
     ws.job.parts.clear()
     ws.job.sheets.clear()
@@ -69,7 +76,7 @@ def test_nest_options_strategy_and_queue(win, app, tmp_path):
     assert int(ws.compare.item(0, 5).text()) == run.pierces > 0
     pump(app, 0.2)
     kinds = {k for _a, _b, k in ws.view.lines}
-    assert kinds == {"scrap", "remnant_cut"}                 # the sheet view shows the strategy lines
+    assert kinds == {"scrap", "remnant_cut"}  # the sheet view shows the strategy lines
     ws.options.setCurrentIndex(1)
     pump(app, 0.1)
     shot(host, "nest_options_strategy_1280x800.png")
@@ -84,6 +91,7 @@ def test_nest_options_strategy_and_queue(win, app, tmp_path):
     assert entries and all(e.path.endswith(".mlz") for e in entries)
     assert any(e.extra.get("remnant_rings") for e in entries)
     from mlaser.ui.ext_nest import _load_doc
+
     doc = _load_doc(entries[0].path)
     assert {pp.extra.get("strategy") for pp in doc.parts} >= {"scrap", "remnant_cut"}
     # the run screen stores the separated remnant exactly as cut
@@ -100,8 +108,10 @@ def test_nest_options_strategy_and_queue(win, app, tmp_path):
 
 
 def colliding_doc():
-    doc = Document(parts=[rect(0, 0, 50, 30, lead=4.0), rect(0, 33, 50, 30, lead=4.0), rect(80, 0, 60, 40)],
-                   layers=layers())
+    doc = Document(
+        parts=[rect(0, 0, 50, 30, lead=4.0), rect(0, 33, 50, 30, lead=4.0), rect(80, 0, 60, 40)],
+        layers=layers(),
+    )
     doc.parts[0].craft.start_param = (50 + 30 + 25) / 160.0
     return doc
 
@@ -115,21 +125,28 @@ def test_process_cutting_strategy_tab(win, app):
     pump(app, 0.2)
     found = panel.check_leads()
     assert found and panel.issues.count() == len(found)
-    assert win.canvas._lead_flags() == {i.key for i in found}     # drawn red
+    assert win.canvas._lead_flags() == {i.key for i in found}  # drawn red
     from PySide6.QtWidgets import QScrollArea
+
     sa = ext.workspace.findChild(QScrollArea)
-    if sa is not None:                                       # the tab is at the bottom of the column
+    if sa is not None:  # the tab is at the bottom of the column
         sa.ensureWidgetVisible(ext.workspace.tabs, 0, 0)
         sa.horizontalScrollBar().setValue(0)
     pump(app, 0.3)
     shot(ext.workspace.window(), "process_lead_check_1280x800.png")
     rep = panel.fix_leads()
-    assert not win.canvas._lead_flags()                      # the fixed leads lose the mark
+    assert not win.canvas._lead_flags()  # the fixed leads lose the mark
     assert not rep.remaining and panel.issues.count() == 0
     from mlaser.cam import collision
+
     assert collision.analyse(win.document) == []
+    panel.bed_fields["bed.slat_pitch"].setValue(120.0)       # the bed model is a machine setting
+    panel.bed_dir.setCurrentIndex(1)
+    assert win.config.get("bed.slat_pitch") == 120.0 and win.config.get("bed.slat_direction") == 1
+    panel.bed_fields["bed.slat_pitch"].setValue(100.0)
+    panel.bed_dir.setCurrentIndex(0)
     risk = panel.check_tipping()
-    assert risk                                              # the 60 x 40 plate on 100 mm slats
+    assert risk  # the 60 x 40 plate on 100 mm slats
     panel.strategy.setCurrentIndex(panel.strategy.findData("joint"))
     trep = panel.fix_tipping()
     assert trep.joints and not panel.check_tipping()
@@ -141,9 +158,10 @@ def test_process_cutting_strategy_tab(win, app):
 def test_preflight_warns_about_lead_collisions(win):
     from mlaser.machine.preflight import PreflightReport
     from mlaser.ui.workspaces.cutting_strategy import augment_preflight
+
     doc = colliding_doc()
     rep = augment_preflight(win, PreflightReport("start"), "start", doc)
-    assert {i.code for i in rep.issues} == {"lead_collision"} and rep.ok     # warnings, not errors
+    assert {i.code for i in rep.issues} == {"lead_collision"} and rep.ok  # warnings, not errors
     assert augment_preflight(win, PreflightReport("frame"), "frame", doc).issues == []
     win.config.set("cam.preflight_lead_check", False)
     assert augment_preflight(win, PreflightReport("start"), "start", doc).issues == []

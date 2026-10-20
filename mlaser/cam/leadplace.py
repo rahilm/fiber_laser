@@ -23,6 +23,7 @@ Per-material rules come from the technology database (``Technology.rules['lead_p
 ``start_param`` (a per-contour craft, :func:`mlaser.cam.manual.contour_craft`), the field a
 manual start or a .chf start uses, so the result is visible, saved and undoable.
 """
+
 from __future__ import annotations
 
 import math
@@ -39,22 +40,26 @@ SIDES = ("", "left", "right", "bottom", "top")
 @dataclass
 class LeadRules:
     """Rules for :func:`candidates` / :func:`place_leads` (defaults: docs/user/cutting-strategy.md)."""
-    prefer: str = "auto"            # auto | corner | straight | keep (leave the start alone)
-    min_feature: float = 5.0        # mm: shorter segments (small features) carry no start
+
+    prefer: str = "auto"  # auto | corner | straight | keep (leave the start alone)
+    min_feature: float = 5.0  # mm: shorter segments (small features) carry no start
     corner_max_angle: float = 100.0  # deg: corners whose angle is at most this are "sharp"
-    straight_pos: float = 0.5       # where on a straight segment (fraction of its length)
-    edge_margin: float = 2.0        # mm kept from the ends of a straight segment
-    prefer_side: str = ""           # "" | left | right | bottom | top
-    holes: bool = True              # place the start of holes too
-    outers: bool = True             # and of outer contours
+    straight_pos: float = 0.5  # where on a straight segment (fraction of its length)
+    edge_margin: float = 2.0  # mm kept from the ends of a straight segment
+    prefer_side: str = ""  # "" | left | right | bottom | top
+    holes: bool = True  # place the start of holes too
+    outers: bool = True  # and of outer contours
 
     @classmethod
     def from_dict(cls, d: Optional[dict]) -> "LeadRules":
         """From ``Technology.rules['lead_place']`` (unknown keys ignored, ``*_mm`` / ``*_deg``
         spellings accepted)."""
         d = dict(d or {})
-        alias = {"min_feature_mm": "min_feature", "corner_max_angle_deg": "corner_max_angle",
-                 "edge_margin_mm": "edge_margin"}
+        alias = {
+            "min_feature_mm": "min_feature",
+            "corner_max_angle_deg": "corner_max_angle",
+            "edge_margin_mm": "edge_margin",
+        }
         for a, b in alias.items():
             if a in d:
                 d.setdefault(b, d.pop(a))
@@ -69,10 +74,10 @@ class LeadRules:
 
 @dataclass(frozen=True)
 class Candidate:
-    frac: float           # start as a fraction of the contour length (Craft.start_param)
+    frac: float  # start as a fraction of the contour length (Craft.start_param)
     point: Point
-    kind: str             # "corner" | "straight" | "fallback"
-    rank: tuple           # sort key (lower first)
+    kind: str  # "corner" | "straight" | "fallback"
+    rank: tuple  # sort key (lower first)
 
 
 def _turn(a: Point, b: Point) -> float:
@@ -126,7 +131,7 @@ def candidates(c: Contour, rules: Optional[LeadRules] = None) -> list[Candidate]
             return (y1 - p[1]) / h
         return 0.0
 
-    def fin_score(p: Point) -> float:      # nearer to a finished edge = worse
+    def fin_score(p: Point) -> float:  # nearer to a finished edge = worse
         if not fin_segs:
             return 0.0
         return -min(_seg_dist(p, s) for s in fin_segs)
@@ -147,17 +152,36 @@ def candidates(c: Contour, rules: Optional[LeadRules] = None) -> list[Candidate]
             if turn >= sharp_turn - 1e-9 and turn > math.radians(1.0):
                 p = cur.start
                 angle = 180.0 - math.degrees(turn)
-                corners.append(Candidate((cum[i] / L) % 1.0, p, "corner",
-                                         (round(side_score(p), 3), round(fin_score(p), 3), round(angle, 1),
-                                          -min(lens[(i - 1) % n], lens[i]))))
+                corners.append(
+                    Candidate(
+                        (cum[i] / L) % 1.0,
+                        p,
+                        "corner",
+                        (
+                            round(side_score(p), 3),
+                            round(fin_score(p), 3),
+                            round(angle, 1),
+                            -min(lens[(i - 1) % n], lens[i]),
+                        ),
+                    )
+                )
         if isinstance(cur, Line) and i not in finished:
             m = rules.edge_margin
             if lens[i] >= max(rules.min_feature, 2 * m + 1e-6):
                 d = min(max(rules.straight_pos * lens[i], m), lens[i] - m)
                 u = d / lens[i]
-                p = (cur.start[0] + (cur.end[0] - cur.start[0]) * u, cur.start[1] + (cur.end[1] - cur.start[1]) * u)
-                straights.append(Candidate(((cum[i] + d) / L) % 1.0, p, "straight",
-                                           (round(side_score(p), 3), round(fin_score(p), 3), -lens[i])))
+                p = (
+                    cur.start[0] + (cur.end[0] - cur.start[0]) * u,
+                    cur.start[1] + (cur.end[1] - cur.start[1]) * u,
+                )
+                straights.append(
+                    Candidate(
+                        ((cum[i] + d) / L) % 1.0,
+                        p,
+                        "straight",
+                        (round(side_score(p), 3), round(fin_score(p), 3), -lens[i]),
+                    )
+                )
     corners.sort(key=lambda k: k.rank)
     straights.sort(key=lambda k: k.rank)
     prefer = rules.prefer
@@ -166,6 +190,7 @@ def candidates(c: Contour, rules: Optional[LeadRules] = None) -> list[Candidate]
     else:
         out = straights + corners
     from ..geom.contour import point_at
+
     fb = []
     for k in range(8):
         f = k / 8.0
@@ -187,15 +212,21 @@ def candidates(c: Contour, rules: Optional[LeadRules] = None) -> list[Candidate]
 
 def _depths(doc: Document) -> dict:
     from .manual import contour_depths
+
     return contour_depths(doc)
 
 
-def place_leads(doc: Document, rules: Optional[LeadRules] = None, parts: Optional[Iterable[Part]] = None,
-                only_with_lead: bool = True) -> int:
+def place_leads(
+    doc: Document,
+    rules: Optional[LeadRules] = None,
+    parts: Optional[Iterable[Part]] = None,
+    only_with_lead: bool = True,
+) -> int:
     """Set the start of every closed contour (of ``parts``, default all) to its best candidate.
     Contours without a lead-in are left alone when ``only_with_lead``.  Returns the number of
     contours whose start changed."""
     from .manual import contour_craft
+
     rules = rules or LeadRules()
     if rules.prefer == "keep":
         return 0

@@ -16,6 +16,7 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [Design](design.md) | importing DXF/SVG/G-code, drawing and editing, text |
 | [Process](process.md) | layers, leads, kerf, micro-joints, cooling points, ordering |
 | [Nest](nest.md) | placing parts on sheets, remnants, the nest project |
+| [Cutting strategy](cutting-strategy.md) | lead-in collision check and placement, tipping on the slats, skeleton cut-up, remnant separation cut |
 | [Run](run.md) | connecting, framing, dry runs, cutting, pause and resume |
 | [Report](report.md) | production reports, logs and statistics |
 | [Machine](machine.md) | homing, jogging, outputs, follower, calibration and diagnostics |

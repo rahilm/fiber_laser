@@ -2990,7 +2990,7 @@
   "cutstrat.fix_tip": "Fix",
   "cutstrat.bed.unknown": "position unknown (worst case)",
   "cutstrat.bed.offset": "first slat at {o:g} mm",
-  "cutstrat.bed": "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where} (machine settings bed.*)",
+  "cutstrat.bed": "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where}",
   "cutstrat.undo.fix": "fix lead-ins",
   "cutstrat.msg.fixed": "{moved} starts moved, {short} leads shortened, {flagged} flagged; {left} still collide",
   "cutstrat.undo.place": "place lead-ins",
@@ -3025,7 +3025,10 @@
   "nestws.scrap.off": "off",
   "nestws.scrap.grid": "grid",
   "nestws.scrap.gaps": "in the gaps",
-  "cutstrat.prefer.tip": "automatic: a corner on parts with sharp corners, else the longest straight segment"
+  "cutstrat.prefer.tip": "automatic: a corner on parts with sharp corners, else the longest straight segment",
+  "cutstrat.bed.offset_unknown": "unknown",
+  "cutstrat.bed.along_y": "slats along Y",
+  "cutstrat.bed.along_x": "slats along X"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [

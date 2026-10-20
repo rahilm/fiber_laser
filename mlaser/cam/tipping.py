@@ -30,6 +30,7 @@ Rapids always lift the head (``Rapid.lift``, ``Follow(False)`` before each move)
 avoidance of :func:`mlaser.cam.ordering.plan_rapids` routes them around the risk pieces already
 cut (and around cut holes when *Avoid cut holes* is on).
 """
+
 from __future__ import annotations
 
 import math
@@ -44,13 +45,13 @@ STATES = ("held", "small", "drops", "stable", "tips")
 
 @dataclass
 class BedModel:
-    pitch: float = 100.0              # slat pitch (mm, centre to centre)
-    direction: str = "y"              # the slats run along "y" (spaced along X) or "x"
-    offset: Optional[float] = None    # one slat centre in sheet coordinates; None = unknown
-    width: float = 3.0                # slat width (mm)
-    min_size: float = 10.0            # smaller pieces are not analysed (mm, larger bbox side)
-    margin: float = 2.0               # stability margin around the centre of gravity (mm)
-    phases: int = 8                   # positions tried when the offset is unknown
+    pitch: float = 100.0  # slat pitch (mm, centre to centre)
+    direction: str = "y"  # the slats run along "y" (spaced along X) or "x"
+    offset: Optional[float] = None  # one slat centre in sheet coordinates; None = unknown
+    width: float = 3.0  # slat width (mm)
+    min_size: float = 10.0  # smaller pieces are not analysed (mm, larger bbox side)
+    margin: float = 2.0  # stability margin around the centre of gravity (mm)
+    phases: int = 8  # positions tried when the offset is unknown
 
     @classmethod
     def from_config(cls, cfg: Any) -> "BedModel":
@@ -59,13 +60,16 @@ class BedModel:
                 return cfg.get(key)
             except Exception:  # noqa: BLE001 - no such setting: the default
                 return default
+
         off = float(g("bed.slat_offset", -1.0))
-        return cls(pitch=max(1.0, float(g("bed.slat_pitch", 100.0))),
-                   direction=("y", "x")[1 if int(g("bed.slat_direction", 0)) == 1 else 0],
-                   offset=None if off < 0 else off,
-                   width=max(0.1, float(g("bed.slat_width", 3.0))),
-                   min_size=max(0.0, float(g("bed.tip_min_size", 10.0))),
-                   margin=max(0.0, float(g("bed.stability_margin", 2.0))))
+        return cls(
+            pitch=max(1.0, float(g("bed.slat_pitch", 100.0))),
+            direction=("y", "x")[1 if int(g("bed.slat_direction", 0)) == 1 else 0],
+            offset=None if off < 0 else off,
+            width=max(0.1, float(g("bed.slat_width", 3.0))),
+            min_size=max(0.0, float(g("bed.tip_min_size", 10.0))),
+            margin=max(0.0, float(g("bed.stability_margin", 2.0))),
+        )
 
     def offsets(self) -> list[float]:
         if self.offset is not None:
@@ -76,6 +80,7 @@ class BedModel:
     def strips(self, bounds: tuple[float, float, float, float], offset: float):
         """The slat strips (shapely boxes) under ``bounds``."""
         from shapely.geometry import box
+
         x0, y0, x1, y1 = bounds
         lo, hi = (x0, x1) if self.direction == "y" else (y0, y1)
         k0 = math.floor((lo - offset - self.width) / self.pitch)
@@ -86,20 +91,23 @@ class BedModel:
             c = offset + k * self.pitch
             if c + h < lo or c - h > hi:
                 continue
-            out.append(box(c - h, y0 - 1, c + h, y1 + 1) if self.direction == "y"
-                       else box(x0 - 1, c - h, x1 + 1, c + h))
+            out.append(
+                box(c - h, y0 - 1, c + h, y1 + 1)
+                if self.direction == "y"
+                else box(x0 - 1, c - h, x1 + 1, c + h)
+            )
         return out
 
 
 @dataclass
 class TipPiece:
-    key: tuple                 # (part, contour) of the contour whose cut frees the piece
-    slug: bool                 # the piece is the inside of a hole
-    state: str                 # held | small | drops | stable | tips
+    key: tuple  # (part, contour) of the contour whose cut frees the piece
+    slug: bool  # the piece is the inside of a hole
+    state: str  # held | small | drops | stable | tips
     cg: Point = (0.0, 0.0)
     size: tuple = (0.0, 0.0)
-    support: Optional[Point] = None   # centre of the support in the tipping position
-    offset: Optional[float] = None    # slat offset of the worst case
+    support: Optional[Point] = None  # centre of the support in the tipping position
+    offset: Optional[float] = None  # slat offset of the worst case
 
     @property
     def at_risk(self) -> bool:
@@ -109,13 +117,16 @@ class TipPiece:
     def message(self) -> str:
         pi, ci = self.key
         what = "slug of" if self.slug else "part"
-        return (f"{what} part {pi + 1} contour {ci + 1} ({self.size[0]:.0f} x {self.size[1]:.0f} mm) "
-                "can tip on the slats")
+        return (
+            f"{what} part {pi + 1} contour {ci + 1} ({self.size[0]:.0f} x {self.size[1]:.0f} mm) "
+            "can tip on the slats"
+        )
 
 
 def _polygon(c):
     from shapely.geometry import Polygon
     from ..geom.contour import polyline
+
     pts = polyline(c, 0.2)
     if len(pts) < 3:
         return None
@@ -129,6 +140,7 @@ def piece_state(geom, bed: BedModel) -> tuple[str, Optional[Point], Optional[flo
     """(state, support centre, offset) of one free piece (a shapely polygon) on the bed."""
     from shapely.geometry import Point as SPoint
     from shapely.ops import unary_union
+
     x0, y0, x1, y1 = geom.bounds
     if max(x1 - x0, y1 - y0) < bed.min_size:
         return "small", None, None
@@ -139,7 +151,7 @@ def piece_state(geom, bed: BedModel) -> tuple[str, Optional[Point], Optional[flo
         sup = [geom.intersection(s) for s in bed.strips(geom.bounds, off)]
         sup = [s for s in sup if not s.is_empty and s.area > 1e-6]
         if not sup:
-            continue                          # falls between the slats at this position
+            continue  # falls between the slats at this position
         hull = unary_union(sup).convex_hull
         core = hull.buffer(-bed.margin) if bed.margin > 0 else hull
         if core.is_empty or not core.contains(SPoint(cg.x, cg.y)):
@@ -154,17 +166,19 @@ def piece_state(geom, bed: BedModel) -> tuple[str, Optional[Point], Optional[flo
 def analyse(doc: Document, bed: Optional[BedModel] = None, prm: Any = None) -> list[TipPiece]:
     """Every freed piece of the document (see the module doc)."""
     from .ordering import build_tree
+
     bed = bed or BedModel()
     conts, keys = [], []
     for pi, part in enumerate(doc.parts):
         if part.extra.get("strategy"):
-            continue                          # cut-up / separation lines free no part
+            continue  # cut-up / separation lines free no part
         for ci, c in enumerate(part.contours):
             if c.segments and c.closed:
                 conts.append(c)
                 keys.append((pi, ci))
     nodes = build_tree(conts, keys)
     from .manual import contour_craft
+
     out = []
     for n in nodes:
         g = _polygon(n.contour)
@@ -193,9 +207,9 @@ def analyse(doc: Document, bed: Optional[BedModel] = None, prm: Any = None) -> l
 @dataclass
 class TipReport:
     pieces: list[TipPiece] = field(default_factory=list)
-    joints: list[tuple] = field(default_factory=list)       # (key, position mm)
-    last: list[int] = field(default_factory=list)            # parts cut last
-    avoided: list[tuple] = field(default_factory=list)       # keys the rapids avoid
+    joints: list[tuple] = field(default_factory=list)  # (key, position mm)
+    last: list[int] = field(default_factory=list)  # parts cut last
+    avoided: list[tuple] = field(default_factory=list)  # keys the rapids avoid
 
     @property
     def at_risk(self) -> list[TipPiece]:
@@ -207,6 +221,7 @@ def _joint_position(c, cg: Point, support: Optional[Point], start_mm: float, kee
     towards the centre of gravity side (from the support centre), at least ``keep`` mm from the
     start along the contour."""
     from ..geom.contour import point_at
+
     L = c.length()
     if support is not None and math.dist(cg, support) > 1e-6:
         v = (cg[0] - support[0], cg[1] - support[1])
@@ -234,10 +249,17 @@ def _joint_position(c, cg: Point, support: Optional[Point], start_mm: float, kee
     return best[len(best) // 2]
 
 
-def apply(doc: Document, bed: Optional[BedModel] = None, strategy: str = "joint",
-          joint_width: float = 0.5, slugs: bool = True, prm: Any = None) -> TipReport:
+def apply(
+    doc: Document,
+    bed: Optional[BedModel] = None,
+    strategy: str = "joint",
+    joint_width: float = 0.5,
+    slugs: bool = True,
+    prm: Any = None,
+) -> TipReport:
     """Mitigate every tipping piece with ``strategy`` (module doc); returns what was done."""
     from .manual import contour_craft
+
     if strategy not in STRATEGIES:
         raise ValueError(f"unknown tip strategy {strategy!r} (one of {', '.join(STRATEGIES)})")
     rep = TipReport(analyse(doc, bed, prm))
@@ -274,5 +296,14 @@ def strategy_from_technology(tech: Any) -> tuple[str, float]:
     return (s if s in STRATEGIES else "joint"), float(r.get("joint_width_mm", r.get("joint_width", 0.5)))
 
 
-__all__ = ["BedModel", "TipPiece", "TipReport", "analyse", "apply", "piece_state",
-           "strategy_from_technology", "STRATEGIES", "STATES"]
+__all__ = [
+    "BedModel",
+    "TipPiece",
+    "TipReport",
+    "analyse",
+    "apply",
+    "piece_state",
+    "strategy_from_technology",
+    "STRATEGIES",
+    "STATES",
+]

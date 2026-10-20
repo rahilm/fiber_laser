@@ -23,6 +23,7 @@ sheets), else the edge test is skipped.
 
 Nothing here runs unless called: the default toolpath is unchanged.
 """
+
 from __future__ import annotations
 
 import copy
@@ -38,10 +39,10 @@ KINDS = ("contour", "own", "edge")
 
 @dataclass
 class LeadCheckParams:
-    kerf: float = 0.2               # mm, beam width when the craft has no kerf width
-    clearance: float = 0.5          # mm kept between the lead's kerf and another contour
-    edge_clearance: float = 2.0     # mm kept between the pierce point and the sheet edge
-    min_length: float = 0.5         # mm: a lead that would get shorter is flagged instead
+    kerf: float = 0.2  # mm, beam width when the craft has no kerf width
+    clearance: float = 0.5  # mm kept between the lead's kerf and another contour
+    edge_clearance: float = 2.0  # mm kept between the pierce point and the sheet edge
+    min_length: float = 0.5  # mm: a lead that would get shorter is flagged instead
     move_start: bool = True
     shorten: bool = True
     max_candidates: int = 24
@@ -50,10 +51,10 @@ class LeadCheckParams:
 
 @dataclass
 class LeadIssue:
-    key: tuple                       # (part index, contour index)
-    kind: str                        # contour | own | edge
-    point: Point                     # pierce point of the lead
-    other: Optional[tuple] = None    # (part, contour) hit, for kind "contour"
+    key: tuple  # (part index, contour index)
+    kind: str  # contour | own | edge
+    point: Point  # pierce point of the lead
+    other: Optional[tuple] = None  # (part, contour) hit, for kind "contour"
 
     @property
     def message(self) -> str:
@@ -71,8 +72,8 @@ class LeadIssue:
 @dataclass
 class LeadFix:
     key: tuple
-    action: str                      # moved | shortened | flagged
-    before: float = 0.0              # start fraction (moved) or lead length (shortened)
+    action: str  # moved | shortened | flagged
+    before: float = 0.0  # start fraction (moved) or lead length (shortened)
     after: float = 0.0
 
 
@@ -89,14 +90,18 @@ class FixReport:
 # ============================================================================ preparation
 def _as_cam(prm: Any):
     from .toolpath import _as_params
+
     return _as_params(prm)
 
 
 def _node_craft(doc: Document, n) -> Craft:
     pi, _ci = n.key
     c = n.contour
-    ov = c.craft if isinstance(getattr(c, "craft", None), Craft) else (
-        c.extra.get("craft") if isinstance(c.extra, dict) else None)
+    ov = (
+        c.craft
+        if isinstance(getattr(c, "craft", None), Craft)
+        else (c.extra.get("craft") if isinstance(c.extra, dict) else None)
+    )
     return ov if isinstance(ov, Craft) else doc.parts[pi].craft
 
 
@@ -107,6 +112,7 @@ def prepared_nodes(doc: Document, prm: Any = None) -> list:
     from .ordering import build_tree
     from .raster_engraving import raster_part_indices
     from .toolpath import prepare_cached
+
     prm = _as_cam(prm)
     skip = {pi for pi, p in enumerate(doc.parts) if scan_paths_of_part(p)} | raster_part_indices(doc)
     conts, keys = [], []
@@ -134,11 +140,12 @@ def _poly(segs, tol: float = 0.05) -> list[Point]:
 
 def _lead_points(pc) -> list[Point]:
     """Lead-in polyline in travel order (pierce point first, contour start last)."""
-    return _poly([s for s, _on in pc.pieces[:pc.lead_in_count]])
+    return _poly([s for s, _on in pc.pieces[: pc.lead_in_count]])
 
 
 def _sheet_of(doc: Document, sheet: Any):
     from shapely.geometry import Polygon, box
+
     if sheet is None:
         sb = doc.extra.get("sheet_bounds") if isinstance(doc.extra, dict) else None
         if sb and len(sb) == 4:
@@ -158,8 +165,9 @@ class _Index:
     def __init__(self, items: list) -> None:
         import shapely
         from shapely.geometry import LineString, Polygon
+
         self.keys, self.geoms = [], []
-        self.area: dict = {}         # key -> (polygon, the lead belongs inside it: a hole)
+        self.area: dict = {}  # key -> (polygon, the lead belongs inside it: a hole)
         for n, craft, _pc in items:
             pts = list(n.contour.points(0.05))
             if n.contour.closed and len(pts) >= 3:
@@ -203,13 +211,16 @@ def _trim_end(pts: list[Point], length: float) -> list[Point]:
         d = math.dist(rev[k - 1], rev[k])
         if acc + d >= length:
             u = (length - acc) / d if d > 0 else 0.0
-            q = (rev[k - 1][0] + (rev[k][0] - rev[k - 1][0]) * u, rev[k - 1][1] + (rev[k][1] - rev[k - 1][1]) * u)
+            q = (
+                rev[k - 1][0] + (rev[k][0] - rev[k - 1][0]) * u,
+                rev[k - 1][1] + (rev[k][1] - rev[k - 1][1]) * u,
+            )
             return list(reversed([q] + rev[k:]))
         acc += d
     return []
 
 
-OWN_TRIM = 0.05     # mm of the lead next to the contour start left out of the own-contour test
+OWN_TRIM = 0.05  # mm of the lead next to the contour start left out of the own-contour test
 
 
 def _wrong_side(idx: "_Index", key, q) -> bool:
@@ -219,14 +230,17 @@ def _wrong_side(idx: "_Index", key, q) -> bool:
     if a is None:
         return False
     from shapely.geometry import Point as SPoint
+
     poly, hole = a
     inside = poly.contains(SPoint(q))
     return inside != hole
 
 
-def _lead_conflicts(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: LeadCheckParams,
-                    first_only: bool = False) -> list[LeadIssue]:
+def _lead_conflicts(
+    key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: LeadCheckParams, first_only: bool = False
+) -> list[LeadIssue]:
     from shapely.geometry import LineString, Point as SPoint
+
     if len(pts) < 2:
         return []
     out: list[LeadIssue] = []
@@ -253,8 +267,9 @@ def _lead_conflicts(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: 
     return out
 
 
-def analyse(doc: Document, prm: Any = None, sheet: Any = None,
-            params: Optional[LeadCheckParams] = None) -> list[LeadIssue]:
+def analyse(
+    doc: Document, prm: Any = None, sheet: Any = None, params: Optional[LeadCheckParams] = None
+) -> list[LeadIssue]:
     """Every lead-in that collides (one issue per lead and kind), in contour order."""
     p = params or LeadCheckParams()
     items = prepared_nodes(doc, prm)
@@ -274,12 +289,14 @@ def _clear_at(key, craft, pts, idx, sheet, p) -> bool:
     return not _lead_conflicts(key, craft, pts, idx, sheet, p, first_only=True)
 
 
-def _first_conflict(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: LeadCheckParams
-                    ) -> tuple[float, str]:
+def _first_conflict(
+    key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: LeadCheckParams
+) -> tuple[float, str]:
     """(distance from the contour start along the lead to the first conflict, its kind)."""
     from shapely.geometry import LineString, Point as SPoint
+
     r = _kerf(craft, p) / 2.0 + p.clearance
-    rev = list(reversed(pts))                 # from the contour start outwards
+    rev = list(reversed(pts))  # from the contour start outwards
     lead = LineString(pts)
     near = [g for _k, g in idx.near(lead, r, key)]
     own = idx.by_key.get(key)
@@ -307,12 +324,14 @@ def _first_conflict(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: 
 
 def _set_start(doc, key, frac: float) -> None:
     from .manual import contour_craft
+
     pi, ci = key
     contour_craft(doc.parts[pi], ci, create=True).start_param = float(frac)
 
 
 def _set_length(doc, key, length: float, error: bool = False) -> None:
     from .manual import contour_craft
+
     pi, ci = key
     cr = contour_craft(doc.parts[pi], ci, create=True)
     cr.lead_in = copy.deepcopy(cr.lead_in)
@@ -323,6 +342,7 @@ def _set_length(doc, key, length: float, error: bool = False) -> None:
 
 def _clear_mark(doc, key) -> None:
     from .manual import contour_craft
+
     pi, ci = key
     cr = contour_craft(doc.parts[pi], ci)
     if cr.lead_error:
@@ -331,6 +351,7 @@ def _clear_mark(doc, key) -> None:
 
 def _trial(n, craft: Craft, prm, **changes):
     from .toolpath import prepare_contour
+
     cr = copy.deepcopy(craft)
     for k, v in changes.items():
         if k == "length":
@@ -342,8 +363,13 @@ def _trial(n, craft: Craft, prm, **changes):
     return cr, (_lead_points(pc) if pc is not None and pc.lead_in_count > 0 else [])
 
 
-def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[LeadCheckParams] = None,
-        keys: Optional[set] = None) -> FixReport:
+def fix(
+    doc: Document,
+    prm: Any = None,
+    sheet: Any = None,
+    params: Optional[LeadCheckParams] = None,
+    keys: Optional[set] = None,
+) -> FixReport:
     """Repair every colliding lead-in of ``doc`` in place (module doc: move, shorten, flag).
     ``keys`` limits the repair to those (part, contour) keys."""
     p = params or LeadCheckParams()
@@ -363,7 +389,7 @@ def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[Lead
         before = craft.start_param
         done = False
         if p.move_start and n.contour.closed:
-            for cand in candidates(n.contour, p.rules)[:max(1, p.max_candidates)]:
+            for cand in candidates(n.contour, p.rules)[: max(1, p.max_candidates)]:
                 cr, tp = _trial(n, craft, prm, start_param=cand.frac)
                 if tp and _clear_at(n.key, cr, tp, idx, sh, p):
                     _set_start(doc, n.key, cand.frac)
@@ -389,9 +415,12 @@ def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[Lead
                 new *= 0.7
         if not done:
             from .manual import contour_craft
+
             pi, ci = n.key
             contour_craft(doc.parts[pi], ci, create=True).lead_error = True
-            rep.fixes.append(LeadFix(n.key, "flagged", float(craft.lead_in.length), float(craft.lead_in.length)))
+            rep.fixes.append(
+                LeadFix(n.key, "flagged", float(craft.lead_in.length), float(craft.lead_in.length))
+            )
     if rep.found:
         rep.remaining = analyse(doc, prm, sheet, p)
     return rep
@@ -400,11 +429,21 @@ def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[Lead
 def mark(doc: Document, issues: list[LeadIssue]) -> int:
     """Set the lead-check error mark on the contours of ``issues`` (drawn red); returns how many."""
     from .manual import contour_craft
+
     keys = sorted({i.key for i in issues})
     for pi, ci in keys:
         contour_craft(doc.parts[pi], ci, create=True).lead_error = True
     return len(keys)
 
 
-__all__ = ["LeadCheckParams", "LeadIssue", "LeadFix", "FixReport", "analyse", "fix", "mark",
-           "prepared_nodes", "KINDS"]
+__all__ = [
+    "LeadCheckParams",
+    "LeadIssue",
+    "LeadFix",
+    "FixReport",
+    "analyse",
+    "fix",
+    "mark",
+    "prepared_nodes",
+    "KINDS",
+]

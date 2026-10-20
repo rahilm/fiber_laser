@@ -27,6 +27,7 @@ layer of the sheet's parts (``layer``), without leads or kerf compensation.
 :func:`sheet_stats` gives the comparison figures of a sheet document: cut length, pierces,
 rapid length (the toolpath of the default CAM parameters).
 """
+
 from __future__ import annotations
 
 import math
@@ -34,8 +35,16 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 from ..model import Contour, Craft, Document, LeadParams, Line, Part, Point
-from .model import (GRAVITY_BOTTOM, GRAVITY_LEFT, GRAVITY_RIGHT, GRAVITY_TOP, SCRAP_GAPS, SCRAP_GRID,
-                    SCRAP_OFF, NestParams)
+from .model import (
+    GRAVITY_BOTTOM,
+    GRAVITY_LEFT,
+    GRAVITY_RIGHT,
+    GRAVITY_TOP,
+    SCRAP_GAPS,
+    SCRAP_GRID,
+    SCRAP_OFF,
+    NestParams,
+)
 
 PHASE_TIP, PHASE_REMNANT, PHASE_SCRAP = 1, 2, 3
 STRATEGY_SCRAP, STRATEGY_REMNANT = "scrap", "remnant_cut"
@@ -43,9 +52,9 @@ STRATEGY_SCRAP, STRATEGY_REMNANT = "scrap", "remnant_cut"
 
 @dataclass
 class StrategyResult:
-    lines: list[Part] = field(default_factory=list)     # scrap + separation parts
+    lines: list[Part] = field(default_factory=list)  # scrap + separation parts
     scrap_lines: int = 0
-    remnant: Any = None                                  # shapely polygon of the separated remnant
+    remnant: Any = None  # shapely polygon of the separated remnant
     remnant_line: Optional[tuple[Point, Point]] = None
     notes: list[str] = field(default_factory=list)
 
@@ -55,11 +64,14 @@ def _line_part(a: Point, b: Point, layer: int, kind: str, phase: int, sheet_poly
     separation cut, both cut before it) starts there: no pierce in solid material.  A line
     with both ends on the sheet edge is pierced in its middle and cut outwards as two open
     contours, so it never starts off the sheet."""
+
     def on_edge(q: Point) -> bool:
         if sheet_poly is None:
             return True
         from shapely.geometry import Point as SPoint
+
         return sheet_poly.exterior.distance(SPoint(q)) < 0.5 or not sheet_poly.contains(SPoint(q))
+
     ea, eb = on_edge(a), on_edge(b)
     if not ea or not eb:
         s, e = (a, b) if not ea else (b, a)
@@ -76,6 +88,7 @@ def _line_part(a: Point, b: Point, layer: int, kind: str, phase: int, sheet_poly
 
 def _lines_of(geom) -> list:
     from shapely.geometry import LineString, MultiLineString
+
     if geom is None or geom.is_empty:
         return []
     if isinstance(geom, LineString):
@@ -89,6 +102,7 @@ def remnant_cut(sheet_poly, used, layout_remnant, gravity: str, params: NestPara
     """(line (a, b), separated remnant polygon) or None.  ``layout_remnant`` is the leftover
     rectangle of the layout; the line runs along its inner edge across the whole sheet."""
     from shapely.geometry import LineString, box
+
     if not layout_remnant or sheet_poly is None or sheet_poly.is_empty:
         return None
     rx0, ry0, rx1, ry1 = layout_remnant
@@ -114,7 +128,7 @@ def remnant_cut(sheet_poly, used, layout_remnant, gravity: str, params: NestPara
     if width < max(params.remnant_min_width, 1.0):
         return None
     if used is not None and not used.is_empty and line.distance(used) < k + 1e-6:
-        return None                                   # the line would touch a part
+        return None  # the line would touch a part
     segs = _lines_of(line.intersection(sheet_poly))
     if not segs:
         return None
@@ -161,6 +175,7 @@ def scrap_lines(sheet_poly, used, params: NestParams, remnant=None) -> list:
     """Scrap cut-up lines (shapely LineStrings) for ``params.scrap_cut`` (module doc)."""
     from shapely.geometry import LineString, Polygon
     from shapely.ops import unary_union
+
     mode = params.scrap_cut
     if mode not in (SCRAP_GRID, SCRAP_GAPS) or sheet_poly is None or sheet_poly.is_empty:
         return []
@@ -186,8 +201,9 @@ def scrap_lines(sheet_poly, used, params: NestParams, remnant=None) -> list:
         ys = _gap_positions(y0, y1, pitch, [(g.bounds[1] - keep_off, g.bounds[3] + keep_off) for g in filled])
     else:
         xs, ys = _positions(x0, x1, pitch), _positions(y0, y1, pitch)
-    cand = [LineString([(x, y0 - 1), (x, y1 + 1)]) for x in xs] + \
-        [LineString([(x0 - 1, y), (x1 + 1, y)]) for y in ys]
+    cand = [LineString([(x, y0 - 1), (x, y1 + 1)]) for x in xs] + [
+        LineString([(x0 - 1, y), (x1 + 1, y)]) for y in ys
+    ]
     out = []
     for ln in cand:
         for piece in _lines_of(ln.intersection(region)):
@@ -196,8 +212,9 @@ def scrap_lines(sheet_poly, used, params: NestParams, remnant=None) -> list:
     return out
 
 
-def strategy_lines(sheet_poly, used, layout_remnant, gravity: str, params: NestParams,
-                   layer: int = 1) -> StrategyResult:
+def strategy_lines(
+    sheet_poly, used, layout_remnant, gravity: str, params: NestParams, layer: int = 1
+) -> StrategyResult:
     """The cut-up and separation lines of one sheet (parts tagged for the toolpath)."""
     res = StrategyResult()
     remnant = None
@@ -240,6 +257,16 @@ def sheet_stats(doc: Document) -> dict:
     return {"cut_length_mm": cut, "pierces": pierces, "parts": parts}
 
 
-__all__ = ["StrategyResult", "strategy_lines", "scrap_lines", "remnant_cut", "sheet_stats",
-           "is_strategy_part", "PHASE_TIP", "PHASE_SCRAP", "PHASE_REMNANT", "STRATEGY_SCRAP",
-           "STRATEGY_REMNANT"]
+__all__ = [
+    "StrategyResult",
+    "strategy_lines",
+    "scrap_lines",
+    "remnant_cut",
+    "sheet_stats",
+    "is_strategy_part",
+    "PHASE_TIP",
+    "PHASE_SCRAP",
+    "PHASE_REMNANT",
+    "STRATEGY_SCRAP",
+    "STRATEGY_REMNANT",
+]

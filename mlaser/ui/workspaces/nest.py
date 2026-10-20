@@ -20,11 +20,10 @@ import copy
 import os
 from typing import Any, Optional
 
-from PySide6.QtCore import QRectF, QSize, Qt, QTimer
+from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
-                               QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
-                               QListView, QListWidget, QListWidgetItem, QMessageBox, QProgressBar,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QListView, QListWidget, QListWidgetItem, QProgressBar,
                                QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
@@ -33,6 +32,8 @@ from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BO
 from mlaser.nest.engine import available_engines
 from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
+
+from . import TOUCH_MIN, show_workspace, tr
 
 #: per-part rotation choices of the parts table: (id, label key, default text, NestPart.angles, grain)
 ROTATIONS = (("sheet", "nestws.rotp.sheet", "sheet setting", None, False),
@@ -70,7 +71,6 @@ def set_rotation(np_, rid: str) -> None:
                 np_.extra.pop("grain", None)
             return
 
-from . import TOUCH_MIN, show_workspace, tr
 
 
 # ============================================================================== drawing
