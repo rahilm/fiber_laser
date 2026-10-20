@@ -23,22 +23,13 @@ class NewCtl:
         return True                      # a pending breakpoint counts as active
 
 
-class OldCtl:
-    def __init__(self):
-        self.calls = []
 
-    def resume(self, mode="exact"):
-        self.calls.append(mode)
-
-
-def test_document_passed_when_supported():
+def test_document_is_always_passed():
     c, doc = NewCtl(), object()
     resume(c, "contour", doc)
     assert c.calls == [("contour", doc)]
-    o = OldCtl()
-    resume(o, "contour", doc)
-    resume(o, "exact", doc)
-    assert o.calls == ["contour", "exact"]
+    resume(c, "exact", None)
+    assert c.calls[-1] == ("exact", None)
 
 
 def test_moving_is_the_machine_mode_not_job_active():

@@ -56,6 +56,7 @@ _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)
 TIMING_MARKS = ("safety", "sim")
 TIMING_GROUP = "timing"
+PARITY_GROUP = "parity"
 
 
 @pytest.fixture(autouse=True)
@@ -98,6 +99,10 @@ def pytest_collection_modifyitems(config, items):
             item.add_marker(getattr(pytest.mark, m))
         if group and any(item.get_closest_marker(m) for m in TIMING_MARKS):
             item.add_marker(pytest.mark.xdist_group(TIMING_GROUP))
+        elif group and item.get_closest_marker("parity"):
+            # the parity areas share ../parity/out and depend on each other's output (jobcad ->
+            # jobmainapp -> jobnc), so they run in order on one worker
+            item.add_marker(pytest.mark.xdist_group(PARITY_GROUP))
 
 
 def pytest_sessionfinish(session, exitstatus):
