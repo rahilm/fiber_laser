@@ -75,6 +75,20 @@ def accept_dialogs(monkeypatch, *classes) -> None:
         monkeypatch.setattr(cls, "exec", lambda self: (self.accept(), QDialog.Accepted)[1])
 
 
+def leads_via_ribbon(win, app, length: float, parts=None) -> None:
+    """The user's path: select parts, ribbon Lead (opens Process › Properties at the lead-in),
+    choose Line and a length there."""
+    win.canvas.select_parts(range(len(win.document.parts)) if parts is None else parts)
+    pump(app)
+    win.commands.run("craft.lead")
+    pp = win.extension("ext_process").properties
+    kind, _ang, ln, _rad = pp.lead_w["in"]
+    assert not pp.isHidden() and kind.isEnabled()          # the Properties field, ready to edit
+    kind.setCurrentIndex(1)
+    ln.setValue(length)
+    pp._commit_leads()
+
+
 def lead_moves(items) -> list:
     return [m for m in items if getattr(m, "lead", None) == "in"]
 
@@ -117,17 +131,15 @@ def test_document_before_show_is_fitted_once_the_window_has_its_size(app, monkey
 
 
 @pytest.mark.parametrize("process", [False, True], ids=["thread", "plan_process"])
-def test_lead_dialog_leads_reach_plan_canvas_and_simulation(app, monkeypatch, tmp_path, process):
-    from mlaser.ui import dialogs
-
+def test_lead_command_leads_reach_plan_canvas_and_simulation(app, monkeypatch, tmp_path, process):
     w = make_window(app, monkeypatch, tmp_path, process=process)
     try:
         assert w.jobs.process_mode == process
-        accept_dialogs(monkeypatch, dialogs.LeadDialog)
-        w.lead_in.length = 5.0
         assert not any(p.selected for p in w.document.parts)
-        w.lead_dialog()                        # nothing selected: every (closed) part, and said so
-        assert "all parts" in w.log_panel.text.toPlainText()
+        w.commands.run("craft.lead")           # nothing selected: says what to do, edits nothing
+        assert "Select the parts" in w.log_panel.text.toPlainText()
+        assert all(p.craft.lead_in.kind == 0 for p in w.document.parts)
+        leads_via_ribbon(w, app, 5.0)
         closed = [p for p in w.document.parts if all(c.closed for c in p.contours)]
         assert closed and all(p.craft.lead_in.kind == 1 and p.craft.lead_in.length == 5.0 for p in closed)
         settle(w, app)
@@ -162,26 +174,35 @@ def test_lead_dialog_leads_reach_plan_canvas_and_simulation(app, monkeypatch, tm
         w.close()
 
 
-def test_lead_dialog_respects_selection_and_closed_only(win, app, monkeypatch):
-    from mlaser.ui import dialogs
+def test_lead_on_the_selection_only_and_restore(win, app):
+    from mlaser.services import inheritance as I
 
-    def run(only_selected: bool, only_closed: bool):
-        def exe(self):
-            self.only_selected.setChecked(only_selected)
-            self.only_closed.setChecked(only_closed)
-            self.accept()
-            return QDialog.Accepted
-        monkeypatch.setattr(dialogs.LeadDialog, "exec", exe)
-        win.lead_dialog()
-
-    win.canvas.select_parts([0])
-    run(True, True)
+    leads_via_ribbon(win, app, 4.0, parts=[0])
     assert win.document.parts[0].craft.lead_in.kind == 1
     assert all(p.craft.lead_in.kind == 0 for p in win.document.parts[1:])
-    win.undo()
-    win.canvas.select_parts([0])
-    run(False, False)                          # every part, open contours too
-    assert all(p.craft.lead_in.kind == 1 for p in win.document.parts)
+    assert "craft.lead_in.length" in I.craft_overrides(win.document.parts[0].craft)
+    pp = win.extension("ext_process").properties
+    fld = pp.inherit["craft.lead_in.length"]
+    assert fld.overridden and not fld.reset_btn.isHidden()
+    fld.reset.emit()                           # restore length and type: the inherited (no) lead
+    pp.inherit["craft.lead_in.kind"].reset.emit()
+    assert win.document.parts[0].craft.lead_in.kind == 0
+    assert not I.craft_overrides(win.document.parts[0].craft) & {"craft.lead_in.kind", "craft.lead_in.length"}
+
+
+def test_lead_edit_keeps_a_start_set_by_hand(win, app):
+    from mlaser.cam.manual import contour_craft
+
+    pp = win.extension("ext_process").properties
+    win.canvas.select_parts([2])
+    pump(app)
+    pp.start.setValue(40.0)
+    pp._commit_start()
+    part = win.document.parts[2]
+    ci = max(range(len(part.contours)), key=lambda i: part.contours[i].length())
+    assert contour_craft(part, ci).start_param == pytest.approx(0.4)
+    leads_via_ribbon(win, app, 3.0, parts=[2])
+    assert contour_craft(win.document.parts[2], ci).start_param == pytest.approx(0.4)
 
 
 def test_properties_panel_leads_and_kerf_show_on_the_canvas(win, app):
@@ -274,13 +295,10 @@ def test_microjoints_start_overcut_cooling_and_lead_check(win, app):
 
 
 def test_auto_lead_placement_and_manual_lead(win, app, monkeypatch):
-    from mlaser.ui import dialogs
-
     strat = win.extension("ext_process").strategy
     assert strat.place_leads() == 0
     assert "No contour has a lead-in" in strat.summary.text()
-    accept_dialogs(monkeypatch, dialogs.LeadDialog)
-    win.lead_dialog()
+    leads_via_ribbon(win, app, 3.0)
     settle(win, app)
     strat.place_leads()
     settle(win, app)
@@ -296,12 +314,8 @@ def test_auto_lead_placement_and_manual_lead(win, app, monkeypatch):
 
 
 def test_toolpath_toggle_and_tiny_lead_glyph(win, app, monkeypatch):
-    from mlaser.ui import dialogs
-
     c = win.canvas
-    accept_dialogs(monkeypatch, dialogs.LeadDialog)
-    win.lead_in.length = 0.3                   # far below a pixel's worth at a table fit
-    win.lead_dialog()
+    leads_via_ribbon(win, app, 0.3)            # far below a pixel's worth at a table fit
     settle(win, app)
     c.zoom_fit_table()
     glyphs = c.toolpath_items("lead_glyph")
@@ -319,15 +333,11 @@ def test_toolpath_toggle_and_tiny_lead_glyph(win, app, monkeypatch):
 def test_simulate_waits_for_the_plan(win, app, monkeypatch):
     """An edit followed at once by Simulate: the simulation runs the new plan (the leads), it
     never falls back to the raw drawing, and the canvas said the plan was being computed."""
-    from mlaser.ui import dialogs
-
     c = win.canvas
     states = []
     orig = c.set_plan_state
     monkeypatch.setattr(c, "set_plan_state", lambda s: (states.append(s), orig(s)))
-    accept_dialogs(monkeypatch, dialogs.LeadDialog)
-    win.lead_in.length = 6.0
-    win.lead_dialog()
+    leads_via_ribbon(win, app, 6.0)
     assert win.jobs.pending
     win.simulate()
     assert "planning" in states and "simulating_wait" in states and states[-1] == "ready"
@@ -476,3 +486,18 @@ def test_properties_panel_reflows(win, app):
         wrapped = [f.form.rowWrapPolicy() == QFormLayout.WrapAllRows for f in forms]
         assert any(wrapped) if width == 230 else not any(wrapped)
     dock.setFloating(False)
+
+
+def test_cutting_order_is_saved_with_the_drawing(win, app, tmp_path):
+    from mlaser.cam.toolpath import CamParams
+    from mlaser.project.format import load_project, save_project
+
+    win.sort("left_right")
+    mode = win.cam_params.sort_mode
+    assert mode != CamParams().sort_mode
+    path = tmp_path / "order.mlz"
+    save_project(path, win.document)
+    win.set_document(ops.demo_document())          # another drawing: its own (default) order
+    assert win.cam_params.sort_mode == CamParams().sort_mode
+    win.set_document(load_project(path).document)
+    assert win.cam_params.sort_mode == mode

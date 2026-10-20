@@ -569,11 +569,13 @@
   "home.select_parts": "Select the parts whose cut settings you want to change. The layer defaults are in Process › Layers.",
   "home.settings": "Settings",
   "inherit.from": "from {source}",
+  "inherit.mixed": "mixed: {n} of {total} parts set their own",
   "inherit.reset_tip": "Restore: use the value from {source}",
   "inherit.set_on": "set on {where}",
   "inherit.src.contour": "this contour",
   "inherit.src.layer": "layer {n}",
   "inherit.src.part": "this part",
+  "inherit.src.parts": "{n} parts",
   "inherit.src.registry": "default",
   "io.axis": "Axis",
   "io.axis_2": "Axis",
@@ -2444,6 +2446,7 @@
   "props.cool_auto": "At sharp corners",
   "props.cool_info": "{n} cooling points on the selection",
   "props.dialog": "Dialog…",
+  "props.do_overcut": "Overcut",
   "props.edit.cool": "cooling points",
   "props.edit.cool_clear": "clear cooling points",
   "props.edit.joints": "micro-joints",
@@ -2451,8 +2454,10 @@
   "props.edit.kerf": "kerf",
   "props.edit.layer": "layer",
   "props.edit.leads": "leads",
+  "props.edit.reset": "restore inherited value",
   "props.edit.start": "start point",
   "props.edit.transform": "transform",
+  "props.gap": "Gap",
   "props.height": "Height",
   "props.joint_count": "Joints per part",
   "props.joint_info": "{n} micro-joints on the selection",
@@ -2481,7 +2486,11 @@
   "props.no_technology": "none (set by hand)",
   "props.none": "Nothing selected: select parts on the canvas.",
   "props.open_contours": "{n} open",
+  "props.overcut": "Overcut and gap",
+  "props.overcut_len": "Length",
+  "props.overcut_tip": "Length of the overcut (cut past the start) or the gap (stop before it) of the selected parts' contours.",
   "props.rotate_by": "Rotate by",
+  "props.seal": "Seal",
   "props.size_uniform": "Width and height scale together (arcs stay arcs).",
   "props.start": "Start point (outer contour)",
   "props.start_auto": "Automatic (long side)",
@@ -3628,6 +3637,10 @@
   "inherit.from": [
    "source"
   ],
+  "inherit.mixed": [
+   "n",
+   "total"
+  ],
   "inherit.reset_tip": [
    "source"
   ],
@@ -3635,6 +3648,9 @@
    "where"
   ],
   "inherit.src.layer": [
+   "n"
+  ],
+  "inherit.src.parts": [
    "n"
   ],
   "layer.assigned": [
