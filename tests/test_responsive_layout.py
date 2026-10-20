@@ -158,6 +158,58 @@ def _fit(win, app, size) -> QSize:
     return win.size()
 
 
+def settle(win, app) -> None:
+    """Make the view deterministic before it is audited: every periodic refresh of the window
+    (the active repeating timers in its tree: the Machine page's 200 ms tick, the Run screen's
+    status refresh, ...) runs once now, then the events they post.  Otherwise whether a refresh
+    had changed a label's text before the audit depended on how loaded the machine was (a
+    test_larger_font failure seen once in a full xdist run, never alone)."""
+    from PySide6.QtCore import QTimer
+    for t in win.findChildren(QTimer):
+        if t.isActive() and not t.isSingleShot() and t.interval() > 0:
+            t.timeout.emit()
+    # then until the layout is at rest: a page that grows (the Nest options opened) reaches the
+    # window's minimum through a chain of layout requests and zero-delay syncs, one event-loop
+    # turn each; a fixed number of turns ran out on a loaded worker
+    last, same = None, 0
+    for _ in range(100):
+        _pump(app, rounds=1)
+        sig = _layout_signature(win)
+        same = same + 1 if sig == last else 0
+        last = sig
+        if same >= 3 and not sig[-1]:
+            break
+    if real_screen():
+        # a window server applies a grown minimum asynchronously (X11: a round trip to the
+        # window manager): wait for that condition, not for a time
+        t_end = time.monotonic() + 5.0
+        while time.monotonic() < t_end:
+            m = win.minimumSizeHint().expandedTo(win.minimumSize())
+            frame = win.frameGeometry().size() - win.size()
+            want = m.boundedTo(_screen_size(win) - frame)
+            if win.width() >= want.width() and win.height() >= want.height():
+                break
+            _pump(app, 0.01)
+        _pump(app, rounds=3)
+
+
+def _layout_signature(win) -> tuple:
+    """The sizes that change while a relayout travels between a page and the window; the last
+    item: a page wrapper still has a sync queued."""
+    from mlaser.ui.responsive import FitArea
+    m = win.minimumSizeHint()
+    out: list = [win.width(), win.height(), m.width(), m.height()]
+    st = win.shell.host.stack
+    out += [st.width(), st.height(), st.minimumSizeHint().width(), st.minimumSizeHint().height()]
+    queued = False
+    for fa in win.findChildren(FitArea):
+        if fa.isVisible():
+            n = fa.need(fa.viewport().width())
+            out += [fa.width(), fa.height(), n.width(), n.height(), fa.widget().width(), fa.widget().height()]
+            queued = queued or bool(getattr(fa, "_sync_queued", False))
+    return (*out, queued)
+
+
 def unreachable(win) -> bool:
     """On a window server, the window ended up smaller than its own minimum: the screen is
     smaller than this sample (the macOS runner's 1024 × 768 screen keeps windows at most 649
@@ -302,7 +354,8 @@ class Report:
                           "style": self.style, "unreachable": True, "violations": []})
 
     def check(self, kind: str, size, label: str, win) -> None:
-        """Audit the window as it is now (see :func:`unreachable`)."""
+        """Audit the window as it is now, after :func:`settle` (see :func:`unreachable`)."""
+        settle(win, QApplication.instance())
         if unreachable(win):
             self.unreachable(kind, size, label)
         else:
@@ -400,20 +453,20 @@ def test_panels_with_a_selection(win, app):
                     if s.height() > size[1]:
                         grew.append(f"{theme} {ws} {size}: window {s.width()}x{s.height()}")
                     _pump(app, 0.02)
-                    rep.add("selection", s, f"{theme}_{ws}", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}", win)
                     rep.shot(win, s, f"selection_{theme}_{ws}")
                     if ws != "process":
                         continue
                     pp = win.extension("ext_process").properties
                     pp.pick_contour(1)                      # a hole of the plate: its own values
                     _pump(app)
-                    rep.add("selection", s, f"{theme}_{ws}_contour", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}_contour", win)
                     pp.pick_contour(None)
                     pw = win.extension("ext_process").workspace
                     pw.show_page(1)
                     _pump(app)
                     s = _fit(win, app, size)
-                    rep.add("selection", s, f"{theme}_{ws}_library", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}_library", win)
                     rep.shot(win, s, f"selection_{theme}_library")
                     pw.show_page(0)
                     _pump(app)
@@ -488,6 +541,7 @@ def test_fits_this_screen(win, app):
         elif over:
             bad.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()}")
         s = _fit(win, app, (avail.width() - frame.width(), avail.height() - frame.height()))
+        settle(win, app)
         rep.add("screen", s, ws, A.audit(win), allowed=below)
         rep.shot(win, s, f"screen_{ws}")
     mp.undo()

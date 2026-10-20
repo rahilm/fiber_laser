@@ -26,7 +26,7 @@ from dataclasses import dataclass
 
 from PySide6.QtCore import QPoint, QRect
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QAbstractScrollArea, QAbstractSpinBox,
-                               QComboBox, QDockWidget, QGraphicsView, QLabel, QLineEdit, QPlainTextEdit,
+                               QComboBox, QDockWidget, QFocusFrame, QGraphicsView, QLabel, QLineEdit, QPlainTextEdit,
                                QPushButton, QStyle, QStyleOptionButton, QStyleOptionComboBox, QTabBar,
                                QTextEdit, QWidget)
 
@@ -251,9 +251,11 @@ def overlaps(top: QWidget) -> list[Violation]:
     for parent in [top, *top.findChildren(QWidget)]:
         if not parent.isVisible() or parent.window() is not top or isinstance(parent, stacking):
             continue
+        # QFocusFrame: the macOS style's focus ring, a widget Qt lays over the focused control
+        # on purpose (drawn around it, a few px larger)
         kids = [c for c in parent.children() if isinstance(c, QWidget) and c.isVisible() and not c.isWindow()
                 and c.width() > 0 and c.height() > 0 and not c.property("overlay")
-                and not c.objectName().startswith("qt_")]
+                and not c.objectName().startswith("qt_") and not isinstance(c, QFocusFrame)]
         for i, a in enumerate(kids):
             ga = a.geometry()
             for b in kids[i + 1:]:
