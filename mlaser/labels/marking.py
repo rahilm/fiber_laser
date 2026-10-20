@@ -27,6 +27,9 @@ from typing import Any, Callable, Optional, Sequence
 
 from mlaser.model import Craft, Contour, LeadParams, Line, Segment
 
+#: the colour of the marking layer the etch commands add (document data: the layer's colour)
+MARK_LAYER_COLOR = "#ff00ff"
+
 Stroke = list[tuple[float, float]]
 
 _O = [(1, 0), (0, 1), (0, 5), (1, 6), (3, 6), (4, 5), (4, 1), (3, 0), (1, 0)]
