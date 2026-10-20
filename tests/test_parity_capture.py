@@ -198,6 +198,29 @@ def test_dry_run_and_offset_estimated(setup):
     assert res0.comparison.info["path_hausdorff_mm"] > 2.0
 
 
+def test_recording_survives_a_streamer_stall(setup, monkeypatch):
+    """A scheduling stall of the streaming thread on a loaded runner (CI macOS 3.12,
+    2026-10-20: ``unexpected_idle``, the simulated card ran dry with 2 frames left at 10x, where
+    the streamer's 1.2 s card-time buffer is 120 ms of real time).  A 250 ms stall mid-job must
+    not drain the default recording's buffer; the streamer's own fault (correct on a real card)
+    is not touched."""
+    from mlaser.controller.client import MotionController
+    orig = MotionController.read_status
+    calls = {"n": 0}
+
+    def read_status(self, *a, **k):
+        calls["n"] += 1
+        if calls["n"] == 12:              # after the start: the job is running
+            import time
+            time.sleep(0.25)
+        return orig(self, *a, **k)
+    monkeypatch.setattr(MotionController, "read_status", read_status)
+    msgs = S.to_messages(S.record_job(setup["job"], START))
+    assert calls["n"] > 12
+    res = _run(setup, msgs, "stall.pcap")
+    assert res.comparison.verdict.startswith("IDENTICAL"), R.text_report(res)
+
+
 def test_frame_kind(setup):
     from mlaser.nc import compile_items, frame_items
     from mlaser.nc.compiler import placed_document
