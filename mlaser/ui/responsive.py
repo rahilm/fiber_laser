@@ -924,6 +924,7 @@ class ColumnsPanel(QWidget):
         self.sections: list[CollapsibleSection] = []
         self.pinned: list[QWidget] = []     # widgets on top, always shown in full (e.g. STOP)
         self._busy = False
+        self._comfortable_hint: Optional[QSize] = None
         self._last: Optional[tuple] = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -1015,6 +1016,15 @@ class ColumnsPanel(QWidget):
         return max(lo, self._count_min(), min(want, int(lo * self.COMFORT)))
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        if bool(self.property("compact")) and self._comfortable_hint is not None:
+            # the size it wants is the comfortable one: compact is what it does when it gets
+            # less.  Measured compact, the hint was smaller, a dock sized from it stayed narrow,
+            # and the panel stayed compact after the window grew again (live resize ended with
+            # Run Control 23 px narrower and compact, X11 and macOS)
+            return self._comfortable_hint
+        return self._hint_now()
+
+    def _hint_now(self) -> QSize:
         m = 2 * self.margins()
         w = self.comfortable_width()
         if self.grow and self._hint_cols > 1:
@@ -1106,6 +1116,10 @@ class ColumnsPanel(QWidget):
             if bool(self.property("compact")):
                 set_compact(self, False)
                 W, H = self.width() - 2 * self.margins(), self.height() - 2 * self.margins()
+            hint = self._hint_now()           # comfortable: what sizeHint reports while compact
+            if hint != self._comfortable_hint:
+                self._comfortable_hint = hint
+                self.updateGeometry()
             if not self._fits(W, H, exp):
                 set_compact(self, True)
                 compact = True

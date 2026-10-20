@@ -330,3 +330,31 @@ def test_columns_panel_relayout_after_compact_uses_fresh_sizes(app):
         if "compact" not in str(p.property(R.STATE_PROP)):
             assert not _clipped_children(p), (h, p.property(R.STATE_PROP), _clipped_children(p))
     p.close()
+
+
+def test_columns_panel_size_hint_stays_comfortable_while_compact(app):
+    """Compact is what a panel does when it gets less room, not the size it asks for: measured
+    compact, its size hint shrank, the dock policy sized the dock from it, and the panel stayed
+    compact after the window grew again (live resize: Run Control 23 px narrower, X11/macOS)."""
+    p = R.ColumnsPanel(max_columns=1)
+    for i in range(3):
+        body = QWidget()
+        v = QVBoxLayout(body)
+        v.setSpacing(12)
+        for k in range(3):
+            v.addWidget(QPushButton(f"Section {i} button {k}"))
+        p.add_section(R.CollapsibleSection(f"Section {i}", body, priority=i))
+    p.ensurePolished()
+    p.resize(p.sizeHint())
+    p.show()
+    _pump(app)
+    sh0 = p.sizeHint()
+    assert "compact" not in str(p.property(R.STATE_PROP))
+    p.resize(sh0.width(), sh0.height() - 20)
+    _pump(app)
+    assert "compact" in str(p.property(R.STATE_PROP))
+    assert p.sizeHint() == sh0
+    p.resize(sh0)
+    _pump(app)
+    assert "compact" not in str(p.property(R.STATE_PROP)) and p.sizeHint() == sh0
+    p.close()
