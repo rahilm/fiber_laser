@@ -31,5 +31,6 @@ them).
 ## Cost
 
 The cost of a job comes from the time-and-cost card of the plan when it provides one; otherwise
-from the rates in the settings `plugin.report.*`: machine, gas and power per hour of cutting,
-wear per metre cut, per pierce, material per m² of the sheet, and the currency.
+from the application's rates ([Settings › Costing](settings.md), `costing.*`): machine, gas and
+power per hour of cutting, wear per metre cut, per pierce, material per m² of the sheet, and the
+currency (the same currency as the cost card).

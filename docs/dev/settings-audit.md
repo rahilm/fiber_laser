@@ -81,7 +81,7 @@ comment next to a hard-coded default is listed as **no reader**.
 | SoftParam | `SOP.DeviceYAxisTotalMoveLength` | Device Report › Y Axis Total Move Length | `diag/devicereport.py` | 0.0 | unchanged | parity-only: a counter of the device report (state written by mlaser.diag.devicereport, not a setting) |
 | SoftParam | `SOP.DeviceZAxisTotalMoveLength` | Device Report › Z Axis Total Move Length | `diag/devicereport.py` | 0.0 | unchanged | parity-only: a counter of the device report (state written by mlaser.diag.devicereport, not a setting) |
 | SoftParam | `SP.Lang` | Software › Language | **no reader**; now `shell.language` → `ui/mainwindow.py` | 0 | "" = the system language (else English): the original's 0 is 简体中文, wrong in an English interface | keep: `shell.language` (Settings › General) |
-| SoftParam | `SP.Skin` | Software › Theme | **no reader**; now `shell.theme` → `ui/shell/__init__.py` | 0 | light: one theme setting (shell.theme); SP.Skin and SP.SoftwareThemeType disagreed | keep: `shell.theme` (Settings › Display) |
+| SoftParam | `SP.Skin` | Software › Theme | **no reader**; now `shell.theme` → `ui/shell/__init__.py` | 0 | light: one theme setting (shell.theme); SP.Skin and SP.SoftwareThemeType disagreed | keep: `shell.theme` (Settings › Appearance) |
 | SoftParam | `SP.UIDir` | Software › UI Direction | **no reader** | 0 | unchanged | drop: the shell's layout (rail, docks, saved per workspace) replaces the ribbon orientation |
 | SoftParam | `SP.AlarmPanelColor` | Software › Alarm Panel Color | **no reader** | 176 | unchanged | drop: the safety banners keep fixed colours with text (docs/SAFETY.md) |
 | SoftParam | `SP.AlarmPanelTextColorColor` | Software › Alarm Text Color | **no reader** | 2 | unchanged | drop: the safety banners keep fixed colours with text (docs/SAFETY.md) |
@@ -91,7 +91,7 @@ comment next to a hard-coded default is listed as **no reader**.
 | SoftParam | `SP.DualCheckMaxErrorValue` | Dual Servo Check › Dual Servo Max Error Value | **no reader** | 3.0 | unchanged | parity-only: the gantry dual-drive check is a card parameter (Machine settings › axes, dual_*) |
 | SoftParam | `SP.AutoStopCheckWhenValueTooLarge` | Dual Servo Check › Auto Stop Check When Value Too Large | **no reader** | False | unchanged | parity-only: the gantry dual-drive check is a card parameter (Machine settings › axes, dual_*) |
 | SoftParam | `SP.EnableDualFindHome` | Software › Default dual find home | **no reader** | False | unchanged | parity-only: the gantry dual-drive check is a card parameter (Machine settings › axes, dual_*) |
-| SoftParam | `SP.SoftwareThemeType` | Software › Theme | **no reader**; now `shell.theme` → `ui/shell/__init__.py` | 1 | light: one theme setting (shell.theme) | keep: `shell.theme` (Settings › Display) |
+| SoftParam | `SP.SoftwareThemeType` | Software › Theme | **no reader**; now `shell.theme` → `ui/shell/__init__.py` | 1 | light: one theme setting (shell.theme) | keep: `shell.theme` (Settings › Appearance) |
 | SoftParam | `SP.m_iEnableLaserType` | Laser (parity.md, protocol.md) | `controller/machine_ops.py`, `controller/parts/motion.py` | 0 | unchanged | move: Machine › laser type (machine.laser_type; state) |
 | SoftParam | `SP.m_iHardwareModel` | Laser (protocol.md) | **no reader** | 224 | unchanged | parity-only: the controller model is read from the card |
 | SoftParam | `SP.DrawblkColor` | Software › Drawing area color (ui.md) | **no reader** | 0 | unchanged | drop: the canvas colours come from the theme (contrast-checked layer colours) |
@@ -106,24 +106,24 @@ comment next to a hard-coded default is listed as **no reader**.
 | SoftParam | `SP.LaserIPAdd` | Laser › IP Address | **no reader** | 1 | unchanged | move: Machine › Network addresses (hw.set_ip, the `ip` setting); the registry default "1" is a packed integer, not an address |
 | SoftParam | `SP.LaserSubnetMask` | Laser › Subnet Mask | **no reader** | 1 | unchanged | move: Machine › Network addresses (hw.set_ip, the `ip` setting); the registry default "1" is a packed integer, not an address |
 | SoftParam | `SP.LaserDefaultGateway` | Laser › Default Gateway | **no reader** | 1 | unchanged | move: Machine › Network addresses (hw.set_ip, the `ip` setting); the registry default "1" is a packed integer, not an address |
-| GraphParam | `GRP.GuideLineType` | Lead-In › Type | **no reader**; now `cam.lead_in_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `cam.lead_in_type` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideLineAngle` | Lead-In › Angle | **no reader**; now `cam.lead_in_angle` → `ui/settings_apply.py` | 90.0 | unchanged | keep: `cam.lead_in_angle` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideLineLength` | Lead-In › Length | **no reader**; now `cam.lead_in_length` → `ui/settings_apply.py` | 3.0 mm | unchanged | keep: `cam.lead_in_length` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideArcRadius` | Lead-In › Radius | **no reader**; now `cam.lead_in_radius` → `ui/settings_apply.py` | 2.0 mm | unchanged | keep: `cam.lead_in_radius` (remembered by the Lead dialog) |
-| GraphParam | `GRP.LeadPosType` | Lead Line › Start Point Mode | **no reader**; now `cam.lead_start_mode` → `ui/settings_apply.py` | 0 | unchanged | keep: `cam.lead_start_mode` (remembered by the Lead dialog) |
+| GraphParam | `GRP.GuideLineType` | Lead-In › Type | **no reader**; now `cam.lead_in_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `cam.lead_in_type` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideLineAngle` | Lead-In › Angle | **no reader**; now `cam.lead_in_angle` → `ui/settings_apply.py` | 90.0 | unchanged | keep: `cam.lead_in_angle` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideLineLength` | Lead-In › Length | **no reader**; now `cam.lead_in_length` → `ui/settings_apply.py` | 3.0 mm | unchanged | keep: `cam.lead_in_length` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideArcRadius` | Lead-In › Radius | **no reader**; now `cam.lead_in_radius` → `ui/settings_apply.py` | 2.0 mm | unchanged | keep: `cam.lead_in_radius` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.LeadPosType` | Lead Line › Start Point Mode | **no reader**; now `cam.lead_start_mode` → `ui/settings_apply.py` | 0 | unchanged | keep: `cam.lead_start_mode` (remembered by the Lead dialog; home: Process › Properties) |
 | GraphParam | `GRP.LeadPosPrecent` | Lead Line › Start Point Position | **no reader** | 0 | unchanged | parity-only: this machine or card behaviour is not built in the rebuild; kept so a profile import / export round-trips |
-| GraphParam | `GRP.IsOnlyForEncolseContour` | Lead Line › Only for closed graphics | **no reader**; now `cam.lead_closed_only` → `ui/settings_apply.py` | True | unchanged | keep: `cam.lead_closed_only` (remembered by the Lead dialog) |
+| GraphParam | `GRP.IsOnlyForEncolseContour` | Lead Line › Only for closed graphics | **no reader**; now `cam.lead_closed_only` → `ui/settings_apply.py` | True | unchanged | keep: `cam.lead_closed_only` (remembered by the Lead dialog; home: Process › Properties) |
 | GraphParam | `GRP.IsOnlyForSelectContour` | Lead Line › Only for selected graphics | **no reader** | False | unchanged | parity-only: the lead applies to the selection (all parts without one); the kerf side is per part |
 | GraphParam | `GRP.OutsideIsNegativeSide` | Lead Line › Outer layer is inside cut | **no reader** | False | unchanged | parity-only: the lead applies to the selection (all parts without one); the kerf side is per part |
 | GraphParam | `GRP.LoopGapOverCutLength` | Gap Seal › Gap Length (craft.md) | **no reader** | 2.0 mm | unchanged | move: Craft › Gap / overcut dialog (ext_craft; per job) |
 | GraphParam | `GraphParam:GRP.LoopGapOverCutLength` | Gap Seal › Overcut Length (craft.md) | **no reader** | 2.0 mm | unchanged | move: Craft › Gap / overcut dialog (ext_craft; per job) |
 | GraphParam | `GRP.MicroLinkLength` | Manual Micro Joint › Micro Joint Length (craft.md) | **no reader** | 2.0 mm | unchanged | move: the manual micro-joint tool (per job) |
-| GraphParam | `GRP.IsShowEnvelopBox` | View Parameters › Show box for graphics | **no reader**; now `display.show_bbox` → `ui/settings_apply.py` | False mm | unchanged | keep: `display.show_bbox` (Settings › Display) |
-| GraphParam | `GRP.IsShowEncolseWithRed` | View Parameters › Show unclosed curve as red | **no reader**; now `display.unclosed_red` → `ui/settings_apply.py` | False mm | on: open contours cannot take a kerf or a lead: show them | keep: `display.unclosed_red` (Settings › Display) |
-| GraphParam | `GRP.IsShowNO` | View Parameters › Show index | **no reader**; now `display.show_index` → `ui/settings_apply.py` | False mm | on: the cutting order is what an operator checks | keep: `display.show_index` (Settings › Display) |
-| GraphParam | `GRP.IsShowStartPt` | View Parameters › Show path start | **no reader**; now `display.show_start` → `ui/settings_apply.py` | True mm | unchanged | keep: `display.show_start` (Settings › Display) |
-| GraphParam | `GRP.IsShowDirArrow` | View Parameters › Show path direction | **no reader**; now `display.show_direction` → `ui/settings_apply.py` | True mm | off: arrows clutter large nests; the start points show the direction | keep: `display.show_direction` (Settings › Display) |
-| GraphParam | `GRP.IsShowLinkerLine` | View Parameters › Show move path | **no reader**; now `display.show_move_path` → `ui/settings_apply.py` | False mm | unchanged | keep: `display.show_move_path` (Settings › Display) |
+| GraphParam | `GRP.IsShowEnvelopBox` | View Parameters › Show box for graphics | **no reader**; now `display.show_bbox` → `ui/settings_apply.py` | False mm | unchanged | keep: `display.show_bbox` (Settings › Canvas) |
+| GraphParam | `GRP.IsShowEncolseWithRed` | View Parameters › Show unclosed curve as red | **no reader**; now `display.unclosed_red` → `ui/settings_apply.py` | False mm | on: open contours cannot take a kerf or a lead: show them | keep: `display.unclosed_red` (Settings › Canvas) |
+| GraphParam | `GRP.IsShowNO` | View Parameters › Show index | **no reader**; now `display.show_index` → `ui/settings_apply.py` | False mm | on: the cutting order is what an operator checks | keep: `display.show_index` (Settings › Canvas) |
+| GraphParam | `GRP.IsShowStartPt` | View Parameters › Show path start | **no reader**; now `display.show_start` → `ui/settings_apply.py` | True mm | unchanged | keep: `display.show_start` (Settings › Canvas) |
+| GraphParam | `GRP.IsShowDirArrow` | View Parameters › Show path direction | **no reader**; now `display.show_direction` → `ui/settings_apply.py` | True mm | off: arrows clutter large nests; the start points show the direction | keep: `display.show_direction` (Settings › Canvas) |
+| GraphParam | `GRP.IsShowLinkerLine` | View Parameters › Show move path | **no reader**; now `display.show_move_path` → `ui/settings_apply.py` | False mm | unchanged | keep: `display.show_move_path` (Settings › Canvas) |
 | GraphParam | `GRP.ArrayRowNum` | Array Parameters › Row Number (cam.md) | **no reader** | 3 | unchanged | move: Array dialog (ext_cam; per job) |
 | GraphParam | `GRP.ArrayColNum` | Array Parameters › Column Number (cam.md) | **no reader** | 3 | unchanged | move: Array dialog (ext_cam; per job) |
 | GraphParam | `GRP.OffsetType` | Array Parameters › Offset Type (cam.md) | **no reader** | 1 | unchanged | move: Array dialog (ext_cam; per job) |
@@ -132,12 +132,12 @@ comment next to a hard-coded default is listed as **no reader**.
 | GraphParam | `GRP.RowDir` | Array Parameters › Row Direction (cam.md) | **no reader** | 1 | unchanged | move: Array dialog (ext_cam; per job) |
 | GraphParam | `GRP.ColDir` | Array Parameters › Column Direction (cam.md) | **no reader** | 1 | unchanged | move: Array dialog (ext_cam; per job) |
 | GraphParam | `GRP.RotateAngle_deg` | Rotate Parameters › Rotate Angle | **no reader** | 30 | unchanged | move: Rotate dialog (per job) |
-| GraphParam | `GRP.AutoMicroLinkType` | Auto Micro Joint › Micro Joint Type | **no reader**; now `cam.mj_kind` → `ui/settings_apply.py` | 0 mm | unchanged | keep: `cam.mj_kind` (remembered by the Micro-joint dialog) |
-| GraphParam | `GRP.AutoMicroLinkNum` | Auto Micro Joint › Micro Joint Number | **no reader**; now `cam.mj_count` → `ui/settings_apply.py` | 2 | 4 (cam.mj_count): the rebuild's micro-joint dialog default | keep: `cam.mj_count` (remembered by the Micro-joint dialog) |
-| GraphParam | `GRP.AutoMicroLinkStep` | Auto Micro Joint › Micro Joint Distance | **no reader**; now `cam.mj_distance` → `ui/settings_apply.py` | 50 mm | 100 mm (cam.mj_distance): the rebuild's micro-joint dialog default | keep: `cam.mj_distance` (remembered by the Micro-joint dialog) |
-| GraphParam | `GraphParam:GRP.MicroLinkLength` | Auto Micro Joint › Micro Joint Length (craft.md) | **no reader**; now `cam.mj_length` → `ui/settings_apply.py` | 0.5 mm | unchanged | keep: `cam.mj_length` (remembered by the Micro-joint dialog) |
+| GraphParam | `GRP.AutoMicroLinkType` | Auto Micro Joint › Micro Joint Type | **no reader**; now `cam.mj_kind` → `ui/settings_apply.py` | 0 mm | unchanged | keep: `cam.mj_kind` (remembered by the Micro-joint dialog; home: Process › Properties) |
+| GraphParam | `GRP.AutoMicroLinkNum` | Auto Micro Joint › Micro Joint Number | **no reader**; now `cam.mj_count` → `ui/settings_apply.py` | 2 | 4 (cam.mj_count): the rebuild's micro-joint dialog default | keep: `cam.mj_count` (remembered by the Micro-joint dialog; home: Process › Properties) |
+| GraphParam | `GRP.AutoMicroLinkStep` | Auto Micro Joint › Micro Joint Distance | **no reader**; now `cam.mj_distance` → `ui/settings_apply.py` | 50 mm | 100 mm (cam.mj_distance): the rebuild's micro-joint dialog default | keep: `cam.mj_distance` (remembered by the Micro-joint dialog; home: Process › Properties) |
+| GraphParam | `GraphParam:GRP.MicroLinkLength` | Auto Micro Joint › Micro Joint Length (craft.md) | **no reader**; now `cam.mj_length` → `ui/settings_apply.py` | 0.5 mm | unchanged | keep: `cam.mj_length` (remembered by the Micro-joint dialog; home: Process › Properties) |
 | GraphParam | `GRP.AutoMicoLinkDir` | Auto Micro Joint › Micro Joint direction | **no reader** | 0 mm | unchanged | parity-only: no reader (the joints follow the path) |
-| GraphParam | `GRP.MinEnableMicoLinkGraphSize` | Auto Micro Joint › Min-size of micro-joint graph | **no reader**; now `cam.mj_min_size` → `ui/settings_apply.py` | 5.0 | unchanged | keep: `cam.mj_min_size` (remembered by the Micro-joint dialog) |
+| GraphParam | `GRP.MinEnableMicoLinkGraphSize` | Auto Micro Joint › Min-size of micro-joint graph | **no reader**; now `cam.mj_min_size` → `ui/settings_apply.py` | 5.0 | unchanged | keep: `cam.mj_min_size` (remembered by the Micro-joint dialog; home: Process › Properties) |
 | GraphParam | `GraphParam:GRP.IsOnlyForSelectContour` | Lead Line › Only for selected graphics | **no reader** | False | unchanged | parity-only: the lead applies to the selection (all parts without one) |
 | GraphParam | `GRP.IsMicoLinkEncloseGraphHead` | Misc › Micro Joint at the head of the non-closed graph | **no reader** | False | unchanged | parity-only: no reader (the joints follow the path) |
 | GraphParam | `GRP.BridgeWidth` | Bridge Parameters › Bridge Width (craft.md) | **no reader** | 2.0 mm | unchanged | move: Bridge tool dialog (per job) |
@@ -177,8 +177,8 @@ comment next to a hard-coded default is listed as **no reader**.
 | GraphParam | `GRP.MinSizeErrorType` | Auto Offset › Min Size Error Type | **no reader** | 0 | unchanged | parity-only: the size-error auto offset is not built in the rebuild; kept so a profile import / export round-trips |
 | GraphParam | `GRP.MinSizeError` | Auto Offset › Min Size Error | **no reader** | 0.0 mm | unchanged | parity-only: the size-error auto offset is not built in the rebuild; kept so a profile import / export round-trips |
 | GraphParam | `GRP.AddPartNum` | Nest Parameter › Part Number (nest.md) | **no reader** | 1 | unchanged | drop: quantities of one nest (Nest workspace) |
-| GraphParam | `GRP.StdSheetHeight` | Sheet Parameter › Sheet Height | **no reader**; now `nest.sheet_height` → `ui/settings_apply.py` | 2400.0 | 1500 mm (nest.sheet_height): 1200 × 2400 portrait did not fit the 3000 × 1500 bed | keep: `nest.sheet_height` (Settings › Nest (defaults of a new nest)) |
-| GraphParam | `GRP.StdSheetWidth` | Sheet Parameter › Sheet Width | **no reader**; now `nest.sheet_width` → `ui/settings_apply.py` | 1200.0 | 3000 mm (nest.sheet_width): the bed is landscape 3000 × 1500 | keep: `nest.sheet_width` (Settings › Nest (defaults of a new nest)) |
+| GraphParam | `GRP.StdSheetHeight` | Sheet Parameter › Sheet Height | **no reader**; now `nest.sheet_height` → `ui/settings_apply.py` | 2400.0 | 1500 mm (nest.sheet_height): 1200 × 2400 portrait did not fit the 3000 × 1500 bed | keep: `nest.sheet_height` (remembered by the Nest workspace (its home)) |
+| GraphParam | `GRP.StdSheetWidth` | Sheet Parameter › Sheet Width | **no reader**; now `nest.sheet_width` → `ui/settings_apply.py` | 1200.0 | 3000 mm (nest.sheet_width): the bed is landscape 3000 × 1500 | keep: `nest.sheet_width` (remembered by the Nest workspace (its home)) |
 | GraphParam | `GRP.AddSheetNum` | Sheet Parameter › Sheet Number | **no reader** | 1 | unchanged | drop: quantities of one nest (Nest workspace) |
 | GraphParam | `GRP.OverlapGate` | Duplicate Lines › Duplicate Limit | **no reader** | 0.1 mm | unchanged | parity-only: duplicates of the import values (the Optimize dialog uses import.*) |
 | GraphParam | `GRP.ManualConnectGate` | Combine Near Lines › Auto Combine Precision (cam.md, draw.md) | **no reader** | 0.1 mm | unchanged | move: Draw › Merge dialog (ext_draw; per job) |
@@ -285,10 +285,10 @@ comment next to a hard-coded default is listed as **no reader**.
 | GraphParam | `GRP.FS_Space` | Linear filling › Filling spacing | **no reader** | 0.1 | unchanged | move: Fill dialogs (ext_cam; per job) |
 | GraphParam | `GRP.FS_Stock` | Linear filling › Fill margin | **no reader** | 0.0 | unchanged | move: Fill dialogs (ext_cam; per job) |
 | GraphParam | `GRP.FS_KeepCt` | Linear filling › Whether to retain the original image | **no reader** | False | unchanged | move: Fill dialogs (ext_cam; per job) |
-| GraphParam | `GRP.GuideLineType_o` | Lead-Out › Type | **no reader**; now `cam.lead_out_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `cam.lead_out_type` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideLineAngle_o` | Lead-Out › Angle | **no reader**; now `cam.lead_out_angle` → `ui/settings_apply.py` | 90.0 | unchanged | keep: `cam.lead_out_angle` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideLineLength_o` | Lead-Out › Length | **no reader**; now `cam.lead_out_length` → `ui/settings_apply.py` | 3.0 mm | unchanged | keep: `cam.lead_out_length` (remembered by the Lead dialog) |
-| GraphParam | `GRP.GuideArcRadius_o` | Lead-Out › Radius | **no reader**; now `cam.lead_out_radius` → `ui/settings_apply.py` | 2.0 mm | unchanged | keep: `cam.lead_out_radius` (remembered by the Lead dialog) |
+| GraphParam | `GRP.GuideLineType_o` | Lead-Out › Type | **no reader**; now `cam.lead_out_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `cam.lead_out_type` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideLineAngle_o` | Lead-Out › Angle | **no reader**; now `cam.lead_out_angle` → `ui/settings_apply.py` | 90.0 | unchanged | keep: `cam.lead_out_angle` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideLineLength_o` | Lead-Out › Length | **no reader**; now `cam.lead_out_length` → `ui/settings_apply.py` | 3.0 mm | unchanged | keep: `cam.lead_out_length` (remembered by the Lead dialog; home: Process › Properties) |
+| GraphParam | `GRP.GuideArcRadius_o` | Lead-Out › Radius | **no reader**; now `cam.lead_out_radius` → `ui/settings_apply.py` | 2.0 mm | unchanged | keep: `cam.lead_out_radius` (remembered by the Lead dialog; home: Process › Properties) |
 | GraphParam | `GRP.AutoScanEngrave` | Engraving Parameter › Auto scanning trace | **no reader** | True | unchanged | parity-only: the rebuild's engraving (mlaser.engrave) has its own per-job parameters |
 | GraphParam | `GRP.GCodeAutoScanEngrave` | Engraving Parameter › Auto scanning trace | **no reader** | True | unchanged | parity-only: the rebuild's engraving (mlaser.engrave) has its own per-job parameters |
 | GraphParam | `GRP.GCodeScanSideLineLength` | Engraving Parameter › Side line length | **no reader** | 5.0 mm | unchanged | parity-only: the rebuild's engraving (mlaser.engrave) has its own per-job parameters |
@@ -296,21 +296,21 @@ comment next to a hard-coded default is listed as **no reader**.
 | GraphParam | `QR.QRCodeSize` | QR code › Width (draw.md) | **no reader** | 25.0 mm | unchanged | move: Draw › QR code dialog (per job) |
 | GraphParam | `QR.QRCodeLineDensity` | QR code › Line density (draw.md) | **no reader** | 12 mm | unchanged | move: Draw › QR code dialog (per job) |
 | GraphParam | `QR.QRCodeNote` | AF DA Map › AF DA Adjust Data (draw.md) | **no reader** | – | unchanged | move: Draw › QR code dialog (per job) |
-| ImportGraphParam | `IGP.IsAutoFilterMicoGraph` | Minimal Graphics › Remove minimal graphic (cam.md) | **no reader**; now `import.remove_small` → `ui/settings_apply.py` | True | unchanged | keep: `import.remove_small` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.MicoGraphGate` | Minimal Graphics › Smallest Length (cam.md) | **no reader**; now `import.small_gate` → `ui/settings_apply.py` | 0.1 mm | unchanged | keep: `import.small_gate` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.IsFilteOverlapGraph` | Duplicate Lines › Remove duplicate lines (cam.md) | **no reader**; now `import.remove_overlap` → `ui/settings_apply.py` | True | unchanged | keep: `import.remove_overlap` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.OverlapGate` | Duplicate Lines › Duplicate Limit (cam.md) | **no reader**; now `import.overlap_gate` → `ui/settings_apply.py` | 0.1 mm | unchanged | keep: `import.overlap_gate` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.MegerConnectGraphType` | Combine Near Lines › Auto combine near lines (cam.md) | **no reader**; now `import.merge_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `import.merge_type` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.ConnectGate` | Combine Near Lines › Auto Combine Precision (cam.md) | **no reader**; now `import.connect_gate` → `ui/settings_apply.py` | 0.1 mm | 0.1 mm, range up to 100 mm: the Optimize dialog accepts up to 100 mm | keep: `import.connect_gate` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.IsAutoSmoothGraph` | Auto Smooth › Auto smooth imported graphics (cam.md) | **no reader**; now `import.smooth` → `ui/settings_apply.py` | False | unchanged | keep: `import.smooth` (the Optimize dialog (Settings › Import shows them)) |
-| ImportGraphParam | `IGP.SmoothAccuracy` | Auto Smooth › Smooth Precision (cam.md) | **no reader**; now `import.smooth_accuracy` → `ui/settings_apply.py` | 0.05 mm | unchanged | keep: `import.smooth_accuracy` (the Optimize dialog (Settings › Import shows them)) |
+| ImportGraphParam | `IGP.IsAutoFilterMicoGraph` | Minimal Graphics › Remove minimal graphic (cam.md) | **no reader**; now `import.remove_small` → `ui/settings_apply.py` | True | unchanged | keep: `import.remove_small` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.MicoGraphGate` | Minimal Graphics › Smallest Length (cam.md) | **no reader**; now `import.small_gate` → `ui/settings_apply.py` | 0.1 mm | unchanged | keep: `import.small_gate` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.IsFilteOverlapGraph` | Duplicate Lines › Remove duplicate lines (cam.md) | **no reader**; now `import.remove_overlap` → `ui/settings_apply.py` | True | unchanged | keep: `import.remove_overlap` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.OverlapGate` | Duplicate Lines › Duplicate Limit (cam.md) | **no reader**; now `import.overlap_gate` → `ui/settings_apply.py` | 0.1 mm | unchanged | keep: `import.overlap_gate` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.MegerConnectGraphType` | Combine Near Lines › Auto combine near lines (cam.md) | **no reader**; now `import.merge_type` → `ui/settings_apply.py` | 1 | unchanged | keep: `import.merge_type` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.ConnectGate` | Combine Near Lines › Auto Combine Precision (cam.md) | **no reader**; now `import.connect_gate` → `ui/settings_apply.py` | 0.1 mm | 0.1 mm, range up to 100 mm: the Optimize dialog accepts up to 100 mm | keep: `import.connect_gate` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.IsAutoSmoothGraph` | Auto Smooth › Auto smooth imported graphics (cam.md) | **no reader**; now `import.smooth` → `ui/settings_apply.py` | False | unchanged | keep: `import.smooth` (Settings › Import (the Optimize dialog starts from them)) |
+| ImportGraphParam | `IGP.SmoothAccuracy` | Auto Smooth › Smooth Precision (cam.md) | **no reader**; now `import.smooth_accuracy` → `ui/settings_apply.py` | 0.05 mm | unchanged | keep: `import.smooth_accuracy` (Settings › Import (the Optimize dialog starts from them)) |
 | ImportGraphParam | `IGP.AutoSortType` | Auto Sort › Sort Type (cam.md, parity.md) | **no reader** | 5 | unchanged | parity-only: the DXF import reproduces the original's order (IMPORT_SORT_MODE = 5, parity); the cutting order is the Sort commands' (cam.sort_mode) |
 | ImportGraphParam | `IGP.LongContourSplitFactor` | Misc › Long Contour Split Factor | **no reader** | 0.4 | unchanged | drop: drawing-performance knobs of the original's canvas |
 | ImportGraphParam | `IGP.UIRefreshCycle` | Misc › User interface refresh period | **no reader** | 30 | unchanged | drop: drawing-performance knobs of the original's canvas |
 | ImportGraphParam | `IGP.EnableRuler` | Misc › Enable Ruler | **no reader** | True | unchanged | drop: the canvas has no rulers (the Units track owns ruler display) |
 | ImportGraphParam | `IGP.EnableReadGraphColor` | Misc › Enable Read Graphics Color | **no reader** | False | unchanged | parity-only: the DXF import maps colours to layers by the original's rules |
-| ImportGraphParam | `IGP.AutoCalcKeyboardMoveStepLength` | Misc › Auto calculate keyboard move length (draw.md) | **no reader**; now `design.nudge_auto` → `ui/ext_draw.py` | True | unchanged | keep: `design.nudge_auto` (the Fine tune dialog (Settings shows it)) |
-| ImportGraphParam | `IGP.KeyboardMoveStepLength` | Misc › Keyboard move step length (draw.md) | **no reader**; now `design.nudge_step` → `ui/ext_draw.py` | 1.0 | unchanged | keep: `design.nudge_step` (the Fine tune dialog (Settings shows it)) |
+| ImportGraphParam | `IGP.AutoCalcKeyboardMoveStepLength` | Misc › Auto calculate keyboard move length (draw.md) | **no reader**; now `design.nudge_auto` → `ui/ext_draw.py` | True | unchanged | keep: `design.nudge_auto` (Settings › Canvas) |
+| ImportGraphParam | `IGP.KeyboardMoveStepLength` | Misc › Keyboard move step length (draw.md) | **no reader**; now `design.nudge_step` → `ui/ext_draw.py` | 1.0 | unchanged | keep: `design.nudge_step` (Settings › Canvas) |
 | ImportGraphParam | `IGP.IsAutoSmoothSpline` | Automatic smoothing › Automatically smooth spline curves when reading files (cam.md) | **no reader** | False | unchanged | parity-only: splines are flattened at geom.SPLINE_TOL; Optimize smooths |
 | ImportGraphParam | `IGP.LongContourAutoSplit` | Large Contour › Long Contour Auto Split | **no reader** | False | unchanged | drop: drawing-performance knobs of the original's canvas |
 | ImportGraphParam | `IGP.AutoSplitThreshold` | Large Contour › Auto Split Threshold | **no reader** | 100000.0 | unchanged | drop: drawing-performance knobs of the original's canvas |
@@ -458,7 +458,7 @@ comment next to a hard-coded default is listed as **no reader**.
 | ManuParam | `GP.EnableMicroLinkDecc` | Graph Process Control › Enable Micro-Joint Deceleration | `nc/machine.py` | False | unchanged | move: Machine settings › Motion, laser point and process control (hw.options, Service mode) |
 | ManuParam | `UN.SpeedUnit` | Unit › Speed Unit | **no reader** | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
 | ManuParam | `UN.AccUnit` | Unit › Acc Unit | **no reader** | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
-| ManuParam | `UN.GasPressureUnit` | Unit › Gas Pressure Unit | `ui/ext_process.py` | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
+| ManuParam | `UN.GasPressureUnit` | Unit › Gas Pressure Unit | `ui/ext_process.py`, `ui/layer_params_dialog.py`, `ui/workspaces/process.py` | 0 | unchanged | move: Units service (units.*; the value is migrated once when the Units service is present) |
 | ManuParam | `MSC.RecenFileIndex` | Misc › Recent file index | **no reader** | 0 | unchanged | drop: recent files belong to the platform's menus; the last drawing is app.last_file |
 | ManuParam | `MSC.LatestFilePath` | Misc › Recent open files | **no reader** | – | unchanged | drop: recent files belong to the platform's menus; the last drawing is app.last_file |
 | ManuParam | `MSC.TestCardID` | Misc › Recent file index | **no reader** | 0 | unchanged | drop: factory test fields |
@@ -525,16 +525,19 @@ comment next to a hard-coded default is listed as **no reader**.
 
 ## Other settings surfaces (one home each)
 
+Every `Setting` has a `home` (`settings` / `machine` / `process` / `nest` / `run` / `hidden`) and
+`live` (the rebuild reads it, `mlaser/services/settings_homes.py`); the Settings window lists only
+`settings`-home keys, and its search opens the home of the others (`mlaser.ui.homes.edit_in`).
+
 | Surface | Holds | In the Settings window |
 |---|---|---|
-| Machine settings (`hw.options`, Machine workspace › Hardware) | card and machine parameters, Service mode | Machine connection page: read-only summary and a link |
+| Machine › Setup (Machine workspace › Hardware; `hw.options` opens it) | card and machine parameters, the machine-side Options rows, the cutting bed, the parity profile; Service mode | Machine connection page: read-only summary and links; search opens it |
 | Safety I/O dialog (`machine.safety_io`) | interlocks and the heartbeat | never here; linked from Machine connection |
 | Network addresses (`hw.set_ip`) | card, follower and laser addresses | linked |
-| Process › Rates (`process.rates`) | costing rates | read-only summary, "Edit in Process › Rates…" |
+| Settings › Costing (`process.rates` opens it) | one rate model `costing.*` for the cost card, quotes, the CLI and the Report ledger | edited here; the laser's rated power is read-only (Machine) |
 | Notification settings (`notify.settings`) | channels, secrets, events | read-only summary, "Edit in Notification settings…" |
-| Automation API settings (`api.settings`) | the HTTP API | read-only summary, link |
-| Cutting strategy (Process workspace) | the cutting bed (slats) | read-only summary, link |
-| Optimize (`camx.cleanup`) | clean-up values | read-only summary, link; "clean up on open" is a preference |
-| Parity profile (`app.profile`) | motion / import rules | read-only, link (the dialog shows the profile's warning) |
-| Plugin manager (`app.plugin_manager`) | install, enable, permissions | linked; third-party plugins' own settings on the Plugins page |
-| Lead, Micro-joint, Sort | per-job values | not shown: the dialogs remember their last values |
+| Automation API settings (`api.settings`) | the HTTP API and its token | read-only summary, link |
+| Optimize (`camx.cleanup`) | a one-off clean-up | starts from the import defaults (Settings › Import), does not change them |
+| One-shot tool dialogs (array, fill, fly-cut, bridge, OneKey...) | a one-off operation | Settings › CAM tools shows the last-used values with Reset |
+| Plugin manager (`app.plugin_manager`, also `app.plugins`) | install, enable, permissions, the allowlist | linked; third-party plugins' own settings on the Plugins page |
+| Lead, Micro-joint, Sort, Nest panel | per-part / per-job values | not shown: they remember their last values |

@@ -152,11 +152,12 @@ DEFAULT_RULE = NOT_BUILT.format(what="this machine or card behaviour")
 #: decisions for the kept parameters: where the new key lives
 KEEP_HOME = {
     "shell.language": "Settings › General", "app.reopen_last": "Settings › General",
-    "app.last_file": "state (the last drawing opened)", "shell.theme": "Settings › Display",
-    "display.": "Settings › Display", "import.": "the Optimize dialog (Settings › Import shows them)",
-    "cam.lead_": "remembered by the Lead dialog", "cam.sort_mode": "remembered by the Sort commands",
-    "cam.small_first": "remembered by the Sort commands", "cam.mj_": "remembered by the Micro-joint dialog",
-    "design.nudge_": "the Fine tune dialog (Settings shows it)", "nest.": "Settings › Nest (defaults of a new nest)",
+    "app.last_file": "state (the last drawing opened)", "shell.theme": "Settings › Appearance",
+    "display.": "Settings › Canvas", "import.": "Settings › Import (the Optimize dialog starts from them)",
+    "cam.lead_": "remembered by the Lead dialog; home: Process › Properties",
+    "cam.sort_mode": "remembered by the Sort commands", "cam.small_first": "remembered by the Sort commands",
+    "cam.mj_": "remembered by the Micro-joint dialog; home: Process › Properties",
+    "design.nudge_": "Settings › Canvas", "nest.": "remembered by the Nest workspace (its home)",
 }
 
 #: sensible defaults that differ from the original's, with the reason
@@ -356,19 +357,22 @@ FOOTER = """
 
 ## Other settings surfaces (one home each)
 
+Every `Setting` has a `home` (`settings` / `machine` / `process` / `nest` / `run` / `hidden`) and
+`live` (the rebuild reads it, `mlaser/services/settings_homes.py`); the Settings window lists only
+`settings`-home keys, and its search opens the home of the others (`mlaser.ui.homes.edit_in`).
+
 | Surface | Holds | In the Settings window |
 |---|---|---|
-| Machine settings (`hw.options`, Machine workspace › Hardware) | card and machine parameters, Service mode | Machine connection page: read-only summary and a link |
+| Machine › Setup (Machine workspace › Hardware; `hw.options` opens it) | card and machine parameters, the machine-side Options rows, the cutting bed, the parity profile; Service mode | Machine connection page: read-only summary and links; search opens it |
 | Safety I/O dialog (`machine.safety_io`) | interlocks and the heartbeat | never here; linked from Machine connection |
 | Network addresses (`hw.set_ip`) | card, follower and laser addresses | linked |
-| Process › Rates (`process.rates`) | costing rates | read-only summary, "Edit in Process › Rates…" |
+| Settings › Costing (`process.rates` opens it) | one rate model `costing.*` for the cost card, quotes, the CLI and the Report ledger | edited here; the laser's rated power is read-only (Machine) |
 | Notification settings (`notify.settings`) | channels, secrets, events | read-only summary, "Edit in Notification settings…" |
-| Automation API settings (`api.settings`) | the HTTP API | read-only summary, link |
-| Cutting strategy (Process workspace) | the cutting bed (slats) | read-only summary, link |
-| Optimize (`camx.cleanup`) | clean-up values | read-only summary, link; "clean up on open" is a preference |
-| Parity profile (`app.profile`) | motion / import rules | read-only, link (the dialog shows the profile's warning) |
-| Plugin manager (`app.plugin_manager`) | install, enable, permissions | linked; third-party plugins' own settings on the Plugins page |
-| Lead, Micro-joint, Sort | per-job values | not shown: the dialogs remember their last values |
+| Automation API settings (`api.settings`) | the HTTP API and its token | read-only summary, link |
+| Optimize (`camx.cleanup`) | a one-off clean-up | starts from the import defaults (Settings › Import), does not change them |
+| One-shot tool dialogs (array, fill, fly-cut, bridge, OneKey...) | a one-off operation | Settings › CAM tools shows the last-used values with Reset |
+| Plugin manager (`app.plugin_manager`, also `app.plugins`) | install, enable, permissions, the allowlist | linked; third-party plugins' own settings on the Plugins page |
+| Lead, Micro-joint, Sort, Nest panel | per-part / per-job values | not shown: they remember their last values |
 """
 
 
@@ -466,6 +470,8 @@ def user_doc() -> str:
     for pid, title in C.PAGES:
         out.append(f"\n## {t(title, pid)}\n")
         es = C.entries_for(pid)
+        if pid in C.PAGE_NOTES:
+            out.append(t(C.PAGE_NOTES[pid]) + "\n")
         if pid == "general":
             out.append("Also on this page: the display units (metric or imperial, and per-quantity "
                        "overrides: the Units service's `units.*` settings). Stored values never change, "

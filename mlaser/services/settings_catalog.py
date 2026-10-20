@@ -183,6 +183,9 @@ BY_KEY: dict[str, Entry] = {e.key: e for e in ENTRIES}
 #: keys of built-in plugins that are state or have their home elsewhere, never on the Plugins page
 HIDDEN_PLUGIN_KEYS = frozenset({"plugin.ext_process.machine_profile", "plugin.ext_practice.progress"})
 
+#: a note under a page's title (i18n key)
+PAGE_NOTES = {"cam": "settings.cam.note"}
+
 #: links shown on pages: (page, command id, i18n key of the button)
 LINKS: tuple[tuple[str, str, str], ...] = (
     ("general", "app.import_language", "settings.link.import_language"),

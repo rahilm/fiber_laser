@@ -119,7 +119,7 @@ def test_every_visible_setting_has_a_reader(entry):
 def test_every_entry_is_documented():
     strings = json.loads((ROOT / "mlaser/i18n/en.json").read_text("utf-8"))["strings"]
     for e in C.ENTRIES:
-        assert e.help_key in strings, e.help_key
+        assert e.help_key in strings or e.page in C.PAGE_NOTES, e.help_key
         assert e.group in strings, e.group
         if e.home:
             assert e.home_label in strings, e.home_label
@@ -171,3 +171,48 @@ def test_machine_control_keys_have_a_reader_and_a_home():
     assert "MachineControl" in params.OPTION_SECTIONS["hw.options"]
     sec = params.section("MachineControl")
     assert len(sec) == len(params.MACHINE_CONTROL)
+
+
+def test_export_dat_is_unchanged_by_the_settings_keys(tmp_path):
+    """Dead carried-over rows are hidden, not deleted: the original's files round-trip and the
+    migration does not change what export_dat writes."""
+    c = _cfg(tmp_path)
+    c.values.update({"GRP.IsShowNO": False, "SP.Lang": 3, "IGP.MicoGraphGate": 0.5, "SP.Skin": 1})
+    a, b = tmp_path / "a", tmp_path / "b"
+    c.export_dat(a)
+    c.migrate_legacy()
+    c.set("display.show_index", True)                  # a later change of the new key
+    c.export_dat(b)
+    for f in sorted(p.name for p in a.iterdir()):
+        assert (a / f).read_bytes() == (b / f).read_bytes(), f
+
+
+def test_every_key_has_a_home(tmp_path):
+    from mlaser.services.config import ConfigService
+    c = ConfigService(tmp_path / "c.json")
+    homes = {"settings", "machine", "process", "nest", "run", "hidden"}
+    assert all(s.home in homes for s in c.schema.values())
+    # the original's Options rows are never a Settings value; card rows belong to Machine › Setup
+    assert c.schema["GRP.IsShowNO"].home == "hidden" and c.schema["SP.Lang"].home == "hidden"
+    assert c.schema["MC.JogFastSpeed"].home == "machine" and c.schema["MC.JogFastSpeed"].live
+    assert c.schema["bed.slat_pitch"].home == "machine" and c.schema["safety.door_input"].home == "machine"
+    assert c.schema["shell.language"].home == "settings" and c.schema["costing.currency"].home == "settings"
+    for e in C.ENTRIES:
+        s = c.setting(e.key)
+        if s is not None and not e.home:
+            assert s.home == "settings", e.key
+
+
+def test_costing_migration_normalises_the_currency(tmp_path):
+    c = _cfg(tmp_path)
+    c.values.update({"plugin.ext_process.currency": "€", "plugin.report.currency": "EUR",
+                     "plugin.report.machine_per_h": 50.0, "plugin.ext_process.machine_per_h": 90.0,
+                     "plugin.report.per_pierce": 0.02})
+    c.migrate_legacy()
+    assert c.get("costing.currency") == "EUR"
+    assert c.get("costing.machine_per_h") == 90.0      # the Process value wins
+    assert c.get("costing.per_pierce") == 0.02
+    from mlaser.services.costing import iso_currency, rates_from_config
+    assert iso_currency("£") == "GBP" and iso_currency("chf") == "CHF"
+    r = rates_from_config(c)
+    assert r.machine_per_h == 90.0 and r.currency == "EUR" and r.sheet_w_mm == 0.0

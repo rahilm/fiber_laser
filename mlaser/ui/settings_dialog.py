@@ -730,6 +730,8 @@ class SettingsDialog(QDialog):
                 s = schema.get(e.key)
                 if s is not None:
                     groups.setdefault(e.group, []).append(self._row(s, e))
+            if pid in C.PAGE_NOTES:
+                page.add_note(_t(self.tr, C.PAGE_NOTES[pid]))
             if pid == "general":         # the Units service's keys, right after the language
                 us = [s for k, s in schema.items() if k.startswith("units.")]
                 if us:

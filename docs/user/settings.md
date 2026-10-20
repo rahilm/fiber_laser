@@ -99,23 +99,25 @@ Also on this page: the display units (metric or imperial, and per-quantity overr
 
 ## CAM tools
 
+The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operations: their dialog is where you set them. Each dialog starts from the values it was last run with; they are listed here, and Reset gives a tool its defaults back.
+
 | Setting | Key | Default | What it does |
 |---|---|---|---|
-| Array | `cam.tool.array` | the tool's defaults | What the Array dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Circular array | `cam.tool.circular_array` | the tool's defaults | What the Circular array dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Fill sheet | `cam.tool.sheet_fill` | the tool's defaults | What the Fill sheet dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Fill circles | `cam.tool.fill` | the tool's defaults | What the Fill circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Linear fill | `cam.tool.linear_fill` | the tool's defaults | What the Linear fill dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Round corners | `cam.tool.fillet` | the tool's defaults | What the Round corners dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Unload loop | `cam.tool.unload` | the tool's defaults | What the Unload loop dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| α corner | `cam.tool.alpha` | the tool's defaults | What the α corner dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Cooling points | `cam.tool.cool` | the tool's defaults | What the Cooling points dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Rectangles with common edges | `cam.tool.rect_share` | the tool's defaults | What the Rectangles with common edges dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Fly-cut circles | `cam.tool.circle_fly` | the tool's defaults | What the Fly-cut circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Fly-cut lines | `cam.tool.line_fly` | the tool's defaults | What the Fly-cut lines dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Bridge | `cam.tool.bridge` | the tool's defaults | What the Bridge dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| One-key planning | `cam.tool.onekey` | the tool's defaults | What the One-key planning dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
-| Engraving scan | `cam.tool.engrave_scan` | the tool's defaults | What the Engraving scan dialog was last run with; it starts from these values next time. Reset gives it its defaults back. |
+| Array | `cam.tool.array` | the tool's defaults |  |
+| Circular array | `cam.tool.circular_array` | the tool's defaults |  |
+| Fill sheet | `cam.tool.sheet_fill` | the tool's defaults |  |
+| Fill circles | `cam.tool.fill` | the tool's defaults |  |
+| Linear fill | `cam.tool.linear_fill` | the tool's defaults |  |
+| Round corners | `cam.tool.fillet` | the tool's defaults |  |
+| Unload loop | `cam.tool.unload` | the tool's defaults |  |
+| α corner | `cam.tool.alpha` | the tool's defaults |  |
+| Cooling points | `cam.tool.cool` | the tool's defaults |  |
+| Rectangles with common edges | `cam.tool.rect_share` | the tool's defaults |  |
+| Fly-cut circles | `cam.tool.circle_fly` | the tool's defaults |  |
+| Fly-cut lines | `cam.tool.line_fly` | the tool's defaults |  |
+| Bridge | `cam.tool.bridge` | the tool's defaults |  |
+| One-key planning | `cam.tool.onekey` | the tool's defaults |  |
+| Engraving scan | `cam.tool.engrave_scan` | the tool's defaults |  |
 | Pre-flight: check lead-in collisions | `cam.preflight_lead_check` | on | Before Start or Dry run, check whether a lead-in crosses another part. |
 | Pre-flight: check tipping on the slats | `cam.preflight_tip_check` | off | Before Start, check whether freed pieces could tip between the slats. |
 

@@ -151,11 +151,12 @@ The **Estimate** card (bottom of the Process workspace) lists:
 | Line | Source |
 |---|---|
 | total, cutting, rapid, pierce and process time; pierces; cut and rapid length | the planned job |
-| gas (m³) | the technology's gas flow, else the flow in the rates, else an estimate from the nozzle bore and the pressure (orifice flow with an assumed discharge coefficient). If none is known the card asks for the flow |
+| gas (m³) | the technology's gas flow, else an estimate from the nozzle bore and the pressure (orifice flow with an assumed discharge coefficient). If none is known the card asks for the flow |
 | laser and machine energy (kWh), electrical power while cutting (kW) | rated laser power × power % ÷ wall-plug efficiency (an assumption, 35 % by default), plus the machine's own draw |
-| material (kg) | sheet size (or the bounding box of the cut) × thickness × density |
+| material (kg) | the bounding box of the cut × thickness × density |
 | costs | machine hour rate, gas, electricity and material prices |
 
 Lines marked **≈** are estimates; lines with **⚠** need an input. A price of 0 counts as *not
-set*: the card says so instead of showing 0 €. Set prices and assumptions with **Rates and
-assumptions…** (or **Process+ → Cost Rates**).
+set*: the card says so instead of showing 0. Set prices and assumptions in
+[Settings › Costing](settings.md) (**Rates and assumptions…** opens that page); the Report
+ledger uses the same rates and currency.

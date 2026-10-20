@@ -397,6 +397,16 @@ class NestWorkspace(QWidget):
         if cfg is not None:
             cfg.subscribe(self._sheet_defaults)
 
+    def _remember(self, values: dict) -> None:
+        """The panel is the home of these values: the next nest starts from the last used ones."""
+        cfg = getattr(self.window_, "config", None)
+        for k, v in values.items():
+            try:
+                if cfg is not None and cfg.get(k) != v:
+                    cfg.set(k, v)
+            except ValueError:
+                pass
+
     def _sheet_defaults(self, key: str) -> None:
         cfg = getattr(self.window_, "config", None)
         if cfg is None or key not in ("*", "nest.sheet_width", "nest.sheet_height"):
@@ -695,6 +705,7 @@ class NestWorkspace(QWidget):
     def _apply_params(self) -> None:
         p = self.job.params
         p.spacing, p.margin = self.spacing.value(), self.margin.value()
+        self._remember({"nest.spacing": p.spacing, "nest.margin": p.margin})
         p.rotation_step = float(self.rot.currentData() or 0.0) or 360.0
         p.engine = self.engine.currentData() or ENGINE_RASTER
         p.time_limit_s = self.time_limit.value()
@@ -853,6 +864,7 @@ class NestWorkspace(QWidget):
 
     def add_sheet(self) -> NestSheet:
         sh = self.job.add_sheet(NestSheet(self.sheet_w.value(), self.sheet_h.value(), self.sheet_n.value()))
+        self._remember({"nest.sheet_width": sh.width, "nest.sheet_height": sh.height})
         self._mark_dirty()
         self.refresh_stock()
         return sh

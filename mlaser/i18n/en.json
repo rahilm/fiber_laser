@@ -2880,21 +2880,6 @@
   "settings.help.cam.preflight_tip_check": "Before Start, check whether freed pieces could tip between the slats.",
   "settings.help.cam.small_first": "Cut small parts before large ones (small parts are less likely to tip once freed).",
   "settings.help.cam.sort_mode": "The cutting order of a new session; the Sort commands change it for the current job. Holes are always cut before their outline.",
-  "settings.help.cam.tool.alpha": "What the α corner dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.array": "What the Array dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.bridge": "What the Bridge dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.circle_fly": "What the Fly-cut circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.circular_array": "What the Circular array dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.cool": "What the Cooling points dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.engrave_scan": "What the Engraving scan dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.fill": "What the Fill circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.fillet": "What the Round corners dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.line_fly": "What the Fly-cut lines dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.linear_fill": "What the Linear fill dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.onekey": "What the One-key planning dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.rect_share": "What the Rectangles with common edges dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.sheet_fill": "What the Fill sheet dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
-  "settings.help.cam.tool.unload": "What the Unload loop dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
   "settings.help.costing.currency": "The ISO code of the currency (EUR, USD, CHF...) of every cost: the cost card, quotes, the CLI estimate and the production ledger.",
   "settings.help.costing.gas_air_per_m3": "Per m³ at atmospheric pressure.",
   "settings.help.costing.gas_n2_per_m3": "Per m³ at atmospheric pressure.",
@@ -3917,7 +3902,8 @@
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
-  "ws.run": "Run"
+  "ws.run": "Run",
+  "settings.cam.note": "The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operations: their dialog is where you set them. Each dialog starts from the values it was last run with; they are listed here, and Reset gives a tool its defaults back."
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [

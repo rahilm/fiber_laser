@@ -192,7 +192,7 @@ def test_scrubber_plays_the_planned_job(win, app):
     card = ext.workspace.card.card
     assert card.value("time.total") == pytest.approx(plan.job.total_time_s)
     assert card.value("cost.machine") is None
-    ext.settings["machine_per_h"] = 36.0
+    win.config.set("costing.machine_per_h", 36.0)       # Settings › Costing (one rate model)
     assert ext.card.value("cost.machine") == pytest.approx(plan.job.total_time_s / 100.0)
 
 
