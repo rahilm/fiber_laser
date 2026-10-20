@@ -32,8 +32,8 @@ from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath
                            QTransform)
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
-                               QGraphicsSimpleTextItem, QGraphicsView, QRubberBand,
-                               QStyleOptionGraphicsItem)
+                               QGraphicsSimpleTextItem, QGraphicsView,
+                               QStyleOptionGraphicsItem, QWidget)
 
 RES_DIR = os.path.join(os.path.dirname(__file__), "resources")
 
@@ -86,6 +86,58 @@ def _cc(role: str) -> QColor:
 
 
 @dataclass
+
+class SelectionBand(QWidget):
+    """The selection rectangle, painted by the canvas itself.  ``QRubberBand`` is drawn by the
+    platform style: on macOS under the application's style sheet it came out as an opaque black
+    box.  Like CAD programs, the band shows the selection rule: dragged to the right a **window**
+    (solid outline, blue: parts entirely inside), to the left a **crossing** (dashed, green: parts
+    it touches), the rule ``_rubber_select`` applies."""
+
+    WINDOW = QColor(30, 120, 230)
+    CROSSING = QColor(40, 160, 70)
+
+    def __init__(self, parent: QWidget) -> None:
+        super().__init__(parent)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAutoFillBackground(False)
+        self.setObjectName("selection_band")
+        self._origin = None
+        self.crossing = False
+        self.hide()
+
+    def start(self, pos) -> None:
+        self._origin = pos
+        self.crossing = False
+        self.setGeometry(pos.x(), pos.y(), 0, 0)
+        self.show()
+        self.raise_()
+
+    def drag(self, pos) -> None:
+        if self._origin is None:
+            return
+        from PySide6.QtCore import QRect
+        self.crossing = pos.x() < self._origin.x()
+        self.setGeometry(QRect(self._origin, pos).normalized().adjusted(0, 0, 1, 1))
+        self.update()
+
+    def finish(self) -> None:
+        self._origin = None
+        self.hide()
+
+    def paintEvent(self, _ev) -> None:   # noqa: N802 - Qt
+        c = QColor(self.CROSSING if self.crossing else self.WINDOW)
+        p = QPainter(self)
+        fill = QColor(c)
+        fill.setAlpha(40)
+        p.fillRect(self.rect(), fill)
+        pen = QPen(c, 1, Qt.DashLine if self.crossing else Qt.SolidLine)
+        pen.setCosmetic(True)
+        p.setPen(pen)
+        p.drawRect(self.rect().adjusted(0, 0, -1, -1))
+        p.end()
+
 class ViewOptions:
     show_bbox: bool = False
     unclosed_red: bool = True
@@ -340,7 +392,7 @@ class CanvasView(QGraphicsView):
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
         self._press_pos = None
-        self._rubber = QRubberBand(QRubberBand.Rectangle, self.viewport())
+        self._rubber = SelectionBand(self.viewport())
         self._head = None
         self._sim_timer = QTimer(self)
         self._sim_timer.timeout.connect(self._sim_step)
@@ -811,8 +863,7 @@ class CanvasView(QGraphicsView):
             return
         if ev.button() == Qt.LeftButton:
             self._press_pos = ev.position().toPoint()
-            self._rubber.setGeometry(self._press_pos.x(), self._press_pos.y(), 0, 0)
-            self._rubber.show()
+            self._rubber.start(self._press_pos)
             return
         super().mousePressEvent(ev)
 
@@ -829,8 +880,7 @@ class CanvasView(QGraphicsView):
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(d.y()))
             return
         if self._press_pos is not None:
-            from PySide6.QtCore import QRect
-            self._rubber.setGeometry(QRect(self._press_pos, ev.position().toPoint()).normalized())
+            self._rubber.drag(ev.position().toPoint())
             return
         super().mouseMoveEvent(ev)
 
@@ -846,7 +896,7 @@ class CanvasView(QGraphicsView):
             self._tool_call("release", sp.x(), sp.y(), _button(ev.button()), _mods(ev.modifiers()))
             return
         if self._press_pos is not None and ev.button() == Qt.LeftButton:
-            self._rubber.hide()
+            self._rubber.finish()
             add = bool(ev.modifiers() & (Qt.ControlModifier | Qt.ShiftModifier))
             end = ev.position().toPoint()
             p0 = self._press_pos
