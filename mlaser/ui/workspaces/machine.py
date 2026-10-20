@@ -14,6 +14,7 @@ Hardware settings are read-only below Service.
 """
 from __future__ import annotations
 
+import time
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer

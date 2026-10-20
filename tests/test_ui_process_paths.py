@@ -19,7 +19,6 @@ import pytest
 from PySide6.QtWidgets import QDialog
 
 from mlaser import ops
-from mlaser.model import LeadParams
 
 SHOTS = os.environ.get("MLASER_SHOTS_DIR")
 
