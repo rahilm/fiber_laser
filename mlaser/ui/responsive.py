@@ -916,6 +916,7 @@ class FitArea(QScrollArea):
         self.setWidget(widget)
         self._need = QSize(0, 0)
         self._hint = QSize(0, 0)
+        self._sync_queued = False
         widget.installEventFilter(self)
 
     def _cap(self, size: QSize) -> QSize:
@@ -966,9 +967,17 @@ class FitArea(QScrollArea):
             w.resize(size)
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
-        if obj is self.widget() and ev.type() == QEvent.LayoutRequest:
-            QTimer.singleShot(0, self.sync)
+        if obj is self.widget() and ev.type() == QEvent.LayoutRequest and not self._sync_queued:
+            # with this area as the timer's context: Qt drops the call if the area is deleted
+            # first (a window disposed of with a layout request queued), instead of calling
+            # ``sync`` on a deleted wrapper
+            self._sync_queued = True
+            QTimer.singleShot(0, self, self._queued_sync)
         return False
+
+    def _queued_sync(self) -> None:
+        self._sync_queued = False
+        self.sync()
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)

@@ -179,3 +179,22 @@ def test_current_page_stack_is_sized_by_the_current_page(app):
     assert st.minimumSizeHint().height() == 50
     st.setCurrentWidget(tall)
     assert st.minimumSizeHint().height() == 900
+
+
+def test_fit_area_deleted_with_a_layout_request_queued(app, monkeypatch):
+    """A FitArea deleted while its page's layout request is queued (a window disposed of in the
+    middle of a relayout): the queued sync is dropped, no "Internal C++ object (FitArea) already
+    deleted" from the event loop (seen in the Ubuntu CI log)."""
+    import shiboken6
+    from PySide6.QtCore import QCoreApplication, QEvent
+    errors = []
+    monkeypatch.setattr("sys.excepthook", lambda *exc: errors.append(exc))
+    page = QWidget()
+    QVBoxLayout(page).addWidget(QLabel("page"))
+    area = R.FitArea(page)
+    area.show()
+    _pump(app)
+    QCoreApplication.sendEvent(page, QEvent(QEvent.LayoutRequest))   # queues the area's sync
+    shiboken6.delete(area)                                           # the C++ side goes first
+    _pump(app)
+    assert not errors, errors
