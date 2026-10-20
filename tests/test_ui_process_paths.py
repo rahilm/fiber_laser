@@ -477,6 +477,12 @@ def test_panels_never_scroll_sideways(app, width):
     lp.show()
     pump(app, 0.02)
     assert lp.table.horizontalScrollBar().maximum() == 0, _table_geometry(lp.table)
+    hh = lp.table.horizontalHeader()
+    assert hh.length() <= lp.table.viewport().width(), _table_geometry(lp.table)
+    # the header's minimum section is not Qt's default (the font's widest glyph: wider than a
+    # value column with Segoe UI, Windows CI scrolled sideways by 1-2 columns)
+    assert hh.minimumSectionSize() <= 2 * lp.table.fontMetrics().averageCharWidth() + 8 or \
+        hh.minimumSectionSize() == 16
     assert not lp.table.isColumnHidden(0)
     f.close()
     lp.close()
