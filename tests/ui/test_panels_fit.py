@@ -91,7 +91,16 @@ def test_properties_fold_instead_of_scrolling(win, app, doc):
     assert not pp.verticalScrollBar().isVisible()
     assert not pp.horizontalScrollBar().isVisible()
     by = pp.by_id
-    assert by["leads"].expanded() and by["kerf"].expanded()     # the most used CAM settings
+    # the most used CAM settings: leads (highest priority) open; kerf (next) open whenever it
+    # fits the dock (with the Windows CI fonts it needs 141 px more than a 1280 x 800 window's
+    # dock has, on main as well: then it must be the fold policy that closed it, not a bug)
+    assert by["leads"].expanded()
+    if not by["kerf"].expanded():
+        panel = pp.panel
+        W, H = panel.width() - 2 * panel.margins(), panel.height() - 2 * panel.margins()
+        exp = {id(s): s.expanded() for s in panel.sections if not s.isHidden()}
+        exp[id(by["kerf"])] = True
+        assert not panel._fits(W, H, exp), "kerf fits but was folded"
     folded = [s for s in pp.sections if not s.isHidden() and not s.expanded()]
     assert folded, "a 1280 x 800 window cannot show every section open"
     assert all(s.summary() for s in folded), [s.title() for s in folded if not s.summary()]
