@@ -29,6 +29,8 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, Q
 
 import layout_audit as A
 
+#: the smallest window the application supports (docs/dev/RESPONSIVE.md)
+SUPPORTED_MIN = (1280, 800)
 SAMPLES = [(1280, 800), (1440, 900), (1512, 875), (1800, 1169), (1920, 1080)]
 SWEEP_HEIGHTS = (800, 875, 1169)
 STEP = int(os.environ.get("MLASER_LAYOUT_STEP", "40") or 40)
@@ -161,6 +163,18 @@ def _fit(win, app, size) -> QSize:
     return win.size()
 
 
+def unreachable(win) -> bool:
+    """On a window server, the window ended up smaller than its own minimum: the screen is
+    smaller than this sample (the macOS runner's 1024 × 768 screen keeps windows at most 649
+    px high, its window server refuses more).  The content is then squeezed by the screen, not
+    by a layout, and the sample is reported as not reachable instead of audited; every size the
+    screen can hold is audited as usual, and test_fits_this_screen checks the screen itself."""
+    if not real_screen():
+        return False
+    m = win.minimumSizeHint().expandedTo(win.minimumSize())
+    return win.width() < m.width() or win.height() < m.height()
+
+
 def views(win, app, deep: bool = True):
     """Every workspace (each tab of a tabbed one) with its default docks, each dock of a tabbed
     dock group raised in turn: yields a label per view."""
@@ -280,16 +294,28 @@ class Report:
         self.style = style
         self.rows: list[dict] = []
 
-    def add(self, kind: str, size, label: str, violations) -> None:
+    def unreachable(self, kind: str, size, label: str) -> None:
+        self.rows.append({"run": kind, "size": f"{size.width()}x{size.height()}", "view": label,
+                          "style": self.style, "unreachable": True, "violations": []})
+
+    def check(self, kind: str, size, label: str, win) -> None:
+        """Audit the window as it is now (see :func:`unreachable`)."""
+        if unreachable(win):
+            self.unreachable(kind, size, label)
+        else:
+            self.add(kind, size, label, A.audit(win))
+
+    def add(self, kind: str, size, label: str, violations, allowed=lambda v: "") -> None:
+        """``allowed(v)``: a reason the violation is expected here (reported, not failed)."""
         self.rows.append({"run": kind, "size": f"{size.width()}x{size.height()}", "view": label,
                           "style": self.style,
                           "violations": [{"kind": v.kind, "path": v.path, "detail": v.detail,
-                                          "owner": _owned_elsewhere(v)} for v in violations]})
+                                          "owner": _owned_elsewhere(v) or allowed(v)} for v in violations]})
 
     def shot(self, win, size, label: str) -> None:
         if self.dir is None:
             return
-        p = self.dir / "shots" / f"{size.width()}x{size.height()}" / f"{label}.png"
+        p = self.dir / "shots" / f"{size.width()}x{size.height()}" / f"{shot_name(label)}.png"
         p.parent.mkdir(parents=True, exist_ok=True)
         win.grab().save(str(p))
 
@@ -309,6 +335,10 @@ class Report:
         for r in self.rows:
             for v in r["violations"]:
                 uniq.setdefault((v["kind"], v["path"], v["owner"]), []).append(f'{r["size"]} {r["view"]}')
+        skipped = sorted({r["size"] for r in self.rows if r.get("unreachable")})
+        if skipped:
+            lines.append(f"not reachable on this screen (window below its minimum): {', '.join(skipped)}")
+            lines.append("")
         lines.append(f"distinct violations: {len(uniq)}")
         lines.append("")
         for (kind, path, owner), where in sorted(uniq.items()):
@@ -317,7 +347,19 @@ class Report:
         (self.dir / f"{name}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def shot_name(label: str) -> str:
+    """A view label as a portable relative path: the label's ``/`` keep their sub-folders, and
+    every character that a Windows file name or an artifact upload refuses (``: * ? " < > |``,
+    e.g. the Machine section "Axes: common drive settings") becomes ``_``."""
+    bad = set('\\:*?"<>|')
+    parts = ["".join("_" if (c in bad or ord(c) < 32) else c for c in part).strip(" .") or "_"
+             for part in label.split("/")]
+    return "/".join(parts)
+
+
 def _fail_text(rows) -> str:
+    if rows and all(r.get("unreachable") for r in rows):
+        return "no sample size was reachable on this screen: nothing was audited"
     out = []
     for r in rows:
         for v in r["violations"]:
@@ -341,8 +383,7 @@ def test_sample_sizes(win, app):
         s = _fit(win, app, size)
         _pump(app, 0.05)
         for label in views(win, app):
-            v = A.audit(win)
-            rep.add("sample", s, label, v)
+            rep.check("sample", s, label, win)
             rep.shot(win, s, label)
     rep.write("sample_sizes")
     text = _fail_text(rep.rows)
@@ -363,6 +404,15 @@ def test_fits_this_screen(win, app):
     mp = pytest.MonkeyPatch()
     mp.setattr(FitArea, "_cap", win.real_fitarea_cap)          # the real screen cap
     avail = _screen_size(win)
+    # a screen smaller than the smallest supported window (the CI runners' 1024 × 768): the page
+    # wrapper scrolling its page is the documented fallback there (docs/dev/RESPONSIVE.md rule
+    # 6); nothing else may scroll or clip
+    small = avail.width() < SUPPORTED_MIN[0] or avail.height() < SUPPORTED_MIN[1]
+
+    def below(v: A.Violation) -> str:
+        if small and v.kind in ("vscroll", "hscroll") and v.path.endswith("FitArea#shell_ws_scroll"):
+            return f"screen {avail.width()}x{avail.height()} below the supported {SUPPORTED_MIN[0]}x{SUPPORTED_MIN[1]}"
+        return ""
     rep = Report()
     bad = []
     for ws in CORE:
@@ -373,7 +423,7 @@ def test_fits_this_screen(win, app):
         if m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height():
             bad.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()}")
         s = _fit(win, app, (avail.width() - frame.width(), avail.height() - frame.height()))
-        rep.add("screen", s, ws, A.audit(win))
+        rep.add("screen", s, ws, A.audit(win), allowed=below)
         rep.shot(win, s, f"screen_{ws}")
     mp.undo()
     rep.write("this_screen")
@@ -391,7 +441,7 @@ def test_imperial_sample_sizes(win, app):
         for size in SAMPLES:
             s = _fit(win, app, size)
             for label in views(win, app):
-                rep.add("imperial", s, label, A.audit(win))
+                rep.check("imperial", s, label, win)
                 if size == (1512, 875):
                     rep.shot(win, s, f"imperial_{label}")
     finally:
@@ -433,6 +483,12 @@ def _sweep_sizes(win):
     m = win.minimumSizeHint().expandedTo(win.minimumSize())
     w0 = max(m.width(), 1)
     heights = sorted({max(m.height(), h) for h in (m.height(), *SWEEP_HEIGHTS)})
+    if real_screen():
+        # a window server keeps a window within its screen: heights above that are the same
+        # size again (the macOS runner: every height was 649, and each was swept)
+        frame = win.frameGeometry().size() - win.size()
+        top = _screen_size(win).height() - frame.height()
+        heights = sorted({min(h, max(top, m.height())) for h in heights})
     widths = list(range(w0, MAX_W + 1, STEP))
     if widths[-1] != MAX_W:
         widths.append(MAX_W)
@@ -449,14 +505,14 @@ def test_width_and_height_sweep(win, app):
     for ws in host.visible_ids():
         host.activate(ws)
         _pump(app)
-        last = None
+        seen: set[tuple[int, int]] = set()
         for h in heights:
             for wd in widths:
                 s = _fit(win, app, (wd, h))
-                if s == last:
-                    continue
-                last = QSize(s)
-                rep.add("sweep", s, ws, A.audit(win))
+                if (s.width(), s.height()) in seen:
+                    continue          # the same size again (a screen that holds less)
+                seen.add((s.width(), s.height()))
+                rep.check("sweep", s, ws, win)
                 bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws}")
     rep.write("sweep")
     text = _fail_text(rep.rows)
@@ -483,7 +539,7 @@ def test_dock_width_sweep(win, app):
                     win.resizeDocks([d], [wd], Qt.Horizontal)
                     _pump(app)
                     _pump(app)
-                    rep.add("docks", s, f"{ws}:{d.objectName()}={d.width()}", A.audit(win))
+                    rep.check("docks", s, f"{ws}:{d.objectName()}={d.width()}", win)
             win.shell.reset_layout()
             _pump(app)
     rep.write("dock_sweep")
@@ -506,7 +562,7 @@ def test_live_resize_recovers(win, app):
         before = _geometry(win)
         for wd in [*reversed(widths), *widths, 1512]:
             s = _fit(win, app, (wd, 875))
-            rep.add("live", s, ws, A.audit(win))
+            rep.check("live", s, ws, win)
         _fit(win, app, (s0.width(), s0.height()))
         _pump(app, 0.05)
         after = _geometry(win)
@@ -550,7 +606,7 @@ def test_larger_font(win, app):
         for size in ((1512, 875), (1920, 1080)):
             s = _fit(win, app, size)
             for label in views(win, app):
-                rep.add("font125", s, label, A.audit(win))
+                rep.check("font125", s, label, win)
                 rep.shot(win, s, f"font125_{label}")
     finally:
         app.setFont(f0)
@@ -612,6 +668,10 @@ w.close()
 
 #: the user's MacBook Pro 14" screen: 3024 × 1964 pixels at 2x = 1512 × 982 points (offscreen
 #: platform screen; QT_SCALE_FACTOR=2 gives the widgets their 2x backing store)
+#: Qt styles that only work on their own platform plugin (cocoa, windows): the macOS style under
+#: the offscreen platform crashed the 2x child with SIGSEGV on the macOS runner
+NATIVE_ONLY_STYLES = ("macos", "windows11", "windowsvista")
+
 SCREEN_2X = {"screens": [{"name": "mbp14", "x": 0, "y": 0, "width": 3024, "height": 1964,
                           "logicalDpi": 96, "dpr": 1}]}
 
@@ -620,18 +680,25 @@ def test_scale_2x_and_first_start_geometry(tmp_path):
     """2x device pixel ratio (Retina, 200 % on Windows) on a 1512 × 982 screen: the same layout
     in logical pixels; the first start fills the available screen; a saved geometry larger than
     the screen comes back inside it."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "").lower()
+    if style in NATIVE_ONLY_STYLES:
+        pytest.skip(f"the offscreen platform cannot host the {style} style (it needs its own window "
+                    "server); the 2x run is the CI job's, under the default style")
     cfg = tmp_path / "screen.json"
     cfg.write_text(json.dumps(SCREEN_2X), encoding="utf-8")
-    env = dict(os.environ, QT_QPA_PLATFORM=f"offscreen:configfile={cfg}",
+    # a path relative to the child's working directory: the platform arguments are split at
+    # ":", so a Windows drive letter ("D:\\...") cut the file name and the child crashed
+    # (0xC0000409) before it printed anything
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen:configfile=screen.json",
                MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
                MLASER_DATA_DIR=str(tmp_path / "data"))
     env.pop("_MLASER_CONFIG_AUTO", None)
     env["QT_SCALE_FACTOR"] = "2"
     d = os.environ.get("MLASER_LAYOUT_SHOTS", "")
     if d:
-        env["MLASER_LAYOUT_SHOTS_2X"] = str(Path(d) / (os.environ.get("MLASER_LAYOUT_TAG", "") or "run") / "shots_2x")
-    r = subprocess.run([sys.executable, "-c", SCALE_SCRIPT, str(Path(__file__).parent)], env=env,
-                       capture_output=True, text=True, timeout=600)
+        env["MLASER_LAYOUT_SHOTS_2X"] = str(Path(d).resolve() / (os.environ.get("MLASER_LAYOUT_TAG", "") or "run") / "shots_2x")
+    r = subprocess.run([sys.executable, "-c", SCALE_SCRIPT, str(Path(__file__).parent.resolve())], env=env,
+                       capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
     assert r.returncode == 0, r.stderr[-3000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert res["dpr"] == 2.0 and res["grab_dpr"] == 2.0
