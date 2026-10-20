@@ -14,15 +14,19 @@ from typing import Optional
 
 from PySide6.QtCore import QPointF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPen, QPolygonF
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFileDialog, QFormLayout, QGroupBox, QHBoxLayout, QLabel,
-                               QLineEdit, QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-                               QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox,
+                               QFileDialog, QLabel,
+                               QLineEdit, QPlainTextEdit, QSpinBox, QTableWidget,
+                               QTableWidgetItem, QWidget, QHeaderView)
 
 from mlaser.devices import pendant as P
 from mlaser.devices.follower import STATUS_FIELDS, CalibrationTable, FollowerStatus, OnBoardFollower
 from mlaser.devices.laser import (LASER_IPG_NET, LASER_RAYCUS_NET, IpgLaser, LaserError, RaycusLaser)
 from mlaser.devices.transport import DeviceSettings
+
+from . import style as S
+from .responsive import flow
+from .style import Dialog
 
 
 
@@ -77,64 +81,63 @@ class CurvePlot(QWidget):
         p.drawText(2, m + h, str(y0))
 
 
-class FollowerDialog(QDialog):
+class FollowerDialog(Dialog):
     """Follower status, follow on/off and the calibration table (Help/calib.csv)."""
 
     def __init__(self, window, path: Optional[str] = None, parent=None):
-        super().__init__(parent if parent is not None else _as_parent(window))
+        super().__init__(parent if parent is not None else _as_parent(window), "Height follower",
+                         buttons=QDialogButtonBox.Close)
         self.window_ = window
-        self.setWindowTitle("Height follower")
         self.path = path
         self.table = CalibrationTable()
-        lay = QVBoxLayout(self)
 
-        st = QGroupBox("Status (card registers 10000..10017)")
-        sl = QHBoxLayout(st)
-        self.status_lbl = QLabel("not connected")
+        st, sl = S.section("Status (card registers 10000..10017)")
+        row = S.hbox()
+        self.status_lbl = QLabel("Not connected")
         self.status_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        sl.addWidget(self.status_lbl, 1)
-        b = QPushButton("Refresh")
-        b.clicked.connect(self.refresh)
-        sl.addWidget(b)
-        lay.addWidget(st)
+        self.status_lbl.setWordWrap(True)
+        row.addWidget(self.status_lbl, 1)
+        row.addWidget(S.button("Refresh", on_click=self.refresh))
+        sl.addLayout(row)
+        self.body.addWidget(st)
 
-        ctl = QHBoxLayout()
-        self.height = QDoubleSpinBox()
-        self.height.setRange(0, 100000)
-        self.height.setValue(1000)
-        ctl.addWidget(QLabel("Follow value"))
-        ctl.addWidget(self.height)
-        for text, fn in (("Follow on", lambda: self._follow(True)), ("Follow off", lambda: self._follow(False)),
-                         ("Calibrate", self._calibrate), ("Cancel", self._cancel),
-                         ("Read curve", self._read_curve)):
-            bb = QPushButton(text)
-            bb.clicked.connect(fn)
-            ctl.addWidget(bb)
-        lay.addLayout(ctl)
+        fsec, fl = S.section("Follow")
+        fh = QWidget()
+        ff = S.form(fh)
+        self.follow_value = QDoubleSpinBox()
+        self.follow_value.setRange(0, 100000)
+        self.follow_value.setValue(1000)
+        S.form_row(ff, "Follow value", self.follow_value)
+        fl.addWidget(fh)
+        fl.addWidget(flow([S.button(text, on_click=fn) for text, fn in (
+            ("Follow on", lambda: self._follow(True)), ("Follow off", lambda: self._follow(False)),
+            ("Calibrate", self._calibrate), ("Cancel calibration", self._cancel),
+            ("Read curve", self._read_curve))], justify=False))
+        self.body.addWidget(fsec)
 
-        cal = QHBoxLayout()
+        csec, cl = S.section("Calibration table")
+        cal = S.hbox()
         self.grid = QTableWidget(0, 2)
         self.grid.setHorizontalHeaderLabels(["Height", "Raw"])
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
+        self.grid.verticalHeader().hide()
         self.grid.itemChanged.connect(self._grid_changed)
         cal.addWidget(self.grid, 1)
         self.plot = CurvePlot()
         cal.addWidget(self.plot, 2)
-        lay.addLayout(cal)
-        row = QHBoxLayout()
+        cl.addLayout(cal)
+        ref_row = S.hbox()
         self.ref = QSpinBox()
         self.ref.setRange(-2 ** 31, 2 ** 31 - 1)
-        row.addWidget(QLabel("Reference"))
-        row.addWidget(self.ref)
-        for text, fn in (("Load...", self.load), ("Save...", self.save)):
-            bb = QPushButton(text)
-            bb.clicked.connect(fn)
-            row.addWidget(bb)
-        row.addStretch(1)
-        lay.addLayout(row)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        ref_lab = QLabel(S.label_text("Reference"))
+        ref_lab.setBuddy(self.ref)
+        ref_row.addWidget(ref_lab)
+        ref_row.addWidget(self.ref)
+        ref_row.addStretch(1)
+        ref_row.addWidget(S.button("Load…", on_click=self.load))
+        ref_row.addWidget(S.button("Save…", on_click=self.save))
+        cl.addLayout(ref_row)
+        self.body.addWidget(csec, 1)
         if path:
             try:
                 self.set_table(CalibrationTable.load(path))
@@ -182,12 +185,12 @@ class FollowerDialog(QDialog):
     def refresh(self) -> None:
         zf = self._zf()
         if zf is None:
-            self.status_lbl.setText("not connected")
+            self.status_lbl.setText("Not connected")
             return
         try:
             st = zf.read_status()
         except Exception as e:  # device errors are shown, not raised
-            self.status_lbl.setText(f"error: {e}")
+            self.status_lbl.setText(f"Error: {e}")
             return
         fs = FollowerStatus(st)
         parts = [f"{n}={fs.value(n):g}" for n, _ in STATUS_FIELDS]
@@ -197,14 +200,14 @@ class FollowerDialog(QDialog):
     def _follow(self, on: bool) -> None:
         zf = self._zf()
         if zf is not None:
-            zf.follow(on, self.height.value())
+            zf.follow(on, self.follow_value.value())
             _log(self.window_, f"follower {'on' if on else 'off'}")
 
     def _calibrate(self) -> None:
         zf = self._zf()
         if zf is not None:
             if not zf.status().homed:
-                self.status_lbl.setText("follower not homed: calibration refused (zf49)")
+                self.status_lbl.setText("The follower is not homed: calibration refused (zf49)")
                 return
             zf.calibrate()
             _log(self.window_, "follower: head calibration started (101 := 107)")
@@ -220,58 +223,49 @@ class FollowerDialog(QDialog):
             try:
                 self.set_table(zf.read_calibration_curve())
             except Exception as e:
-                self.status_lbl.setText(f"error: {e}")
+                self.status_lbl.setText(f"Error: {e}")
 
 
-class LaserDialog(QDialog):
+class LaserDialog(Dialog):
     """Laser command channel (emission, aiming beam, power/current, raw query)."""
 
     def __init__(self, window, settings: Optional[DeviceSettings] = None, parent=None):
-        super().__init__(parent if parent is not None else _as_parent(window))
+        super().__init__(parent if parent is not None else _as_parent(window), "Laser source",
+                         buttons=QDialogButtonBox.Close)
         self.window_ = window
         self.settings = settings or DeviceSettings()
         self.client = None
-        self.setWindowTitle("Laser source")
-        lay = QVBoxLayout(self)
-        f = QFormLayout()
+        f = self.form()
         self.kind = QComboBox()
         self.kind.addItem("Raycus via card serial (control type 1)", LASER_RAYCUS_NET)
         self.kind.addItem("IPG over network (control type 2)", LASER_IPG_NET)
-        f.addRow("Laser", self.kind)
+        S.form_row(f, "Laser", self.kind)
         self.host = QLineEdit(self.settings.onb_laser[0])
         self.port = QSpinBox()
         self.port.setRange(1, 65535)
         self.port.setValue(self.settings.onb_laser[1])
         self.kind.currentIndexChanged.connect(self._endpoint)
-        f.addRow("Host", self.host)
-        f.addRow("Port", self.port)
+        S.form_row(f, "Host", self.host)
+        S.form_row(f, "Port", self.port)
         self.power = QDoubleSpinBox()
         self.power.setRange(0, 100)
         self.power.setValue(50)
-        f.addRow("Power / current %", self.power)
-        lay.addLayout(f)
-        row = QHBoxLayout()
-        for text, fn in (("Emission on", lambda: self._do("emission", True)),
-                         ("Emission off", lambda: self._do("emission", False)),
-                         ("Aim on", lambda: self._do("aim", True)), ("Aim off", lambda: self._do("aim", False)),
-                         ("Set power", lambda: self._do("power"))):
-            b = QPushButton(text)
-            b.clicked.connect(fn)
-            row.addWidget(b)
-        lay.addLayout(row)
-        q = QHBoxLayout()
+        self.power.setSuffix(" %")
+        S.form_row(f, "Power or current", self.power)
+        self.body.addWidget(flow([S.button(text, on_click=fn) for text, fn in (
+            ("Emission on", lambda: self._do("emission", True)),
+            ("Emission off", lambda: self._do("emission", False)),
+            ("Aiming beam on", lambda: self._do("aim", True)), ("Aiming beam off", lambda: self._do("aim", False)),
+            ("Set power", lambda: self._do("power")))], justify=False))
+        q = S.hbox()
         self.cmd = QLineEdit("STA")
-        b = QPushButton("Send (IPG)")
-        b.clicked.connect(lambda: self._do("query"))
-        q.addWidget(self.cmd)
-        q.addWidget(b)
-        lay.addLayout(q)
+        self.cmd.setAccessibleName("IPG command")
+        q.addWidget(self.cmd, 1)
+        q.addWidget(S.button("Send (IPG)", on_click=lambda: self._do("query")))
+        self.body.addLayout(q)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
-        lay.addWidget(self.out)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.body.addWidget(self.out, 1)
 
     def _endpoint(self) -> None:
         ep = self.settings.laser if self.kind.currentData() == LASER_IPG_NET else self.settings.onb_laser
@@ -293,7 +287,7 @@ class LaserDialog(QDialog):
                 r = c.emission(on)
             elif what == "aim":
                 if not isinstance(c, IpgLaser):
-                    self.out.appendPlainText("aiming beam: IPG only (Raycus adapter slots are empty)")
+                    self.out.appendPlainText("Aiming beam: IPG only (the Raycus adapter has none)")
                     return
                 r = c.aiming_beam(on)
             elif what == "power":
@@ -335,31 +329,28 @@ def _ext(window) -> DevicesExtension:
     return ext
 
 
-class PendantDialog(QDialog):
+class PendantDialog(Dialog):
     """Enable the XHC wireless pendant and show its status/key events."""
 
     def __init__(self, window, parent=None):
-        super().__init__(parent if parent is not None else _as_parent(window))
+        avail = P.hid_available()
+        super().__init__(parent if parent is not None else _as_parent(window), "Wireless pendant",
+                         buttons=QDialogButtonBox.Close,
+                         explanation="hidapi is available." if avail else
+                         "hidapi is not installed (pip install hidapi): the pendant cannot be used.")
         self.window_ = window
         self.ext = _ext(window)
-        self.setWindowTitle("Wireless pendant")
-        lay = QVBoxLayout(self)
-        avail = P.hid_available()
-        self.info = QLabel("hidapi available" if avail else "hidapi not installed (pip install hidapi)")
-        lay.addWidget(self.info)
+        self.info = self.explanation
         self.enable = QCheckBox("Enable pendant")
-        self.enable.setEnabled(avail)
         self.enable.setChecked(self.ext.pendant is not None)
+        S.set_enabled(self.enable, avail, "" if avail else "Install hidapi to use the pendant")
         self.enable.toggled.connect(self._toggle)
-        lay.addWidget(self.enable)
-        self.status = QLabel("-")
-        lay.addWidget(self.status)
+        self.body.addWidget(self.enable)
+        self.status = QLabel("–")
+        self.body.addWidget(self.status)
         self.events = QPlainTextEdit()
         self.events.setReadOnly(True)
-        lay.addWidget(self.events)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.body.addWidget(self.events, 1)
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._show_status)
         self._timer.start(500)
@@ -369,7 +360,7 @@ class PendantDialog(QDialog):
             ok = start_pendant(self.window_)
             if not ok:
                 self.enable.setChecked(False)
-                self.status.setText("no pendant found (VID 0x10CE)")
+                self.status.setText("No pendant found (VID 0x10CE)")
         else:
             stop_pendant(self.window_)
 

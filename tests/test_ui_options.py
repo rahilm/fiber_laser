@@ -75,7 +75,7 @@ def test_netcheck_dialog_and_about(app, monkeypatch, tmp_path):
 
     monkeypatch.setattr(netcheck, "marker_path", lambda: tmp_path / "netcheck.json")
     d = X.NetCheckDialog()
-    assert "no self-test result" in d.text.toPlainText()
+    assert "No self-test result" in d.text.toPlainText()
     d.run()
     assert "network self-test" in d.text.toPlainText()
     about = dialogs.AboutDialog(translator())

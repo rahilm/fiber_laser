@@ -15,15 +15,18 @@ from __future__ import annotations
 import time
 from typing import Any, Optional
 
-from PySide6.QtCore import QTimer
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout,
-                               QGroupBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QScrollArea, QSpinBox,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import Qt, QTimer
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QFrame,
+                               QLabel, QLineEdit, QScrollArea, QSpinBox,
+                               QWidget)
 
 from mlaser.notify import EVENTS, SECRETS, SETTING_DEFAULTS, EventWiring, Notifier, SecretStore
 from mlaser.notify.core import SECURITY
 from mlaser.services.config import Setting
 
+from . import style as S
+from .responsive import mark_list
+from .style import Dialog
 from .workspaces import TOUCH_MIN, tr
 
 #: setting -> (i18n id, English label); the form shows them in this order per group
@@ -147,35 +150,43 @@ class NotifyPlugin:
         self.notifier.close()
 
 
-class NotifyDialog(QDialog):
+class NotifyDialog(Dialog):
     """Channel, event and limit settings; the secrets (never shown); **Send test**."""
 
     def __init__(self, plugin: NotifyPlugin) -> None:
-        super().__init__(plugin.window)
-        self.plugin = plugin
         w = plugin.window
+        super().__init__(w, tr(w, "notify.title", "Notifications"),
+                         buttons=QDialogButtonBox.Save | QDialogButtonBox.Close,
+                         explanation=tr(w, "notify.intro", "Messages about the machine to a phone or a mailbox. "
+                                        "They only inform: nothing can be controlled by a notification or a reply."))
+        self.plugin = plugin
         self.setObjectName("notify_dialog")
-        self.setWindowTitle(tr(w, "notify.title", "Notifications"))
-        outer = QVBoxLayout(self)
-        intro = QLabel(tr(w, "notify.intro", "Messages about the machine to a phone or a mailbox. They only "
-                          "inform: nothing can be controlled by a notification or a reply."))
-        intro.setWordWrap(True)
-        outer.addWidget(intro)
+        # the channels are a long list of sections: the list scrolls (once), never sideways
         scroll = QScrollArea()
         scroll.setWidgetResizable(True)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        scroll.setFrameShape(QFrame.NoFrame)
+        mark_list(scroll)
         body = QWidget()
-        bl = QVBoxLayout(body)
+        bl = S.vbox(body, sp=S.SP3)
         scroll.setWidget(body)
-        outer.addWidget(scroll, 1)
+        self.body.addWidget(scroll, 1)
         self.fields: dict[str, QWidget] = {}
         self.secret_fields: dict[str, QLineEdit] = {}
         s = plugin.settings
         for gid, gtext, keys in GROUPS:
-            box = QGroupBox(tr(w, gid, gtext))
-            form = QFormLayout(box)
+            sec, sl = S.section(tr(w, gid, gtext))
+            host = QWidget()
+            form = S.form(host)
+            sl.addWidget(host)
             for key in keys:
                 lid, ltext = LABELS[key]
-                form.addRow(tr(w, lid, ltext), self._field(key, s[key]))
+                f = self._field(key, s[key])
+                if isinstance(f, QCheckBox):
+                    f.setText(tr(w, lid, ltext))
+                    S.form_row(form, "", f)
+                else:
+                    S.form_row(form, tr(w, lid, ltext), f)
             ch = GROUP_SECRET.get(gid)
             if ch is not None:
                 e = QLineEdit()
@@ -185,49 +196,55 @@ class NotifyDialog(QDialog):
                                      if plugin.secrets.has(SECRETS[ch]) else "")
                 self.secret_fields[ch] = e
                 sid, stext = SECRET_LABELS[ch]
-                form.addRow(tr(w, sid, stext), e)
-            bl.addWidget(box)
-        ev = QGroupBox(tr(w, "notify.group.events", "Events (channels: all, or a list such as ntfy, email)"))
-        ef = QFormLayout(ev)
+                S.form_row(form, tr(w, sid, stext), e)
+            bl.addWidget(sec)
+        ev, evl = S.section(tr(w, "notify.group.events", "Events (channels: all, or a list such as ntfy, email)"))
+        eh = QWidget()
+        ef = S.form(eh)
+        evl.addWidget(eh)
         for kind in EVENTS:
-            row = QHBoxLayout()
+            roww = QWidget()
+            row = S.hbox(roww)
             cb = QCheckBox()
             cb.setObjectName(f"notify_event_{kind}")
             cb.setChecked(bool(s[f"event_{kind}"]))
             self.fields[f"event_{kind}"] = cb
             le = QLineEdit(str(s[f"channels_{kind}"] or "all"))
             le.setObjectName(f"notify_channels_{kind}")
+            le.setAccessibleName(tr(w, *EVENT_LABELS[kind]))
             self.fields[f"channels_{kind}"] = le
             row.addWidget(cb)
             row.addWidget(le, 1)
             lid, ltext = EVENT_LABELS[kind]
-            ef.addRow(tr(w, lid, ltext), row)
+            lab = S.form_row(ef, tr(w, lid, ltext), roww)
+            if isinstance(lab, QLabel):
+                lab.setBuddy(cb)
         bl.addWidget(ev)
-        bl.addWidget(QLabel(tr(w, "notify.secret.where", "Secrets are kept in: {where}",
-                               where=plugin.secrets.backend if plugin.secrets.backend == "keyring"
-                               else str(plugin.secrets.path))))
-        self.result = QLabel()
-        self.result.setObjectName("notify_result")
-        self.result.setWordWrap(True)
-        outer.addWidget(self.result)
-        row = QHBoxLayout()
-        self.test_btn = QPushButton(tr(w, "notify.btn.test", "Send test"))
+        bl.addWidget(S.caption(tr(w, "notify.secret.where", "Secrets are kept in: {where}",
+                                  where=plugin.secrets.backend if plugin.secrets.backend == "keyring"
+                                  else str(plugin.secrets.path))))
+        bl.addStretch(1)
+        self.result_label = QLabel()
+        self.result_label.setObjectName("notify_result")
+        self.result_label.setWordWrap(True)
+        self.body.addWidget(self.result_label)
+        self.test_btn = self.buttons.addButton(tr(w, "notify.btn.test", "Send test"), QDialogButtonBox.ActionRole)
         self.test_btn.setObjectName("notify_test")
         self.test_btn.setMinimumHeight(TOUCH_MIN)
         self.test_btn.clicked.connect(self.send_test)
-        row.addWidget(self.test_btn)
-        row.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Close)
-        bb.accepted.connect(self._save_close)
-        bb.rejected.connect(self.reject)
-        row.addWidget(bb)
-        outer.addLayout(row)
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._save_close)
         self.timer = QTimer(self)
         self.timer.setInterval(300)
         self.timer.timeout.connect(self.show_results)
         self.timer.start()
         self.show_results()
-        self.resize(640, 720)
+        # the size from the content: the sections' width, as tall as they are (up to the screen)
+        scroll.setMinimumWidth(body.minimumSizeHint().width() + scroll.verticalScrollBar().sizeHint().width())
+        scr = self.screen().availableGeometry() if self.screen() is not None else None
+        extra = self.sizeHint().height() - scroll.sizeHint().height()
+        want = body.sizeHint().height() + extra
+        self.resize(self.sizeHint().width(), min(want, int(scr.height() * 0.85)) if scr is not None else want)
 
     def _field(self, key: str, value: Any) -> QWidget:
         w = self.plugin.window
@@ -292,13 +309,13 @@ class NotifyDialog(QDialog):
         w = self.plugin.window
         res = list(self.plugin.notifier.results)[-4:]
         if not res:
-            self.result.setText(tr(w, "notify.result.none", "No notification sent yet."))
+            self.result_label.setText(tr(w, "notify.result.none", "No notification sent yet."))
             return
         lines = []
         for r in reversed(res):
             ok = tr(w, "notify.result.ok", "sent") if r.ok else tr(w, "notify.result.failed", "FAILED")
             lines.append(f"{time.strftime('%H:%M:%S', time.localtime(r.t))}  {r.kind} → {r.channel}: {ok} ({r.detail})")
-        self.result.setText("\n".join(lines))
+        self.result_label.setText("\n".join(lines))
 
     def done(self, r: int) -> None:
         self.timer.stop()

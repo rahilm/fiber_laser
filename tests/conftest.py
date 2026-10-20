@@ -67,6 +67,8 @@ UI_MODULES = {
     # display units (units track)
     "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
     "test_units_sweep_machine",
+    # UI wave polish: the one dialog frame
+    "test_dialog_frame",
     # UI wave: polish (the design system's helpers)
     "test_style", "test_jogpad",
 }

@@ -6,17 +6,20 @@ data-driven from :mod:`mlaser.ui.params` (the ConfigService schema).
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QGroupBox, QLabel, QLineEdit, QSpinBox,
+                               QLabel, QLineEdit, QSpinBox,
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
-                               QTableWidget, QTableWidgetItem, QHeaderView)
+                               QTableWidgetItem, QHeaderView)
 
 from mlaser.services import units as U
 
 from . import params as P
+from . import style as S
+from .style import Dialog
 from .i18n import Translator
 from .units_qt import QuantitySpinBox, kind_for, on_units_changed
 
@@ -57,29 +60,50 @@ def _spin(lo, hi, val, dec=3, step=1.0) -> QDoubleSpinBox:
     return s
 
 
-class _Base(QDialog):
-    def __init__(self, tr: Translator, title_key: str, parent=None):
-        super().__init__(parent)
+#: a unit written into a label ("Angle (deg)", "Width (MM)", "Power (%)"): it goes to the
+#: field's suffix instead (DESIGN.md §3: units in the field only)
+_UNIT_IN_LABEL = re.compile(r"\s*[(（]\s*(mm/s|mm/min|mm|%|°|deg|degrees?|ms|s|hz|bar|mpa|w|kw)\s*[)）]\s*[:：]?\s*$",
+                            re.I)
+_SUFFIX = {"%": " %", "°": " °", "deg": " °", "degree": " °", "degrees": " °", "ms": " ms", "s": " s",
+           "hz": " Hz", "w": " W", "kw": " kW"}
+#: label units that are display-unit quantities (a QuantitySpinBox of that kind)
+QUANTITY_UNIT = {"mm": "length", "mm/s": "speed", "mm/min": "speed", "bar": "pressure", "mpa": "pressure"}
+
+
+def split_unit(label: str) -> tuple[str, str]:
+    """(label without a trailing "(unit)", the unit in lower case or "")."""
+    m = _UNIT_IN_LABEL.search(label or "")
+    if not m:
+        return (label or "").strip().rstrip(":：").strip(), ""
+    return label[:m.start()].strip().rstrip(":：").strip(), m.group(1).lower()
+
+
+def suffix_for(unit: str) -> str:
+    """The spin-box suffix of a label unit that is not a display-unit quantity ("%", "°", "s")."""
+    return _SUFFIX.get(unit.lower(), f" {unit}" if unit else "")
+
+
+class _Base(Dialog):
+    """A small value prompt on the one dialog frame (style.Dialog): window title, a form, OK and
+    Cancel in the platform's order."""
+
+    def __init__(self, tr: Translator, title_key: str, parent=None, explanation: str = ""):
+        super().__init__(parent, tr.tr(title_key), explanation=explanation)
         self.tr_ = tr
-        self.setWindowTitle(tr.tr(title_key))
-        self.lay = QVBoxLayout(self)
-        self.lay.setContentsMargins(16, 16, 16, 16)     # DESIGN.md: dialog margins SP3
-        self.lay.setSpacing(8)
-        self.form = QFormLayout()
-        self.lay.addLayout(self.form)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr.tr("ap1"))
-        bb.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0"))
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        self._bb = bb
+        ok, cancel = self.buttons.button(QDialogButtonBox.Ok), self.buttons.button(QDialogButtonBox.Cancel)
+        ok.setText(tr.tr("ap1"))
+        cancel.setText(tr.tr("ap0"))
 
     def finish(self):
-        self.lay.addWidget(self._bb)
+        """Kept for the subclasses: the frame already holds its buttons."""
+        self.adjustSize()
 
-    def row(self, key: str, w: QWidget, param_label: bool = True) -> QWidget:
+    def row(self, key: str, w: QWidget, param_label: bool = True, unit_kind: Optional[str] = None) -> QWidget:
         label = self.tr_.tr_param(key)[1] if param_label else self.tr_.tr(key)
-        self.form.addRow(label, w)
+        label, unit = split_unit(label)
+        if unit and isinstance(w, (QDoubleSpinBox, QSpinBox)) and not w.suffix():
+            w.setSuffix(suffix_for(unit))
+        S.form_row(self.form(), label, w, unit_kind=unit_kind)
         return w
 
 
@@ -216,12 +240,16 @@ class ParamGridDialog(QDialog):
 
 
 class ValueDialog(_Base):
-    """Single numeric value (pd339 rotate angle, pd348 scale percent, pd81 step...)."""
+    """Single numeric value (pd339 rotate angle, pd348 scale percent, mf121 simulation speed...).
+    ``suffix``: the value's unit (" °", " %", " ×"); a unit in the field's label moves there."""
 
     def __init__(self, tr: Translator, title_key: str, field_key: str, value: float,
-                 lo=-1e6, hi=1e6, parent=None):
+                 lo=-1e6, hi=1e6, parent=None, suffix: str = ""):
         super().__init__(tr, title_key, parent)
-        self.value = self.row(field_key, _spin(lo, hi, value, 3))
+        spin = _spin(lo, hi, value, 3)
+        if suffix:
+            spin.setSuffix(suffix)
+        self.value = self.row(field_key, spin)
         self.finish()
 
 
@@ -237,15 +265,17 @@ class IPDialog(_Base):
         for title, keys, default in (("mf119", ("pd445", "pd446", "pd447"), ("10.1.1.168", "255.255.255.0", "10.1.1.1")),
                                      ("mf120", ("pd448", "pd449", "pd450"), ("10.1.1.169", "255.255.255.0", "10.1.1.1")),
                                      ("gp120", ("pd451", "pd452", "pd453"), ("10.1.1.170", "255.255.255.0", "10.1.1.1"))):
-            box = QGroupBox(tr.tr(title))
-            f = QFormLayout(box)
+            sec, body = S.section(tr.tr(title))
+            host = QWidget()
+            f = S.form(host)
+            body.addWidget(host)
             for k, d in zip(keys, default):
                 e = QLineEdit(values.get(k, d))
                 e.setInputMask("000.000.000.000;_")
                 e.setText(values.get(k, d))
-                f.addRow(tr.tr_param(k)[1], e)
+                S.form_row(f, tr.tr_param(k)[1], e)
                 self.edits[k] = e
-            self.form.addRow(box)
+            self.body.addWidget(sec)
         self.finish()
 
     def result_values(self) -> dict:
@@ -262,53 +292,47 @@ class PasswordDialog(_Base):
 
     def __init__(self, tr: Translator, parent=None):
         super().__init__(tr, "pi1", parent)
+        self.setWindowTitle(split_unit(self.windowTitle())[0])
         self.edit = self.row("mf162", QLineEdit(), param_label=False)
         self.edit.setEchoMode(QLineEdit.Password)
         self.finish()
 
 
-class AlarmDialog(QDialog):
+class AlarmDialog(Dialog):
     """mf123 "Alarm": table of time (gp84), description (gp85), status (gp93); gp90 clear."""
 
     def __init__(self, tr: Translator, alarms: list, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr.tr("mf123"))
-        lay = QVBoxLayout(self)
-        t = QTableWidget(len(alarms), 2)
-        t.setHorizontalHeaderLabels([tr.tr("gp84"), tr.tr("gp85")])
+        super().__init__(parent, tr.tr("mf123"), buttons=QDialogButtonBox.Close)
+        t = S.table([S.Col(tr.tr("gp84"), priority=1), S.Col(tr.tr("gp85"), stretch=True)])
+        t.setRowCount(len(alarms))
         for i, (txt, ts) in enumerate(alarms):
             t.setItem(i, 0, QTableWidgetItem(str(ts)))
             t.setItem(i, 1, QTableWidgetItem(tr.tr(txt)))
-        t.horizontalHeader().setStretchLastSection(True)
-        lay.addWidget(t)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.table = t
+        self.body.addWidget(t)
 
 
-class AboutDialog(QDialog):
+class AboutDialog(Dialog):
     def __init__(self, tr: Translator, parent=None):
-        super().__init__(parent)
-        self.setWindowTitle(tr.tr("mf24"))
-        lay = QVBoxLayout(self)
-        lay.addWidget(QLabel("Mlaser rebuild (PySide6)\nCross-platform reimplementation of the "
-                             "Mlaser v0.0.1.51 user interface.  MIT licence."))
-        lic = QLabel("Uses Qt for Python (PySide6), licensed under the GNU LGPL v3: you may replace "
-                     "the Qt / PySide6 libraries with your own build.  Licence texts: "
-                     "packaging/licenses/ (LGPL-3.0, GPL-3.0) and docs/ASSETS.md.  Bundled fonts: "
-                     "Noto Sans SC / Noto Sans Arabic subsets (SIL Open Font License 1.1).")
-        lic.setWordWrap(True)
-        lay.addWidget(lic)
+        super().__init__(parent, tr.tr("mf24"), buttons=QDialogButtonBox.Ok,
+                         heading_text="Mlaser",
+                         explanation="Mlaser rebuild (PySide6): a cross-platform reimplementation of the "
+                                     "Mlaser v0.0.1.51 user interface.  MIT licence.")
+        lic = S.caption("Uses Qt for Python (PySide6), licensed under the GNU LGPL v3: you may replace "
+                        "the Qt / PySide6 libraries with your own build.  Licence texts: "
+                        "packaging/licenses/ (LGPL-3.0, GPL-3.0) and docs/ASSETS.md.  Bundled fonts: "
+                        "Noto Sans SC / Noto Sans Arabic subsets (SIL Open Font License 1.1).")
+        self.body.addWidget(lic)
         try:
             from mlaser import netcheck
             res = netcheck.last_result()
-            net = res.text() if res is not None else "Network self-test: not run yet (Options+ > Network self-test)"
+            net = res.text() if res is not None else "Network self-test: not run yet (Settings > Network self-test)"
         except Exception as e:  # noqa: BLE001 - informative only
             net = f"Network self-test unavailable: {e}"
         nl = QLabel(net)
         nl.setWordWrap(True)
         nl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lay.addWidget(nl)
+        self.body.addWidget(nl)
         try:
             from mlaser.parity_ports import kernel_status
             kern = kernel_status().text()     # C kernel or Python port (MLASER_NATIVE, self-check)
@@ -318,7 +342,4 @@ class AboutDialog(QDialog):
         kl.setObjectName("about_kernel")
         kl.setWordWrap(True)
         kl.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        lay.addWidget(kl)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok)
-        bb.accepted.connect(self.accept)
-        lay.addWidget(bb)
+        self.body.addWidget(kl)

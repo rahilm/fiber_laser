@@ -27,9 +27,8 @@ import copy
 import dataclasses
 from typing import Callable, Optional
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QFontComboBox, QFormLayout, QLineEdit, QPlainTextEdit, QSpinBox,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QFontComboBox,
+                               QLineEdit, QPlainTextEdit, QSpinBox)
 
 from mlaser.cad import arrange as AR
 from mlaser.cad import edit as ED
@@ -37,6 +36,9 @@ from mlaser.cad import tools as T
 from mlaser.cad.text import DEFAULT_FONT
 from mlaser.model import Contour, Document, Part
 from mlaser.services import units
+from mlaser.ui import style as S
+from mlaser.ui.dialogs import split_unit, suffix_for
+from mlaser.ui.style import Dialog
 from mlaser.ui.units_qt import QuantitySpinBox
 
 SNAP_PX = 8.0          # object-snap window (pixels)
@@ -162,14 +164,15 @@ class CanvasToolDriver:
 
 
 # --------------------------------------------------------------------------- dialogs
-class _Dialog(QDialog):
+class _Dialog(Dialog):
+    """The drawing tools' parameter prompts on the one dialog frame (style.Dialog): a form,
+    units in the fields' suffixes, OK / Cancel in the platform's order."""
+
     def __init__(self, tr, title_key: str, parent=None):
-        super().__init__(parent)
+        super().__init__(parent, tr.tr(title_key) if tr.has(title_key) else title_key)
         self.tr_ = tr
-        self.setWindowTitle(tr.tr(title_key) if tr.has(title_key) else title_key)
-        self.lay = QVBoxLayout(self)
-        self.form = QFormLayout()
-        self.lay.addLayout(self.form)
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr.tr("ap1", "OK"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0", "Cancel"))
 
     def label(self, key: str) -> str:
         if not self.tr_.has(key):
@@ -178,16 +181,22 @@ class _Dialog(QDialog):
         return t.split(".", 1)[1] if key.startswith(("pd", "A2")) and "." in t else t
 
     def add(self, key: str, w):
-        self.form.addRow(self.label(key), w)
+        label, unit = split_unit(self.label(key))
+        if isinstance(w, QCheckBox) and not w.text():
+            w.setText(label)
+            S.form_row(self.form(), "", w)
+            return w
+        if unit and isinstance(w, (QSpinBox, QDoubleSpinBox)) and not isinstance(w, QuantitySpinBox):
+            w.setSuffix(suffix_for(unit))
+        S.form_row(self.form(), label, w)
         return w
 
-    def buttons(self):
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(self.tr_.tr("ap1", "OK"))
-        bb.button(QDialogButtonBox.Cancel).setText(self.tr_.tr("ap0", "Cancel"))
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        self.lay.addWidget(bb)
+    def add_row(self, label: str, w):
+        S.form_row(self.form(), label, w)
+        return w
+
+    def finish(self):
+        self.adjustSize()
 
 
 def _lspin(lo, hi, v, dec=3, kind: str = "length") -> QuantitySpinBox:
@@ -310,13 +319,13 @@ class DrawExtension:
         d = _Dialog(self.w.tr_, "mf55", self.w)
         ed = QPlainTextEdit(p.text)
         ed.setFixedHeight(70)
-        d.form.addRow(self.t("mv20"), ed)
+        d.add_row(self.t("mv20"), ed)
         fc = d.add("gp77", QFontComboBox())
         fc.setFontFilters(QFontComboBox.ScalableFonts)
         from PySide6.QtGui import QFont
         fc.setCurrentFont(QFont(resolve_family(p.font)))
         hs = d.add("ti0", _lspin(0.1, 10000, p.height, 2))
-        d.buttons()
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
@@ -345,10 +354,10 @@ class DrawExtension:
         sz = d.add("A260420_2", _lspin(10, 100, p.size, 2))
         dn = d.add("A260420_4", _ispin(3, 30, p.density))
         md = QComboBox()
-        md.addItems(["scan lines", "outline squares"])
+        md.addItems(["Scan lines", "Outline squares"])
         md.setCurrentIndex(p.mode)
-        d.form.addRow("mode", md)
-        d.buttons()
+        d.add_row("Mode", md)
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
@@ -374,7 +383,7 @@ class DrawExtension:
         kd.addItems([d.label("pd503"), d.label("pd504")])
         kd.setCurrentIndex(p.kind)
         off = d.add("pd1811", _lspin(0, 1000, p.offset))
-        d.buttons()
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
@@ -408,7 +417,7 @@ class DrawExtension:
         r = d.add("pd726", _lspin(0.1, 500, p.radius))
         st = d.add("pd727", _lspin(0.1, 300, p.stock))
         sp = d.add("pd728", _lspin(0.1, 300, p.space))
-        d.buttons()
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
@@ -479,7 +488,7 @@ class DrawExtension:
         p = self.merge
         d = _Dialog(self.w.tr_, "mf84", self.w)
         tol = d.add("pd368", _lspin(0.01, 100, p.tolerance, 3, "small_length"))
-        d.buttons()
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
@@ -518,7 +527,7 @@ class DrawExtension:
         an = d.add("gp65", QComboBox())
         an.addItems(["↖", "↑", "↗", "←", "·", "→", "↙", "↓", "↘"])
         an.setCurrentIndex(p.anchor - 1)
-        d.buttons()
+        d.finish()
         if not self._run_dialog(d):
             return
         if self.exec_dialogs:
