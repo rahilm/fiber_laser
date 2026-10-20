@@ -349,11 +349,13 @@ def test_columns_panel_size_hint_stays_comfortable_while_compact(app):
     p.show()
     _pump(app)
     sh0 = p.sizeHint()
+    min0 = p.minimumSizeHint()
     assert "compact" not in str(p.property(R.STATE_PROP))
     p.resize(sh0.width(), sh0.height() - 20)
     _pump(app)
     assert "compact" in str(p.property(R.STATE_PROP))
     assert p.sizeHint() == sh0
+    assert p.minimumSizeHint().width() == min0.width()      # compact saves height, not width
     p.resize(sh0)
     _pump(app)
     assert "compact" not in str(p.property(R.STATE_PROP)) and p.sizeHint() == sh0
@@ -398,6 +400,9 @@ def test_wrap_check_box_wraps_instead_of_widening(app):
     lay.addWidget(cb)
     one = cb.sizeHint()
     assert cb.minimumSizeHint().width() < one.width() // 2
+    from PySide6.QtWidgets import QCheckBox
+    plain = QCheckBox(cb.text())                       # with room: exactly a plain check box's
+    assert cb.heightForWidth(one.width()) == plain.sizeHint().height() == cb.minimumSizeHint().height()
     narrow = cb.minimumSizeHint().width() + 10
     assert cb.heightForWidth(narrow) > cb.heightForWidth(one.width())
     box.resize(narrow + 20, lay.totalHeightForWidth(narrow + 20))

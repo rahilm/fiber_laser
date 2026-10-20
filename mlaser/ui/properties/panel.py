@@ -334,7 +334,15 @@ class PropertiesPanel(QScrollArea):
         w = self.panel.minimumSizeHint().width() + 2 * self.frameWidth()
         if self.verticalScrollBar().isVisible():
             w += self.verticalScrollBar().sizeHint().width()
-        return QSize(max(base.width(), w), base.height())
+        # its height: every section folded at its width (like the technology form's FormScroll),
+        # so the window's minimum keeps that much room and the panel scrolls only for sections
+        # the user opened (at the window's minimum height with the Windows fonts the folded
+        # sections were 4-22 px taller than the dock: a scroll bar nobody asked for)
+        h = base.height()
+        from mlaser.ui.responsive import ColumnsPanel
+        if isinstance(self.panel, ColumnsPanel) and self.width() > 0:
+            h = max(h, self.panel.folded_height(self.viewport().width()) + 2 * self.frameWidth())
+        return QSize(max(base.width(), w), h)
 
     def _min_changed(self) -> None:
         """The dock follows a wider minimum at once (a re-filled combo); a narrower one waits

@@ -542,21 +542,29 @@ class WrapCheckBox(QCheckBox):
         longest = max(self.fontMetrics().horizontalAdvance(w) for w in words)
         ind, text = self._parts(full.width())
         w = min(full.width(), text.x() + longest + 2)
-        return QSize(w, max(full.height(), self.heightForWidth(w)))
+        # one line high: the wrapped height comes through height for width, so a check box
+        # that has room is exactly as tall as a plain one
+        return QSize(w, full.height())
 
     def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
         return True
 
+    def _one_line(self, width: int) -> bool:
+        return self.fontMetrics().horizontalAdvance(self.text().replace("&", "")) <= self._parts(width)[1].width()
+
     def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
-        ind, _text = self._parts(width)
-        return max(super().sizeHint().height(), ind.height(), self._text_h(width) + 2)
+        one = super().sizeHint().height()
+        if self._one_line(width):
+            return one
+        pad = max(0, one - self.fontMetrics().height())
+        return max(one, self._text_h(width) + pad)
 
     def hitButton(self, pos) -> bool:  # noqa: N802 - Qt API
         return self.rect().contains(pos)
 
     def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
         from PySide6.QtGui import QPainter
-        if self.fontMetrics().horizontalAdvance(self.text()) <= self._parts(self.width())[1].width():
+        if self._one_line(self.width()):
             super().paintEvent(ev)           # one line: exactly the style's own check box
             return
         opt = QStyleOptionButton()
@@ -991,6 +999,7 @@ class ColumnsPanel(QWidget):
         self.pinned: list[QWidget] = []     # widgets on top, always shown in full (e.g. STOP)
         self._busy = False
         self._comfortable_hint: Optional[QSize] = None
+        self._comfortable_min_w = 0
         self._last: Optional[tuple] = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -1073,6 +1082,15 @@ class ColumnsPanel(QWidget):
         return sum(self._widget_h(p, width) + self.spacing() for p in self.pinned if not p.isHidden())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = self._min_now()
+        if bool(self.property("compact")) and self._comfortable_min_w:
+            # compact saves height, not width: a minimum width that shrank with the compact
+            # paddings let the dock narrow, which made the panel comfortable again, which
+            # widened it... (at the window's minimum the canvas alternated by 2 px)
+            s.setWidth(max(s.width(), self._comfortable_min_w))
+        return s
+
+    def _min_now(self) -> QSize:
         m = 2 * self.margins()
         w = self._col_min()
         if self.scroll_overflow and self.width() > 0:
@@ -1199,6 +1217,7 @@ class ColumnsPanel(QWidget):
             # so no geometry update: an extra relayout pass here moved the canvas under a test's
             # mouse clicks)
             self._comfortable_hint = self._hint_now()
+            self._comfortable_min_w = self._min_now().width()
             if not self._fits(W, H, exp):
                 set_compact(self, True)
                 compact = True

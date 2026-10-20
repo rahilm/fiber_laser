@@ -109,7 +109,8 @@ def test_long_titles_are_cut_with_a_tooltip(app):
     s.show()
     pump(app)
     h = s.header
-    assert h.text().endswith("…") and h.full_text() == s.title()
+    # Qt's elision mark: "…" where the font has the glyph, "..." otherwise (the Windows CI font)
+    assert h.text().endswith(("…", "...")) and h.full_text() == s.title()
     assert h.sizeHint().width() <= h.width() + 1             # the shown text fits: not clipped
     assert s.title() in h.toolTip() and h.accessibleName() == s.title()
     s.resize(800, 200)
@@ -378,3 +379,14 @@ def test_docks_settle_at_the_window_minimum(win, app, doc):
     assert len(seen) == 1, seen
     win.resize(1280, 800)
     pump(app, 0.1)
+
+
+def test_properties_minimum_height_is_its_folded_height(win, app, doc):
+    """The Properties dock's minimum height is its sections folded at its width, so the window
+    keeps that room and the panel scrolls only for sections the user opened (at the window's
+    minimum height with the Windows fonts the folded sections were 4-22 px taller than the dock)."""
+    pp = props(win)
+    win.shell.host.activate("design")
+    pump(app, 0.1)
+    need = pp.panel.folded_height(pp.viewport().width()) + 2 * pp.frameWidth()
+    assert pp.minimumSizeHint().height() >= need
