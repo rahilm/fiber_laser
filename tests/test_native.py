@@ -74,6 +74,8 @@ def test_layout_places_every_command_once(win, plat):
     menus = menu_spec.layout(ids, plat, settings, nav=HAVE_HOMES)
     placed = menu_spec.placement(menus)            # raises on a command placed twice
     expected = {c for c in ids if not c.startswith(menu_spec.DYNAMIC_PREFIXES)}
+    if settings != "app.options":
+        expected.discard("app.options")      # the same Settings window: one entry (app.settings)
     assert set(placed) == expected | ({"nav.layer_parameters"} if HAVE_HOMES else set())
     assert [m.id for m in menus] == ["file", "edit", "view", "draw", "process", "workspace", "machine",
                                      "tools", "window", "help"]
@@ -82,7 +84,7 @@ def test_layout_places_every_command_once(win, plat):
     assert placed["machine.home"] == "machine" and placed["workspace.design"] == "workspace"
     assert placed["shell.palette"] == "help" and placed["window.fullscreen"] == "window"
     if plat == menu_spec.WINDOWS:
-        assert placed[settings] == "tools" and placed["app.options"] == "tools"
+        assert placed[settings] == "tools" and (settings == "app.options" or "app.options" not in placed)
         assert menus[0].items[-1] == "app.exit"
     elif plat == menu_spec.LINUX:
         assert placed[settings] == "edit" and menus[1].items[-1] == settings
@@ -106,7 +108,7 @@ def test_layout_puts_new_commands_somewhere():
 def test_layout_uses_the_settings_command_of_the_settings_track():
     menus = menu_spec.layout(["app.options", "app.settings", "app.exit"], menu_spec.WINDOWS, "app.settings")
     placed = menu_spec.placement(menus)
-    assert placed["app.settings"] == "tools" and placed["app.options"] == "tools"
+    assert placed["app.settings"] == "tools" and "app.options" not in placed   # one Settings entry
     assert menu_spec.roles(menu_spec.MACOS, "app.settings")["app.settings"] == "PreferencesRole"
 
 
@@ -148,7 +150,8 @@ def test_menu_bar_replaces_the_menu_button_and_lists_every_command_once(win, app
     acts = _bar_actions(bar)
     cmds = [a.data() or a.objectName() for _p, a in acts if (a.data() or a.objectName()) in win.ribbon.actions]
     assert len(cmds) == len(set(cmds)), [c for c in cmds if cmds.count(c) > 1]
-    assert set(cmds) == set(win.ribbon.actions)
+    alias = {"app.options"} if sh.menu_ctl.settings_cmd() != "app.options" else set()
+    assert set(cmds) == set(win.ribbon.actions) - alias    # app.options = app.settings: one entry
     # the theme submenu (View > Appearance) holds the theme commands; the palette is in Help
     theme_menu = bar.findChild(QMenu, "menu_theme")
     assert {a.data() for a in theme_menu.actions()} == {f"shell.theme_{t}" for t in theme.THEME_IDS}

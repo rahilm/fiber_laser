@@ -311,12 +311,11 @@ def layout(commands: Iterable[str], plat: str, settings_cmd: Optional[str] = Non
                     out.append(settings_cmd if e == "app.options" else e)
             return out
         menus = [Menu(m.id, m.title, swap(m.items)) for m in menus]
-        if "app.options" in known:
-            # both exist: app.options stays reachable under Tools
-            for m in menus:
-                if m.id == "tools":
-                    m.items = m.items + [SEP, "app.options"]
     seen: set[str] = set()
+    if settings_cmd and settings_cmd != "app.options":
+        # app.options opens the same Settings window: one menu entry only (its shortcut and the
+        # command palette still reach it)
+        seen.add("app.options")
     # the application-menu commands of macOS first, so their place is the one with the role
     out = [Menu(m.id, m.title, _filter(m.items, known, seen)) for m in menus]
     by_id = {m.id: m for m in out}
