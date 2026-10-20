@@ -28,8 +28,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF,
-                           QTransform)
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTransform)
 from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsSimpleTextItem, QGraphicsView,
@@ -515,7 +514,7 @@ class CanvasHud(QFrame):
         from .i18n import tr
         c = CANVAS_COLORS
         bg = QColor(c["background"])
-        fg = "#ffffff" if bg.lightness() < 128 else "#1d2127"
+        fg = c["cut"]                      # the theme's drawing colour: readable on the canvas
         panel = QColor(bg)
         panel.setAlpha(225)
         self.setStyleSheet(
