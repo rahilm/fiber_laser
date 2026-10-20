@@ -13,6 +13,9 @@ responsive-layout rules:
   ``sizeHint`` (its text is cut); a label whose text does not fit, unless it carries a tooltip
   (the elided text is readable there); a combo box narrower than its current text; a widget that
   its ancestors cut (partly outside the visible part of a parent that does not scroll).
+  Qt's own title-bar and tool-bar sub-controls (:data:`QT_SUBCONTROLS`) are only checked for
+  being cut: the style, not their size hint, sizes them; a tool bar showing its extension
+  button (actions hidden behind the chevron) is ``clipped``.
 
 Each violation is a :class:`Violation` with the widget's path (object names / classes up to the
 window), so a report names the panel to fix.
@@ -28,6 +31,18 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QAbstractScro
                                QTextEdit, QWidget)
 
 TOL = 1      # px: rounding of fractional layouts
+
+#: Qt's own sub-controls, placed by their container's layout from the style's metrics rather
+#: than from their own size hints: the dock title bar's float and close buttons (QDockWidgetLayout,
+#: from ``PM_DockWidgetTitleBarButtonMargin`` / ``SE_DockWidgetFloatButton``: the macOS style
+#: draws them 18 px wide while their hint asks for 20) and a tool bar's extension button
+#: (QToolBarLayout, ``PM_ToolBarExtensionExtent``: 28 px high under windows11 with a 32 px
+#: hint).  What the user sees there is the native title bar or tool bar, drawn as the style
+#: means it; their size against their hint says nothing about the application's layout.  The
+#: dock buttons are still checked for being cut by their parent; a *visible* extension button
+#: is itself a violation (the tool bar's actions do not fit and hide behind it).  Application
+#: widgets are never listed here.
+QT_SUBCONTROLS = frozenset({"qt_dockwidget_floatbutton", "qt_dockwidget_closebutton", "qt_toolbar_ext_button"})
 
 
 @dataclass(frozen=True)
@@ -173,6 +188,14 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
         if vis.isEmpty():
             continue     # not on screen at all: a tabbed dock behind its sibling, a collapsed part
         sa = _scroll_ancestor(w)
+        if w.objectName() == "qt_toolbar_ext_button":
+            # the tool bar did not fit: some of its actions are hidden behind the chevron
+            add("clipped", w.parentWidget() or w, "tool bar overflows: actions hidden behind its extension button")
+            continue
+        if w.objectName() in QT_SUBCONTROLS:
+            if sa is None and (vis.width() < w.width() - TOL or vis.height() < w.height() - TOL):
+                add("clipped", w, f"cut by its parent: {vis.width()}x{vis.height()} of {w.width()}x{w.height()}")
+            continue
         msh = w.minimumSizeHint()
         size = w.size()
         if w.minimumWidth() == 0 and msh.width() > size.width() + TOL and not isinstance(w, QLabel):

@@ -120,6 +120,7 @@ class WorkspacePage(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        self._toolbar_need = 0            # the tool bar's width with icons only (fit_toolbar)
         self.toolbar = QToolBar()
         self.toolbar.setObjectName("shell_ws_toolbar")
         self.toolbar.setIconSize(QSize(20, 20))
@@ -270,6 +271,9 @@ class WorkspacePage(QWidget):
         accessible names) when the page is too narrow, so nothing hides behind the overflow."""
         tb = self.toolbar
         if not tb.actions():
+            if self._toolbar_need:
+                self._toolbar_need = 0
+                self.updateGeometry()
             return
         def apply(style) -> None:
             tb.setToolButtonStyle(style)
@@ -277,11 +281,23 @@ class WorkspacePage(QWidget):
                 btn = tb.widgetForAction(act)
                 if isinstance(btn, QToolButton) and act.icon().isNull():
                     btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            if tb.layout() is not None:
+                tb.layout().invalidate()     # its size hint is cached until the next layout pass
+        # icons only is the narrowest the tool bar gets: the page never goes below that width
+        # (the window's minimum follows), so no action hides behind the extension button
+        apply(Qt.ToolButtonIconOnly)
+        need = tb.sizeHint().width() if tb.isVisibleTo(self) else 0
         apply(Qt.ToolButtonTextBesideIcon)
         if tb.sizeHint().width() > max(self.width(), 1):
             apply(Qt.ToolButtonIconOnly)
         if tb.layout() is not None:
             tb.layout().invalidate()
+        if need != self._toolbar_need:
+            self._toolbar_need = need
+            self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return super().minimumSizeHint().expandedTo(QSize(self._toolbar_need, 0))
 
     def show_canvas(self, canvas: QWidget) -> None:
         if self.canvas_slot is None:
@@ -484,6 +500,9 @@ class WorkspaceHost:
             return True
         prev = self.specs.get(self.current)
         page = self.pages[ws_id]
+        win = self.w
+        before = win.size() if (win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen))) \
+            else None
         canvas = self.canvas_widget()
         if spec.canvas and canvas is not None:
             page.show_canvas(canvas)
@@ -495,9 +514,26 @@ class WorkspaceHost:
         self.current = ws_id
         self.rail_actions[ws_id].setChecked(True)
         self._apply_docks(prev, spec, hide=False)
+        if before is not None:
+            # the new page's minimum is first asked for before its wrapper knows the room around
+            # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
+            # its real minimum the window goes back to the size the user had, if that fits
+            QTimer.singleShot(0, win, lambda: self._keep_size(before, 6))
         for fn in list(self.listeners):
             fn(ws_id)
         return True
+
+    def _keep_size(self, before: QSize, again: int) -> None:
+        win = self.w
+        if not win.isVisible() or win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen):
+            return
+        size = win.size()
+        if size.width() > before.width() or size.height() > before.height():
+            want = before.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
+            if want != size and want.width() <= size.width() and want.height() <= size.height():
+                win.resize(want)
+        if again > 0:          # the page's sizes settle over a few event-loop turns
+            QTimer.singleShot(0 if again > 3 else 20, win, lambda: self._keep_size(before, again - 1))
 
     def resolve(self, ws_id: str) -> str:
         return self.aliases.get(ws_id, ws_id)
