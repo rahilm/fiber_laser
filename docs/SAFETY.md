@@ -243,7 +243,7 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
   (`gc.freeze` plus a generation-2 threshold of 2^30, `stream.quiet_gc`); the young generations
   keep their automatic collections. A full collection of a large drawing's objects stopped every
   thread of the process for up to 1.3 s (review 2 §3.1). The GIL switch interval is 0.5 ms
-  instead of 5 ms meanwhile (`stream.responsive_gil`): with two CPU-bound threads in the parent
+  instead of 5 ms meanwhile (`mlaser._sched.responsive_gil`): with two CPU-bound threads in the parent
   (`tools/bench_stream.py --load 2`) the heartbeat had gaps up to 544 ms at 5 ms and the process
   streamer faulted `parent_lost` in 10 of 10 runs; at 0.5 ms the largest gap was 58 ms and 0 of
   20 runs faulted.

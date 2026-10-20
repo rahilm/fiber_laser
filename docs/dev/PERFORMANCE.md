@@ -292,3 +292,113 @@ starts the workers, from about 600.  Workers are spawned (like the streamer proc
 the process lifetime, run at nice 10 / below-normal priority, never start inside a
 multiprocessing child other than the JobService's plan process (§8), and auto mode stays serial when the main script has no `__main__`
 guard.  A broken pool finishes the compile serially (with a warning).
+
+## 8. Interactive responsiveness, Review 2 (responsiveness track)
+
+Measured on the shared 64-core host at a load average of about 260 (3–5× slower than a quiet
+desktop: compare ratios). "Before" is `d71c581` (the Wave A safety merge) measured in the same
+session from an export of that commit, except where a row says "review" (the review 2 report's
+figure). The document is the review's `make_doc(N)`: half 24 mm squares with a hole, half
+24-point stars with two holes, line lead-ins, four layers, default machine (smoothing on).
+Scripts: the review's `bench_stream_ui.py` (with a `--compile-only` mode added), `tools/bench_stream.py`,
+and small selection / nudge drivers; median of n runs where n > 1.
+
+### The plan compile in a separate process (P1-1)
+
+`JobService` sends each compile to one persistent plan process (`services/planproc.py`,
+multiprocessing *spawn*, `freeze_support`-safe). The request goes per part: a part's pickle is
+cached while the planner snapshot keeps the same part copy, and the round-trip records go once
+by token. The toolpath comes back first and is drawn while the compile runs. The packed wire
+comes back through shared memory (`Job.to_shared` / `from_shared`), the bookkeeping lists in
+chunks. Plans, keys, cache and the start gate are unchanged: `tests/test_plan_process.py`
+compares wire, frames, markers, steps, carry (`float.hex`), laser length, estimate, manu items,
+bounds and key with the in-thread compile on the demo, a `.chf` sample, a placed document, frame,
+dry run and no smoothing, and checks that a plan finishing after a Stop is refused. The plan
+process may own the per-chain pool (§7). If no process can run (no `__main__` guard,
+`MLASER_PLAN_PROCESS=0`, a dead child, a profile registered at run time), the compile runs in
+the worker thread on a private copy, with the switch interval at 0.5 ms meanwhile.
+
+GUI event-loop latency: a thread posts to the GUI thread every 20–50 ms (the path a Stop
+takes, `QtDispatcher`) and records post → run.
+
+| scenario | before | after | ratio |
+|---|---|---|---|
+| during a compile, 500 parts (before: 26 s compile in the worker thread) | p99 **12,175 ms**, max 12,425, median 45.6 | process: p99 **71.5 ms**, median 3.2 (0.85 s compile, n = 42) | 170× (p99) |
+| during a compile, 4,000 parts, 8 s compile | – | process: p99 **205 ms**, max 364, median 2.9; thread fallback (0.5 ms switch interval): p99 1,837 ms, median 5.3 | |
+| during a compile, 500 parts, serial child compile (`test_gui_event_loop_stays_responsive_during_a_heavy_compile`, timing group) | – | p99 **31–33 ms** (bound 50 ms), median 0.05 ms; drawing the toolpath (57–60 ms) is GUI work and is left out of the bound | |
+| job streaming (process streamer), edits every 0.7 s + a nesting thread, **200 parts** | p99 **10,585 ms**, max 10,713, 96 % > 50 ms | p99 **46.2 ms**, max 52.2, median 6.6, 0.5 % > 50 ms | 229× |
+| the same, **2,000 parts** (n = 2) | p99 **10,024 / 12,366 ms**, median 2.9 / 4.7 s (review: 12,396 / 29,870) | p99 **126 / 136 ms**, max 159, median 6.3 / 6.6, 12 % > 50 ms | 80–90× |
+| the same, 2,000 parts, in-thread streamer | (review: p99 12,565 / 10,860 ms) | p99 131 ms, median 6.6 | |
+| edit on the GUI thread during that job, 2,000 parts (median) | 7.5 / 10.5 s | 134 / 139 ms | 56–76× |
+| toolpath on the canvas after open, 4,000 parts | – | 3.1 s (the compile then runs on for 5 s more) | |
+| `canvas.set_toolpath`, 2,000 parts | 274 ms idle, **10.6 s** with a busy worker (review) | 117 ms (no worker in the GUI process) | 90× vs busy |
+
+**The 50 ms Stop budget holds during a compile and during a job at 200 parts. It does not hold
+at 2,000 parts while the operator edits during a job.** p99 there is 126–136 ms, because one edit
+of a 2,000-part drawing still takes about 135 ms on the GUI thread (canvas, part list,
+properties panel, the planner snapshot). It is no longer the compile or the GIL: the probe
+thread's longest gap was 6–9 ms (before: 249–269 ms), and no full GC ran. A Stop pressed during
+such an edit waits for the edit (≤ 0.2 s instead of 10–30 s). Before, that wait was a multiple
+of the edit time because of the compile in the worker.
+
+### Streamer robustness (P1-2)
+
+`stream.quiet_gc` now also stops automatic generation-2 collections while a job streams (in the
+in-thread streamer, the streaming child and its parent); the young generations keep theirs. The
+parent bumps the child's heartbeat from a thread of its own while its relay loop is alive. The
+GIL switch interval is 0.5 ms during a job (`mlaser._sched.responsive_gil`). The 0.3 s parent
+timeout and every other bound are unchanged (docs/SAFETY.md §6).
+
+| `tools/bench_stream.py --load 2 --seconds 15` | before | after |
+|---|---|---|
+| process streamer | **10 of 10 runs `parent_lost` 301 ms** (review: 3 of 3) | **0 of 20** faults, min fill 1089–1091 ms (10 before and 10 after merging main's self-halt fix) |
+| in-thread streamer | 4 of 5 `unexpected_idle` (FIFO ran dry), the one ok run: min fill 66 ms (review: 84 / 232 ms, 1/3 dry) | 10 of 10 ok, min fill 980–1013 ms |
+| parent heartbeat gap, 2 load threads (diagnostic) | up to 544 ms at a 5 ms switch interval | 58 ms at 0.5 ms (132 ms at 1 ms, 43 ms at 0.2 ms) |
+| largest gen-2 GC pause during the 2,000-part job above | 222–232 ms | 0 (no gen-2 collection; largest collection 2 ms) |
+
+The heartbeat thread alone was not enough: with the default 5 ms switch interval the faults
+stayed at 10 of 10. The thread lost most GIL hand-overs to the two CPU-bound threads on a
+4×-oversubscribed host.
+
+### Scoped edits and copy-on-write snapshots (P1-3)
+
+`ext_draw` passes the part scope to every edit, so the undo command copies only the touched
+parts. `DocumentService.plan_snapshot` copies a part only when it changed: it checks identity,
+edit scope and value equality, so a change that bypasses `edit()` is still caught. The inputs
+hash and the plan-process request reuse per-part digests and encodings.
+
+| 2,000 / 10,000 parts | before | after |
+|---|---|---|
+| planner snapshot after a one-part edit | 369 ms / 2,142 ms (full copy) | **27 ms / 113 ms** (first snapshot after open: 523 / 2,223 ms) |
+| one-part nudge, synchronous on the GUI thread, real window | 5.2 s / 6.7 s (review, compile disabled) | **115–210 ms / ~670 ms** (plan process) |
+| `inputs_hash`, unchanged parts | 123 ms / 1,210 ms | per-part digests: only changed parts are pickled |
+
+### Linear selection (P1-8)
+
+`PartListPanel` selects its rows in one `QItemSelectionModel.select` call. The canvas re-pens
+only items whose style changed, and caches part boxes for the rubber band.
+
+| real window, n = 3 | 2,000 before | 2,000 after | 10,000 before | 10,000 after |
+|---|---|---|---|---|
+| `select_parts(all)` | 2,336 ms | 148 ms | **222,035 ms** | **741 ms** |
+| rubber band, all | 2,506 ms | 162 ms | **225,908 ms** | **850 ms** |
+| small rubber band right after select-all | 1,014 ms | 70 ms | **77,236 ms** | **384 ms** |
+| `part_list.sync_selection` | 9.1 ms | 0.2 ms | 47.7 ms | 0.9 ms |
+
+`tests/test_partlist_cache.py::test_rubber_band_selection_at_10000_parts_is_linear` runs the
+canvas and part list at 10,000 parts (bound 8 s per operation; before, it took minutes).
+
+### Canvas
+
+`CanvasView.rebuild` keeps the items of contours whose cached display path is unchanged. The
+toolpath overlay is cached per toolpath, and arcs are drawn with `arcTo` instead of 0.5 mm
+polylines. At 2,000 parts the rebuild in a one-part nudge is 49 ms (143 ms before this track's
+canvas changes).
+
+### Import dialog
+
+`ui/import_worker.py` lowers the switch interval to 0.5 ms while the progress dialog waits for the
+worker thread. macOS CI showed 3 ticks of a 20 ms timer in 1 s. On this Linux host the test gave
+35–36 ticks in 0.73 s before and 33–36 after, so Linux showed no starvation to fix. The macOS
+effect still has to be seen in CI. `tests/test_import_worker_ui.py::test_gui_wait_lowers_the_switch_interval`
+checks the setting.
