@@ -116,7 +116,12 @@ def _run(parent, fn: Callable[[], Any], label: str) -> Any:
         tick.timeout.connect(update)
         tick.start()
         if not box.get("finished"):     # finished between the check and the connect: no wait
-            loop.exec()
+            # the worker is Python and holds the GIL between its calls: with the default 5 ms
+            # switch interval the GUI thread lost most hand-overs (macOS CI: 3 ticks of a 20 ms
+            # timer in 1 s); 0.5 ms while the dialog waits (mlaser._sched, review 2 P1-1)
+            from mlaser._sched import responsive_gil
+            with responsive_gil():
+                loop.exec()
         tick.stop()
         show.stop()
         dlg.canceled.disconnect(cancel)

@@ -183,3 +183,90 @@ def test_edit_cost_on_sample(sample_bytes):
         best = min(best, (time.perf_counter() - t) * 1e3)
     assert best < old_ms
     assert svc.stack.cost < 4 * 2**20
+
+
+# ------------------------------------------------------------------ plan_snapshot (copy-on-write)
+def _same_snapshot(a, b):
+    assert a.parts == b.parts and a.layers == b.layers and a.extra == b.extra and a.version == b.version
+    assert [p.uid for p in a.parts] == [p.uid for p in b.parts]
+    assert [[c.uid for c in p.contours] for p in a.parts] == [[c.uid for c in p.contours] for p in b.parts]
+
+
+def test_plan_snapshot_equals_a_full_copy_and_shares_unchanged_parts():
+    """Review 2 P1-3: the replan snapshot copies only the parts that changed."""
+    from mlaser.formats.chf import load_chf
+    from mlaser.services.jobs import JobRequest, inputs_hash
+    from mlaser.nc.machine import Machine
+    for doc in (doc3(), load_chf(SAMPLE)):
+        docs = DocumentService(doc)
+        s1 = docs.plan_snapshot()
+        _same_snapshot(s1, docs.snapshot())
+        assert all(a is not b for a, b in zip(s1.parts, docs.document.parts))
+        s2 = docs.plan_snapshot()
+        assert all(a is b for a, b in zip(s1.parts, s2.parts)) and s2.layers is not s1.layers
+        key = lambda s: inputs_hash(JobRequest("process", s, Machine()))  # noqa: E731
+        assert key(s1) == key(s2) == key(docs.snapshot())
+        target = docs.document.parts[1]
+        docs.edit(lambda d: ops.translate(Document(parts=[target]), 1.0, 0.0), parts=[target])
+        s3 = docs.plan_snapshot()
+        _same_snapshot(s3, docs.snapshot())
+        assert [a is b for a, b in zip(s2.parts, s3.parts)] == [i != 1 for i in range(len(s3.parts))]
+        assert key(s3) != key(s2)
+        docs.undo()
+        s4 = docs.plan_snapshot()
+        _same_snapshot(s4, docs.snapshot())
+        assert key(s4) == key(s2)
+
+
+def test_plan_snapshot_sees_changes_that_bypass_edit():
+    """A change made in place without DocumentService.edit, or a change to a shared copy, is
+    found by the value check and the part is copied again."""
+    docs = DocumentService(doc3())
+    s1 = docs.plan_snapshot()
+    p = docs.document.parts[0]
+    p.contours[0].segments[0] = Line((0.0, 0.0), (11.0, 0.0))   # in place, no edit()
+    p.craft.layer = 3
+    docs.document.parts[2].name = "renamed"
+    s2 = docs.plan_snapshot()
+    _same_snapshot(s2, docs.snapshot())
+    assert s2.parts[0] is not s1.parts[0] and s2.parts[2] is not s1.parts[2] and s2.parts[1] is s1.parts[1]
+    s2.parts[1].extra["scan_paths"] = ["derived"]                  # a compile caching into a copy
+    s3 = docs.plan_snapshot()
+    _same_snapshot(s3, docs.snapshot())
+    assert s3.parts[1] is not s2.parts[1]
+    docs.document.parts[1].contours[0].uid = 424242                # uids are compared too
+    _same_snapshot(docs.plan_snapshot(), docs.snapshot())
+    docs.replace(doc3())
+    s5 = docs.plan_snapshot()
+    _same_snapshot(s5, docs.snapshot())
+    assert not any(a is b for a in s5.parts for b in s3.parts)
+
+
+def test_plan_snapshot_random_edit_sequences():
+    """Random scoped, unscoped and out-of-band changes, undo and redo: the copy-on-write snapshot
+    always equals a full copy."""
+    import random
+    rnd = random.Random(7)
+    docs = DocumentService(Document(parts=[Part([rect(i * 15.0, 0)], name=str(i)) for i in range(12)]))
+    for step in range(150):
+        doc = docs.document
+        k = rnd.randrange(len(doc.parts)) if doc.parts else None
+        r = rnd.random()
+        if k is None or r < 0.1:
+            docs.edit(lambda d: d.parts.append(Part([rect(rnd.random() * 100, 30)])), parts=[])
+        elif r < 0.35:
+            t = doc.parts[k]
+            docs.edit(lambda d: ops.translate(Document(parts=[t]), rnd.random(), 0.0), parts=[t])
+        elif r < 0.45:
+            docs.edit(lambda d: d.parts.pop(k), parts=[])
+        elif r < 0.55:
+            doc.parts[k].selected = not doc.parts[k].selected            # selection, no edit
+        elif r < 0.62:
+            doc.parts[k].craft.kerf_width = rnd.random()                 # out of band
+        elif r < 0.8 and docs.can_undo:
+            docs.undo()
+        elif docs.can_redo:
+            docs.redo()
+        if step % 3 == 0:
+            _same_snapshot(docs.plan_snapshot(), docs.snapshot())
+    assert docs.plan_hits > docs.plan_misses

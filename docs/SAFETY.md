@@ -242,9 +242,21 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
   holds nothing of the job before the child has spoken. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
-* While a job streams, the heap that existed before it is frozen (`gc.freeze`, `stream.quiet_gc`):
-  a full garbage collection of a large drawing's objects would otherwise stop every thread of
-  the process for up to a second (the in-thread streamer, the parent's watch of the child).
+* The parent's heartbeat counter is bumped every 20 ms by a thread of its own
+  (`ProcessStreamer._heartbeat`), not by the relay loop that unpickles and dispatches the
+  status messages; it is bumped only while the relay loop has run within the same 0.3 s, so it
+  still means "the relay loop is alive" (a stuck relay loop stops it; the child then halts
+  within 0.3 s + 0.3 s, `tests/safety/test_stream_robustness.py`). The 0.3 s parent timeout,
+  the 0.5 s child watch, the 150 ms link deadline and the 1.2 s buffer cap are unchanged.
+* While a job streams (in-thread streamer, streaming child and its parent), the heap that
+  existed before it is frozen and automatic full (generation 2) garbage collections are off
+  (`gc.freeze` plus a generation-2 threshold of 2^30, `stream.quiet_gc`); the young generations
+  keep their automatic collections. A full collection of a large drawing's objects stopped every
+  thread of the process for up to 1.3 s (review 2 §3.1). The GIL switch interval is 0.5 ms
+  instead of 5 ms meanwhile (`mlaser._sched.responsive_gil`): with two CPU-bound threads in the parent
+  (`tools/bench_stream.py --load 2`) the heartbeat had gaps up to 544 ms at 5 ms and the process
+  streamer faulted `parent_lost` in 10 of 10 runs; at 0.5 ms the largest gap was 58 ms and 0 of
+  20 runs faulted.
 
 ## 7. Link loss
 

@@ -36,6 +36,10 @@ class DocumentService:
         self.last_edit_ms = 0.0  # time of the last edit transaction (fn + record)
         self._pending: Optional[tuple[Document, Optional[str]]] = None
         self._depth = 0
+        # plan_snapshot: part uid -> (live part, its copy); uids edited since they were copied
+        self._plan_parts: dict[int, tuple[Part, Part]] = {}
+        self._plan_dirty: set[int] = set()
+        self.plan_hits = self.plan_misses = 0
         ensure_unique_ids(self.document)
         self.blobs.register_document(self.document)
 
@@ -54,9 +58,52 @@ class DocumentService:
         return self.blobs.copy(obj)
 
     def snapshot(self, doc: Optional[Document] = None) -> Document:
-        """A private copy of the document for a worker (JobService): geometry, crafts and layers
-        are copied, round-trip records shared (they are immutable)."""
+        """A private copy of the document: geometry, crafts and layers are copied, round-trip
+        records shared (they are immutable).  The caller may change it."""
         return self.lean_copy(doc if doc is not None else self.document)
+
+    def plan_snapshot(self, doc: Optional[Document] = None) -> Document:
+        """A copy of the document for the planner (``jobs.build_request``), copy-on-write.
+
+        Equal by value to :meth:`snapshot`, but each *part* is copied only when it changed since
+        it was last copied: a replan after a one-part nudge copies one part instead of the whole
+        drawing (review 2 P1-3: 1.2 s at 2,000 parts, 2.4 s at 10,000, on the GUI thread).  The
+        part copies are therefore shared between plan snapshots and **must not be changed**;
+        ``layers`` and ``extra`` are copied per snapshot.
+
+        A cached copy is reused only when the live part is the same object it was copied from,
+        is not in the scope of an edit made since (:meth:`edit` marks its scope), and still
+        compares equal to the copy by value (``Part.__eq__`` plus the part and contour uids and
+        the glyph fingerprints): an in-place change that bypassed :meth:`edit`, or a change to a
+        copy, is detected and the part copied again (tests/test_services_undo.py)."""
+        doc = doc if doc is not None else self.document
+        cache = self._plan_parts
+        dirty = self._plan_dirty
+        parts = []
+        for p in doc.parts:
+            hit = cache.get(p.uid)
+            if hit is not None and hit[0] is p and p.uid not in dirty and _same_part(p, hit[1]):
+                parts.append(hit[1])
+                self.plan_hits += 1
+                continue
+            c = self.lean_copy(p)
+            cache[p.uid] = (p, c)
+            parts.append(c)
+            self.plan_misses += 1
+        dirty.difference_update(p.uid for p in doc.parts)
+        if doc is self.document and len(cache) > len(doc.parts):
+            live = {p.uid for p in doc.parts}
+            for u in [u for u in cache if u not in live]:
+                del cache[u]
+        layers, extra = self.lean_copy((doc.layers, doc.extra))
+        return Document(parts=parts, layers=layers, version=doc.version, extra=extra)
+
+    def _plan_invalidate(self, uids=None) -> None:
+        if uids is None:
+            self._plan_parts.clear()
+            self._plan_dirty.clear()
+        else:
+            self._plan_dirty.update(uids)
 
     # ------------------------------------------------------------------ whole document
     def replace(
@@ -75,6 +122,7 @@ class DocumentService:
         self.document, self.path = doc, path
         ensure_unique_ids(doc)
         self.blobs.register_document(doc)
+        self._plan_invalidate()
         self._notify("replace")
 
     def adopt(self, doc: Document, path: Optional[str] = None) -> None:
@@ -88,6 +136,7 @@ class DocumentService:
         self.document, self.path = doc, path
         ensure_unique_ids(doc)
         self.blobs.register_document(doc)
+        self._plan_invalidate()
         self._notify("replace")
 
     def checkpoint(self) -> None:
@@ -107,6 +156,7 @@ class DocumentService:
         if self._pending is not None:
             self._commit_pending()
             self.blobs.register_document(self.document)
+            self._plan_invalidate()
             self._notify("edit")
 
     # ------------------------------------------------------------------ transactions
@@ -125,6 +175,7 @@ class DocumentService:
         live_before = list(doc.parts)
         order_before = [p.uid for p in live_before]
         scope = set(scope_uids(doc, parts))
+        self._plan_invalidate(scope)
         by_uid = {p.uid: p for p in live_before}
         copies = {u: self.lean_copy(by_uid[u]) for u in order_before if u in scope}
         doc_state = (self.lean_copy(doc.layers), self.lean_copy(doc.extra))
@@ -186,6 +237,18 @@ class DocumentService:
     @property
     def can_redo(self) -> bool:
         return self.stack.can_redo
+
+
+def _same_part(live: Part, copy_: Part) -> bool:
+    """``copy_`` is still an exact copy of ``live``: equal by value (``Part.__eq__`` covers the
+    geometry, crafts, flags and the raw ``extra``), the same contour uids, glyph fingerprints
+    and attribute sets (the fields ``__eq__`` leaves out)."""
+    if live.__dict__.keys() != copy_.__dict__.keys() or len(live.contours) != len(copy_.contours):
+        return False
+    for a, b in zip(live.contours, copy_.contours):
+        if a.uid != b.uid or a.glyph_key != b.glyph_key or a.__dict__.keys() != b.__dict__.keys():
+            return False
+    return live == copy_
 
 
 def clone_parts(parts: Iterable[Part]) -> list[Part]:

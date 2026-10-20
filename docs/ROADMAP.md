@@ -214,9 +214,12 @@ deliberately out of scope for now.
 - ☐ the Run screen's controls never hidden by docks (the old Nest panel case)
 
 ### Wave B: responsiveness and throughput
-- ☐ plan compile in a separate process; `sys.setswitchinterval` interim; scoped edit snapshots;
-  linear selection sync; no duplicate estimate pass; LAN monitor SVG/bbox cache
-- ☐ streamer: no automatic full GC during jobs, heartbeat from its own thread (motion bound kept)
+- ◐ plan compile in a separate process; `sys.setswitchinterval` interim; scoped edit snapshots;
+  linear selection sync (done: docs/dev/PERFORMANCE.md §8; the 50 ms Stop budget still misses at
+  2,000 parts while editing during a job: one edit is ~135 ms on the GUI thread); no duplicate
+  estimate pass; LAN monitor SVG/bbox cache
+- ☑ streamer: no automatic full GC during jobs, heartbeat from its own thread (motion bound kept;
+  `bench_stream.py --load 2`: 0 of 20 faults, was 10 of 10)
 - ☐ native smoother/curve tables/crtmath, packed arrays from the C kernel, parallel compile per
   chain (bit-identical), ring sort O(n log n)
 - ☑ packaging: ortools.dll on Windows, no host CUPS/gnutls in the Linux bundle, size trims

@@ -24,6 +24,10 @@ import gc
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+# the application's JobService compiles in a plan process (services/planproc.py); the suite's
+# many windows compile in their worker thread instead (one process per window would cost an
+# interpreter start each).  tests/test_plan_process.py tests the process path explicitly.
+os.environ.setdefault("MLASER_PLAN_PROCESS", "0")
 
 if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
     import faulthandler
@@ -44,6 +48,7 @@ UI_MODULES = {
     "test_import_worker_ui", "test_ws_cutting_strategy", "test_ws_orders",
     # Review 2 shop floor (automation track)
     "test_notify_ui", "test_labels", "test_marking", "test_practice", "test_runsource",
+    "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
 }
@@ -56,6 +61,7 @@ SIM_MODULES = {
     "test_parity_capture", "test_process_compile", "test_ui", "test_procedures",
     "test_machine_workspace", "test_ws_run", "test_ws_cutting_strategy",
     "test_practice",          # lessons on the card simulator (real-time waits)
+    "test_plan_process",      # the plan process; GUI event-loop latency during a compile
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)
