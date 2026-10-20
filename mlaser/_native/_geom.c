@@ -187,10 +187,10 @@ double mlaser_crt_atan2(double y, double x)
         return (m & 1U) ? -CRT_PI / 2 : CRT_PI / 2;
     if (ix == 0x7FF00000U) {
         if (iy == 0x7FF00000U) {
-            static const double t[4] = {CRT_PI / 4, -CRT_PI / 4, 3 * CRT_PI / 4, -3 * CRT_PI / 4};
+            const double t[4] = {CRT_PI / 4, -CRT_PI / 4, 3 * CRT_PI / 4, -3 * CRT_PI / 4};
             return t[m];
         }
-        static const double u[4] = {0.0, -0.0, CRT_PI, -CRT_PI};
+        const double u[4] = {0.0, -0.0, CRT_PI, -CRT_PI};
         return u[m];
     }
     /* Python ints: ix + (64 << 20) < iy has no unsigned wrap-around (ix < 0x7FF00000 here) */
