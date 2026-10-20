@@ -46,8 +46,9 @@ class LeadDiagram(QWidget):
         self.update()
 
     def set_kerf(self, comp: int, width: float) -> None:
-        """Kerf compensation shown as the beam's path: offset by half the kerf width to the
-        scrap side (outside, 1) or into the hole side (inside, 0), as a band of the kerf width."""
+        """Kerf compensation shown as the beam's path: offset by ``width`` (the compensation
+        value is the offset, half the cut's width, :func:`mlaser.cam.kerf.compensate`) to the
+        scrap side (outside, 1) or into the hole side (inside, 0), as a band of the cut's width."""
         self.kerf_comp, self.kerf_width = int(comp), float(width or 0.0)
         self.update()
 
@@ -55,7 +56,7 @@ class LeadDiagram(QWidget):
         """Offset of the beam centre from the drawn edge (+ = into the part), 0 without kerf."""
         if self.kerf_comp not in (0, 1) or self.kerf_width <= 0:
             return 0.0
-        return (self.kerf_width / 2) * (1.0 if self.kerf_comp == 0 else -1.0)
+        return self.kerf_width * (1.0 if self.kerf_comp == 0 else -1.0)
 
     def geometry_mm(self):
         """(contour polyline, lead-in polylines, lead-out polylines) in mm: a 20 mm wide edge of
@@ -104,7 +105,7 @@ class LeadDiagram(QWidget):
             kc = QColor(pal.color(QPalette.Link))
             band = QColor(kc)
             band.setAlpha(70)
-            p.setPen(QPen(band, max(3.0, self.kerf_width * s), Qt.SolidLine, Qt.FlatCap))
+            p.setPen(QPen(band, max(3.0, 2 * self.kerf_width * s), Qt.SolidLine, Qt.FlatCap))
             p.drawPath(path([(-12.0, off), (12.0, off)]))
             p.setPen(QPen(kc, 1.2, Qt.DashLine))
             p.drawPath(path([(-12.0, off), (12.0, off)]))

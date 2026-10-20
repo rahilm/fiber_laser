@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, Q
 from mlaser import ops
 from mlaser.model import Document, LeadParams, Part
 
-from mlaser.ui.quantity import QuantitySpinBox
+from mlaser.ui.quantity import QuantitySpinBox, shrinkable
 from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section
 
 from .lead_diagram import LeadDiagram
@@ -53,7 +53,7 @@ def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoub
             s.setSuffix(f" {unit}")
     s.setKeyboardTracking(False)
     s.setAccelerated(True)
-    return s
+    return shrinkable(s)
 
 
 def _swatch(color: QColor) -> QIcon:

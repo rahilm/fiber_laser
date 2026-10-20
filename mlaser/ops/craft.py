@@ -70,21 +70,38 @@ def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start
     return n
 
 
+def _crafts(p) -> list:
+    """The part craft and every per-contour craft of ``p`` (``Contour.craft``, created by a
+    lead, a start point or a manual edit on one contour; the toolpath uses it instead of the
+    part craft for that contour)."""
+    out = [p.craft]
+    for c in p.contours:
+        cr = getattr(c, "craft", None)
+        if cr is not None and cr is not p.craft:
+            out.append(cr)
+    return out
+
+
 def apply_kerf(doc: Document, kind: int, width: float) -> int:
+    """Kerf compensation of the target parts, on the part craft **and** on every per-contour
+    craft: a part whose contours got their own craft (leads on a part with holes) used to keep
+    the old compensation on all of them, so the kerf set afterwards did nothing."""
     n = 0
     for p in targets(doc):
-        p.craft.kerf_comp = kind
-        p.craft.kerf_width = width
+        for cr in _crafts(p):
+            cr.kerf_comp = kind
+            cr.kerf_width = width
         n += 1
     return n
 
 
 def clear_joints(doc: Document) -> int:
-    """mf103 clear: drop the micro-joints of the target parts."""
+    """mf103 clear: drop the micro-joints of the target parts (per-contour crafts included)."""
     n = 0
     for p in targets(doc):
         n += len(p.craft.micro_joints)
-        p.craft.micro_joints = []
+        for cr in _crafts(p):
+            cr.micro_joints = []
     return n
 
 
@@ -122,7 +139,8 @@ def auto_microjoints(doc: Document, prm: MicroJointParams) -> int:
     for p in targets(doc):
         if not p.contours:
             continue
-        c = max(p.contours, key=lambda k: k.length())
+        ci = max(range(len(p.contours)), key=lambda k: p.contours[k].length())
+        c = p.contours[ci]
         js = auto_joints(
             c,
             count=prm.count if prm.kind == 0 else 0,
@@ -132,6 +150,10 @@ def auto_microjoints(doc: Document, prm: MicroJointParams) -> int:
         )
         p.craft.micro_joints = [MicroJoint(float(a), float(w)) for a, w in js]
         p.craft.joint_width = prm.length
+        ov = getattr(c, "craft", None)         # the contour's own craft is the one the toolpath uses
+        if ov is not None and ov is not p.craft:
+            ov.micro_joints = list(p.craft.micro_joints)
+            ov.joint_width = prm.length
         n += len(js)
     return n
 

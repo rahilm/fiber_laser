@@ -68,13 +68,27 @@ def kind_for_unit(unit: str) -> Optional[str]:
         return _UNIT_KIND.get((unit or "").strip())
 
 
+def shrinkable(w: QWidget, chars: int = 7) -> QWidget:
+    """Let a spin box shrink to its content instead of to the text of its largest value (a
+    range of ±1e6 asks ~170 px and forces a narrow dock to scroll sideways): the minimum width
+    becomes ``chars`` digits plus the suffix in the widget's own font."""
+    from PySide6.QtWidgets import QAbstractSpinBox, QSizePolicy
+
+    if isinstance(w, QAbstractSpinBox):
+        fm = w.fontMetrics()
+        suffix = w.suffix() if hasattr(w, "suffix") else ""
+        w.setMinimumWidth(fm.horizontalAdvance("8" * chars + suffix) + 2 * fm.height())
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return w
+
+
 def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
              step: Optional[float] = None) -> QuantitySpinBox:
     """A QuantitySpinBox with the panels' defaults (no keyboard tracking: a value is taken when
     the field is confirmed)."""
     s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=decimals, step=step)
     s.setKeyboardTracking(False)
-    return s
+    return shrinkable(s)
 
 
-__all__ = ["QuantitySpinBox", "kind_for_unit", "quantity", "HAVE_UNITS"]
+__all__ = ["QuantitySpinBox", "kind_for_unit", "quantity", "shrinkable", "HAVE_UNITS"]

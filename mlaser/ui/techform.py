@@ -41,7 +41,7 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout
 
 from mlaser.services import technology as T
 
-from .quantity import QuantitySpinBox, kind_for_unit
+from .quantity import QuantitySpinBox, kind_for_unit, shrinkable
 
 # --------------------------------------------------------------------------- layout helpers
 
@@ -186,7 +186,9 @@ class Section(QWidget):
         self.header.setChecked(expanded)
         self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.header.setAutoRaise(True)
-        self.header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        # a long title never widens the panel: it is clipped (full text in the tooltip)
+        self.header.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.header.setToolTip(title)
         f = self.header.font()
         f.setBold(True)
         self.header.setFont(f)
@@ -340,6 +342,7 @@ class TechField:
             w.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
             w.setMinimumContentsLength(6)
         w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        shrinkable(w)
         self.widget = w
         group, name = tr.tr_param(d.lang)
         self.group = group or tr.tr("techform.group.general")
@@ -730,6 +733,15 @@ class TechForm(QWidget):
         if f.stage is not None and f"stage{f.stage}" in self._forms and f.section == "piercing":
             return self._forms[f"stage{f.stage}"]
         return self._forms[f.section]
+
+    def section_order(self) -> list[str]:
+        """Section ids top to bottom."""
+        out = []
+        for i in range(self.body_lay.count()):
+            w = self.body_lay.itemAt(i).widget()
+            if isinstance(w, Section):
+                out.append(w.sid)
+        return out
 
     def visible_keys(self) -> list[str]:
         """Parameters currently shown (tests)."""
