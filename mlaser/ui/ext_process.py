@@ -147,7 +147,8 @@ class ProcessExtension:
         # the Process slot of the shell: the canvas with this panel at its right
         ctx.add_workspace("process", self.workspace, t("process.title"), canvas=True,
                           docks=["plugin.ext_process.properties", "plugin.ext_process.preview", "mf124"])
-        self.properties = PropertiesPanel(ctx, self.canvas, technology_name=self.workspace.technology_name)
+        self.properties = PropertiesPanel(ctx, self.canvas, technology_name=self.workspace.technology_name,
+                                          store=self.store)
         self.scrubber = ScrubberWidget(ctx.tr)
         self.overlay = PreviewOverlay(self.canvas)
         self.props_dock = ctx.add_dock(self.properties, t("props.title"), "left", key="plugin.ext_process.properties")
@@ -210,6 +211,11 @@ class ProcessExtension:
         self.scrubber.pause()
 
     def _document_changed(self, kind: str) -> None:
+        if kind == "replace":
+            # a drawing saved without override marks (.chf, DXF, an older project): derive them
+            # once (no value changes; services.inheritance)
+            from mlaser.services.inheritance import derive_marks
+            derive_marks(self.ctx.document, self.store)
         self.workspace.refresh_layers()
         self.properties.refresh()
 

@@ -104,6 +104,7 @@ TABS: list[Tab] = [
             Btn("view.zoom_in", "mf198", large=False),
             Btn("view.zoom_out", "mf199", large=False),
             Btn("view.zoom_fit", "mf200", large=False),
+            Btn("view.fit_table", "canvas.cmd.fit_table", large=False),
             Btn("edit.undo", "mf30", large=False),
             Btn("edit.redo", "mf31", large=False),
         ]),
@@ -122,6 +123,7 @@ TABS: list[Tab] = [
             Btn("show.start", "mf41", checkable=True, large=False),
             Btn("show.direction", "mf42", checkable=True, large=False),
             Btn("show.move_path", "mf43", checkable=True, large=False),
+            Btn("show.toolpath", "canvas.cmd.toolpath", checkable=True, large=False),
         ]),
         Group("mf590", [  # Geometric transformations
             Btn("xform.size", "mf591", menu=[

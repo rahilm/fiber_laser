@@ -18,13 +18,14 @@ import copy
 import math
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QGroupBox, QHBoxLayout,
-                               QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QLabel, QPushButton, QScrollArea, QSpinBox, QVBoxLayout, QWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LeadParams, Part
+
+from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section, shrinkable
 
 from ..units_qt import QuantitySpinBox
 from .lead_diagram import LeadDiagram
@@ -34,23 +35,32 @@ LEAD_KINDS = ("props.lead.none", "props.lead.line", "props.lead.arc", "props.lea
 KERF_KINDS = ((-1, "props.kerf.none"), (0, "props.kerf.inner"), (1, "props.kerf.outer"))
 
 
+_KIND = {"mm": "length", "mm_small": "small_length", "°": "angle"}
+
+
 def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoubleSpinBox:
-    s = QDoubleSpinBox()
-    s.setRange(lo, hi)
-    s.setDecimals(dec)
-    s.setSingleStep(step)
+    """A unit-bearing field: lengths and angles are QuantitySpinBox (the Units track's widget:
+    shown in the user's units, stored in mm), other units (%) a plain spin box."""
+    kind = _KIND.get(unit)
+    if kind is not None:
+        s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, step=step)
+    else:
+        s = QDoubleSpinBox()
+        s.setRange(lo, hi)
+        s.setDecimals(dec)
+        s.setSingleStep(step)
+        if unit:
+            s.setSuffix(f" {unit}")
     s.setKeyboardTracking(False)
     s.setAccelerated(True)
-    if unit:
-        s.setSuffix(f" {unit}")
-    return s
+    return shrinkable(s)
 
 
 def _qspin(lo: float, hi: float, dec: int, step: float = 1.0) -> QuantitySpinBox:
     """A length in the display units (``value()`` in mm); ``dec`` / ``step`` are the metric ones."""
     s = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec, step=step)
     s.setKeyboardTracking(False)
-    return s
+    return shrinkable(s)
 
 
 def _swatch(color: QColor) -> QIcon:
@@ -64,14 +74,17 @@ class PropertiesPanel(QScrollArea):
     CanvasView (selection, live preview)."""
 
     def __init__(self, ctx: Any, canvas: Any, parent: Optional[QWidget] = None,
-                 technology_name: Optional[Callable[[int], str]] = None) -> None:
+                 technology_name: Optional[Callable[[int], str]] = None, store: Any = None) -> None:
         super().__init__(parent)
         self.ctx = ctx
+        self.store = store                 # technology store (inheritance: recipe values)
+        self.inherit: dict[str, Any] = {}  # vid -> InheritedField
         self.canvas = canvas
         self.tr_ = ctx.tr
         self.technology_name = technology_name or (lambda layer: "")
         self.setWidgetResizable(True)
         self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)   # rows reflow instead
         self.setObjectName("properties_panel")
         body = QWidget()
         self.setWidget(body)
@@ -89,7 +102,7 @@ class PropertiesPanel(QScrollArea):
         self.summary.setWordWrap(True)
         self.summary.setObjectName("props_summary")
         self.lay.addWidget(self.summary)
-        self.sections: list[QGroupBox] = []
+        self.sections: list[Section] = []
 
         # ---- transform
         g, f = self._section("props.transform")
@@ -133,10 +146,9 @@ class PropertiesPanel(QScrollArea):
             rad = _spin(0.0, 1000.0, 2, "mm", 0.5)
             hdr = QLabel(f"<b>{t(title)}</b>")
             f.addRow(hdr)
-            self._row(f, "props.lead_kind", kind)
-            self._row(f, "props.lead_angle", ang)
-            self._row(f, "props.lead_length", ln)
-            self._row(f, "props.lead_radius", rad)
+            for key, field, wdg in (("props.lead_kind", "kind", kind), ("props.lead_angle", "angle_deg", ang),
+                                    ("props.lead_length", "length", ln), ("props.lead_radius", "radius", rad)):
+                self._inherited_row(f, key, wdg, f"craft.lead_{name}.{field}")
             kind.activated.connect(self._commit_leads)
             for wdg in (ang, ln, rad):
                 wdg.valueChanged.connect(self._leads_changed)
@@ -145,50 +157,68 @@ class PropertiesPanel(QScrollArea):
             self.lead_w[name] = (kind, ang, ln, rad)
         self.diagram = LeadDiagram()
         f.addRow(self.diagram)
-        b = QPushButton(t("props.dialog"))
-        b.clicked.connect(lambda: self._run("craft.lead"))
-        f.addRow(b)
 
         # ---- kerf
         g, f = self._section("props.kerf")
         self.kerf_kind = QComboBox()
         for v, k in KERF_KINDS:
             self.kerf_kind.addItem(t(k), v)
-        self.kerf_w = _spin(0.0, 10.0, 3, "mm", 0.01)
-        self._row(f, "props.kerf_side", self.kerf_kind)
-        self._row(f, "props.kerf_width", self.kerf_w)
+        self.kerf_w = _spin(0.0, 10.0, 3, "mm_small", 0.01)
+        self._inherited_row(f, "props.kerf_side", self.kerf_kind, "craft.kerf_comp")
+        self._inherited_row(f, "props.kerf_width", self.kerf_w, "craft.kerf_width")
         self.kerf_kind.activated.connect(self._commit_kerf)
         self.kerf_kind.currentIndexChanged.connect(self._kerf_changed)
         self.kerf_w.valueChanged.connect(self._kerf_changed)
         self.kerf_w.editingFinished.connect(self._commit_kerf)
-        b = QPushButton(t("props.dialog"))
-        b.clicked.connect(lambda: self._run("craft.kerf"))
-        f.addRow(b)
 
         # ---- micro-joints
-        g, f = self._section("props.joints")
+        g, f = self._section("props.joints", expanded=False)
         self.mj_info = QLabel()
         f.addRow(self.mj_info)
         self.mj_count = QSpinBox()
         self.mj_count.setRange(1, 100)
         self.mj_count.setValue(4)
-        self.mj_len = _spin(0.01, 50.0, 2, "mm", 0.1)
+        self.mj_len = _spin(0.01, 50.0, 2, "mm_small", 0.1)
         self.mj_len.setValue(0.5)
         self._row(f, "props.joint_count", self.mj_count)
         self._row(f, "props.joint_length", self.mj_len)
-        row = QHBoxLayout()
+        roww = QWidget()
+        row = FlowLayout(roww, 6)
         b1 = QPushButton(t("props.apply"))
         b1.clicked.connect(self._commit_joints)
         b2 = QPushButton(t("props.clear"))
         b2.clicked.connect(lambda: self._edit(ops.clear_joints, "props.edit.joints_clear"))
-        b3 = QPushButton(t("props.dialog"))
-        b3.clicked.connect(lambda: self._run("craft.microjoint"))
-        for x in (b1, b2, b3):
+        for x in (b1, b2):
             row.addWidget(x)
-        f.addRow(row)
+        f.addRow(roww)
+        # the micro-joint spec of the window (``craft.mj_auto``, OneKey) is edited here only
+        mp = getattr(ctx.window, "mj_params", None)
+        if mp is not None:
+            self.mj_count.setValue(max(1, int(mp.count)))
+            self.mj_len.setValue(float(mp.length))
+        self.mj_count.valueChanged.connect(lambda v: self._set_window_param("mj_params", "count", int(v)))
+        self.mj_len.valueChanged.connect(lambda v: self._set_window_param("mj_params", "length", float(v)))
+
+        # ---- overcut / gap
+        g, f = self._section("props.overcut", expanded=False)
+        self.overcut = _spin(0.0, 100.0, 3, "mm_small", 0.1)
+        self.overcut.setToolTip(t("props.overcut_tip"))
+        self._row(f, "props.overcut_len", self.overcut)
+        craft_ext = ctx.window.extension("ext_craft") if hasattr(ctx.window, "extension") else None
+        gp = getattr(craft_ext, "gap_p", None)
+        if gp is not None:
+            self.overcut.setValue(abs(float(gp.value)))
+        self.overcut.valueChanged.connect(self._overcut_value)
+        roww = QWidget()
+        row = FlowLayout(roww, 6)
+        for key, cmd in (("props.gap", "craft.gap"), ("props.do_overcut", "craft.overcut"), ("props.seal", "craft.seal")):
+            b = QPushButton(t(key))
+            b.clicked.connect(lambda _c=False, c=cmd: self._run(c))
+            row.addWidget(b)
+        f.addRow(roww)
 
         # ---- start point
-        g, f = self._section("props.start")
+        g, f = self._section("props.start", expanded=False)
         self.start = _spin(0.0, 100.0, 1, "%", 5.0)
         self._row(f, "props.start_pos", self.start)
         self.start.editingFinished.connect(self._commit_start)
@@ -197,34 +227,115 @@ class PropertiesPanel(QScrollArea):
         f.addRow(b)
 
         # ---- cooling points
-        g, f = self._section("props.cool")
+        g, f = self._section("props.cool", expanded=False)
         self.cool_info = QLabel()
         f.addRow(self.cool_info)
         self.cool_angle = _spin(1.0, 179.0, 0, "°", 5.0)
         self.cool_angle.setValue(90.0)
+        cam = ctx.window.extension("ext_cam") if hasattr(ctx.window, "extension") else None
+        cp = getattr(cam, "cool_p", None)
+        if cp is not None:
+            self.cool_angle.setValue(float(cp.max_angle))
+        self.cool_angle.valueChanged.connect(lambda v: self._set_ext_param("ext_cam", "cool_p", "max_angle", float(v)))
         self._row(f, "props.cool_angle", self.cool_angle)
-        row = QHBoxLayout()
+        roww = QWidget()
+        row = FlowLayout(roww, 6)
         b1 = QPushButton(t("props.cool_auto"))
         b1.clicked.connect(self._cool_auto)
         b2 = QPushButton(t("props.clear"))
         b2.clicked.connect(self._cool_clear)
         row.addWidget(b1)
         row.addWidget(b2)
-        f.addRow(row)
+        f.addRow(roww)
+        from mlaser.ui.homes import bind_editor
+
+        for vid, w in (("part.x", self.x), ("part.y", self.y), ("part.width", self.w), ("part.height", self.h),
+                       ("part.rotate_by", self.rot), ("part.layer", self.layer),
+                       ("craft.kerf_comp", self.kerf_kind), ("craft.kerf_width", self.kerf_w),
+                       ("craft.micro_joint.count", self.mj_count), ("craft.micro_joint.length", self.mj_len),
+                       ("craft.start_param", self.start), ("craft.cool.max_angle", self.cool_angle),
+                       ("craft.overcut", self.overcut)):
+            bind_editor(w, vid)
+        for name in ("in", "out"):
+            for field, w in zip(("kind", "angle_deg", "length", "radius"), self.lead_w[name]):
+                bind_editor(w, f"craft.lead_{name}.{field}")
         self.lay.addStretch(1)
+        for cb in body.findChildren(QComboBox):          # no combo forces the dock wider
+            cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
+            cb.setMinimumContentsLength(6)
         self.refresh()
 
     # ---------------------------------------------------------------- helpers
     def _t(self, key: str) -> str:
         return self.tr_.tr(key)
 
-    def _section(self, key: str) -> tuple[QGroupBox, QFormLayout]:
-        g = QGroupBox(self._t(key))
-        f = QFormLayout(g)
-        f.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
+    def _section(self, key: str, expanded: bool = True) -> tuple[Section, QFormLayout]:
+        """A collapsible section whose rows put the label above the field when the dock is
+        too narrow for both side by side (ResponsiveForm)."""
+        form = ResponsiveForm()
+        g = Section(key.replace(".", "_"), self._t(key), form, expanded)
         self.lay.addWidget(g)
         self.sections.append(g)
-        return g, f
+        return g, form.form
+
+    def _inherited_row(self, form: QFormLayout, key: str, w: QWidget, vid: str) -> None:
+        """A row of the inheritance chain: the editor with its source chip and restore button."""
+        from mlaser.ui.inherited_field import InheritedField
+
+        w.setAccessibleName(self._t(key))
+        fld = InheritedField(w, vid, self.tr_, self.ctx.window)
+        fld.reset.connect(lambda v=vid: self._reset(v))
+        lab = QLabel(self._t(key))
+        lab.setBuddy(w)
+        form.addRow(lab, fld)
+        self.inherit[vid] = fld
+
+    def _set_window_param(self, attr: str, field: str, value: Any) -> None:
+        obj = getattr(self.ctx.window, attr, None)
+        if obj is not None and not self._updating:
+            setattr(obj, field, value)
+
+    def _set_ext_param(self, ext: str, attr: str, field: str, value: Any) -> None:
+        e = self.ctx.window.extension(ext) if hasattr(self.ctx.window, "extension") else None
+        obj = getattr(e, attr, None)
+        if obj is not None and not self._updating:
+            setattr(obj, field, value)
+
+    def _overcut_value(self, v: float) -> None:
+        e = self.ctx.window.extension("ext_craft") if hasattr(self.ctx.window, "extension") else None
+        gp = getattr(e, "gap_p", None)
+        if gp is not None:
+            gp.value = float(v)
+
+    def _reset(self, vid: str) -> None:
+        """Restore: the selected parts take the inherited value of ``vid`` again."""
+        from mlaser.services import inheritance as I
+
+        def fn(d: Document) -> None:
+            for p in [q for q in d.parts if q.selected]:
+                I.clear_override(d, self.store, "part", vid, part=p)
+        self._edit(fn, "props.edit.reset")
+
+    def _show_inherited(self, sel: list) -> None:
+        """Source chip of every chain value for the selection."""
+        from mlaser.services import inheritance as I
+
+        doc = self.document
+        t = self.tr_
+        for vid, fld in self.inherit.items():
+            vals = [I.effective(doc, self.store, vid, part=p) for p in sel]
+            parents = [I.effective(doc, self.store, vid, part=p, upto=2) for p in sel]
+            own = [src == "part" for _v, src in vals]
+            li = sel[0].craft.layer
+            psrc = parents[0][1]
+            source = I.source_label(doc, self.store, psrc, li, t)
+            mixed = ""
+            if len(sel) > 1 and (len({repr(v) for v, _s in vals}) > 1 or len(set(own)) > 1):
+                mixed = t.format("inherit.mixed", n=sum(own), total=len(sel))
+            here = t.tr("inherit.src.part") if len(sel) == 1 else t.format("inherit.src.parts", n=len(sel))
+            parent_vid = ("layer." + vid) if psrc == "layer" else ("recipe." + vid) if psrc == "recipe" else None
+            fld.set_state(vals[0][0], all(own), here, source, parent_vid=parent_vid,
+                          parent_target=li if psrc == "layer" else I.recipe_of(doc, li, self.store), mixed=mixed)
 
     def _row(self, form: QFormLayout, key: str, w: QWidget) -> None:
         lab = QLabel(self._t(key))
@@ -325,6 +436,8 @@ class PropertiesPanel(QScrollArea):
         self.diagram.set_leads(copy.deepcopy(c0.lead_in), copy.deepcopy(c0.lead_out))
         self.kerf_kind.setCurrentIndex(max(0, self.kerf_kind.findData(int(c0.kerf_comp))))
         self.kerf_w.setValue(c0.kerf_width)
+        self.diagram.set_kerf(int(c0.kerf_comp), c0.kerf_width)
+        self._show_inherited(sel)
         nj = sum(len(p.craft.micro_joints) for p in sel)
         self.mj_info.setText(self.tr_.format("props.joint_info", n=nj))
         from mlaser.cam.manual import contour_craft, start_distance
@@ -461,11 +574,40 @@ class PropertiesPanel(QScrollArea):
     def _commit_leads(self) -> None:
         if self._updating or not self.selected():
             return
+        self._lead_defaults()
         lin, lout = self.leads()
         if all(_same_lead(p.craft.lead_in, lin) and _same_lead(p.craft.lead_out, lout) for p in self.selected()):
             self.canvas.clear_preview()
             return
-        self._edit(lambda d: ops.apply_lead(d, lin, lout), "props.edit.leads")
+        from mlaser.services import inheritance as I
+
+        store = self.store
+
+        def fn(d: Document) -> None:
+            ops.apply_lead(d, lin, lout, keep_start=I.start_is_set)   # stores the start as before
+            for p in [q for q in d.parts if q.selected]:
+                for name, lp in (("in", lin), ("out", lout)):
+                    for field in I.LEAD_FIELDS[:4]:
+                        vid = f"craft.lead_{name}.{field}"
+                        I.set_override(d, store, "part", vid, getattr(lp, field), part=p)
+        self._edit(fn, "props.edit.leads")
+
+    def _lead_defaults(self) -> None:
+        """A lead type chosen with no size yet gets the original's dialog defaults (line 3 mm,
+        90°, radius 2 mm: ops.craft.default_lead_params)."""
+        from mlaser.ops.craft import default_lead_params
+
+        d = default_lead_params()[0]
+        for name in ("in", "out"):
+            kind, ang, ln, rad = self.lead_w[name]
+            if kind.currentIndex() and ln.value() <= 0 and rad.value() <= 0:
+                self._updating = True
+                try:
+                    ang.setValue(d.angle_deg)
+                    ln.setValue(d.length)
+                    rad.setValue(d.radius)
+                finally:
+                    self._updating = False
 
     # ---------------------------------------------------------------- kerf
     def _kerf(self) -> tuple[int, float]:
@@ -475,6 +617,7 @@ class PropertiesPanel(QScrollArea):
         if self._updating:
             return
         k, w = self._kerf()
+        self.diagram.set_kerf(k, w)
         self._schedule_preview(lambda d: ops.apply_kerf(d, k, w))
 
     def _commit_kerf(self) -> None:
@@ -484,7 +627,15 @@ class PropertiesPanel(QScrollArea):
         if all(p.craft.kerf_comp == k and p.craft.kerf_width == w for p in self.selected()):
             self.canvas.clear_preview()
             return
-        self._edit(lambda d: ops.apply_kerf(d, k, w), "props.edit.kerf")
+        from mlaser.services import inheritance as I
+
+        store = self.store
+
+        def fn(d: Document) -> None:
+            for p in [q for q in d.parts if q.selected]:
+                I.set_override(d, store, "part", "craft.kerf_comp", k, part=p)
+                I.set_override(d, store, "part", "craft.kerf_width", w, part=p)
+        self._edit(fn, "props.edit.kerf")
 
     # ---------------------------------------------------------------- joints, start, cooling
     def _commit_joints(self) -> None:
@@ -496,12 +647,14 @@ class PropertiesPanel(QScrollArea):
             return
         frac = self.start.value() / 100.0
         from mlaser.cam.manual import set_start_at
+        from mlaser.services.inheritance import mark_start
 
         def fn(d: Document) -> None:
             for p in ops.contour_targets(d):
                 if p.contours:
                     ci = self._outer(p)
                     set_start_at(p, ci, frac * p.contours[ci].length())
+                    mark_start(p, ci)        # set by hand: lead edits keep it
         self._edit(fn, "props.edit.start")
 
     def _start_auto(self) -> None:

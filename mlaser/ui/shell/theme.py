@@ -39,6 +39,8 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#d00000", "c_selected": "#101418", "c_start": "#101418", "c_index": "#8a5300",
         "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#d62828", "c_marker": "#0b7285",
         "c_sim": "#101418",
+        # the planned toolpath: leads and the kerf-compensated path in their own colours
+        "c_lead_in": "#c2187a", "c_lead_out": "#6d28d9", "c_kerf": "#a86b00", "c_pierce": "#c2187a",
     },
     DARK: {
         "window": "#1f2226", "base": "#16181b", "alt_base": "#1c1f23", "text": "#e6e8eb",
@@ -51,6 +53,7 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
         "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ff4040", "c_marker": "#00ffff",
         "c_sim": "#ffffff",
+        "c_lead_in": "#ff4fa0", "c_lead_out": "#b28cff", "c_kerf": "#ffc53d", "c_pierce": "#ff4fa0",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
         "window": "#000000", "base": "#000000", "alt_base": "#0a0a0a", "text": "#ffffff",
@@ -63,6 +66,7 @@ THEMES: dict[str, dict[str, str]] = {
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
         "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ff1744", "c_marker": "#00e5ff",
         "c_sim": "#ffffff",
+        "c_lead_in": "#ff40ff", "c_lead_out": "#c9a0ff", "c_kerf": "#ffd740", "c_pierce": "#ff40ff",
     },
 }
 #: minimum contrast of the layer colours against the canvas (WCAG 1.4.11 asks 3:1; the high
@@ -204,7 +208,7 @@ def contrast_report(theme: str) -> dict[str, float]:
     bg = canvas_colors(theme)["background"]
     for i, c in enumerate(layer_colors(theme)):
         out[f"layer{i}/canvas"] = contrast(c, bg)
-    for role in ("unclosed", "selected", "start", "index", "cut", "head"):
+    for role in ("unclosed", "selected", "start", "index", "cut", "head", "lead_in", "lead_out", "kerf"):
         out[f"{role}/canvas"] = contrast(canvas_colors(theme)[role], bg)
     return out
 

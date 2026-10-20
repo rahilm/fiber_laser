@@ -57,6 +57,8 @@ UI_MODULES = {
     "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
+    # UI wave: process & technology
+    "test_ui_process_paths", "test_one_home",
     # display units (units track)
     "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
     "test_units_sweep_machine",

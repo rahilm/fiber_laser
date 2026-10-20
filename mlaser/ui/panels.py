@@ -35,8 +35,9 @@ class LayerPanel(QWidget):
     """Layer list + colour buttons (lp0 "Layer Parameters", gp83 "Layer").
 
     Row of 11 colour buttons assigns the selected parts to a layer (inferred from the 11
-    layer records in MainApp FUN_004473c0). The table edits the core cut parameters of the
-    layers in use; "lp0" opens the full GP.* property grid.
+    layer records in MainApp FUN_004473c0).  The table is a read-only legend of the layers in
+    use (effective core values); the values are edited in one place, Process › Layers (the
+    layer inspector): a double-click or the button goes there (SETTINGS_MAP H3, WORK_ITEMS P-8).
     """
     assignLayer = Signal(int)
     editLayer = Signal(int)
@@ -60,8 +61,9 @@ class LayerPanel(QWidget):
         self.document = None
         v = QVBoxLayout(self)
         v.setContentsMargins(2, 2, 2, 2)
-        row = QHBoxLayout()
-        row.setSpacing(1)
+        from .techform import FlowLayout
+        roww = QWidget()
+        row = FlowLayout(roww, 1)                # the swatches wrap in a narrow dock
         self.color_buttons = []
         for i in range(len(LAYER_COLORS)):
             b = QToolButton()
@@ -72,18 +74,29 @@ class LayerPanel(QWidget):
             b.clicked.connect(lambda _=False, i=i: self.assignLayer.emit(i))
             row.addWidget(b)
             self.color_buttons.append(b)
-        row.addStretch(1)
-        v.addLayout(row)
+        v.addWidget(roww)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        self.table.itemChanged.connect(self._item_changed)
-        self.table.cellDoubleClicked.connect(lambda r, c: c == 0 and self.editLayer.emit(self._row_layer(r)))
+        # no sideways scrolling (DESIGN.md R2): the layer column stretches and elides, the
+        # others are shown in priority order (COLS order) while they fit; the header's context
+        # menu shows a hidden one again; every value is also in the layer cell's tooltip
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.Interactive)
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setStretchLastSection(False)
+        hh.setContextMenuPolicy(Qt.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._header_menu)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table.setTextElideMode(Qt.ElideRight)
+        self.table.setWordWrap(False)
+        self.pinned: set[int] = set()            # columns the user asked to show
+        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table.cellDoubleClicked.connect(lambda r, c: self.editLayer.emit(self._row_layer(r)))
         v.addWidget(self.table)
         btns = QHBoxLayout()
         self.btn_params = QPushButton()
-        tr.bind(self.btn_params, "lp0", self.btn_params.setText)
+        tr.bind(self.btn_params, "layers.edit_in", self.btn_params.setText)
         self.btn_params.clicked.connect(self._edit_current)
         btns.addWidget(self.btn_params)
         btns.addStretch(1)
@@ -96,6 +109,42 @@ class LayerPanel(QWidget):
         self.table.setHorizontalHeaderLabels([
             u.header(self.tr_.tr_param(k)[1], self.KINDS[a]) if a in self.KINDS else self.tr_.tr_param(k)[1]
             for k, a in self.COLS])
+        self.fit_columns()
+
+    def fit_columns(self) -> None:
+        """Show the value columns, in priority order, while they fit next to the layer column."""
+        tb = self.table
+        avail = tb.viewport().width() if tb.isVisible() else tb.width()
+        fm = tb.fontMetrics()
+        hh = tb.horizontalHeader()
+        need0 = max([fm.horizontalAdvance(hh.model().headerData(0, Qt.Horizontal) or "") + 24] +
+                    [fm.horizontalAdvance(tb.item(r, 0).text()) + 36 for r in range(tb.rowCount())
+                     if tb.item(r, 0) is not None])
+        used = need0
+        for c in range(1, tb.columnCount()):
+            w = max(fm.horizontalAdvance(str(hh.model().headerData(c, Qt.Horizontal) or "")) + 16,
+                    tb.sizeHintForColumn(c) + 8)
+            show = c in self.pinned or used + w <= avail
+            tb.setColumnHidden(c, not show)
+            if show:
+                tb.setColumnWidth(c, w)
+                used += w
+
+    def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
+        super().resizeEvent(ev)
+        self.fit_columns()
+
+    def _header_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        hh = self.table.horizontalHeader()
+        for c in range(1, self.table.columnCount()):
+            a = m.addAction(str(hh.model().headerData(c, Qt.Horizontal)))
+            a.setCheckable(True)
+            a.setChecked(not self.table.isColumnHidden(c))
+            a.toggled.connect(lambda on, c=c: (self.pinned.add(c) if on else self.pinned.discard(c),
+                                               self.fit_columns()))
+        m.popup(hh.mapToGlobal(pos))
 
     def _row_layer(self, r: int) -> int:
         it = self.table.item(r, 0)
@@ -127,7 +176,9 @@ class LayerPanel(QWidget):
                 head = QTableWidgetItem(_swatch(layer_color(li)), f"{self.tr_.tr('gp83')} {li}")
                 head.setData(Qt.UserRole, li)
                 head.setFlags(head.flags() & ~Qt.ItemIsEditable)
+                ref = (lp.extra or {}).get("technology") if isinstance(lp.extra, dict) else None
                 self.table.setItem(r, 0, head)
+                tips = []
                 for c, (_, attr) in enumerate(self.COLS[1:], start=1):
                     val = getattr(lp, attr)
                     if attr in self.KINDS:
@@ -135,9 +186,14 @@ class LayerPanel(QWidget):
                     else:
                         txt = self.tr_.tr(GAS_KEYS[int(val) % len(GAS_KEYS)]) if attr == "gas" else f"{val:g}"
                         it = QTableWidgetItem(txt)
-                    if attr == "gas":
-                        it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+                    it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(r, c, it)
+                    tips.append(f"{self.tr_.tr_param(self.COLS[c][0])[1]}: {it.text()}")
+                if isinstance(ref, dict) and isinstance(ref.get("key"), dict):
+                    k = ref["key"]
+                    tips.insert(0, f"{k.get('material', '')} {k.get('thickness_mm', 0):g} mm · {k.get('gas', '')}")
+                tips.append(self.tr_.tr("layers.edit_in"))
+                head.setToolTip("\n".join(tips))
         self.table.blockSignals(False)
         self._headers()
 

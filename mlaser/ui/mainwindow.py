@@ -21,7 +21,7 @@ from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
-from . import dialogs
+from . import dialogs, homes
 from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
@@ -125,6 +125,10 @@ class _CloseWatch(QObject):
         return False
 
 
+_LEAD_IDS = tuple(f"craft.lead_{n}.{f}" for n in ("in", "out") for f in ("kind", "angle_deg", "length", "radius"))
+_KERF_IDS = ("craft.kerf_comp", "craft.kerf_width")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller: Optional[ControllerFacade] = None, tr: Optional[Translator] = None,
                  extensions: tuple = (), config: Optional[ConfigService] = None,
@@ -150,16 +154,15 @@ class MainWindow(QMainWindow):
         self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule)
         self.jobs.on_toolpath.append(self._plan_toolpath_ready)
         self.jobs.on_planned.append(self._plan_ready)
-        self.jobs.on_failed.append(lambda t, exc: self.log_panel.log(f"toolpath: {exc}"))
+        self.jobs.on_failed.append(self._plan_failed)
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
-        self.lead_in, self.lead_out = default_lead_params()
-        self.lead_closed_only = True     # "只对封闭图形有效" (closed graphs only), on by default
-        self.lead_start_mode = 0         # "自动选择起点位置(长边优先)" (auto, long side first)
+        # leads, kerf and micro-joints are edited in one place, Process › Properties (and the
+        # layer / recipe defaults they inherit); the window keeps no lead template of its own
         from mlaser.cam.toolpath import CamParams
         self.cam_params = CamParams()            # sort mode etc.
         self.machine = self.config.machine()     # mlaser.nc.Machine from the machine profile
@@ -443,7 +446,7 @@ class MainWindow(QMainWindow):
             "view.pan_mode": lambda: self.set_mode(CanvasView.MODE_PAN),
             "view.node_edit": lambda: self.set_mode(CanvasView.MODE_NODE),
             "view.zoom_in": lambda: self.canvas.zoom(1.25), "view.zoom_out": lambda: self.canvas.zoom(0.8),
-            "view.zoom_fit": self.canvas.zoom_fit,
+            "view.zoom_fit": self.canvas.zoom_fit, "view.fit_table": self.canvas.zoom_fit_table,
             "edit.undo": self.undo, "edit.redo": self.redo,
             "select.all": lambda: self.canvas.select_parts(range(len(self.document.parts))),
             "select.invert": lambda: self._select(lambda p: not p.selected),
@@ -462,14 +465,20 @@ class MainWindow(QMainWindow):
             "xform.scale_75": lambda: self._edit(ops.scale, 0.75, label="scale"),
             "xform.scale_500": lambda: self._edit(ops.scale, 5.0, label="scale"),
             **{cmd: (lambda c=cmd: self._edit(ops.scale_to, size_preset(c), label="size")) for cmd in SIZE_PRESETS},
-            "craft.lead": self.lead_dialog,
-            "craft.lead_clear": lambda: self._edit(ops.apply_lead, LeadParams(0), LeadParams(0), False, label="clear leads"),
-            "craft.kerf": self.kerf_dialog, "craft.kerf_set": self.kerf_dialog,
-            "craft.kerf_cancel": lambda: self._edit(ops.apply_kerf, -1, 0.0, label="kerf"),
-            "craft.inside": lambda: self._edit(ops.apply_kerf, 0, self._kerf_width(), label="kerf"),
-            "craft.outside": lambda: self._edit(ops.apply_kerf, 1, self._kerf_width(), label="kerf"),
+            # one home per value (SETTINGS_MAP 3.3): these commands open Process › Properties at
+            # the field; with nothing selected they say so and where the layer defaults are
+            "craft.lead": homes.nav_command(self, "craft.lead", "craft.lead_in.kind", need_selection=True),
+            "craft.lead_clear": lambda: self._craft_action(
+                lambda d: ops.apply_lead(d, LeadParams(0), LeadParams(0), False), _LEAD_IDS, "clear leads"),
+            "craft.kerf": homes.nav_command(self, "craft.kerf", "craft.kerf_width", need_selection=True),
+            "craft.kerf_set": homes.nav_command(self, "craft.kerf_set", "craft.kerf_width", need_selection=True),
+            "craft.kerf_cancel": lambda: self._craft_action(lambda d: ops.apply_kerf(d, -1, 0.0), _KERF_IDS, "kerf"),
+            "craft.inside": lambda: self._kerf_action(0),
+            "craft.outside": lambda: self._kerf_action(1),
             "craft.reverse": lambda: self._edit(ops.reverse, label="reverse"),
-            "craft.microjoint": self.microjoint_dialog, "craft.mj_params": self.microjoint_dialog,
+            "craft.microjoint": homes.nav_command(self, "craft.microjoint", "craft.micro_joint.count",
+                                                  need_selection=True),
+            "craft.mj_params": homes.nav_command(self, "craft.mj_params", "craft.micro_joint.count"),
             "sim.speed": self.sim_speed_dialog, "sim.stop": lambda: self.canvas.stop_simulation(True),
             "diag.log": lambda: self.log_dock.show(),
             "edit.copy": self.copy_selected, "edit.paste": self.paste,
@@ -484,10 +493,14 @@ class MainWindow(QMainWindow):
         handlers["craft.mj_clear"] = lambda: self._edit(ops.clear_joints, label="clear micro-joints")
         handlers["hw.connect_sim"] = self.connect_simulator
         show = {"show.bbox": "show_bbox", "show.unclosed_red": "unclosed_red", "show.index": "show_index",
-                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path"}
+                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path",
+                "show.toolpath": "show_toolpath"}
         for cmd, attr in show.items():
             a[cmd].setChecked(getattr(self.canvas.options, attr))
             handlers[cmd] = lambda on, at=attr: (setattr(self.canvas.options, at, bool(on)), self.canvas.rebuild())
+        # the canvas bar's Toolpath toggle and View > Show > Toolpath are one setting
+        handlers["show.toolpath"] = lambda on: self.canvas.set_show_toolpath(bool(on))
+        self.canvas.toolpathToggled.connect(lambda on: a["show.toolpath"].setChecked(bool(on)))
         # every QAction is connected once to the registry; plugins register handlers, not slots
         self.commands.on_register.append(self._command_registered)
         self.commands.on_error.append(lambda cmd, exc: self.log_panel.log(f"{cmd}: {type(exc).__name__}: {exc}"))
@@ -641,6 +654,7 @@ class MainWindow(QMainWindow):
         doc = self.docs.document
         self._fill_layers(doc)
         if kind == "replace":
+            self._load_order(doc)                # the drawing's own cutting order
             self.canvas.set_document(doc)
         else:
             self.canvas.document = doc
@@ -685,6 +699,7 @@ class MainWindow(QMainWindow):
             self.jobs.preview = None
             self.plan = None
             self._set_toolpath([])
+            self.canvas.set_plan_state("idle")
             return None
         req = build_request("process", self.docs, self.ctl, self.machine, self.cam_params)
         self._plan_head = req.start
@@ -693,6 +708,13 @@ class MainWindow(QMainWindow):
     def _plan_toolpath_ready(self, ticket) -> None:
         if ticket is self.jobs.preview:
             self._set_toolpath(ticket.toolpath or [])
+            if not self.jobs.pending:
+                self.canvas.set_plan_state("ready")
+
+    def _plan_failed(self, ticket, exc) -> None:
+        self.log_panel.log(f"toolpath: {exc}")
+        if ticket is self.jobs.preview:
+            self.canvas.set_plan_state("failed")
 
     def _plan_ready(self, plan, ticket) -> None:
         if ticket is not self.jobs.preview:
@@ -740,7 +762,10 @@ class MainWindow(QMainWindow):
         self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
 
     def _update_toolpath(self) -> None:
-        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller."""
+        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller.
+        The canvas says "Computing toolpath…" until the new toolpath arrives."""
+        if self.document.parts:
+            self.canvas.set_plan_state("planning")
         self.jobs.schedule_preview(self._preview_request)
 
     def _refresh(self) -> None:
@@ -862,15 +887,23 @@ class MainWindow(QMainWindow):
     def edit_layer(self, layer: int) -> None:
         if self._operator_blocked():               # Operator mode: no parameter editing
             return
-        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
-                                                                extra={"placeholder": True}))
-        if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
-            lp.extra.pop("placeholder", None)        # parameters confirmed: the layer is defined
-            self.layer_panel.refresh()
+        # one home per value: the layer's values are edited in Process › Layers (the layer
+        # inspector), not in a dialog of their own (SETTINGS_MAP H3)
+        self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
+                                                           extra={"placeholder": True}))
+        from . import homes
+        homes.edit_in(self, "layer.GP.CutSpeed", layer)
 
     def _kerf_width(self) -> float:
+        """The kerf width a one-click inside / outside uses: the selection's effective width
+        (its own, its layer's or its recipe's), 0.1 mm when none is set anywhere."""
+        from mlaser.services import inheritance as I
+
         sel = [p for p in self.document.parts if p.selected] or self.document.parts
-        return sel[0].craft.kerf_width if sel and sel[0].craft.kerf_width else 0.1
+        if not sel:
+            return 0.1
+        w, _src = I.effective(self.document, self._tech_store(), "craft.kerf_width", part=sel[0])
+        return float(w) if w else 0.1
 
     # ------------------------------------------------------------------ files
     FILTER = ("Supported (*.mlz *.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;mlaser project (*.mlz);;"
@@ -1011,17 +1044,42 @@ class MainWindow(QMainWindow):
         ok = self.ctl.connect(host)
         self.log_panel.log("mf165" if ok else "mf166")
 
-    def lead_dialog(self) -> None:
-        d = dialogs.LeadDialog(self.tr_, self.lead_in, self.lead_out, self)
-        if d.exec():
-            self._edit(ops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
-                       self.lead_start_mode, label="lead")
-            self.log_panel.log("mf207")
+    def _report_scope(self, key: str, n: int, scope_all: bool) -> None:
+        """Log and status bar: how many parts a craft command changed, and whether it went to
+        the selection or (nothing selected) to every part."""
+        where = self.tr_.tr("craft.msg.scope_all" if scope_all else "craft.msg.scope_selection")
+        msg = self.tr_.format(key, n=n, where=where)
+        if n == 0:
+            msg += " " + self.tr_.tr("craft.msg.none_changed")
+        self.log_panel.log(msg)
+        self.statusBar().showMessage(msg, 6000)
 
-    def kerf_dialog(self) -> None:
-        d = dialogs.KerfDialog(self.tr_, 1, self._kerf_width(), self)
-        if d.exec():
-            self._edit(ops.apply_kerf, *d.result_values(), label="kerf")
+    def _tech_store(self):
+        ext = self.extension("ext_process") if hasattr(self, "extension") else None
+        return getattr(ext, "store", None)
+
+    def _craft_action(self, fn, vids, label: str):
+        """A one-click craft action on the selection (else every part): ``fn(doc)`` and the
+        values it sets marked as the parts' own (services.inheritance)."""
+        from mlaser.services import inheritance as I
+
+        store = self._tech_store()
+        scope_all = not any(p.selected for p in self.document.parts)
+
+        def run(d):
+            n = fn(d)
+            for p in ops.targets(d):
+                for vid in vids:
+                    I.set_override(d, store, "part", vid, I.craft_get(p.craft, vid), part=p)
+            return n
+        n = self._edit(run, label=label)
+        if vids is _KERF_IDS:
+            self._report_scope("craft.msg.kerf", n or 0, scope_all)
+        return n
+
+    def _kerf_action(self, side: int):
+        w = self._kerf_width()
+        return self._craft_action(lambda d: ops.apply_kerf(d, side, w), _KERF_IDS, "kerf")
 
     def sort(self, how: str, **flags) -> None:
         """Cutting order: every ordering mode is a ``CamParams.sort_mode`` of
@@ -1033,26 +1091,40 @@ class MainWindow(QMainWindow):
             self.cam_params.sort_mode = SORT_MODES.get(how, 5)
         for k, v in flags.items():
             setattr(self.cam_params, k, v)
+        self._store_order()
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {self.cam_params.sort_mode}, small first {self.cam_params.small_first}")
+
+    #: the cutting-order values saved with the drawing (Document.extra['cam'], SETTINGS_MAP 3.4)
+    ORDER_KEYS = ("sort_mode", "small_first", "avoid_cut")
+
+    def _store_order(self) -> None:
+        """The cutting order belongs to the drawing: saved in its project (.mlz), not a window
+        setting that a new window forgets."""
+        doc = self.document
+        if isinstance(getattr(doc, "extra", None), dict):
+            doc.extra["cam"] = {k: getattr(self.cam_params, k) for k in self.ORDER_KEYS}
+            shell = getattr(self, "shell", None)
+            if shell is not None and hasattr(shell, "mark_modified"):
+                shell.mark_modified()
+
+    def _load_order(self, doc) -> None:
+        from mlaser.cam.toolpath import CamParams
+
+        saved = (doc.extra or {}).get("cam") if isinstance(getattr(doc, "extra", None), dict) else None
+        base = CamParams()
+        for k in self.ORDER_KEYS:
+            v = saved.get(k, getattr(base, k)) if isinstance(saved, dict) else getattr(base, k)
+            setattr(self.cam_params, k, type(getattr(base, k))(v))
 
     def set_sort_mode(self, mode: int, **flags) -> None:
         """Set ``CamParams.sort_mode`` (and flags such as ``avoid_cut``) directly."""
         self.cam_params.sort_mode = int(mode)
         for k, v in flags.items():
             setattr(self.cam_params, k, v)
+        self._store_order()
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {mode}")
-
-    def microjoint_dialog(self) -> None:
-        d = dialogs.MicroJointDialog(self.tr_, self)
-        mp = self.mj_params
-        d.kind.setCurrentIndex(mp.kind); d.number.setValue(mp.count)
-        d.distance.setValue(mp.distance); d.length.setValue(mp.length); d.min_size.setValue(mp.min_size)
-        if d.exec():
-            mp.update(kind=d.kind.currentIndex(), count=d.number.value(), distance=d.distance.value(),
-                      length=d.length.value(), min_size=d.min_size.value())
-            self.microjoint_auto()
 
     def microjoint_auto(self) -> None:
         """mf103 auto micro-joints (:func:`mlaser.ops.auto_microjoints`)."""
@@ -1083,8 +1155,23 @@ class MainWindow(QMainWindow):
             return
         sim = _lazy("mlaser.motion.interp", "simulate")
         est = _lazy("mlaser.motion.interp", "estimate_time")
-        if not self.toolpath or sim is None or self.machine is None:
-            self.canvas.start_simulation()
+        tk = self.jobs.preview
+        if self.jobs.pending or tk is None or not tk.toolpath_event.is_set():
+            # the plan of the current drawing is still being computed: say so, then wait for it
+            # (the simulation runs the planned toolpath with its leads, kerf and gaps, never
+            # the raw drawing)
+            self.canvas.set_plan_state("simulating_wait")
+            self.statusBar().showMessage(self.tr_.tr("canvas.plan.sim_wait"), 5000)
+            from PySide6.QtCore import QEventLoop
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        toolpath = self.toolpath
+        self.canvas.set_plan_state("ready" if toolpath else "failed")
+        if not toolpath:
+            self.log_panel.log(self.tr_.tr("canvas.plan.sim_none"))
+            return
+        if sim is None or self.machine is None:
+            self.canvas.start_simulation()      # the toolpath (canvas.simulation_path)
             return
         cfg = self.machine.motion_config()
         self.estimate = e = est(self.toolpath, cfg)

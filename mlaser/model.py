@@ -854,6 +854,8 @@ EXTRA_KEYS: dict[str, tuple[str, str]] = {
     "Document.rotated / rotate_angle / rotate_center / rotate_offset": ("state", "edge-seek rotation"),
     "Document.texts / points / regions / faces / source / placement_offset": ("import", "DXF import notes"),
     "Document.dock_point": ("state", "dock point (ext_craft)"),
+    "Document.cam": ("state", "cutting order saved with the drawing: sort_mode, small_first, avoid_cut "
+                              "(ui.mainwindow, SETTINGS_MAP 3.4)"),
     "Part.chf / _chf_snapshot / chf_type": ("opaque", ".chf graph record and the snapshot edits are diffed against"),
     "Part.scan_paths / scan_kind": ("derived", "fly-cut scan paths (cam.flycut)"),
     "Part.nest / nest_sheet / _origin": ("state", "nest placement (nest.apply)"),
@@ -867,6 +869,10 @@ EXTRA_KEYS: dict[str, tuple[str, str]] = {
         "state", "tool notes (cam.ordering, cad.primitives, raster frame, alpha corner source)"),
     "Craft.pwm_mode / cool_positions": ("opaque", ".chf <PWM Control> mode and <coolPos> fractions"),
     "LayerParams.placeholder / gp / name": ("state", "layer table notes (ui)"),
+    "LayerParams.overrides / craft": ("state", "values set on the layer, layer-level craft values "
+                                               "(services.inheritance)"),
+    "Craft.overrides": ("state", "craft values set on this part / contour, a start set by hand "
+                                 "(services.inheritance); not written to .chf"),
 }
 
 

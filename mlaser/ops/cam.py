@@ -293,6 +293,9 @@ def cool_auto(doc: Document, q: CoolParams) -> int:
             if c.closed:
                 pts = auto_cool_points(c, q.max_angle, q.sharp, q.lead_point)
         p.craft.cool_points = list(pts)
+        ov = getattr(p.contours[0], "craft", None) if p.contours else None
+        if ov is not None and ov is not p.craft:   # the contour's own craft is the one cut
+            ov.cool_points = list(pts)
         n += len(pts)
     return n
 
@@ -300,6 +303,10 @@ def cool_auto(doc: Document, q: CoolParams) -> int:
 def cool_clear(doc: Document) -> None:
     for p in targets(doc):
         p.craft.cool_points = []
+        for c in p.contours:
+            ov = getattr(c, "craft", None)
+            if ov is not None and ov is not p.craft:
+                ov.cool_points = []
 
 
 # --------------------------------------------------------------------------- common edge
