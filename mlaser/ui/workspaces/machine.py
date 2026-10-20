@@ -42,7 +42,8 @@ SECTIONS = (("connection", "ws.machine.sec_connection", "plug-connected", "opera
             ("alarms", "ws.machine.sec_alarms", "alert-triangle", "operator"))
 SETTINGS_EDIT_MODE = "service"
 HW_SECTIONS = ("AxisParam", "MachineAxisConfig_0", "MachineAxisConfig", "HomeParam", "LaserParam",
-               "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam", "DOParam")
+               "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam", "DOParam",
+               "MachineControl")      # the machine-side parameters of the original's Options
 
 #: the jog values (the jog pad is their home) and the coordinate system (Homing and jog)
 JOG_KEYS = ("MC.IsStepMove", "MC.StepLength", "MC.IsFastMode")
@@ -75,6 +76,9 @@ SETUP_SECTIONS: tuple = (
     *((f"MachineAxisConfig_{i}", f"ws.machine.hw_MachineAxisConfig_{i}", _sec(f"MachineAxisConfig_{i}"))
       for i in range(5)),
     ("HomeParam", "ws.machine.hw_HomeParam", _sec("HomeParam")),
+    # the machine-side rows of the original's Options (params.MACHINE_CONTROL: read by the
+    # controller, the process sequencer and the job compiler), as the Settings track grouped them
+    ("MachineControl", "ws.machine.hw_MachineControl", lambda s: s.key in _machine_control()),
     ("motion", "ws.machine.hw_motion", lambda s: s.section == "ManuParam" and not _hard(s)
      and s.key.startswith(("MC.", "MS.", "LC.", "LMP.", "ManuParam:LMP.", "MP."))),
     ("coords", "ws.machine.hw_coords", _pre("MSC.")),
@@ -97,13 +101,20 @@ SETUP_SECTIONS: tuple = (
 )
 
 
+def _machine_control() -> frozenset:
+    from ..params import MACHINE_CONTROL
+    return frozenset(MACHINE_CONTROL)
+
+
 def setup_keys(config: Any) -> dict[str, str]:
-    """Schema key -> Setup section id, for every machine setting Machine › Setup edits."""
+    """Schema key -> Setup section id, for every machine setting Machine › Setup edits (each
+    key in exactly one section: the Options' machine rows in MachineControl first)."""
     out: dict[str, str] = {}
+    order = sorted(SETUP_SECTIONS, key=lambda sec: sec[0] != "MachineControl")
     for s in config.schema.values():
         if s.key in NOT_SETUP or not s.label:
             continue
-        for sid, _title, pred in SETUP_SECTIONS:
+        for sid, _title, pred in order:
             if pred(s):
                 out.setdefault(s.key, sid)
                 break

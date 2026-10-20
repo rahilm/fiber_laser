@@ -70,9 +70,12 @@ def _bar_actions(bar) -> list:
 def test_layout_places_every_command_once(win, plat):
     ids = list(win.ribbon.actions)
     from mlaser.ui.shell.menubar import HAVE_HOMES
-    menus = menu_spec.layout(ids, plat, nav=HAVE_HOMES)
+    settings = win.shell.menu_ctl.settings_cmd()      # the Settings track's app.settings when present
+    menus = menu_spec.layout(ids, plat, settings, nav=HAVE_HOMES)
     placed = menu_spec.placement(menus)            # raises on a command placed twice
     expected = {c for c in ids if not c.startswith(menu_spec.DYNAMIC_PREFIXES)}
+    if settings != "app.options":
+        expected.discard("app.options")      # the same Settings window: one entry (app.settings)
     assert set(placed) == expected | ({"nav.layer_parameters"} if HAVE_HOMES else set())
     assert [m.id for m in menus] == ["file", "edit", "view", "draw", "process", "workspace", "machine",
                                      "tools", "window", "help"]
@@ -81,15 +84,15 @@ def test_layout_places_every_command_once(win, plat):
     assert placed["machine.home"] == "machine" and placed["workspace.design"] == "workspace"
     assert placed["shell.palette"] == "help" and placed["window.fullscreen"] == "window"
     if plat == menu_spec.WINDOWS:
-        assert placed["app.options"] == "tools" and menus[-3].items[-1] == "app.options"
+        assert placed[settings] == "tools" and (settings == "app.options" or "app.options" not in placed)
         assert menus[0].items[-1] == "app.exit"
     elif plat == menu_spec.LINUX:
-        assert placed["app.options"] == "edit" and menus[1].items[-1] == "app.options"
+        assert placed[settings] == "edit" and menus[1].items[-1] == settings
         assert menus[0].items[-1] == "app.exit"
     else:
         # macOS: Qt moves them into the application menu by their roles
-        roles = menu_spec.roles(plat)
-        assert roles == {"app.about": "AboutRole", "app.options": "PreferencesRole", "app.exit": "QuitRole",
+        roles = menu_spec.roles(plat, settings)
+        assert roles == {"app.about": "AboutRole", settings: "PreferencesRole", "app.exit": "QuitRole",
                          "app.plugin_manager": "ApplicationSpecificRole"}
     # workspaces in rail order
     ws = menus[5].items
@@ -105,7 +108,7 @@ def test_layout_puts_new_commands_somewhere():
 def test_layout_uses_the_settings_command_of_the_settings_track():
     menus = menu_spec.layout(["app.options", "app.settings", "app.exit"], menu_spec.WINDOWS, "app.settings")
     placed = menu_spec.placement(menus)
-    assert placed["app.settings"] == "tools" and placed["app.options"] == "tools"
+    assert placed["app.settings"] == "tools" and "app.options" not in placed   # one Settings entry
     assert menu_spec.roles(menu_spec.MACOS, "app.settings")["app.settings"] == "PreferencesRole"
 
 
@@ -147,7 +150,8 @@ def test_menu_bar_replaces_the_menu_button_and_lists_every_command_once(win, app
     acts = _bar_actions(bar)
     cmds = [a.data() or a.objectName() for _p, a in acts if (a.data() or a.objectName()) in win.ribbon.actions]
     assert len(cmds) == len(set(cmds)), [c for c in cmds if cmds.count(c) > 1]
-    assert set(cmds) == set(win.ribbon.actions)
+    alias = {"app.options"} if sh.menu_ctl.settings_cmd() != "app.options" else set()
+    assert set(cmds) == set(win.ribbon.actions) - alias    # app.options = app.settings: one entry
     # the theme submenu (View > Appearance) holds the theme commands; the palette is in Help
     theme_menu = bar.findChild(QMenu, "menu_theme")
     assert {a.data() for a in theme_menu.actions()} == {f"shell.theme_{t}" for t in theme.THEME_IDS}
@@ -165,7 +169,7 @@ def test_menu_bar_roles_on_macos(win, app):
     try:
         a = win.ribbon.actions
         assert a["app.about"].menuRole() == QAction.AboutRole
-        assert a["app.options"].menuRole() == QAction.PreferencesRole
+        assert a[mb.settings_cmd()].menuRole() == QAction.PreferencesRole
         assert a["app.exit"].menuRole() == QAction.QuitRole
         assert a["app.plugin_manager"].menuRole() == QAction.ApplicationSpecificRole
         assert a["file.open"].menuRole() == QAction.NoRole and a["hw.options"].menuRole() != QAction.PreferencesRole
@@ -183,7 +187,7 @@ def test_menu_bar_words_per_platform(win, app):
     plat = native.platform_id()
     want = {native.MACOS: ("Settings…", "Quit mlaser"), native.WINDOWS: ("Options…", "Exit"),
             native.LINUX: ("Preferences…", "Quit mlaser")}[plat]
-    assert (a["app.options"].text(), a["app.exit"].text()) == want
+    assert (a[win.shell.menu_ctl.settings_cmd()].text(), a["app.exit"].text()) == want
     assert a["hw.options"].text() == "Machine setup…"
     if plat == native.WINDOWS:
         assert keymap.window_keys().get("app.exit") is None
@@ -301,7 +305,8 @@ def test_platform_keys():
     assert keymap.window_keys("darwin")["edit.delete"].startswith("Backspace")
     assert keymap.window_keys("darwin")["window.fullscreen"] == "Meta+Ctrl+F"
     assert keymap.window_keys("linux")["window.fullscreen"] == "F11"
-    assert keymap.window_keys("darwin")["app.options"] == "Ctrl+,"
+    assert keymap.window_keys("darwin")["app.settings"] == "Ctrl+,"          # the Settings window, once
+    assert "app.options" not in keymap.window_keys("darwin")
     # every F-key action has a ⌘ alternative on macOS
     for cmd, key in keymap.window_keys("darwin").items():
         seqs = keymap.sequences(key)

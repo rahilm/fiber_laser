@@ -13,7 +13,7 @@ Simulator, dry-run and practice jobs are recorded with their ``source``
 them (review 2 P1-7).
 
 Cost: the plan's estimate ``cost`` (the Process track's time-and-cost card) when present, else
-the rates of this plugin's settings (``plugin.report.*``: machine, gas and power per hour, per
+the application's rates (Settings › Costing, ``costing.*``: machine, gas and power per hour, per
 metre cut, per pierce, material per m²); ``Ledger.cost_hook`` is the hook for other providers.
 """
 from __future__ import annotations
@@ -32,7 +32,6 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame
 from mlaser.machine import events as EV
 from mlaser.report import ledger as LG
 from mlaser.services import runsource as RS
-from mlaser.services.config import Setting
 from mlaser.services import units as U
 from mlaser.services.operator import fmt_duration
 from mlaser.ui.units_qt import on_units_changed
@@ -477,10 +476,6 @@ class ReportPlugin:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         w = ctx.window
-        self.settings = ctx.settings_schema(
-            [Setting(k, "float", 0.0, unit=u, min=0.0, max=1e6, label=f"report.set.{k}")
-             for k, u in zip(RATE_KEYS, ("/h", "/h", "/h", "/m", "/pierce", "/m²"))]
-            + [Setting("currency", "str", "EUR", label="report.set.currency")])
         s = getattr(w, "settings", None)
         root = (s.get("data_dir") if s is not None else None)
         if not root:
@@ -488,7 +483,7 @@ class ReportPlugin:
             root = str(data_dir())
         self.ledger = LG.Ledger(os.path.join(root, "Report"))
         self.update_rates()
-        ctx.config.subscribe(lambda key: self.update_rates() if key.startswith("plugin.report.") else None)
+        ctx.config.subscribe(lambda key: self.update_rates() if key == "*" or key.startswith("costing.") else None)
         self.recorder = ProductionRecorder(w, self.ledger)
         self.recorder.attach(w.ctl.events)
         ctx.on_controller_changed(lambda c: self.recorder.attach(c.events))
@@ -500,8 +495,12 @@ class ReportPlugin:
                              label="ws.report")
 
     def update_rates(self) -> None:
-        kw: dict = {k: float(self.settings[k] or 0.0) for k in RATE_KEYS}
-        self.ledger.rates = LG.CostRates(currency=str(self.settings["currency"] or "EUR"), **kw)
+        """The ledger's rates: Settings › Costing (``costing.*``), the same rates and currency as
+        the cost card and quotes."""
+        cfg = self.ctx.config
+        kw: dict = {k: float(cfg.get(f"costing.{k}", 0.0) or 0.0) for k in RATE_KEYS}
+        from mlaser.services.costing import iso_currency
+        self.ledger.rates = LG.CostRates(currency=iso_currency(cfg.get("costing.currency", "EUR")) or "EUR", **kw)
 
 
 def register(ctx: Any) -> ReportPlugin:

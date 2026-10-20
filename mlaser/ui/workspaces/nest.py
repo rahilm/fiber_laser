@@ -428,7 +428,29 @@ class NestWorkspace(QWidget):
         split.setSizes([300, 540, 380])
         split.setStretchFactor(1, 1)
         self._update_buttons()
+        # the default sheet is remembered from the last nest (nest.*; this panel is its home)
+        self._sheet_defaults("*")
+        cfg = getattr(w, "config", None)
+        if cfg is not None:
+            cfg.subscribe(self._sheet_defaults)
         on_units_changed(self, self._units_changed, now=False)
+
+    def _remember(self, values: dict) -> None:
+        """The panel is the home of these values: the next nest starts from the last used ones."""
+        cfg = getattr(self.window_, "config", None)
+        for k, v in values.items():
+            try:
+                if cfg is not None and cfg.get(k) != v:
+                    cfg.set(k, v)
+            except ValueError:
+                pass
+
+    def _sheet_defaults(self, key: str) -> None:
+        cfg = getattr(self.window_, "config", None)
+        if cfg is None or key not in ("*", "nest.sheet_width", "nest.sheet_height"):
+            return
+        self.sheet_w.setValue(float(cfg.get("nest.sheet_width", 3000.0)))
+        self.sheet_h.setValue(float(cfg.get("nest.sheet_height", 1500.0)))
 
     def _units_changed(self, _u: Any = None) -> None:
         """Relabel the texts that carry a length (sheet list, results, titles, compare table)."""
@@ -756,6 +778,7 @@ class NestWorkspace(QWidget):
     def _apply_params(self) -> None:
         p = self.job.params
         p.spacing, p.margin = self.spacing.value(), self.margin.value()
+        self._remember({"nest.spacing": p.spacing, "nest.margin": p.margin})
         p.rotation_step = float(self.rot.currentData() or 0.0) or 360.0
         p.engine = self.engine.currentData() or ENGINE_RASTER
         p.time_limit_s = self.time_limit.value()
@@ -930,6 +953,7 @@ class NestWorkspace(QWidget):
 
     def add_sheet(self) -> NestSheet:
         sh = self.job.add_sheet(NestSheet(self.sheet_w.value(), self.sheet_h.value(), self.sheet_n.value()))
+        self._remember({"nest.sheet_width": sh.width, "nest.sheet_height": sh.height})
         self._mark_dirty()
         self.refresh_stock()
         return sh
@@ -948,7 +972,8 @@ class NestWorkspace(QWidget):
             self.status.setText(tr(w, "nestws.msg.no_parts", "Add parts first (from the drawing or a file)."))
             return False
         if not job.sheets:
-            job.sheets = [NestSheet()]
+            from ..ext_nest import default_sheet
+            job.sheets = [default_sheet(getattr(w, "config", None))]
             self.job.add_sheet(job.sheets[0])
             self.refresh_stock()
         ok = self.service.start(job, self._done, self._failed, self._progress)
