@@ -65,8 +65,7 @@ def screenshot(path: Path) -> str:
 # ---------------------------------------------------------------------- per platform
 def probe_mac(pid: int) -> dict[str, Any]:
     out: dict[str, Any] = {}
-    out["lsappinfo_info"] = sh(["lsappinfo", "info", "-only", "type", "-only", "name", "-only", "bundleid",
-                                "-only", "pid", str(pid)])
+    out["lsappinfo_info"] = sh(["lsappinfo", "info", "-only", "name", "-only", "bundleid", "-only", "pid", str(pid)])
     out["lsappinfo_full"] = sh(["lsappinfo", "info", str(pid)])
     front = sh(["lsappinfo", "front"])
     out["lsappinfo_front"] = front
@@ -80,9 +79,10 @@ def probe_mac(pid: int) -> dict[str, Any]:
     out["se_frontmost_process"] = osa('tell application "System Events" to get name of first process whose frontmost is true')
     out["se_windows"] = osa(f'tell application "System Events" to get name of every window of {proc}')
     out["dock_items"] = osa('tell application "System Events" to tell process "Dock" to get name of every UI element of list 1')
-    t = out["lsappinfo_info"]
-    out["type"] = ("Foreground" if '"Foreground"' in t else "UIElement" if "UIElement" in t
-                   else "BackgroundOnly" if "BackgroundOnly" in t else "unknown")
+    import re
+    m = re.search(r'type="(\w+)"', out["lsappinfo_full"])
+    out["type"] = m.group(1) if m else "unknown"            # Foreground / UIElement / BackgroundOnly
+    out["dock_has_app"] = any(n.strip().lower() in ("mlaser", "python") for n in out["dock_items"].split(","))
     return out
 
 

@@ -26,7 +26,15 @@ def generate() -> str:
     w = MainWindow(DemoController(), extensions=EXTENSIONS)
     w._test_no_dialogs = True
     try:
-        return keymap.markdown(w.shell.shortcut_rows())
+        sh = w.shell
+
+        def ws(cmd: str) -> str:
+            from mlaser.services.workspaces import command_workspace
+            k = command_workspace(cmd, w.commands.get(cmd))
+            return sh.ws_title(k) if k else ""
+        rows = {plat: keymap.rows(sh.label, ws, sh.tr.tr, known=w.ribbon.actions.keys(), plat=plat)
+                for plat in ("windows", "macos")}
+        return keymap.markdown(rows["windows"], mac_rows=rows["macos"])
     finally:
         w.close()
 

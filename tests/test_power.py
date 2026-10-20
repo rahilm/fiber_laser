@@ -38,3 +38,34 @@ def test_safety_ui_refresh_follows_the_job_state():
     src = inspect.getsource(SU.SafetyUI.refresh)
     assert "running = job_running(self.w)" in src and "keep_awake(running)" in src
     assert src.index("running = job_running(self.w)") < src.index("keep_awake(running)")
+
+
+def test_linux_inhibit_command_prefers_logind():
+    have = {"systemd-inhibit": "/usr/bin/systemd-inhibit", "gnome-session-inhibit": "/usr/bin/gnome-session-inhibit"}
+    cmd = PW.linux_inhibit_command("a laser job is running", which=have.get)
+    assert cmd[0] == "systemd-inhibit" and "--what=sleep:idle" in cmd and "--mode=block" in cmd
+    cmd = PW.linux_inhibit_command("x", which={"gnome-session-inhibit": "/x"}.get)
+    assert cmd[0] == "gnome-session-inhibit" and "suspend:idle" in cmd
+    assert PW.linux_inhibit_command("x", which=lambda n: None) is None
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux only")
+def test_linux_holds_an_inhibitor_child_while_on(monkeypatch, tmp_path):
+    """keep_awake(True) starts one inhibitor child for the job (one attempt, not one per tick),
+    keep_awake(False) ends it."""
+    script = tmp_path / "systemd-inhibit"
+    script.write_text("#!/bin/sh\nexec sleep 30\n")
+    script.chmod(0o755)
+    monkeypatch.delenv("MLASER_NO_INHIBIT", raising=False)
+    monkeypatch.setattr(PW.shutil, "which", lambda n: str(script) if n == "systemd-inhibit" else None)
+    calls = []
+    real = PW.subprocess.Popen
+    monkeypatch.setattr(PW.subprocess, "Popen", lambda cmd, **k: calls.append(cmd) or real([str(script)], **k))
+    try:
+        assert PW.keep_awake(True) is True
+        proc = PW._linux_inhibitor
+        assert PW.keep_awake(True) is True and len(calls) == 1
+        assert calls[0][1] == "--what=sleep:idle"
+    finally:
+        assert PW.keep_awake(False) is False
+    assert proc.poll() is not None and PW._linux_inhibitor is None

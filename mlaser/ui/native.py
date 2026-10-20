@@ -119,6 +119,35 @@ def mac_source_identity(name: str = APP_NAME) -> bool:
     return False
 
 
+def mac_launchservices_name(name: str = APP_NAME) -> bool:
+    """Source runs: the Dock and the application switcher label a plain executable by its
+    file name ("python3.12").  LaunchServices' display name of this process is set to
+    ``name`` (``_LSSetApplicationInformationItem``, the call AppKit itself uses; plain C, so
+    a failure is a return code, never an exception).  After the QApplication exists."""
+    if sys.platform != "darwin" or getattr(sys, "frozen", False):
+        return False
+    try:
+        cs = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreServices.framework/CoreServices")
+        cf = ctypes.cdll.LoadLibrary("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+        get_asn = cs._LSGetCurrentApplicationASN
+        set_item = cs._LSSetApplicationInformationItem
+        get_asn.restype = ctypes.c_void_p
+        set_item.restype = ctypes.c_int
+        set_item.argtypes = [ctypes.c_int, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p]
+        cf.CFStringCreateWithCString.restype = ctypes.c_void_p
+        cf.CFStringCreateWithCString.argtypes = [ctypes.c_void_p, ctypes.c_char_p, ctypes.c_uint32]
+        key = ctypes.c_void_p.in_dll(cs, "_kLSDisplayNameKey").value
+        asn = get_asn()
+        if not asn or not key:
+            return False
+        cfname = cf.CFStringCreateWithCString(None, name.encode("utf-8"), 0x08000100)
+        rc = set_item(-2, asn, key, cfname, None)          # kLSDefaultSessionID
+        return rc == 0
+    except Exception as exc:  # noqa: BLE001 - private API, best effort
+        log.info("LaunchServices display name not set: %s", exc)
+        return False
+
+
 def mac_defaults() -> None:
     """AppKit defaults set before the menu bar exists: no automatic "Enter Full Screen" item
     in the View menu (the Window menu has ours, with ⌃⌘F)."""
@@ -453,9 +482,10 @@ def init_application(app) -> None:
         app.setApplicationVersion(str(__version__))
     except Exception:  # noqa: BLE001
         pass
-    app.setWindowIcon(app_icon())
+    app.setWindowIcon(app_icon())             # the Dock icon of a source run on macOS too
     if platform_id() == MACOS:
         app.setAttribute(Qt.AA_DontShowIconsInMenus, True)
+        mac_launchservices_name()
 
 
 # ---------------------------------------------------------------------------------- recent files
@@ -544,8 +574,17 @@ class NativeIntegration:
         if self.plat == MACOS and not self._activated:
             self._activated = True
             mac_activate()
+        if self.plat == WINDOWS:
+            # the title bar of the theme chosen in mlaser (Qt follows only the system's)
+            self.color_scheme_changed(self._dark())
         self.w.raise_()
         self.w.activateWindow()
+
+    def _dark(self) -> bool:
+        from PySide6.QtGui import QPalette
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        return bool(app is not None and app.palette().color(QPalette.Window).lightness() < 128)
 
     def color_scheme_changed(self, dark: bool) -> None:
         if self.plat == WINDOWS and self.w.isVisible():

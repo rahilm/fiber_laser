@@ -28,6 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # many windows compile in their worker thread instead (one process per window would cost an
 # interpreter start each).  tests/test_plan_process.py tests the process path explicitly.
 os.environ.setdefault("MLASER_PLAN_PROCESS", "0")
+os.environ.setdefault("MLASER_NO_INHIBIT", "1")   # no systemd-inhibit child per test job (tests/test_power.py tests it)
 
 # like the application (mlaser.ui.__main__): no macOS App Nap, which coalesces the timers of a
 # process without a front window (a CI runner) and starves the GUI-latency tests

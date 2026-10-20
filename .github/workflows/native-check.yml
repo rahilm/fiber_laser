@@ -30,12 +30,13 @@ env:
   PYTHONUTF8: "1"
   MLASER_NO_FIRSTRUN: "1"
   MLASER_BUILD_NATIVE: "1"
-  UV_PYTHON_PREFERENCE: only-managed     # a python-build-standalone 3.12 (shared libpython for PyInstaller)
 
 jobs:
   macos:
     runs-on: macos-latest
     timeout-minutes: 45
+    env:
+      UV_PYTHON_PREFERENCE: only-managed   # like `uv run mlaser` on a Mac: uv's own Python, not a framework build
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v6
@@ -128,6 +129,8 @@ jobs:
   linux:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    env:
+      UV_PYTHON_PREFERENCE: only-managed   # python-build-standalone 3.12: a shared libpython for PyInstaller
     steps:
       - uses: actions/checkout@v4
       - name: Virtual display, Xfce desktop, Qt runtime

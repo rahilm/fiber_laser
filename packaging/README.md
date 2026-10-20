@@ -182,6 +182,22 @@ secrets are set.
 The order is: build (it writes `LICENSES/`), sign, then `build.py --skip-build --smoke
 --archive`. `--skip-build` does not touch the bundle, so the signature stays valid.
 
+## Platform metadata
+
+- The application icon: `mlaser/ui/resources/icons/app/mlaser.svg`. `make_icons.py` renders
+  it at build time into `.icns` (macOS), `.ico` (Windows) and the hicolor PNGs (Linux).
+- macOS `Info.plist`: `LSBackgroundOnly` is set to false explicitly. BUNDLE would otherwise
+  inherit `console=True` from `mlaser-console` and make the app background-only: no Dock icon,
+  no menu bar. The plist also has `CFBundleName`, the document types (.chf/.mlz as owner,
+  .dxf/.svg/.nc as alternate), and dark appearance allowed.
+- Windows: the AppUserModelID `io.github.mlaser.mlaser` is set at run time
+  (`mlaser/ui/native.py`). The executables carry `mlaser.ico`.
+- Linux: `share/applications/io.github.mlaser.desktop` (with `StartupWMClass=mlaser`), the icons
+  and `share/install-desktop-entry.sh` are under `_internal/`.
+
+docs/dev/NATIVE.md has the full platform matrix and the CI check
+(`.github/workflows/native-check.yml`).
+
 ## Not done yet
 
 * Installers: Inno Setup or MSIX on Windows, a dmg on macOS, an AppImage on Linux. They should

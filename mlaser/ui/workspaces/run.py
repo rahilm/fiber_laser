@@ -60,6 +60,7 @@ STATE_COLORS = {            # background, text (colour is never the only cue: te
     "hold": ("#ff8f00", "#000000"),
     "fault": ("#7f0000", "#ffffff"),
     "alarm": ("#b71c1c", "#ffffff"),
+    "armed": ("#d50000", "#ffffff"),          # = safety_ui.COLORS["ARMED"]
 }
 STATE_TEXT = {"offline": ("run.state.offline", "OFFLINE"), "ready": ("run.state.ready", "READY"),
               "running": ("run.state.running", "RUNNING"), "hold": ("run.state.hold", "HOLD"),
@@ -260,7 +261,8 @@ class RunCanvas(QWidget):
         return s, ox, oy
 
     def paintEvent(self, _ev) -> None:  # noqa: N802 - Qt API
-        from ..canvas import layer_color
+        from ..canvas import CANVAS_COLORS
+        from ..canvas import display_layer_color as layer_color   # theme-adjusted (contrast vs. canvas)
         p = QPainter(self)
         try:
             p.setRenderHint(QPainter.Antialiasing, True)
@@ -280,7 +282,7 @@ class RunCanvas(QWidget):
                 p.drawRect(QRectF(x0, y0, x1 - x0, y1 - y0))
             p.setBrush(Qt.NoBrush)
             done_pen = QPen(pal.color(QPalette.Mid), 0)
-            cur_col = QColor("#ff6d00")
+            cur_col = QColor(CANVAS_COLORS.get("track", "#d62828"))
             for i, layer, path in self._paths:
                 if i in self.done:
                     p.setPen(done_pen)
@@ -296,8 +298,8 @@ class RunCanvas(QWidget):
                     p.drawPath(path)
             if self.head is not None:
                 r = 6.0 / s
-                p.setPen(QPen(QColor("#ffffff"), 1.5 / s))
-                p.setBrush(QColor("#d50000"))
+                p.setPen(QPen(pal.color(QPalette.Base), 1.5 / s))
+                p.setBrush(QColor(CANVAS_COLORS.get("head", "#d62828")))
                 p.drawEllipse(QPointF(*self.head), r, r)
         finally:
             p.end()
@@ -747,12 +749,16 @@ class OperatorScreen(QWidget):
         # state
         key, default = STATE_TEXT[s.kind]
         label = f"{s.icon}  {tr(w, key, default)}"
+        if s.kind == "ready" and s.armed:
+            label += f"  ·  {tr(w, 'shell.chip.armed', 'ARMED')}"
         if self.state.text() != label:
             self.state.setText(label)
-        if s.kind != self._kind:
-            bg, fg = STATE_COLORS[s.kind]
+        # READY while armed shows the ARMED colour (the laser can fire: never the calm blue)
+        look = "armed" if s.kind == "ready" and s.armed else s.kind
+        if look != self._kind:
+            bg, fg = STATE_COLORS[look]
             self.state.setStyleSheet(f"background:{bg};color:{fg};border-radius:8px;padding:6px 14px;")
-            self._kind = s.kind
+            self._kind = look
         self.reason.setText(self.ws.reason_text(s))
         b = getattr(w, "safety_io", None)
         note = b.notice_text() if b is not None else ""

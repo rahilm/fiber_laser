@@ -89,6 +89,24 @@ def _mac_seq(mods: str, key: str) -> str:
     return out + _MAC_KEYS.get(key, key.upper() if len(key) == 1 else key)
 
 
+def seq_text(seq: str, plat: Optional[str] = None) -> str:
+    """One key sequence as the platform writes it ("Backspace" -> "⌫", "Ctrl+M" -> "⌘M")."""
+    if platform_id(plat) != "macos":
+        return seq
+    parts = seq.split("+")
+    if len(parts) > 1 and parts[-1] == "":           # "Ctrl++"
+        parts = parts[:-2] + ["+"]
+    mods, key = "".join(p + "+" for p in parts[:-1]), parts[-1]
+    if mods and not all(m in ("Ctrl", "Shift", "Alt", "Meta") for m in parts[:-1]):
+        return seq
+    return _mac_seq(mods, key)
+
+
+def keys_text(key: str, plat: Optional[str] = None) -> str:
+    """A table entry ("Ctrl+Y|Ctrl+Shift+Z") as shown: alternatives joined by " / "."""
+    return " / ".join(seq_text(k, plat) for k in sequences(key))
+
+
 def native_text(text: str, plat: Optional[str] = None) -> str:
     """Shortcut text as the platform writes it: on macOS "Ctrl+Shift+Z" -> "⇧⌘Z" and
     "Search (Ctrl+K)" -> "Search (⌘K)"; unchanged elsewhere.  Works on whole sentences."""
@@ -118,7 +136,7 @@ FIXED_KEYS: list[tuple[str, str, str]] = [
 
 def key_for(cmd_id: str, plat: Optional[str] = None) -> str:
     """The shortcut shown for a command ("" for none); window keys first."""
-    return native_text(" / ".join(sequences(window_keys(plat).get(cmd_id) or CANVAS_KEYS.get(cmd_id, ""))), plat)
+    return keys_text(window_keys(plat).get(cmd_id) or CANVAS_KEYS.get(cmd_id, ""), plat)
 
 
 def sequences(key: str) -> list[str]:
@@ -150,7 +168,7 @@ def rows(label: Callable[[str], str], workspace: Callable[[str], str], tr: Calla
         for cmd, key in table.items():
             if ids is not None and cmd not in ids:
                 continue
-            out.append((workspace(cmd), label(cmd), native_text(" / ".join(sequences(key)), plat), ctx))
+            out.append((workspace(cmd), label(cmd), keys_text(key, plat), ctx))
     for key, desc, ctx in FIXED_KEYS:
         if platform_id(plat) == "macos":
             key = key.replace("Ctrl + click", "⌘ + click")
@@ -172,12 +190,18 @@ def markdown(rows_: list[tuple[str, str, str, str]], title: str = "Keyboard shor
              "Windows and Linux differ only in redo (Ctrl+Y on Windows, Ctrl+Shift+Z first on Linux) and",
              "Exit (no shortcut on Windows: Alt+F4).", "", head, rule]
     mac = {(r[0], r[1], r[3]): r[2] for r in (mac_rows or [])}
+    seen = set()
     for ws, lab, key, ctx in rows_:
+        seen.add((ws, lab, ctx))
         if mac_rows is not None:
-            lines.append(f"| {ws or '-'} | {lab} | `{key}` | `{mac.get((ws, lab, ctx), '')}` | {ctx} |")
+            m = mac.get((ws, lab, ctx), "")
+            lines.append(f"| {ws or '-'} | {lab} | `{key}` | {f'`{m}`' if m else '-'} | {ctx} |")
         else:
             lines.append(f"| {ws or '-'} | {lab} | `{key}` | {ctx} |")
+    for ws, lab, key, ctx in (mac_rows or []):
+        if (ws, lab, ctx) not in seen:
+            lines.append(f"| {ws or '-'} | {lab} | - | `{key}` | {ctx} |")
     return "\n".join(lines) + "\n"
 
 
-__all__ = ["sequences", "WINDOW_KEYS", "PLATFORM_KEYS", "window_keys", "native_text", "platform_id", "CANVAS_KEYS", "FIXED_KEYS", "key_for", "conflicts", "rows", "markdown"]
+__all__ = ["sequences", "WINDOW_KEYS", "PLATFORM_KEYS", "window_keys", "native_text", "platform_id", "seq_text", "keys_text", "CANVAS_KEYS", "FIXED_KEYS", "key_for", "conflicts", "rows", "markdown"]

@@ -90,7 +90,7 @@ def _menus(plat: str) -> list[Menu]:
         "view.select_mode", "view.pan_mode", "view.node_edit", SEP,
         "show.bbox", "show.unclosed_red", "show.index", "show.start", "show.direction", "show.move_path", SEP,
         "preview.play", "preview.clear", "run.simulate", "sim.speed", "sim.stop", SEP,
-        Sub("shell.theme", id="theme"),
+        Sub("shell.menu.appearance", id="theme"),          # quick toggle; the editor: Settings › Appearance
         "shell.classic_ribbon",
         Sub("shell.mode.title", ["shell.mode_operator", "shell.mode_engineer", "shell.mode_service", SEP,
                                  "shell.user_mode", "shell.set_pins"], id="mode"),
@@ -103,7 +103,7 @@ def _menus(plat: str) -> list[Menu]:
         "tool.measure",
     ])
     process = Menu("process", "shell.menu.process", [
-        "process.show", "process.apply", "process.rates", SEP,
+        "process.show", "process.library", "process.layer_settings", "process.apply", "process.rates", SEP,
         Sub("", head="craft.lead", items=["craft.lead_manual", "craft.lead_check", "craft.lead_clear_mark",
                                           "craft.lead_clear", SEP, "cam.lead_place", "cam.lead_check",
                                           "cam.lead_fix", "cam.tip_check", "cam.tip_fix"]),
@@ -161,7 +161,7 @@ def _menus(plat: str) -> list[Menu]:
                                      "aux.batch_cut", "aux.maintain", "aux.custom_io", "aux.custom_io_nl",
                                      "aux.dedust"]),
         SEP,
-        "hw.options", "card.params", "machine.safety_io", "machine.import_install", "card.stream_process",
+        "machine.setup", "hw.options", "card.params", "machine.safety_io", "machine.import_install", "card.stream_process",
         Sub("", head="hw.upgrade", items=["hw.upgrade_ftc", "hw.upgrade_ext"]),
         "hw.restart",
     ])
@@ -218,8 +218,17 @@ def roles(plat: str, settings_cmd: str = "app.options") -> dict[str, str]:
     return {"app.about": ABOUT, settings_cmd: PREFERENCES, "app.exit": QUIT, "app.plugin_manager": APP_SPECIFIC}
 
 
+#: menu words for commands whose ribbon label names an old editor (ia/SETTINGS_MAP.md: the
+#: menus point at the single home of each setting)
+MENU_LABELS = {"hw.options": "shell.menu.machine_setup"}
+
+
 #: per-platform label overrides (lang ids): the platform's own words for the same command
 def platform_labels(plat: str, settings_cmd: str = "app.options") -> dict[str, str]:
+    return {**MENU_LABELS, **_platform_labels(plat, settings_cmd)}
+
+
+def _platform_labels(plat: str, settings_cmd: str) -> dict[str, str]:
     if plat == MACOS:
         return {settings_cmd: "shell.menu.settings_mac", "app.exit": "shell.menu.quit", "app.about": "shell.menu.about",
                 "app.plugin_manager": "shell.menu.plugins"}
