@@ -192,6 +192,11 @@ class ProcessExtension:
         self.scrubber.pause()
 
     def _document_changed(self, kind: str) -> None:
+        if kind == "replace":
+            # a drawing saved without override marks (.chf, DXF, an older project): derive them
+            # once (no value changes; services.inheritance)
+            from mlaser.services.inheritance import derive_marks
+            derive_marks(self.ctx.document, self.store)
         self.workspace.refresh_layers()
         self.properties.refresh()
 

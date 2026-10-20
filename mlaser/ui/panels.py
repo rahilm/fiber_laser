@@ -19,8 +19,7 @@ from ..machine.api import MachineAPI
 from .i18n import Translator
 from .params import GAS_KEYS
 from .icons import command_icon
-from .responsive import (TARGET, TARGET_MIN, CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout,
-                         ResponsiveForm, flow, keep_min_size)
+from .responsive import (TARGET, TARGET_MIN, CollapsibleSection, ColumnFitter, ColumnsPanel, ResponsiveForm, flow, keep_min_size)
 
 PAD_ICON = 28       # px: the touch icon size (jog pad, run buttons)
 
@@ -52,7 +51,9 @@ class LayerPanel(QWidget):
         self.document = None
         v = QVBoxLayout(self)
         v.setContentsMargins(2, 2, 2, 2)
-        row = FlowLayout(justify=False, hspacing=1, vspacing=1)     # wraps in a narrow dock
+        from .techform import FlowLayout
+        roww = QWidget()
+        row = FlowLayout(roww, 1)                # the swatches wrap in a narrow dock
         self.color_buttons = []
         for i in range(len(LAYER_COLORS)):
             b = QToolButton()
@@ -63,14 +64,23 @@ class LayerPanel(QWidget):
             b.clicked.connect(lambda _=False, i=i: self.assignLayer.emit(i))
             row.addWidget(b)
             self.color_buttons.append(b)
-        v.addLayout(row)
+        v.addWidget(roww)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
-        # no horizontal scroll bar in a narrow dock: the layer column stretches, the parameter
-        # columns of least use hide first (ui/responsive.py ColumnFitter)
-        ColumnFitter(self.table, {1: 5, 2: 4, 3: 1, 4: 2, 5: 2, 6: 3}, stretch=0)
+        # no sideways scrolling (DESIGN.md R2): the layer column stretches and elides, the
+        # others are shown in priority order (COLS order) while they fit; the header's context
+        # menu shows a hidden one again; every value is also in the layer cell's tooltip
+        hh = self.table.horizontalHeader()
+        hh.setSectionResizeMode(QHeaderView.Interactive)
+        hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        hh.setStretchLastSection(False)
+        hh.setContextMenuPolicy(Qt.CustomContextMenu)
+        hh.customContextMenuRequested.connect(self._header_menu)
+        self.table.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.table.setTextElideMode(Qt.ElideRight)
+        self.table.setWordWrap(False)
+        self.pinned: set[int] = set()            # columns the user asked to show
         self.table.itemChanged.connect(self._item_changed)
         self.table.cellDoubleClicked.connect(lambda r, c: c == 0 and self.editLayer.emit(self._row_layer(r)))
         v.addWidget(self.table)
@@ -85,6 +95,42 @@ class LayerPanel(QWidget):
 
     def _headers(self):
         self.table.setHorizontalHeaderLabels([self.tr_.tr_param(k)[1] for k, _ in self.COLS])
+        self.fit_columns()
+
+    def fit_columns(self) -> None:
+        """Show the value columns, in priority order, while they fit next to the layer column."""
+        tb = self.table
+        avail = tb.viewport().width() if tb.isVisible() else tb.width()
+        fm = tb.fontMetrics()
+        hh = tb.horizontalHeader()
+        need0 = max([fm.horizontalAdvance(hh.model().headerData(0, Qt.Horizontal) or "") + 24] +
+                    [fm.horizontalAdvance(tb.item(r, 0).text()) + 36 for r in range(tb.rowCount())
+                     if tb.item(r, 0) is not None])
+        used = need0
+        for c in range(1, tb.columnCount()):
+            w = max(fm.horizontalAdvance(str(hh.model().headerData(c, Qt.Horizontal) or "")) + 16,
+                    tb.sizeHintForColumn(c) + 8)
+            show = c in self.pinned or used + w <= avail
+            tb.setColumnHidden(c, not show)
+            if show:
+                tb.setColumnWidth(c, w)
+                used += w
+
+    def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
+        super().resizeEvent(ev)
+        self.fit_columns()
+
+    def _header_menu(self, pos) -> None:
+        from PySide6.QtWidgets import QMenu
+        m = QMenu(self)
+        hh = self.table.horizontalHeader()
+        for c in range(1, self.table.columnCount()):
+            a = m.addAction(str(hh.model().headerData(c, Qt.Horizontal)))
+            a.setCheckable(True)
+            a.setChecked(not self.table.isColumnHidden(c))
+            a.toggled.connect(lambda on, c=c: (self.pinned.add(c) if on else self.pinned.discard(c),
+                                               self.fit_columns()))
+        m.popup(hh.mapToGlobal(pos))
 
     def _row_layer(self, r: int) -> int:
         it = self.table.item(r, 0)
@@ -117,6 +163,7 @@ class LayerPanel(QWidget):
                 head.setData(Qt.UserRole, li)
                 head.setFlags(head.flags() & ~Qt.ItemIsEditable)
                 self.table.setItem(r, 0, head)
+                tips = []
                 for c, (_, attr) in enumerate(self.COLS[1:], start=1):
                     val = getattr(lp, attr)
                     txt = self.tr_.tr(GAS_KEYS[int(val) % len(GAS_KEYS)]) if attr == "gas" else f"{val:g}"
@@ -124,6 +171,8 @@ class LayerPanel(QWidget):
                     if attr == "gas":
                         it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(r, c, it)
+                    tips.append(f"{self.tr_.tr_param(self.COLS[c][0])[1]}: {txt}")
+                head.setToolTip("\n".join(tips))
         self.table.blockSignals(False)
         self._headers()
 

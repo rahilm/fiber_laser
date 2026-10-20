@@ -48,6 +48,7 @@ COMMAND_ICONS: dict[str, str] = {
     # view / edit / select / show
     "view.select_mode": "pointer", "view.node_edit": "vector", "view.pan_mode": "arrows-move",
     "view.zoom_in": "zoom-in", "view.zoom_out": "zoom-out", "view.zoom_fit": "zoom-reset",
+    "view.fit_table": "border-outer", "show.toolpath": "vector-spline",
     "edit.undo": "arrow-back-up", "edit.redo": "arrow-forward-up",
     "select.all": "select-all", "select.invert": "arrows-exchange", "select.unclosed": "line-dashed",
     "select.similar": "copy", "select.inner": "border-inner", "select.outer": "border-outer",
