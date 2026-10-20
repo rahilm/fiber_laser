@@ -2972,7 +2972,7 @@
   "nestws.tip.avoid": "rapids avoid",
   "cutstrat.tab": "Cutting strategy",
   "cutstrat.leads": "Lead-ins",
-  "cutstrat.prefer.auto": "automatic (corners on sharp parts)",
+  "cutstrat.prefer.auto": "automatic",
   "cutstrat.prefer.corner": "corners",
   "cutstrat.prefer.straight": "long straight segments",
   "cutstrat.prefer": "Start on",
@@ -3024,7 +3024,8 @@
   "nestws.grain.y": "along Y",
   "nestws.scrap.off": "off",
   "nestws.scrap.grid": "grid",
-  "nestws.scrap.gaps": "in the gaps"
+  "nestws.scrap.gaps": "in the gaps",
+  "cutstrat.prefer.tip": "automatic: a corner on parts with sharp corners, else the longest straight segment"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [

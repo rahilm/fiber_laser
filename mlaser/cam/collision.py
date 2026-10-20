@@ -13,6 +13,7 @@ as :func:`mlaser.cam.toolpath.build_toolpath`); :func:`fix` repairs them in the 
    conflict along the lead, times 0.7 when the conflict is another contour (or the sheet edge)
    and the lead is not a straight line (type 1); repeated (x 0.7) until it is clear;
 3. else **flag it**: ``Craft.lead_error`` (the original's error mark, drawn red), the length kept.
+   A lead that was fixed loses the mark.
 
 Clearances (:class:`LeadCheckParams`): the lead's centre line keeps ``kerf / 2 + clearance``
 from every other contour outline (so its kerf stays out of the neighbour), its pierce point
@@ -156,11 +157,17 @@ class _Index:
 
     def __init__(self, items: list) -> None:
         import shapely
-        from shapely.geometry import LineString
-        self.keys, self.geoms, self.kerf = [], [], {}
+        from shapely.geometry import LineString, Polygon
+        self.keys, self.geoms = [], []
+        self.area: dict = {}         # key -> (polygon, the lead belongs inside it: a hole)
         for n, craft, _pc in items:
             pts = list(n.contour.points(0.05))
-            if n.contour.closed and pts:
+            if n.contour.closed and len(pts) >= 3:
+                g = Polygon(pts)
+                if not g.is_valid:
+                    g = g.buffer(0)
+                if g.area > 1e-9:
+                    self.area[n.key] = (g, n.depth % 2 == 0)
                 pts = pts + [pts[0]]
             if len(pts) < 2:
                 continue
@@ -202,9 +209,19 @@ def _trim_end(pts: list[Point], length: float) -> list[Point]:
     return []
 
 
-def _own_trim(r: float, lead_angle_deg: float) -> float:
-    s = abs(math.sin(math.radians(lead_angle_deg or 90.0)))
-    return r / max(s, 0.25) + 0.05
+OWN_TRIM = 0.05     # mm of the lead next to the contour start left out of the own-contour test
+
+
+def _wrong_side(idx: "_Index", key, q) -> bool:
+    """The point lies on the part side of its own contour (a hole's lead outside the hole, an
+    outer contour's lead inside the part)."""
+    a = idx.area.get(key)
+    if a is None:
+        return False
+    from shapely.geometry import Point as SPoint
+    poly, hole = a
+    inside = poly.contains(SPoint(q))
+    return inside != hole
 
 
 def _lead_conflicts(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: LeadCheckParams,
@@ -224,8 +241,8 @@ def _lead_conflicts(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: 
             break
     own = idx.by_key.get(key)
     if own is not None:
-        tp = _trim_end(pts, _own_trim(r, craft.lead_in.angle_deg))
-        if len(tp) >= 2 and LineString(tp).intersects(own):
+        tp = _trim_end(pts, OWN_TRIM)
+        if (len(tp) >= 2 and LineString(tp).intersects(own)) or _wrong_side(idx, key, Q):
             out.append(LeadIssue(key, "own", Q))
             if first_only:
                 return out
@@ -266,7 +283,6 @@ def _first_conflict(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: 
     lead = LineString(pts)
     near = [g for _k, g in idx.near(lead, r, key)]
     own = idx.by_key.get(key)
-    trim = _own_trim(r, craft.lead_in.angle_deg)
     inner = None
     if sheet is not None:
         inner = sheet.buffer(-p.edge_clearance) if p.edge_clearance > 0 else sheet
@@ -281,7 +297,7 @@ def _first_conflict(key, craft: Craft, pts: list[Point], idx: _Index, sheet, p: 
             sp = SPoint(q)
             if any(g.distance(sp) < r for g in near):
                 return s, "contour"
-            if own is not None and s > trim and own.distance(sp) < 1e-3:
+            if own is not None and s > OWN_TRIM and (own.distance(sp) < 1e-3 or _wrong_side(idx, key, q)):
                 return s, "own"
             if inner is not None and not inner.contains(sp):
                 return s, "edge"
@@ -303,6 +319,14 @@ def _set_length(doc, key, length: float, error: bool = False) -> None:
     cr.lead_in.length = float(length)
     if error:
         cr.lead_error = True
+
+
+def _clear_mark(doc, key) -> None:
+    from .manual import contour_craft
+    pi, ci = key
+    cr = contour_craft(doc.parts[pi], ci)
+    if cr.lead_error:
+        cr.lead_error = False
 
 
 def _trial(n, craft: Craft, prm, **changes):
@@ -343,6 +367,7 @@ def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[Lead
                 cr, tp = _trial(n, craft, prm, start_param=cand.frac)
                 if tp and _clear_at(n.key, cr, tp, idx, sh, p):
                     _set_start(doc, n.key, cand.frac)
+                    _clear_mark(doc, n.key)
                     rep.fixes.append(LeadFix(n.key, "moved", float(before or 0.0), cand.frac))
                     done = True
                     break
@@ -357,6 +382,7 @@ def fix(doc: Document, prm: Any = None, sheet: Any = None, params: Optional[Lead
                 cr, tp = _trial(n, craft, prm, length=new)
                 if tp and _clear_at(n.key, cr, tp, idx, sh, p):
                     _set_length(doc, n.key, new)
+                    _clear_mark(doc, n.key)
                     rep.fixes.append(LeadFix(n.key, "shortened", L0, new))
                     done = True
                     break

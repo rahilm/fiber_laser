@@ -77,13 +77,16 @@ class CuttingStrategyPanel(QWidget):
         # ---- leads
         lg = QGroupBox(tr(w, "cutstrat.leads", "Lead-ins"))
         lf = QFormLayout(lg)
+        lf.setRowWrapPolicy(QFormLayout.WrapAllRows)       # labels above: the Process column is narrow
         self.prefer = QComboBox()
         self.prefer.setObjectName("cutstrat_prefer")
-        for data, key, text in (("auto", "cutstrat.prefer.auto", "automatic (corners on sharp parts)"),
+        for data, key, text in (("auto", "cutstrat.prefer.auto", "automatic"),
                                 ("corner", "cutstrat.prefer.corner", "corners"),
                                 ("straight", "cutstrat.prefer.straight", "long straight segments")):
             self.prefer.addItem(tr(w, key, text), data)
         lf.addRow(tr(w, "cutstrat.prefer", "Start on"), self.prefer)
+        self.prefer.setToolTip(tr(w, "cutstrat.prefer.tip", "automatic: a corner on parts with sharp corners, "
+                                  "else the longest straight segment"))
         self.min_feature = QDoubleSpinBox()
         self.min_feature.setRange(0.0, 1000.0)
         self.min_feature.setDecimals(1)
@@ -104,6 +107,7 @@ class CuttingStrategyPanel(QWidget):
             b = QPushButton(tr(w, key, text))
             b.setObjectName(name)
             b.setMinimumHeight(32)
+            b.setMinimumWidth(40)
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
         lf.addRow(row)
@@ -111,6 +115,7 @@ class CuttingStrategyPanel(QWidget):
         # ---- tipping
         tg = QGroupBox(tr(w, "cutstrat.tipping", "Tipping on the slats"))
         tf = QFormLayout(tg)
+        tf.setRowWrapPolicy(QFormLayout.WrapAllRows)
         self.bed_label = QLabel()
         self.bed_label.setObjectName("cutstrat_bed")
         self.bed_label.setWordWrap(True)

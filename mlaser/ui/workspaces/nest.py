@@ -23,10 +23,10 @@ from typing import Any, Optional
 from PySide6.QtCore import QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout,
-                               QFrame, QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QLineEdit, QListView, QListWidget, QListWidgetItem, QMessageBox,
-                               QProgressBar, QPushButton, QSizePolicy, QSpinBox, QSplitter,
-                               QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
+                               QFrame, QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QListView, QListWidget, QListWidgetItem, QMessageBox, QProgressBar,
+                               QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
+                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT,
                          GRAVITY_RIGHT, GRAVITY_TOP, NestJob, NestSheet)
@@ -161,7 +161,7 @@ class SheetView(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(360, 240)
+        self.setMinimumSize(360, 160)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAccessibleName("nest sheet")
         self.job: Optional[NestJob] = None
@@ -395,70 +395,65 @@ class NestWorkspace(QWidget):
         return cb
 
     def _options_panel(self) -> QWidget:
-        """Nesting options (engine) and cutting strategy (sheets as cut), side by side."""
+        """Nesting options (engine) and cutting strategy (sheets as cut): two compact tabs."""
         w = self.window_
-        box = QWidget()
+        box = QTabWidget()
         box.setObjectName("nestws_options")
-        row = QHBoxLayout(box)
-        row.setContentsMargins(0, 0, 0, 0)
-        nb = QGroupBox(tr(w, "nestws.opt.nesting", "Nesting"))
-        nf = QFormLayout(nb)
+        box.setDocumentMode(True)
+        nb = QWidget()
+        ng = QGridLayout(nb)
+        ng.setContentsMargins(4, 4, 4, 4)
         self.common_line = self._check("nestws.opt.common_line", "Common line", "nestws_common_line")
         self.share_min = self._spin(0.1, 10000, 20.0, " mm")
         self.share_min.setToolTip(tr(w, "nestws.opt.share_min", "shortest shared edge"))
         self.kerf = self._spin(0, 10, 0.2, " mm", 2)
         self.kerf.setToolTip(tr(w, "nestws.opt.kerf", "kerf: the part distance with common line"))
-        cl = QHBoxLayout()
-        cl.addWidget(self.common_line)
-        cl.addWidget(self.share_min)
-        cl.addWidget(self.kerf)
-        nf.addRow(cl)
         self.part_in_part = self._check("nestws.opt.part_in_part", "Part in part", "nestws_part_in_part")
         self.mirror = self._check("nestws.opt.mirror", "Mirror (all parts)", "nestws_mirror")
-        pp = QHBoxLayout()
-        pp.addWidget(self.part_in_part)
-        pp.addWidget(self.mirror)
-        nf.addRow(pp)
         self.gravity = self._combo(((GRAVITY_LEFT, "nestws.grav.left", "left"),
                                     (GRAVITY_BOTTOM, "nestws.grav.bottom", "bottom"),
                                     (GRAVITY_RIGHT, "nestws.grav.right", "right"),
                                     (GRAVITY_TOP, "nestws.grav.top", "top"),
                                     (GRAVITY_AUTO, "nestws.grav.auto", "automatic")), "nestws_gravity")
-        nf.addRow(tr(w, "nestws.opt.gravity", "Gravity"), self.gravity)
         self.grain = self._combo(((GRAIN_NONE, "nestws.grain.none", "none"),
                                   (GRAIN_X, "nestws.grain.x", "along X"),
                                   (GRAIN_Y, "nestws.grain.y", "along Y")), "nestws_grain")
-        nf.addRow(tr(w, "nestws.opt.grain", "Sheet grain"), self.grain)
-        row.addWidget(nb, 1)
-        sb = QGroupBox(tr(w, "nestws.opt.strategy", "Cutting strategy"))
-        sf = QFormLayout(sb)
+        ng.addWidget(self.common_line, 0, 0)
+        ng.addWidget(self.share_min, 0, 1)
+        ng.addWidget(self.kerf, 0, 2)
+        ng.addWidget(self.part_in_part, 0, 3)
+        ng.addWidget(self.mirror, 0, 4)
+        ng.addWidget(QLabel(tr(w, "nestws.opt.gravity", "Gravity")), 1, 0)
+        ng.addWidget(self.gravity, 1, 1, 1, 2)
+        ng.addWidget(QLabel(tr(w, "nestws.opt.grain", "Sheet grain")), 1, 3)
+        ng.addWidget(self.grain, 1, 4)
+        box.addTab(nb, tr(w, "nestws.opt.nesting", "Nesting"))
+        sb = QWidget()
+        sg = QGridLayout(sb)
+        sg.setContentsMargins(4, 4, 4, 4)
         self.scrap = self._combo(((SCRAP_OFF, "nestws.scrap.off", "off"),
                                   (SCRAP_GRID, "nestws.scrap.grid", "grid"),
                                   (SCRAP_GAPS, "nestws.scrap.gaps", "in the gaps")), "nestws_scrap")
         self.scrap_pitch = self._spin(10, 10000, 500.0, " mm", 0)
         self.scrap_pitch.setToolTip(tr(w, "nestws.opt.scrap_pitch", "largest scrap piece"))
-        sc = QHBoxLayout()
-        sc.addWidget(self.scrap, 1)
-        sc.addWidget(self.scrap_pitch)
-        sf.addRow(tr(w, "nestws.opt.scrap", "Skeleton cut-up"), sc)
         self.remnant_cut = self._check("nestws.opt.remnant_cut", "Remnant separation cut", "nestws_remnant_cut")
         self.remnant_min = self._spin(1, 10000, 100.0, " mm", 0)
         self.remnant_min.setToolTip(tr(w, "nestws.opt.remnant_min", "narrowest remnant worth separating"))
-        rc = QHBoxLayout()
-        rc.addWidget(self.remnant_cut, 1)
-        rc.addWidget(self.remnant_min)
-        sf.addRow(rc)
         self.lead_fix = self._check("nestws.opt.lead_fix", "Fix lead collisions", "nestws_lead_fix")
-        sf.addRow(self.lead_fix)
         self.tip_check = self._check("nestws.opt.tip_check", "Tip-avoiding order", "nestws_tip_check")
         self.tip_strategy = self._combo((("joint", "nestws.tip.joint", "micro-joint"),
                                          ("last", "nestws.tip.last", "cut last"),
                                          ("avoid", "nestws.tip.avoid", "rapids avoid")), "nestws_tip_strategy")
-        tc = QHBoxLayout()
-        tc.addWidget(self.tip_check, 1)
-        tc.addWidget(self.tip_strategy)
-        sf.addRow(tc)
-        row.addWidget(sb, 1)
+        sg.addWidget(QLabel(tr(w, "nestws.opt.scrap", "Skeleton cut-up")), 0, 0)
+        sg.addWidget(self.scrap, 0, 1)
+        sg.addWidget(self.scrap_pitch, 0, 2)
+        sg.addWidget(self.remnant_cut, 0, 3)
+        sg.addWidget(self.remnant_min, 0, 4)
+        sg.addWidget(self.lead_fix, 1, 0, 1, 2)
+        sg.addWidget(self.tip_check, 1, 3)
+        sg.addWidget(self.tip_strategy, 1, 4)
+        box.addTab(sb, tr(w, "nestws.opt.strategy", "Cutting strategy"))
+        box.setMaximumHeight(130)
         for wid in (self.scrap, self.scrap_pitch, self.remnant_cut, self.remnant_min):
             sig = getattr(wid, "currentIndexChanged", None) or getattr(wid, "valueChanged", None) \
                 or wid.toggled
