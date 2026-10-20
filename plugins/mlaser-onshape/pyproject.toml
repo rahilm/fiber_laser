@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlaser-onshape"
+version = "0.1.0"
+description = "mlaser plugin: browse Onshape documents, pick the parts for the laser, and turn their flat faces into DXF order lines"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dependencies = ["mlaser>=0.1.0rc1", "ezdxf>=1.1"]
+
+# mlaser finds plugins through this entry-point group (plugin standard v1, docs/dev/PLUGIN_STANDARD.md)
+[project.entry-points."mlaser.plugins"]
+onshape = "mlaser_onshape:plugin"
+
+[tool.setuptools]
+packages = ["mlaser_onshape"]
+
+[tool.setuptools.package-data]
+mlaser_onshape = ["mlaser-plugin.toml"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
