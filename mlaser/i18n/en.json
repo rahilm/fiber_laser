@@ -159,6 +159,7 @@
   "cmd.app.import_language": "Import Language Files…",
   "cmd.app.options": "Options",
   "cmd.app.recovery": "System Recovery",
+  "cmd.app.settings": "Settings",
   "cmd.aux.ball_arm": "Ball Arm",
   "cmd.aux.batch_cut": "Batch Cut",
   "cmd.aux.burn_in": "Burn-in Test",
@@ -2775,6 +2776,371 @@
   "safety.set.laser_alarm_active": "Laser-source alarm interlock: alarm when the input is on",
   "safety.set.laser_alarm_input": "Laser-source alarm interlock: card input",
   "safety.set.not_fitted": "Sensor not fitted on this machine (declared)",
+  "settings.elsewhere": "Elsewhere (opens where the value is edited)",
+  "settings.elsewhere_more": "and {n} more: refine the search",
+  "settings.group.appearance": "Appearance",
+  "settings.group.automation": "Automation API",
+  "settings.group.canvas": "Drawing area",
+  "settings.group.checks": "Pre-flight checks",
+  "settings.group.cleanup": "Clean-up of imported drawings",
+  "settings.group.costing": "Costing (Process, quotes)",
+  "settings.group.currency": "Currency",
+  "settings.group.dxf": "DXF",
+  "settings.group.editing": "Editing",
+  "settings.group.engines": "Engines",
+  "settings.group.estimate": "Rates for the cost estimate",
+  "settings.group.labels": "Labels and part marking",
+  "settings.group.language": "Language",
+  "settings.group.ledger": "Rates for the production ledger",
+  "settings.group.monitor": "LAN monitor",
+  "settings.group.notify_email": "E-mail",
+  "settings.group.notify_events": "Events",
+  "settings.group.notify_general": "General",
+  "settings.group.notify_limits": "Limits and quiet hours",
+  "settings.group.notify_ntfy": "ntfy",
+  "settings.group.notify_webhook": "Webhook",
+  "settings.group.orders": "Order intake",
+  "settings.group.projects": "Projects",
+  "settings.group.remnants": "Remnants",
+  "settings.group.startup": "Start-up",
+  "settings.group.tools": "Last-used tool values",
+  "settings.group.units": "Display units",
+  "settings.help.app.reopen_last": "At start, open the drawing that was open last. Off by default: a machine should start with an empty drawing unless you ask for one.",
+  "settings.help.bed.slat_direction": "The direction the slats run in.",
+  "settings.help.bed.slat_offset": "Position of the first slat; -1 when unknown (the checks then assume the worst position).",
+  "settings.help.bed.slat_pitch": "Distance between the slats of the cutting bed, centre to centre.",
+  "settings.help.bed.slat_width": "Thickness of one slat.",
+  "settings.help.bed.stability_margin": "How far a piece's centre of gravity must lie inside its support.",
+  "settings.help.bed.tip_min_size": "Pieces smaller than this are not checked for tipping (they fall through).",
+  "settings.help.cam.lead_closed_only": "Open contours get no lead (they are usually marking or engraving).",
+  "settings.help.cam.lead_in_angle": "Angle of the lead-in to the contour (90° = perpendicular).",
+  "settings.help.cam.lead_in_length": "Length of the lead-in line.",
+  "settings.help.cam.lead_in_radius": "Radius of an arc lead-in.",
+  "settings.help.cam.lead_in_type": "The lead-in the Lead command starts with. Applies to leads added from now on, not to existing ones.",
+  "settings.help.cam.lead_out_angle": "Angle of the lead-out to the contour.",
+  "settings.help.cam.lead_out_length": "Length of the lead-out line.",
+  "settings.help.cam.lead_out_radius": "Radius of an arc lead-out.",
+  "settings.help.cam.lead_out_type": "The lead-out the Lead command starts with.",
+  "settings.help.cam.lead_start_mode": "Where the lead command puts each contour's start point.",
+  "settings.help.cam.mj_count": "Micro-joints per contour when placed by count.",
+  "settings.help.cam.mj_distance": "Spacing of micro-joints when placed by distance.",
+  "settings.help.cam.mj_kind": "How automatic micro-joints are placed on each contour.",
+  "settings.help.cam.mj_length": "The uncut length of each micro-joint.",
+  "settings.help.cam.mj_min_size": "Contours smaller than this get no micro-joint.",
+  "settings.help.cam.preflight_lead_check": "Before Start or Dry run, check whether a lead-in crosses another part.",
+  "settings.help.cam.preflight_tip_check": "Before Start, check whether freed pieces could tip between the slats.",
+  "settings.help.cam.small_first": "Cut small parts before large ones (small parts are less likely to tip once freed).",
+  "settings.help.cam.sort_mode": "The cutting order of a new session; the Sort commands change it for the current job. Holes are always cut before their outline.",
+  "settings.help.cam.tool.alpha": "What the α corner dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.array": "What the Array dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.bridge": "What the Bridge dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.circle_fly": "What the Fly-cut circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.circular_array": "What the Circular array dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.cool": "What the Cooling points dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.engrave_scan": "What the Engraving scan dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.fill": "What the Fill circles dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.fillet": "What the Round corners dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.line_fly": "What the Fly-cut lines dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.linear_fill": "What the Linear fill dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.onekey": "What the One-key planning dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.rect_share": "What the Rectangles with common edges dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.sheet_fill": "What the Fill sheet dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.cam.tool.unload": "What the Unload loop dialog was last run with; it starts from these values next time. Reset gives it its defaults back.",
+  "settings.help.costing.currency": "The ISO code of the currency (EUR, USD, CHF...) of every cost: the cost card, quotes, the CLI estimate and the production ledger.",
+  "settings.help.costing.gas_air_per_m3": "Per m³ at atmospheric pressure.",
+  "settings.help.costing.gas_n2_per_m3": "Per m³ at atmospheric pressure.",
+  "settings.help.costing.gas_o2_per_m3": "Per m³ at atmospheric pressure.",
+  "settings.help.costing.gas_per_h": "The ledger's assist-gas cost per hour of cutting.",
+  "settings.help.costing.laser_rated_w": "Belongs to the machine (0 = from the technology).",
+  "settings.help.costing.machine_kw": "Drives, chiller and extraction.",
+  "settings.help.costing.machine_per_h": "What one machine hour costs (depreciation, operator, overhead). Used by the cost estimate and the ledger.",
+  "settings.help.costing.material_per_kg": "The sheet material for the estimate; the sheet is the job's sheet, else the cut parts' bounding box.",
+  "settings.help.costing.material_per_m2": "The ledger's material cost per m² of the used sheet.",
+  "settings.help.costing.nozzle_cd": "An assumption for the gas estimate when the technology gives no flow.",
+  "settings.help.costing.per_cut_m": "Nozzle and lens wear per metre of cut.",
+  "settings.help.costing.per_pierce": "Consumable wear per pierce.",
+  "settings.help.costing.power_per_h": "The ledger's electricity cost per hour of cutting.",
+  "settings.help.costing.power_per_kwh": "Per kWh, for the energy part of the estimate.",
+  "settings.help.costing.wall_plug_pct": "The laser source's electrical efficiency (an assumption for the energy estimate).",
+  "settings.help.design.nudge_auto": "Derive the arrow-key step from the size of the selection instead of the fixed step.",
+  "settings.help.design.nudge_step": "How far the arrow keys move the selection.",
+  "settings.help.display.show_bbox": "Draw the bounding rectangle of each part.",
+  "settings.help.display.show_direction": "Arrows along each contour in the cutting direction.",
+  "settings.help.display.show_index": "Number each contour in the order it is cut.",
+  "settings.help.display.show_move_path": "Dashed lines for the moves between contours with the laser off.",
+  "settings.help.display.show_start": "Mark where each contour starts (where the lead-in pierces).",
+  "settings.help.display.unclosed_red": "Open contours cannot be cut with a kerf offset or a lead-in; drawing them in red makes them easy to find before cutting.",
+  "settings.help.import.cleanup_on_open": "Run the clean-up below on every opened DXF, SVG or G-code drawing (one undo step). Off: use Optimize when you need it; the drawing then stays exactly as it was drawn.",
+  "settings.help.import.close_gap": "Close open contours whose ends are at most this far apart (0 = never).",
+  "settings.help.import.connect_gate": "Ends closer than this are joined.",
+  "settings.help.import.merge_type": "Join lines and arcs that touch into contours; the rule decides which neighbour wins at a branch.",
+  "settings.help.import.overlap_gate": "Lines closer than this count as the same line.",
+  "settings.help.import.remove_overlap": "Delete lines drawn twice on top of each other; a double line would be cut twice.",
+  "settings.help.import.remove_small": "Delete contours smaller than the size below (dust, dimension arrows, points).",
+  "settings.help.import.small_gate": "Contours whose extent is below this are removed.",
+  "settings.help.import.smooth": "Replace runs of short lines by arcs (smoother motion, smaller programs).",
+  "settings.help.import.smooth_accuracy": "The largest deviation of the fitted arcs from the original lines.",
+  "settings.help.nest.margin": "The unused border around the sheet.",
+  "settings.help.nest.sheet_height": "The default sheet along Y.",
+  "settings.help.nest.sheet_width": "The sheet a new nest starts with, along X. The default fits a 3015 class machine bed; set your usual stock.",
+  "settings.help.nest.spacing": "The gap between nested parts (at least the kerf plus some margin for heat).",
+  "settings.help.plugin.ext_automation.enabled": "The HTTP API for MES and scripts (docs: Automation). It never moves the machine; queued jobs wait for the operator.",
+  "settings.help.plugin.ext_automation.host": "The address the API listens on (127.0.0.1 = this computer only).",
+  "settings.help.plugin.ext_automation.job_folders": "Folders watched for new jobs (separated by ;).",
+  "settings.help.plugin.ext_automation.max_upload_mb": "The largest drawing a client may upload.",
+  "settings.help.plugin.ext_automation.port": "The TCP port of the API.",
+  "settings.help.plugin.ext_automation.queue_intake": "Clients may add jobs to the queue; the operator still approves each one.",
+  "settings.help.plugin.ext_automation.token": "The bearer token clients must send.",
+  "settings.help.plugin.ext_automation.uploads": "Clients may upload drawings.",
+  "settings.help.plugin.ext_labels.label_size": "The label stock for part labels.",
+  "settings.help.plugin.ext_labels.mark_layer": "The layer (technology) that marks part numbers on the sheet.",
+  "settings.help.plugin.ext_labels.mark_margin": "The clearance of marking text from part edges and holes.",
+  "settings.help.plugin.ext_labels.mark_max_height": "Marking text is never larger than this.",
+  "settings.help.plugin.ext_labels.mark_min_height": "Marking text is never smaller than this.",
+  "settings.help.plugin.ext_labels.remnant_auto": "Write a remnant label PDF when the Run workspace saves a remnant.",
+  "settings.help.plugin.ext_labels.remnant_size": "The label stock for remnant labels.",
+  "settings.help.plugin.ext_labels.ticket_page": "The paper size of the job ticket.",
+  "settings.help.plugin.ext_notify.channels_alarm": "The channels for this event: all, or a comma separated list of ntfy, email, webhook.",
+  "settings.help.plugin.ext_notify.channels_job_finished": "The channels for this event: all, or a comma separated list of ntfy, email, webhook.",
+  "settings.help.plugin.ext_notify.channels_maintenance_due": "The channels for this event: all, or a comma separated list of ntfy, email, webhook.",
+  "settings.help.plugin.ext_notify.channels_queue_waiting": "The channels for this event: all, or a comma separated list of ntfy, email, webhook.",
+  "settings.help.plugin.ext_notify.channels_sheet_done": "The channels for this event: all, or a comma separated list of ntfy, email, webhook.",
+  "settings.help.plugin.ext_notify.email_enabled": "Send notifications by e-mail.",
+  "settings.help.plugin.ext_notify.email_from": "The sender address.",
+  "settings.help.plugin.ext_notify.email_to": "Recipients, comma separated.",
+  "settings.help.plugin.ext_notify.enabled": "Send notifications about the shop floor (sheet done, alarms...) to the channels below.",
+  "settings.help.plugin.ext_notify.event_alarm": "Notify when an alarm or fault occurs.",
+  "settings.help.plugin.ext_notify.event_job_finished": "Notify when a job finishes or stops.",
+  "settings.help.plugin.ext_notify.event_maintenance_due": "Notify when maintenance is due.",
+  "settings.help.plugin.ext_notify.event_queue_waiting": "Notify when the queue waits for the next sheet.",
+  "settings.help.plugin.ext_notify.event_sheet_done": "Notify when a sheet is done.",
+  "settings.help.plugin.ext_notify.include_simulator": "Also notify about simulator, dry-run and practice runs.",
+  "settings.help.plugin.ext_notify.machine_name": "Put in front of every notification title (useful with several machines).",
+  "settings.help.plugin.ext_notify.max_per_hour": "A cap on all notifications per hour.",
+  "settings.help.plugin.ext_notify.min_interval_s": "The same notification is not repeated more often than this.",
+  "settings.help.plugin.ext_notify.ntfy_enabled": "Push notifications through an ntfy server.",
+  "settings.help.plugin.ext_notify.ntfy_server": "The ntfy server.",
+  "settings.help.plugin.ext_notify.ntfy_topic": "The ntfy topic (keep it hard to guess).",
+  "settings.help.plugin.ext_notify.quiet_alarms": "Alarms are sent during quiet hours too.",
+  "settings.help.plugin.ext_notify.quiet_end": "Quiet hours end (HH:MM).",
+  "settings.help.plugin.ext_notify.quiet_start": "Quiet hours start (HH:MM; empty: none).",
+  "settings.help.plugin.ext_notify.smtp_host": "The outgoing mail server. The password is kept in the system key store (channels dialog).",
+  "settings.help.plugin.ext_notify.smtp_port": "587 for STARTTLS, 465 for SSL.",
+  "settings.help.plugin.ext_notify.smtp_security": "How the connection to the mail server is encrypted.",
+  "settings.help.plugin.ext_notify.smtp_user": "The mail server login (empty: no login).",
+  "settings.help.plugin.ext_notify.webhook_enabled": "POST each notification as JSON to a URL.",
+  "settings.help.plugin.ext_notify.webhook_url": "The webhook URL.",
+  "settings.help.plugin.ext_options.dxf_modern": "On: HATCH boundaries and entities are read the way CAD programs draw them (ezdxf). Off: the original program's import rules, exactly.",
+  "settings.help.plugin.ext_options.kerf_clipper": "When the exact kerf offset of a contour fails, offset it with pyclipper instead of reporting an error.",
+  "settings.help.plugin.ext_options.parity_profile": "The motion and import rules. 'original' is bit-exact with the original program (the goldens and the parity runs use it); the others show their warning when chosen.",
+  "settings.help.plugin.ext_project.autosave_interval_s": "How often a changed project is saved to the recovery file (0 = never). The recovery file is offered after a crash.",
+  "settings.help.plugin.orders.close_gap": "The review closes gaps up to this size.",
+  "settings.help.plugin.orders.feature_layers": "Layers whose geometry stays with the part it lies in (engraving, marking). Comma separated, * matches any text.",
+  "settings.help.plugin.orders.ignore_layers": "Layers that are never cut (bend lines, dimensions, frames). Comma separated, * matches any text.",
+  "settings.help.plugin.orders.islands": "What happens to contours inside the hole of a part.",
+  "settings.help.plugin.orders.join_tol": "The review joins open ends closer than this.",
+  "settings.help.plugin.orders.recognition": "How the drawing is split into parts before nesting.",
+  "settings.help.plugin.orders.review_after_import": "Show the import review (repairs, recognised parts) for every imported drawing.",
+  "settings.help.plugin.run.monitor_enabled": "Serve a read-only status page on the network (machine state, job progress). The Run workspace's monitor toggle switches the same setting.",
+  "settings.help.plugin.run.monitor_host": "The network interface the monitor listens on (127.0.0.1 = this computer only).",
+  "settings.help.plugin.run.monitor_port": "The TCP port of the monitor.",
+  "settings.help.plugin.run.monitor_token": "The access token the monitor asks for; empty creates one.",
+  "settings.help.plugin.run.remnant_auto": "After a nested sheet, offer its leftover as a remnant for later jobs.",
+  "settings.help.plugin.run.remnant_min_area": "Leftovers smaller than this are scrap.",
+  "settings.help.plugin.run.remnant_min_width": "Leftovers narrower than this are scrap, not remnants.",
+  "settings.help.shell.classic_ribbon": "Show the original program's ribbon with every command instead of the task workspaces' toolbars.",
+  "settings.help.shell.language": "The language of the interface. System language follows the computer's language when mlaser has texts for it, else English. Other languages can be imported from an original Mlaser installation.",
+  "settings.help.shell.theme": "Light, dark or high contrast (black, white and yellow, for safety glasses). The safety banners keep their own colours in every theme.",
+  "settings.home.api": "Edit in Automation API settings…",
+  "settings.home.machine": "Edit in Machine › Setup",
+  "settings.home.notify": "Edit in Notification settings…",
+  "settings.home.profile": "Edit in Parity profile…",
+  "settings.key.app.reopen_last": "Open the last drawing at start",
+  "settings.key.cam.lead_closed_only": "Leads on closed contours only",
+  "settings.key.cam.lead_in_angle": "Angle",
+  "settings.key.cam.lead_in_length": "Length",
+  "settings.key.cam.lead_in_radius": "Arc radius",
+  "settings.key.cam.lead_in_type": "Type",
+  "settings.key.cam.lead_out_angle": "Angle",
+  "settings.key.cam.lead_out_length": "Length",
+  "settings.key.cam.lead_out_radius": "Arc radius",
+  "settings.key.cam.lead_out_type": "Type",
+  "settings.key.cam.lead_start_mode": "Start point",
+  "settings.key.cam.mj_count": "Joints per contour",
+  "settings.key.cam.mj_distance": "Distance between joints",
+  "settings.key.cam.mj_kind": "Placement",
+  "settings.key.cam.mj_length": "Joint length",
+  "settings.key.cam.mj_min_size": "Skip contours smaller than",
+  "settings.key.cam.small_first": "Small parts first",
+  "settings.key.cam.sort_mode": "Default cutting order",
+  "settings.key.cam.tool.alpha": "α corner",
+  "settings.key.cam.tool.array": "Array",
+  "settings.key.cam.tool.bridge": "Bridge",
+  "settings.key.cam.tool.circle_fly": "Fly-cut circles",
+  "settings.key.cam.tool.circular_array": "Circular array",
+  "settings.key.cam.tool.cool": "Cooling points",
+  "settings.key.cam.tool.engrave_scan": "Engraving scan",
+  "settings.key.cam.tool.fill": "Fill circles",
+  "settings.key.cam.tool.fillet": "Round corners",
+  "settings.key.cam.tool.line_fly": "Fly-cut lines",
+  "settings.key.cam.tool.linear_fill": "Linear fill",
+  "settings.key.cam.tool.onekey": "One-key planning",
+  "settings.key.cam.tool.rect_share": "Rectangles with common edges",
+  "settings.key.cam.tool.sheet_fill": "Fill sheet",
+  "settings.key.cam.tool.unload": "Unload loop",
+  "settings.key.costing.currency": "Currency",
+  "settings.key.costing.gas_air_per_m3": "Compressed air price",
+  "settings.key.costing.gas_n2_per_m3": "Nitrogen price",
+  "settings.key.costing.gas_o2_per_m3": "Oxygen price",
+  "settings.key.costing.gas_per_h": "Gas (per hour)",
+  "settings.key.costing.laser_rated_w": "Laser rated power",
+  "settings.key.costing.machine_kw": "Machine power besides the laser",
+  "settings.key.costing.machine_per_h": "Machine hour rate",
+  "settings.key.costing.material_per_kg": "Material price (per kg)",
+  "settings.key.costing.material_per_m2": "Material (per m²)",
+  "settings.key.costing.nozzle_cd": "Nozzle discharge coefficient",
+  "settings.key.costing.per_cut_m": "Wear per metre cut",
+  "settings.key.costing.per_pierce": "Cost per pierce",
+  "settings.key.costing.power_per_h": "Power (per hour)",
+  "settings.key.costing.power_per_kwh": "Electricity price",
+  "settings.key.costing.wall_plug_pct": "Laser wall-plug efficiency",
+  "settings.key.design.nudge_auto": "Nudge step from the selection size",
+  "settings.key.design.nudge_step": "Arrow-key nudge step",
+  "settings.key.display.show_bbox": "Show part bounding boxes",
+  "settings.key.display.show_direction": "Show the cutting direction",
+  "settings.key.display.show_index": "Show the cutting order numbers",
+  "settings.key.display.show_move_path": "Show rapid moves",
+  "settings.key.display.show_start": "Show contour start points",
+  "settings.key.display.unclosed_red": "Show open contours in red",
+  "settings.key.import.cleanup_on_open": "Clean up a drawing when it is opened",
+  "settings.key.import.close_gap": "Close gaps up to",
+  "settings.key.import.connect_gate": "Join tolerance",
+  "settings.key.import.merge_type": "Join connected lines",
+  "settings.key.import.overlap_gate": "Duplicate tolerance",
+  "settings.key.import.remove_overlap": "Remove duplicate lines",
+  "settings.key.import.remove_small": "Remove tiny contours",
+  "settings.key.import.small_gate": "Tiny contour size",
+  "settings.key.import.smooth": "Smooth into arcs",
+  "settings.key.import.smooth_accuracy": "Smoothing accuracy",
+  "settings.key.nest.margin": "Sheet edge margin",
+  "settings.key.nest.sheet_height": "Height (Y)",
+  "settings.key.nest.sheet_width": "Width (X)",
+  "settings.key.nest.spacing": "Part spacing",
+  "settings.key.plugin.ext_options.dxf_modern": "Read DXF files the way CAD programs draw them (ezdxf)",
+  "settings.key.plugin.ext_options.kerf_clipper": "Kerf offset fallback (pyclipper)",
+  "settings.key.plugin.ext_options.parity_profile": "Parity profile",
+  "settings.key.shell.language": "Language",
+  "settings.link.hw_options": "Machine settings…",
+  "settings.link.import_language": "Import a language…",
+  "settings.link.import_params": "Import the settings of an original installation…",
+  "settings.link.machine_workspace": "Open the Machine workspace",
+  "settings.link.netcheck": "Network self-test…",
+  "settings.link.notify_test": "Send a test notification",
+  "settings.link.plugin_manager": "Plugin manager…",
+  "settings.link.safety_io": "Safety I/O…",
+  "settings.link.set_ip": "Network addresses…",
+  "settings.link.set_pins": "Set PINs…",
+  "settings.link.user_mode": "Change user mode…",
+  "settings.locked": "Needs Engineer mode",
+  "settings.machine.address": "Motion card address",
+  "settings.machine.connected": "connected",
+  "settings.machine.controller": "Controller",
+  "settings.machine.ctl_card": "Motion card",
+  "settings.machine.ctl_demo": "Demo (no machine)",
+  "settings.machine.disconnected": "not connected",
+  "settings.machine.mode": "User mode",
+  "settings.machine.note": "The machine itself is set up in the Machine workspace: hardware parameters (Service mode), the network addresses and the safety I/O. Safety values are never changed here.",
+  "settings.machine.profile": "Machine profile",
+  "settings.machine.state": "Connection",
+  "settings.menu.linux": "Preferences…",
+  "settings.menu.mac": "Settings…",
+  "settings.menu.windows": "Options…",
+  "settings.modified": "Modified",
+  "settings.no_match": "No setting matches the search.",
+  "settings.off": "Off",
+  "settings.on": "On",
+  "settings.opt.follow": "Follow the unit system",
+  "settings.opt.islands.keep": "Keep with the part",
+  "settings.opt.islands.parts": "Make separate parts",
+  "settings.opt.lead.arc": "Arc",
+  "settings.opt.lead.line": "Line",
+  "settings.opt.lead.line_arc": "Line and arc",
+  "settings.opt.lead.none": "None",
+  "settings.opt.merge.direction": "Direction first",
+  "settings.opt.merge.distance": "Distance first",
+  "settings.opt.merge.length": "Length first",
+  "settings.opt.merge.none": "Do not join",
+  "settings.opt.mj.count": "By count",
+  "settings.opt.mj.distance": "By distance",
+  "settings.opt.recognition.block": "By block",
+  "settings.opt.recognition.file": "One part per file",
+  "settings.opt.recognition.layer": "By layer",
+  "settings.opt.recognition.nested": "Outlines with their holes",
+  "settings.opt.recognition.none": "No recognition",
+  "settings.opt.sort.bottom_top": "Bottom to top",
+  "settings.opt.sort.grid": "Grid",
+  "settings.opt.sort.in_out": "Inside to outside",
+  "settings.opt.sort.keep": "Keep the drawing's order",
+  "settings.opt.sort.left_right": "Left to right",
+  "settings.opt.sort.nearest": "Nearest next (local optimum)",
+  "settings.opt.sort.out_in": "Outside to inside",
+  "settings.opt.sort.right_left": "Right to left",
+  "settings.opt.sort.shortest": "Shortest path",
+  "settings.opt.sort.top_bottom": "Top to bottom",
+  "settings.opt.start.keep": "Keep the start point",
+  "settings.opt.start.long_side": "Automatic (long side first)",
+  "settings.opt.start.percent": "Same position along each contour",
+  "settings.opt.start.vertex": "Automatic (corner first)",
+  "settings.opt.system_language": "System language",
+  "settings.page.advanced": "Advanced",
+  "settings.page.appearance": "Appearance",
+  "settings.page.cam": "CAM tools",
+  "settings.page.canvas": "Canvas",
+  "settings.page.costing": "Costing",
+  "settings.page.general": "General",
+  "settings.page.import": "Import & Export",
+  "settings.page.machine": "Machine connection",
+  "settings.page.network": "Network & API",
+  "settings.page.notify": "Notifications",
+  "settings.page.plugins": "Plugins",
+  "settings.page.run": "Run & Queue",
+  "settings.page.users": "Users & PINs",
+  "settings.pages": "Settings pages",
+  "settings.plugins.note": "Settings of the installed third-party plugins. Install, enable and update plugins in the Plugin manager.",
+  "settings.reset": "Reset",
+  "settings.reset_page": "Reset page",
+  "settings.reset_tip": "Back to the default value",
+  "settings.restart": "Applies after restart",
+  "settings.search": "Search settings",
+  "settings.title.linux": "Preferences",
+  "settings.title.mac": "Settings",
+  "settings.title.windows": "Options",
+  "settings.tool.alpha": "α corner",
+  "settings.tool.array": "Array",
+  "settings.tool.bridge": "Bridge",
+  "settings.tool.circle_fly": "Fly-cut circles",
+  "settings.tool.circular_array": "Circular array",
+  "settings.tool.cool": "Cooling points",
+  "settings.tool.default": "Default values",
+  "settings.tool.engrave_scan": "Engraving scan",
+  "settings.tool.fill": "Fill circles",
+  "settings.tool.fillet": "Round corners",
+  "settings.tool.line_fly": "Fly-cut lines",
+  "settings.tool.linear_fill": "Linear fill",
+  "settings.tool.onekey": "One-key planning",
+  "settings.tool.rect_share": "Rectangles with common edges",
+  "settings.tool.sheet_fill": "Fill sheet",
+  "settings.tool.unload": "Unload loop",
+  "settings.units.pending": "The display units (metric or imperial, and per-quantity overrides) appear here with the units service.",
+  "settings.users.no_pins": "none set",
+  "settings.users.note": "User modes limit what can be changed: Operator runs jobs, Engineer prepares them, Service sets up the machine. A PIN protects switching up to Engineer or Service.",
+  "settings.users.pin_engineer": "Engineer",
+  "settings.users.pin_service": "Service",
+  "settings.users.pins": "PINs",
+  "settings.where.machine": "Machine › Setup",
+  "settings.where.nest": "Nest",
+  "settings.where.process": "Process",
+  "settings.where.run": "Run",
   "shell.canvas": "Drawing canvas",
   "shell.chip.alarm": "ALARM",
   "shell.chip.alarm.tip": "A card alarm is active: see the alarm banner for the remedy",
@@ -3332,6 +3698,7 @@
   "ws.machine.hw_LaserParam": "Laser source",
   "ws.machine.hw_MachineAxisConfig": "Axes: common drive settings",
   "ws.machine.hw_MachineAxisConfig_0": "Axis X: drive and stroke",
+  "ws.machine.hw_MachineControl": "Motion, laser point and process control",
   "ws.machine.hw_ZFParam": "Height follower",
   "ws.machine.hw_applied": "{n} value(s) changed.",
   "ws.machine.hw_apply": "Apply",
@@ -3422,9 +3789,108 @@
   "alarm.axis_soft_positive_limit_alarm": [
    "axis"
   ],
+  "api.dlg.on": [
+   "url"
+  ],
+  "api.log.failed": [
+   "err",
+   "host",
+   "port"
+  ],
+  "api.log.started": [
+   "intake",
+   "url"
+  ],
+  "api.warn.text": [
+   "host",
+   "intake",
+   "port"
+  ],
+  "approval.confirm.text": [
+   "file",
+   "name",
+   "qty",
+   "source"
+  ],
+  "approval.msg.approved": [
+   "name"
+  ],
+  "approval.msg.failed": [
+   "err"
+  ],
+  "approval.msg.rejected": [
+   "name"
+  ],
+  "approval.msg.submitted": [
+   "name",
+   "src"
+  ],
+  "approval.reject.text": [
+   "name"
+  ],
+  "approval.title": [
+   "n"
+  ],
   "aux.burn_in_progress": [
    "done",
    "total"
+  ],
+  "cost.note.gas_missing": [
+   "layers"
+  ],
+  "cost.note.gas_orifice": [
+   "nozzle",
+   "cd"
+  ],
+  "cost.note.gas_rate_missing": [
+   "gas"
+  ],
+  "cost.note.laser": [
+   "eff"
+  ],
+  "cost.note.sheet": [
+   "w",
+   "h",
+   "t",
+   "density"
+  ],
+  "cost.note.sheet_bbox": [
+   "w",
+   "h",
+   "t",
+   "density"
+  ],
+  "cutstrat.bed": [
+   "d",
+   "p",
+   "w",
+   "where"
+  ],
+  "cutstrat.bed.offset": [
+   "o"
+  ],
+  "cutstrat.msg.fixed": [
+   "moved",
+   "short",
+   "flagged",
+   "left"
+  ],
+  "cutstrat.msg.leads": [
+   "n"
+  ],
+  "cutstrat.msg.placed": [
+   "n",
+   "left"
+  ],
+  "cutstrat.msg.tip": [
+   "n",
+   "total"
+  ],
+  "cutstrat.msg.tip_fixed": [
+   "n",
+   "joints",
+   "last",
+   "avoid"
   ],
   "help.not_packaged": [
    "target"
@@ -3436,11 +3902,48 @@
    "count",
    "query"
   ],
+  "labels.msg.etched": [
+   "layer",
+   "n",
+   "skipped"
+  ],
+  "labels.msg.fallback": [
+   "material"
+  ],
+  "labels.msg.layer_used": [
+   "layer"
+  ],
+  "labels.msg.remnant_auto": [
+   "path"
+  ],
+  "labels.msg.tickets": [
+   "n",
+   "path"
+  ],
+  "labels.msg.written": [
+   "n",
+   "path"
+  ],
   "main.import_language_done": [
    "languages"
   ],
   "material.ask": [
    "issues"
+  ],
+  "nestws.leftover": [
+   "w",
+   "h"
+  ],
+  "nestws.msg.done": [
+   "n",
+   "placed",
+   "sheets",
+   "util",
+   "unplaced",
+   "t"
+  ],
+  "nestws.msg.failed": [
+   "err"
   ],
   "nestws.msg.imported": [
    "n",
@@ -3450,9 +3953,82 @@
    "material",
    "t"
   ],
+  "nestws.msg.queued": [
+   "n"
+  ],
   "nestws.msg.recognized": [
    "n",
    "k"
+  ],
+  "nestws.remnant_item": [
+   "label"
+  ],
+  "nestws.result_item": [
+   "n",
+   "util",
+   "parts",
+   "sheet"
+  ],
+  "nestws.run_tip": [
+   "engine",
+   "spacing",
+   "cl",
+   "pip"
+  ],
+  "nestws.sheet_item": [
+   "name",
+   "w",
+   "h",
+   "n"
+  ],
+  "nestws.sheet_title": [
+   "n",
+   "total",
+   "w",
+   "h",
+   "util"
+  ],
+  "nestws.total": [
+   "sheets",
+   "util",
+   "placed",
+   "unplaced"
+  ],
+  "notify.msg.alarm": [
+   "code",
+   "text"
+  ],
+  "notify.msg.alarm.title": [
+   "code"
+  ],
+  "notify.msg.fault": [
+   "fault"
+  ],
+  "notify.msg.job_done": [
+   "minutes",
+   "name"
+  ],
+  "notify.msg.job_stopped": [
+   "name",
+   "reason"
+  ],
+  "notify.msg.maintenance": [
+   "item",
+   "status"
+  ],
+  "notify.msg.queue_waiting": [
+   "details",
+   "n",
+   "name",
+   "total"
+  ],
+  "notify.msg.sheet_done": [
+   "done",
+   "name",
+   "total"
+  ],
+  "notify.secret.where": [
+   "where"
   ],
   "orders.ask.replace": [
    "n"
@@ -3513,9 +4089,157 @@
   "pitch.average_backlash": [
    "backlash"
   ],
+  "plugin_manager.confirm_authority": [
+   "name"
+  ],
+  "plugin_manager.confirm_enable": [
+   "name",
+   "permissions",
+   "warning"
+  ],
+  "plugin_manager.confirm_hosts": [
+   "hosts",
+   "name"
+  ],
+  "plugin_manager.confirm_install": [
+   "name",
+   "permissions",
+   "sha256",
+   "version"
+  ],
+  "plugin_manager.confirm_uninstall": [
+   "name"
+  ],
+  "plugin_manager.confirm_update_perms": [
+   "name",
+   "permissions",
+   "version"
+  ],
+  "plugin_manager.disabled": [
+   "name"
+  ],
+  "plugin_manager.enabled": [
+   "name"
+  ],
+  "plugin_manager.hosts_prompt": [
+   "name"
+  ],
+  "plugin_manager.hosts_saved": [
+   "name"
+  ],
+  "plugin_manager.installed": [
+   "name",
+   "version"
+  ],
+  "plugin_manager.repo_added": [
+   "url"
+  ],
+  "plugin_manager.uninstalled": [
+   "name"
+  ],
+  "plugin_manager.updated": [
+   "name",
+   "version"
+  ],
+  "plugin_manager.updates_found": [
+   "n"
+  ],
   "plugins.confirm": [
    "names",
    "warning"
+  ],
+  "practice.attempts": [
+   "n"
+  ],
+  "practice.best": [
+   "time"
+  ],
+  "practice.state.done": [
+   "time"
+  ],
+  "practice.state.failed": [
+   "detail"
+  ],
+  "practice.summary": [
+   "n",
+   "passed"
+  ],
+  "preview.status": [
+   "state",
+   "laser",
+   "n",
+   "total",
+   "x",
+   "y"
+  ],
+  "process.applied": [
+   "name",
+   "layers"
+  ],
+  "process.diff.count": [
+   "n"
+  ],
+  "process.edit.apply": [
+   "name"
+  ],
+  "process.from_layer": [
+   "n"
+  ],
+  "process.state.modified": [
+   "n"
+  ],
+  "process.state.newer": [
+   "v"
+  ],
+  "project.autosave_failed": [
+   "error"
+  ],
+  "project.error": [
+   "error"
+  ],
+  "project.notes": [
+   "notes"
+  ],
+  "project.opened": [
+   "path"
+  ],
+  "project.save_error": [
+   "error"
+  ],
+  "project.saved": [
+   "path"
+  ],
+  "props.cool_info": [
+   "n"
+  ],
+  "props.joint_info": [
+   "n"
+  ],
+  "props.open_contours": [
+   "n"
+  ],
+  "props.summary_many": [
+   "parts",
+   "contours"
+  ],
+  "props.summary_one": [
+   "name",
+   "contours"
+  ],
+  "queue.note.missing": [
+   "path"
+  ],
+  "queue.note.unreadable": [
+   "path"
+  ],
+  "queue.totals": [
+   "entries",
+   "done",
+   "sheets",
+   "left"
+  ],
+  "remnant.saved": [
+   "label"
   ],
   "repair.done.closed": [
    "n"
@@ -3541,6 +4265,18 @@
   "repair.done.zero_length": [
    "n"
   ],
+  "report.msg.csv": [
+   "path"
+  ],
+  "report.msg.pdf": [
+   "path"
+  ],
+  "report.note": [
+   "path"
+  ],
+  "report.note.hidden": [
+   "n"
+  ],
   "review.found": [
    "n",
    "c",
@@ -3558,6 +4294,25 @@
   ],
   "review.open_left": [
    "n"
+  ],
+  "run.alarm.title": [
+   "n"
+  ],
+  "run.api_on": [
+   "host",
+   "port"
+  ],
+  "run.count.contour": [
+   "n",
+   "total"
+  ],
+  "run.count.part": [
+   "n",
+   "total"
+  ],
+  "run.count.sheet": [
+   "n",
+   "total"
   ],
   "run.load.n": [
    "n"
@@ -3578,32 +4333,134 @@
   "run.load.tech": [
    "tech"
   ],
+  "run.monitor_on": [
+   "host",
+   "port"
+  ],
+  "run.queue.next": [
+   "name",
+   "n",
+   "total",
+   "sheet"
+  ],
+  "run.queue.pending": [
+   "n"
+  ],
+  "run.queue.title": [
+   "n",
+   "left"
+  ],
+  "run.reason.alarm": [
+   "code",
+   "text"
+  ],
+  "run.reason.breakpoint": [
+   "x",
+   "y"
+  ],
+  "run.reason.fault": [
+   "fault"
+  ],
+  "run.times": [
+   "elapsed",
+   "eta"
+  ],
+  "run.val.gas": [
+   "v"
+  ],
+  "run.val.height": [
+   "v"
+  ],
+  "run.val.position": [
+   "x",
+   "y",
+   "z"
+  ],
+  "run.val.power": [
+   "v"
+  ],
+  "run.val.speed": [
+   "v"
+  ],
+  "safety.io.now_alarm": [
+   "text"
+  ],
+  "safety.io.problems": [
+   "problems"
+  ],
+  "safety.notice.not_configured": [
+   "name"
+  ],
+  "safety.notice.not_fitted": [
+   "name"
+  ],
+  "settings.elsewhere_more": [
+   "n"
+  ],
+  "shell.docs.missing": [
+   "path"
+  ],
+  "shell.import_params.done": [
+   "count",
+   "path"
+  ],
+  "shell.import_params.failed": [
+   "error"
+  ],
+  "shell.mode.changed": [
+   "mode"
+  ],
+  "shell.mode.refused": [
+   "mode"
+  ],
+  "shell.palette.no_matches": [
+   "query"
+  ],
+  "shell.palette.not_now": [
+   "label"
+  ],
+  "shell.pin.for": [
+   "mode"
+  ],
+  "shell.pin.prompt": [
+   "mode"
+  ],
+  "shell.ws.goto": [
+   "workspace"
+  ],
+  "shell.ws.hidden": [
+   "workspace"
+  ],
   "status.speed": [
    "unit",
    "speed"
+  ],
+  "tech.exported": [
+   "file"
+  ],
+  "tech.imported": [
+   "n",
+   "file"
+  ],
+  "tech.stage": [
+   "n"
   ],
   "view.measure_result": [
    "dx",
    "dy",
    "length"
   ],
-  "project.saved": [
-   "path"
+  "web.log.failed": [
+   "host",
+   "port",
+   "err"
   ],
-  "project.opened": [
-   "path"
+  "web.log.started": [
+   "url"
   ],
-  "project.error": [
-   "error"
-  ],
-  "project.save_error": [
-   "error"
-  ],
-  "project.notes": [
-   "notes"
-  ],
-  "project.autosave_failed": [
-   "error"
+  "web.warn.text": [
+   "host",
+   "port"
   ],
   "wizard.comm.fix_reverse_axis": [
    "axis"
@@ -3741,6 +4598,9 @@
   "wizard.error.alarms": [
    "count"
   ],
+  "wizard.error.dry_run_unavailable": [
+   "detail"
+  ],
   "wizard.error.fault": [
    "fault"
   ],
@@ -3815,496 +4675,6 @@
   ],
   "ws.machine.origins": [
    "tools"
-  ],
-  "nestws.leftover": [
-   "w",
-   "h"
-  ],
-  "nestws.msg.done": [
-   "n",
-   "placed",
-   "sheets",
-   "util",
-   "unplaced",
-   "t"
-  ],
-  "nestws.msg.failed": [
-   "err"
-  ],
-  "nestws.msg.queued": [
-   "n"
-  ],
-  "nestws.remnant_item": [
-   "label"
-  ],
-  "nestws.result_item": [
-   "n",
-   "util",
-   "parts",
-   "sheet"
-  ],
-  "nestws.sheet_item": [
-   "name",
-   "w",
-   "h",
-   "n"
-  ],
-  "nestws.sheet_title": [
-   "n",
-   "total",
-   "w",
-   "h",
-   "util"
-  ],
-  "nestws.total": [
-   "sheets",
-   "util",
-   "placed",
-   "unplaced"
-  ],
-  "queue.note.missing": [
-   "path"
-  ],
-  "queue.note.unreadable": [
-   "path"
-  ],
-  "queue.totals": [
-   "entries",
-   "done",
-   "sheets",
-   "left"
-  ],
-  "remnant.saved": [
-   "label"
-  ],
-  "report.msg.csv": [
-   "path"
-  ],
-  "report.msg.pdf": [
-   "path"
-  ],
-  "report.note": [
-   "path"
-  ],
-  "run.alarm.title": [
-   "n"
-  ],
-  "run.count.contour": [
-   "n",
-   "total"
-  ],
-  "run.count.part": [
-   "n",
-   "total"
-  ],
-  "run.count.sheet": [
-   "n",
-   "total"
-  ],
-  "run.monitor_on": [
-   "host",
-   "port"
-  ],
-  "run.queue.next": [
-   "name",
-   "n",
-   "total",
-   "sheet"
-  ],
-  "run.queue.title": [
-   "n",
-   "left"
-  ],
-  "run.reason.alarm": [
-   "code",
-   "text"
-  ],
-  "run.reason.breakpoint": [
-   "x",
-   "y"
-  ],
-  "run.reason.fault": [
-   "fault"
-  ],
-  "run.times": [
-   "elapsed",
-   "eta"
-  ],
-  "run.val.gas": [
-   "v"
-  ],
-  "run.val.height": [
-   "v"
-  ],
-  "run.val.position": [
-   "x",
-   "y",
-   "z"
-  ],
-  "run.val.power": [
-   "v"
-  ],
-  "run.val.speed": [
-   "v"
-  ],
-  "safety.io.now_alarm": [
-   "text"
-  ],
-  "safety.io.problems": [
-   "problems"
-  ],
-  "safety.notice.not_configured": [
-   "name"
-  ],
-  "safety.notice.not_fitted": [
-   "name"
-  ],
-  "web.log.failed": [
-   "host",
-   "port",
-   "err"
-  ],
-  "web.log.started": [
-   "url"
-  ],
-  "web.warn.text": [
-   "host",
-   "port"
-  ],
-  "cost.note.gas_missing": [
-   "layers"
-  ],
-  "cost.note.gas_orifice": [
-   "nozzle",
-   "cd"
-  ],
-  "cost.note.gas_rate_missing": [
-   "gas"
-  ],
-  "cost.note.laser": [
-   "eff"
-  ],
-  "cost.note.sheet": [
-   "w",
-   "h",
-   "t",
-   "density"
-  ],
-  "cost.note.sheet_bbox": [
-   "w",
-   "h",
-   "t",
-   "density"
-  ],
-  "preview.status": [
-   "state",
-   "laser",
-   "n",
-   "total",
-   "x",
-   "y"
-  ],
-  "process.applied": [
-   "name",
-   "layers"
-  ],
-  "process.diff.count": [
-   "n"
-  ],
-  "process.edit.apply": [
-   "name"
-  ],
-  "process.from_layer": [
-   "n"
-  ],
-  "process.state.modified": [
-   "n"
-  ],
-  "process.state.newer": [
-   "v"
-  ],
-  "props.cool_info": [
-   "n"
-  ],
-  "props.joint_info": [
-   "n"
-  ],
-  "props.open_contours": [
-   "n"
-  ],
-  "props.summary_many": [
-   "parts",
-   "contours"
-  ],
-  "props.summary_one": [
-   "name",
-   "contours"
-  ],
-  "tech.exported": [
-   "file"
-  ],
-  "tech.imported": [
-   "n",
-   "file"
-  ],
-  "tech.stage": [
-   "n"
-  ],
-  "shell.docs.missing": [
-   "path"
-  ],
-  "shell.import_params.done": [
-   "count",
-   "path"
-  ],
-  "shell.import_params.failed": [
-   "error"
-  ],
-  "shell.mode.changed": [
-   "mode"
-  ],
-  "shell.mode.refused": [
-   "mode"
-  ],
-  "shell.palette.no_matches": [
-   "query"
-  ],
-  "shell.palette.not_now": [
-   "label"
-  ],
-  "shell.pin.for": [
-   "mode"
-  ],
-  "shell.pin.prompt": [
-   "mode"
-  ],
-  "shell.ws.hidden": [
-   "workspace"
-  ],
-  "shell.ws.goto": [
-   "workspace"
-  ],
-  "wizard.error.dry_run_unavailable": [
-   "detail"
-  ],
-  "cutstrat.bed.offset": [
-   "o"
-  ],
-  "cutstrat.bed": [
-   "d",
-   "p",
-   "w",
-   "where"
-  ],
-  "cutstrat.msg.fixed": [
-   "moved",
-   "short",
-   "flagged",
-   "left"
-  ],
-  "cutstrat.msg.placed": [
-   "n",
-   "left"
-  ],
-  "cutstrat.msg.tip": [
-   "n",
-   "total"
-  ],
-  "cutstrat.msg.tip_fixed": [
-   "n",
-   "joints",
-   "last",
-   "avoid"
-  ],
-  "cutstrat.msg.leads": [
-   "n"
-  ],
-  "nestws.run_tip": [
-   "engine",
-   "spacing",
-   "cl",
-   "pip"
-  ],
-  "api.dlg.on": [
-   "url"
-  ],
-  "api.log.failed": [
-   "err",
-   "host",
-   "port"
-  ],
-  "api.log.started": [
-   "intake",
-   "url"
-  ],
-  "api.warn.text": [
-   "host",
-   "intake",
-   "port"
-  ],
-  "approval.confirm.text": [
-   "file",
-   "name",
-   "qty",
-   "source"
-  ],
-  "approval.msg.approved": [
-   "name"
-  ],
-  "approval.msg.failed": [
-   "err"
-  ],
-  "approval.msg.rejected": [
-   "name"
-  ],
-  "approval.msg.submitted": [
-   "name",
-   "src"
-  ],
-  "approval.reject.text": [
-   "name"
-  ],
-  "approval.title": [
-   "n"
-  ],
-  "report.note.hidden": [
-   "n"
-  ],
-  "run.api_on": [
-   "host",
-   "port"
-  ],
-  "run.queue.pending": [
-   "n"
-  ],
-  "notify.msg.alarm": [
-   "code",
-   "text"
-  ],
-  "notify.msg.alarm.title": [
-   "code"
-  ],
-  "notify.msg.fault": [
-   "fault"
-  ],
-  "notify.msg.job_done": [
-   "minutes",
-   "name"
-  ],
-  "notify.msg.job_stopped": [
-   "name",
-   "reason"
-  ],
-  "notify.msg.maintenance": [
-   "item",
-   "status"
-  ],
-  "notify.msg.queue_waiting": [
-   "details",
-   "n",
-   "name",
-   "total"
-  ],
-  "notify.msg.sheet_done": [
-   "done",
-   "name",
-   "total"
-  ],
-  "notify.secret.where": [
-   "where"
-  ],
-  "labels.msg.etched": [
-   "layer",
-   "n",
-   "skipped"
-  ],
-  "labels.msg.fallback": [
-   "material"
-  ],
-  "labels.msg.layer_used": [
-   "layer"
-  ],
-  "labels.msg.remnant_auto": [
-   "path"
-  ],
-  "labels.msg.tickets": [
-   "n",
-   "path"
-  ],
-  "labels.msg.written": [
-   "n",
-   "path"
-  ],
-  "practice.attempts": [
-   "n"
-  ],
-  "practice.best": [
-   "time"
-  ],
-  "practice.state.done": [
-   "time"
-  ],
-  "practice.state.failed": [
-   "detail"
-  ],
-  "practice.summary": [
-   "n",
-   "passed"
-  ],
-  "plugin_manager.confirm_enable": [
-   "name",
-   "permissions",
-   "warning"
-  ],
-  "plugin_manager.enabled": [
-   "name"
-  ],
-  "plugin_manager.disabled": [
-   "name"
-  ],
-  "plugin_manager.updated": [
-   "name",
-   "version"
-  ],
-  "plugin_manager.confirm_install": [
-   "name",
-   "permissions",
-   "sha256",
-   "version"
-  ],
-  "plugin_manager.repo_added": [
-   "url"
-  ],
-  "plugin_manager.confirm_authority": [
-   "name"
-  ],
-  "plugin_manager.confirm_uninstall": [
-   "name"
-  ],
-  "plugin_manager.confirm_update_perms": [
-   "name",
-   "permissions",
-   "version"
-  ],
-  "plugin_manager.updates_found": [
-   "n"
-  ],
-  "plugin_manager.uninstalled": [
-   "name"
-  ],
-  "plugin_manager.installed": [
-   "name",
-   "version"
-  ],
-  "plugin_manager.hosts_prompt": [
-   "name"
-  ],
-  "plugin_manager.hosts_saved": [
-   "name"
-  ],
-  "plugin_manager.confirm_hosts": [
-   "hosts",
-   "name"
   ]
  },
  "legacy": {

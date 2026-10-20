@@ -391,6 +391,18 @@ class NestWorkspace(QWidget):
         split.setSizes([300, 540, 380])
         split.setStretchFactor(1, 1)
         self._update_buttons()
+        # the default sheet is a preference (Settings > Nest), kept live
+        self._sheet_defaults("*")
+        cfg = getattr(w, "config", None)
+        if cfg is not None:
+            cfg.subscribe(self._sheet_defaults)
+
+    def _sheet_defaults(self, key: str) -> None:
+        cfg = getattr(self.window_, "config", None)
+        if cfg is None or key not in ("*", "nest.sheet_width", "nest.sheet_height"):
+            return
+        self.sheet_w.setValue(float(cfg.get("nest.sheet_width", 3000.0)))
+        self.sheet_h.setValue(float(cfg.get("nest.sheet_height", 1500.0)))
 
     # ------------------------------------------------------------------ options drawer
     def _check(self, key: str, text: str, name: str) -> QCheckBox:
@@ -859,7 +871,8 @@ class NestWorkspace(QWidget):
             self.status.setText(tr(w, "nestws.msg.no_parts", "Add parts first (from the drawing or a file)."))
             return False
         if not job.sheets:
-            job.sheets = [NestSheet()]
+            from ..ext_nest import default_sheet
+            job.sheets = [default_sheet(getattr(w, "config", None))]
             self.job.add_sheet(job.sheets[0])
             self.refresh_stock()
         ok = self.service.start(job, self._done, self._failed, self._progress)

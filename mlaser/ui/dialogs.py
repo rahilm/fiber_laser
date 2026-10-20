@@ -96,7 +96,7 @@ class ParamGridDialog(QDialog):
                     self._settings[d.key] = d
                     self._initial[d.key] = self._read(ed)
                 g.setExpanded(True)
-            tabs.addTab(tree, sec)
+            tabs.addTab(tree, tr.tr(f"ws.machine.hw_{sec}") if tr.has(f"ws.machine.hw_{sec}") else sec)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)

@@ -31,6 +31,12 @@ from mlaser.ops.document import targets as _targets  # noqa: F401 - old helper n
 Field = tuple
 
 
+#: one-shot tool -> the extension attribute holding its last-used parameters (cam.tool.<tool>)
+CAM_TOOLS = {"array": "array", "circular_array": "circ", "sheet_fill": "sheet", "fill": "fill",
+             "linear_fill": "linear", "fillet": "fillet_p", "unload": "unload_p", "alpha": "alpha_p",
+             "cool": "cool_p", "rect_share": "rect_p", "circle_fly": "circle_fly_p", "line_fly": "line_fly_p"}
+
+
 class FieldDialog(QDialog):
     """Form editing the attributes of a dataclass instance (labels from lang keys)."""
 
@@ -100,7 +106,6 @@ class CamExtension:
 
     def __init__(self, ctx, exec_dialogs: bool = True):
         from mlaser.cam import array as A
-        from mlaser.cam import cleanup as CL
         from mlaser.cam import flycut as F
         self.ctx = ctx
         self.w = ctx.window
@@ -110,12 +115,23 @@ class CamExtension:
         self.sheet = SheetFillParams()
         self.fill = A.FillParams()
         self.linear = A.FillParams(fill_type=3, space=2.0, stock=1.0)
-        self.cleanup = CL.CleanupParams()
+        # the Optimize parameters are the import clean-up preferences (Settings > Import & Export)
+        from .settings_apply import cleanup_params
+        self.cleanup = cleanup_params(self.w.config)
+        self.w.config.subscribe(self._config_changed)
         self.fillet_p, self.unload_p, self.alpha_p, self.cool_p = FilletParams(), UnloadParams(), AlphaParams(), CoolParams()
         self.rect_p = RectShareParams()
         self.circle_fly_p, self.line_fly_p = F.CircleFlyParams(), F.LineFlyParams()
+        # the tool dialogs' last-used values survive a restart (cam.tool.*, Settings › CAM tools)
+        from . import tool_memory
+        tool_memory.bind(self, self.w.config, CAM_TOOLS)
 
     # ---------------------------------------------------------------- infrastructure
+    def _config_changed(self, key: str) -> None:
+        if key == "*" or key.startswith("import."):
+            from .settings_apply import cleanup_params
+            self.cleanup = cleanup_params(self.w.config)
+
     def log(self, msg: str) -> None:
         self.ctx.log(msg)
 
@@ -136,8 +152,15 @@ class CamExtension:
         d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w, extra)
         if not self.exec_dialogs:
             d.store()
-            return True
-        return bool(d.exec())
+            ok = True
+        else:
+            ok = bool(d.exec())
+        if ok:
+            from . import tool_memory
+            tool = next((t for t, a in CAM_TOOLS.items() if getattr(self, a, None) is obj), None)
+            if tool is not None:
+                tool_memory.remember(self.w.config, tool, obj)
+        return ok
 
     # ---------------------------------------------------------------- array (mf79)
     def array_dialog(self) -> None:
@@ -197,7 +220,10 @@ class CamExtension:
              ("connect_gate", "pd368", "float", (0.01, 100)), ("smooth", "pd369", "bool", None),
              ("smooth_accuracy", "pd370", "float", (0.01, 10)), ("close_gap", "Close gaps up to", "float", (0, 100))]
         if self.ask("mf470", self.cleanup, f):
-            res = self.edit(lambda doc: OC.cleanup(doc, self.cleanup), "optimize")
+            # a one-off run: it starts from the import clean-up defaults (Settings › Import, their
+            # one home) and does not change them
+            prm = self.cleanup
+            res = self.edit(lambda doc: OC.cleanup(doc, prm), "optimize")
             self.log(f"mf470: {res['before']} -> {res['after']} contours")
 
     def dedup(self) -> None:

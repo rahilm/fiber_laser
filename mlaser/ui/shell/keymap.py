@@ -19,7 +19,7 @@ from typing import Callable, Iterable, Optional
 WINDOW_KEYS: dict[str, str] = {
     # file
     "file.new": "Ctrl+N", "file.open": "Ctrl+O", "file.save": "Ctrl+S", "file.save_as": "Ctrl+Shift+S",
-    "file.import": "Ctrl+I", "app.options": "Ctrl+,", "app.exit": "Ctrl+Q",
+    "file.import": "Ctrl+I", "app.settings": "Ctrl+,", "app.exit": "Ctrl+Q",
     # edit
     "edit.undo": "Ctrl+Z|Alt+Backspace", "edit.redo": "Ctrl+Y", "edit.copy": "Ctrl+C", "edit.paste": "Ctrl+V",
     "edit.delete": "Del", "select.all": "Ctrl+A", "select.invert": "Ctrl+Shift+I",

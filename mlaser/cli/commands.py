@@ -107,8 +107,8 @@ def write_frames(p: Any, path: str) -> str:
 
 # ------------------------------------------------------------------------------ estimate
 def _rates(args: Any) -> Any:
-    """Cost rates: ``--rates`` JSON (Rates field names) or the Process workspace's settings
-    (``plugin.ext_process.*`` in the config)."""
+    """Cost rates: ``--rates`` JSON (Rates field names) or the application's (Settings ›
+    Costing, ``costing.*`` in the config; older ``plugin.ext_process.*`` values are migrated)."""
     from mlaser.services.costing import Rates
     if args.rates:
         try:
@@ -120,19 +120,8 @@ def _rates(args: Any) -> Any:
         if unknown:
             raise CliError(f"--rates: unknown field(s) {', '.join(unknown)}", EXIT_INPUT, "bad_rates")
         return Rates(**data)
-    cfg = C.config_service(getattr(args, "config", None))
-
-    def g(key: str, default: Any) -> Any:
-        v = cfg.get("plugin.ext_process." + key, default)
-        return default if v in (None, "") else v
-    return Rates(currency=str(g("currency", "€")), machine_per_h=float(g("machine_per_h", 0.0)),
-                 power_per_kwh=float(g("power_per_kwh", 0.0)),
-                 gas_per_m3={"O2": float(g("gas_o2_per_m3", 0.0)), "N2": float(g("gas_n2_per_m3", 0.0)),
-                             "Air": float(g("gas_air_per_m3", 0.0))},
-                 material_per_kg=float(g("material_per_kg", 0.0)), laser_rated_w=float(g("laser_rated_w", 0.0)),
-                 wall_plug_eff=float(g("wall_plug_pct", 35.0)) / 100.0, machine_kw=float(g("machine_kw", 0.0)),
-                 nozzle_cd=float(g("nozzle_cd", 0.8)), gas_flow_l_min=float(g("gas_flow_l_min", 0.0)) or None,
-                 sheet_w_mm=float(g("sheet_w_mm", 0.0)), sheet_h_mm=float(g("sheet_h_mm", 0.0)))
+    from mlaser.services.costing import rates_from_config
+    return rates_from_config(C.config_service(getattr(args, "config", None)))
 
 
 def cmd_estimate(args: Any) -> Result:

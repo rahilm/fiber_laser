@@ -60,6 +60,8 @@ _OPERATOR_IDS = {
     "card.alarms", "card.clear_alarms", "card.break_resume", "diag.log", "diag.work_report",
     "diag.work_report_all", "app.about", "app.help", "app.exit", "app.import_language",
     "hw.connect_sim", "hw.reconnect", "sim.stop", "sim.speed", "job.offline",
+    # the Settings window: it opens in every mode, engineering pages read-only for an operator
+    "app.options", "app.settings",
 }
 _OPERATOR_PREFIXES = ("run.", "show.", "workspace.", "shell.")
 # Service functions: firmware, motion-card and hardware parameters, monitors and diagnostics.

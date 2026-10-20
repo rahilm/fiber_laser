@@ -50,6 +50,8 @@ class ProjectExtension:
         self.timer.timeout.connect(self.autosave_now)
         self._arm()
         ctx.on_document_changed(self._changed)
+        # a change of the interval (Settings > General) re-arms the timer at once
+        ctx.config.subscribe(lambda key: self._arm() if key in ("*", "plugin.ext_project.autosave_interval_s") else None)
 
     # ------------------------------------------------------------------ helpers
     def tr(self, key: str, **kw) -> str:

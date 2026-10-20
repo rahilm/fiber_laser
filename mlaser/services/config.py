@@ -73,6 +73,11 @@ class Setting:
     section: str = ""  # registry category (ManuParam, AxisParam...) or namespace
     file: Optional[str] = None  # HardPara.xml / ManuPara.xml / LayerPara.xml / None
     source: str = "registry"  # registry | app | plugin:<name>
+    #: the one place the value is edited (docs/dev/settings-audit.md, the IA settings map):
+    #: settings | machine | process | nest | run | hidden ("" = derived by :func:`home_of`)
+    home: str = ""
+    #: the rebuild reads it (registry rows: :data:`mlaser.services.settings_homes.LIVE_KEYS`)
+    live: bool = True
 
     def validate(self, value: Any) -> Any:
         """``value`` converted to this setting's type; ValueError when it does not fit."""
@@ -132,7 +137,7 @@ def _registry_settings() -> dict[str, Setting]:
             default = ""
         unit = d.unit if d.unit not in ('L""',) else ""
         has_range = d.max > d.min
-        out[key] = Setting(
+        s = Setting(
             key,
             kind,
             default,
@@ -144,7 +149,58 @@ def _registry_settings() -> dict[str, Setting]:
             d.category,
             d.file,
         )
+        out[key] = replace(s, home=home_of(s), live=key.split(":", 1)[-1] in _live_keys())
     return out
+
+
+def _live_keys() -> frozenset:
+    from .settings_homes import LIVE_KEYS
+    return LIVE_KEYS
+
+
+#: card / hardware categories (Machine › Setup)
+CARD_SECTIONS = frozenset({"AxisParam", "MachineAxisConfig_0", "MachineAxisConfig_1", "MachineAxisConfig_2",
+                           "MachineAxisConfig_3", "MachineAxisConfig_4", "MachineAxisConfig", "HomeParam",
+                           "LaserParam", "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam",
+                           "DOParam", "ECParam"})
+#: the original's Options rows that are machine behaviour or machine tools (Machine › Setup)
+_MACHINE_PREFIXES = ("MC.Jog", "MC.XFastMove", "MC.LaserPointPower", "MC.PtLaserTime", "MC.IsFastMode",
+                     "MC.MarkPt", "MC.Maintain", "MC.BatchCut", "MC.EnableAdvMicoLink", "MC.AdvMicLink",
+                     "LC.", "GC.", "FC.", "MGP.", "MS.", "MSC.", "MP.", "GP.Mico", "GP.IsDrillInMicoLink",
+                     "GP.EnableMicroLinkDecc", "GRP.Edge", "GRP.SlowEdge", "GRP.FastEdge", "GRP.BallArm",
+                     "GRP.BatchCut", "GRP.EnableBatchCut", "GRP.EnableDIInput", "SP.Interfere", "SP.LimitDecc",
+                     "SP.m_iEnableLaserType", "AF.", "EC.")
+#: application keys whose home is not the Settings window
+_APP_HOMES = (("safety.", "machine"), ("bed.", "machine"), ("plugin.ext_process.machine_profile", "machine"),
+              ("plugin.ext_options.parity_profile", "machine"), ("costing.laser_rated_w", "machine"),
+              ("cam.lead_", "process"), ("cam.mj_", "process"), ("cam.sort_mode", "process"),
+              ("cam.small_first", "process"), ("nest.", "nest"), ("plugins.", "hidden"),
+              ("shell.pin.", "hidden"), ("shell.user_mode", "hidden"), ("shell.layout", "hidden"),
+              ("shell.workspace", "hidden"), ("shell.recent_commands", "hidden"), ("shell.welcome_done", "hidden"),
+              ("app.last_file", "hidden"), ("settings.", "hidden"), ("plugin.ext_practice.", "hidden"))
+
+
+def home_of(s: "Setting") -> str:
+    """Where a setting is edited (its one home).  Registry rows: card rows and the machine
+    behaviour rows of the original's Options go to Machine › Setup, layer rows to Process, nest
+    rows to Nest, the rest of the original's Options is hidden (kept for the files only).
+    Application and plugin keys: the Settings window unless listed in :data:`_APP_HOMES`; JSON
+    state is hidden."""
+    if s.home:
+        return s.home
+    k = s.key.split(":", 1)[-1]
+    if s.source == "registry":
+        if s.section in CARD_SECTIONS or (s.file == "HardPara.xml") or k.startswith(_MACHINE_PREFIXES):
+            return "machine"
+        if s.section in ("LayerParam", "CO2LayerParam"):
+            return "process"
+        if s.section == "NestParam":
+            return "nest"
+        return "hidden"
+    for prefix, home in _APP_HOMES:
+        if s.key.startswith(prefix):
+            return home
+    return "hidden" if s.kind == "json" else "settings"
 
 
 _REGISTRY_CACHE: dict[str, Setting] = {}
@@ -270,6 +326,89 @@ BED_SETTINGS: tuple[Setting, ...] = (
 )
 
 
+#: the application preferences of the Settings window (docs/user/settings.md): the parameters of
+#: the original's Options tables that the audit keeps (docs/dev/settings-audit.md), as typed keys
+#: with sensible defaults; ``mlaser.services.settings_catalog`` places them on pages, names their
+#: consumers and migrates the original's values into them once.
+def _pref(key: str, kind: str, default: Any, unit: str = "", lo: Optional[float] = None,
+          hi: Optional[float] = None, options: tuple = ()) -> Setting:
+    return Setting(key, kind, default, unit, lo, hi, options, label=f"settings.key.{key}",
+                   section=key.split(".", 1)[0], source="app")
+
+
+PREF_SETTINGS: tuple[Setting, ...] = (
+    # General
+    _pref("shell.language", "str", ""),        # "" = the system language (else English)
+    _pref("app.reopen_last", "bool", False),
+    _pref("app.last_file", "str", ""),                 # state: the last drawing opened
+    # Display (the canvas view options)
+    _pref("display.show_bbox", "bool", False),
+    _pref("display.unclosed_red", "bool", True),
+    _pref("display.show_index", "bool", True),
+    _pref("display.show_start", "bool", True),
+    _pref("display.show_direction", "bool", False),
+    _pref("display.show_move_path", "bool", False),
+    # Import (the clean-up of imported drawings, mf470 Optimize)
+    _pref("import.cleanup_on_open", "bool", False),
+    _pref("import.remove_small", "bool", True),
+    _pref("import.small_gate", "float", 0.1, "mm", 0.01, 10.0),
+    _pref("import.remove_overlap", "bool", True),
+    _pref("import.overlap_gate", "float", 0.1, "mm", 0.01, 0.5),
+    _pref("import.merge_type", "enum", 1, options=("settings.opt.merge.none", "settings.opt.merge.direction",
+                                                    "settings.opt.merge.length", "settings.opt.merge.distance")),
+    _pref("import.connect_gate", "float", 0.1, "mm", 0.01, 100.0),
+    _pref("import.smooth", "bool", False),
+    _pref("import.smooth_accuracy", "float", 0.05, "mm", 0.01, 10.0),
+    _pref("import.close_gap", "float", 0.0, "mm", 0.0, 100.0),
+    # Design / CAM defaults
+    *(s for side in ("in", "out") for s in (
+        _pref(f"cam.lead_{side}_type", "enum", 1, options=("settings.opt.lead.none", "settings.opt.lead.line",
+                                                           "settings.opt.lead.arc", "settings.opt.lead.line_arc")),
+        _pref(f"cam.lead_{side}_length", "float", 3.0, "mm", 0.01, 1000.0),
+        _pref(f"cam.lead_{side}_angle", "float", 90.0, "°", 0.0, 90.0),
+        _pref(f"cam.lead_{side}_radius", "float", 2.0, "mm", 0.01, 30.0),
+    )),
+    _pref("cam.lead_closed_only", "bool", True),
+    _pref("cam.lead_start_mode", "enum", 0, options=("settings.opt.start.long_side", "settings.opt.start.vertex",
+                                                     "settings.opt.start.percent", "settings.opt.start.keep")),
+    _pref("cam.sort_mode", "int", 5, "", 0, 21),
+    _pref("cam.small_first", "bool", False),
+    _pref("cam.mj_kind", "enum", 0, options=("settings.opt.mj.count", "settings.opt.mj.distance")),
+    _pref("cam.mj_count", "int", 4, "", 1, 100),
+    _pref("cam.mj_distance", "float", 100.0, "mm", 1.0, 10000.0),
+    _pref("cam.mj_length", "float", 0.5, "mm", 0.01, 50.0),
+    _pref("cam.mj_min_size", "float", 0.0, "mm", 0.0, 10000.0),
+    _pref("design.nudge_step", "float", 1.0, "mm", 0.01, 1000.0),
+    _pref("design.nudge_auto", "bool", True),
+    # Nest
+    _pref("nest.sheet_width", "float", 3000.0, "mm", 1.0, 100000.0),
+    _pref("nest.sheet_height", "float", 1500.0, "mm", 1.0, 100000.0),
+    _pref("nest.spacing", "float", 3.0, "mm", 0.0, 100.0),
+    _pref("nest.margin", "float", 5.0, "mm", 0.0, 500.0),
+    # Costing: one rate model for the cost card, quotes, the CLI estimate and the Report ledger
+    # (docs/user/settings.md › Costing); the old plugin.ext_process.* / plugin.report.* rates
+    # are migrated once (settings_catalog.LEGACY)
+    _pref("costing.currency", "str", "EUR"),          # ISO 4217 code
+    _pref("costing.machine_per_h", "float", 0.0, "/h", 0.0, 1e6),
+    _pref("costing.power_per_kwh", "float", 0.0, "/kWh", 0.0, 1000.0),
+    _pref("costing.gas_o2_per_m3", "float", 0.0, "/m³", 0.0, 10000.0),
+    _pref("costing.gas_n2_per_m3", "float", 0.0, "/m³", 0.0, 10000.0),
+    _pref("costing.gas_air_per_m3", "float", 0.0, "/m³", 0.0, 10000.0),
+    _pref("costing.material_per_kg", "float", 0.0, "/kg", 0.0, 100000.0),
+    _pref("costing.material_per_m2", "float", 0.0, "/m²", 0.0, 1e6),
+    _pref("costing.per_cut_m", "float", 0.0, "/m", 0.0, 1e6),
+    _pref("costing.per_pierce", "float", 0.0, "", 0.0, 1e6),
+    _pref("costing.gas_per_h", "float", 0.0, "/h", 0.0, 1e6),
+    _pref("costing.power_per_h", "float", 0.0, "/h", 0.0, 1e6),
+    _pref("costing.wall_plug_pct", "float", 35.0, "%", 1.0, 100.0),
+    _pref("costing.machine_kw", "float", 0.0, "kW", 0.0, 1000.0),
+    _pref("costing.nozzle_cd", "float", 0.8, "", 0.1, 1.0),
+    _pref("costing.laser_rated_w", "float", 0.0, "W", 0.0, 100000.0),   # home: Machine (laser)
+    # the original's values already taken into the keys above ({legacy key: value})
+    Setting("settings.migrated", "json", {}, label="settings.migrated", section="settings", source="app"),
+)
+
+
 # --------------------------------------------------------------------------- service
 @dataclass
 class MachineProfile:
@@ -286,7 +425,8 @@ class ConfigService:
 
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
         self.schema: dict[str, Setting] = dict(registry_settings())
-        self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS + BED_SETTINGS})
+        self.schema.update({s.key: replace(s, home=home_of(s))
+                            for s in SAFETY_SETTINGS + APP_SETTINGS + BED_SETTINGS + PREF_SETTINGS})
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE
@@ -295,6 +435,7 @@ class ConfigService:
         self._dirty = False
         if load:
             self.load()
+            self.migrate_legacy()
         install_layer_defaults(self)
 
     # ------------------------------------------------------------------ schema
@@ -304,7 +445,7 @@ class ConfigService:
         for s in settings:
             if s.key in self.schema and not replace_existing:
                 raise KeyError(f"setting {s.key!r} is already defined ({self.schema[s.key].source})")
-            self.schema[s.key] = s
+            self.schema[s.key] = s if s.home else replace(s, home=home_of(s))
 
     def setting(self, key: str) -> Optional[Setting]:
         return self.schema.get(key)
@@ -453,7 +594,15 @@ class ConfigService:
             n += 1
         self.profile = replace(self.profile, base=profile)
         self._changed("*")
+        self.migrate_legacy()       # the imported Options values reach the Settings keys
         return n
+
+    def migrate_legacy(self) -> list[str]:
+        """Take the original's changed Options values into the Settings keys, once
+        (:func:`mlaser.services.settings_catalog.migrate_legacy`)."""
+        from .settings_catalog import migrate_legacy
+
+        return migrate_legacy(self)
 
     def export_dat(self, dat_dir: os.PathLike | str) -> None:
         """Write the three XML files (registry defaults + set values) like ParaModule does."""

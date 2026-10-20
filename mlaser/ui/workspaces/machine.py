@@ -39,7 +39,8 @@ SECTIONS = (("connection", "ws.machine.sec_connection", "plug-connected", "opera
             ("alarms", "ws.machine.sec_alarms", "alert-triangle", "operator"))
 SETTINGS_EDIT_MODE = "service"
 HW_SECTIONS = ("AxisParam", "MachineAxisConfig_0", "MachineAxisConfig", "HomeParam", "LaserParam",
-               "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam", "DOParam")
+               "GasParam", "ZFParam", "AFParam", "FCParam", "DAParam", "DIParam", "DOParam",
+               "MachineControl")      # the machine-side parameters of the original's Options
 MONITORS = (("controller", "ws.machine.mon_controller"), ("zf", "ws.machine.mon_follower"),
             ("af", "ws.machine.mon_autofocus"), ("ec", "ws.machine.mon_ethercat"))
 #: (command, title, description, icon) of the procedure cards
@@ -100,8 +101,9 @@ class SettingsPanel(QWidget):
         top = QHBoxLayout()
         self.section = QComboBox()
         self.section.setMinimumHeight(32)
+        from ..params import hw_section
         for s in HW_SECTIONS:
-            if config.section(s):
+            if hw_section(config, s):
                 self.section.addItem(T(window, f"ws.machine.hw_{s}"), s)
         self.section.currentIndexChanged.connect(lambda _i: self.build())
         top.addWidget(QLabel(T(window, "ws.machine.hw_section")))
@@ -207,7 +209,8 @@ class SettingsPanel(QWidget):
             return
         tr = getattr(self.w, "tr_", None)
         groups: dict[str, QTreeWidgetItem] = {}
-        for s in self.config.section(sec):
+        from ..params import hw_section
+        for s in hw_section(self.config, sec):
             if not s.label:
                 continue
             g, name = tr.tr_param(s.label) if tr is not None else ("", s.label)

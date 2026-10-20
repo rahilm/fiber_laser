@@ -20,13 +20,12 @@ from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
-from . import dialogs
+from . import dialogs, settings_apply
 from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
 from .i18n import Translator, translator
 from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
-from .params import OPTION_SECTIONS
 from .ribbon import Ribbon
 
 # ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/re/cam.md §8;
@@ -225,6 +224,8 @@ class MainWindow(QMainWindow):
             self._load_entry_points()
         # ---
         self.shell.finish()       # commands, keys, palette, theme, user mode, layout
+        # --- the Settings window's preferences (ui/settings_apply.py): migrated, applied, live
+        settings_apply.install(self)
 
     # ------------------------------------------------------------------ plugins
     def _load_extensions(self, names, entry_points: bool = False) -> dict:
@@ -413,8 +414,8 @@ class MainWindow(QMainWindow):
             "file.new": self.file_new, "file.open": self.file_open, "file.import": self.file_import,
             "file.save": self.file_save, "file.save_as": lambda: self.file_save(True),
             "app.exit": self.close, "app.import_language": self.import_language, "app.about": lambda: dialogs.AboutDialog(self.tr_, self).exec(),
-            "app.options": lambda: self.options_dialog("app.options"),
-            "hw.options": lambda: self.options_dialog("hw.options"),
+            "app.options": self.settings_dialog, "app.settings": self.settings_dialog,
+            "hw.options": self.machine_setup,
             "hw.set_ip": self.ip_dialog, "hw.reconnect": self.reconnect,
             "machine.home": lambda: self.ctl.home("XY"), "machine.home_x": lambda: self.ctl.home("X"),
             "machine.home_y": lambda: self.ctl.home("Y"), "machine.home_xyz": lambda: self.ctl.home("XYZ"),
@@ -467,7 +468,9 @@ class MainWindow(QMainWindow):
                 "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path"}
         for cmd, attr in show.items():
             a[cmd].setChecked(getattr(self.canvas.options, attr))
-            handlers[cmd] = lambda on, at=attr: (setattr(self.canvas.options, at, bool(on)), self.canvas.rebuild())
+            # the view options are preferences (display.*, Settings > Display): settings_apply
+            # applies the stored value to the canvas and keeps the toggle in step
+            handlers[cmd] = lambda on, at=attr: self.config.set(f"display.{at}", bool(on))
         # every QAction is connected once to the registry; plugins register handlers, not slots
         self.commands.on_register.append(self._command_registered)
         self.commands.on_error.append(lambda cmd, exc: self.log_panel.log(f"{cmd}: {type(exc).__name__}: {exc}"))
@@ -569,8 +572,10 @@ class MainWindow(QMainWindow):
         self._fill_lang_combo()
         return codes
 
-    def set_language(self, code: str) -> None:
+    def set_language(self, code: str, persist: bool = True) -> None:
         self.tr_.set_language(code)
+        if persist and self.config.get("shell.language", "") != code:
+            self.config.set("shell.language", code)          # Settings > General > Language
         idx = self.lang_combo.findData(code)
         if idx >= 0 and idx != self.lang_combo.currentIndex():
             self.lang_combo.blockSignals(True)
@@ -631,6 +636,9 @@ class MainWindow(QMainWindow):
         """ConfigService listener: the machine profile feeds the job compiler (re-plan) and the
         controller's own manual moves."""
         if key.startswith("shell."):             # the shell's own settings (theme, layout...)
+            return
+        s = self.config.setting(key)
+        if s is not None and s.source != "registry":   # preferences: no machine parameter
             return
         m = self.config.machine()
         if m == self.machine:
@@ -795,7 +803,7 @@ class MainWindow(QMainWindow):
 
     def nudge(self, dx: float, dy: float) -> None:
         """mf445 keyboard fine-tuning (arrow keys): the ``nudge`` provider when a plugin sets one
-        (ext_draw: pd377 step / auto step), else move the selection by SP.KeyboardMoveStep."""
+        (ext_draw: pd377 step / auto step), else move the selection by ``design.nudge_step``."""
         if self._operator_blocked():
             return
         provider = self.hooks.provider("nudge")
@@ -804,7 +812,7 @@ class MainWindow(QMainWindow):
             return
         if not any(p.selected for p in self.document.parts):
             return
-        step = float(self.settings.get("SP.KeyboardMoveStep", 1.0))
+        step = float(self.config.get("design.nudge_step", 1.0))
         self._edit(lambda d: ops.translate(d, dx * step, dy * step, [p for p in d.parts if p.selected]),
                    label="nudge", scope="selection")
 
@@ -952,9 +960,29 @@ class MainWindow(QMainWindow):
             self.shell.mark_saved()
 
     # ------------------------------------------------------------------ dialogs
-    def options_dialog(self, which: str) -> None:
-        dialogs.ParamGridDialog(self.tr_, "mf137" if which == "app.options" else "mf129",
-                                OPTION_SECTIONS[which], self.settings, self).exec()
+    def settings_dialog(self):
+        """The Settings window (``app.options`` / ``app.settings``, Cmd+, / Ctrl+,): modeless,
+        one instance (ui/settings_dialog.py)."""
+        from .settings_dialog import SettingsDialog
+        d = getattr(self, "_settings_window", None)
+        if d is None:
+            d = self._settings_window = SettingsDialog(self)
+        d.refresh()
+        d.show()
+        d.raise_()
+        d.activateWindow()
+        return d
+
+    def machine_setup(self) -> bool:
+        """``hw.options`` (Hardware Parameters): the card parameters' one home is the Machine
+        workspace's setup page (Service mode edits; the original's grid dialog is gone)."""
+        if not self.show_workspace("machine"):
+            return False
+        ext = self.extension("ext_machine")
+        ws = getattr(ext, "workspace", None)
+        if ws is not None:
+            ws.show_section("settings")
+        return True
 
     def ip_dialog(self) -> None:
         d = dialogs.IPDialog(self.tr_, self.settings.get("ip"), self)
@@ -969,6 +997,7 @@ class MainWindow(QMainWindow):
     def lead_dialog(self) -> None:
         d = dialogs.LeadDialog(self.tr_, self.lead_in, self.lead_out, self)
         if d.exec():
+            settings_apply.remember(self, "leads")       # the dialog starts from these next time
             self._edit(ops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
                        self.lead_start_mode, label="lead")
             self.log_panel.log("mf207")
@@ -988,6 +1017,7 @@ class MainWindow(QMainWindow):
             self.cam_params.sort_mode = SORT_MODES.get(how, 5)
         for k, v in flags.items():
             setattr(self.cam_params, k, v)
+        settings_apply.remember(self, "order")           # the next session starts with this order
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {self.cam_params.sort_mode}, small first {self.cam_params.small_first}")
 
@@ -1007,6 +1037,7 @@ class MainWindow(QMainWindow):
         if d.exec():
             mp.update(kind=d.kind.currentIndex(), count=d.number.value(), distance=d.distance.value(),
                       length=d.length.value(), min_size=d.min_size.value())
+            settings_apply.remember(self, "microjoints")
             self.microjoint_auto()
 
     def microjoint_auto(self) -> None:

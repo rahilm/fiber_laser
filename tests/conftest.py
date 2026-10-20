@@ -57,6 +57,8 @@ UI_MODULES = {
     "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
+    # Review 2 UI wave: the Settings window
+    "test_settings_dialog",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

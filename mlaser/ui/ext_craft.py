@@ -233,6 +233,10 @@ def _targets(doc: Document) -> list[Part]:
     return contour_targets(doc)
 
 
+#: one-shot tool -> the extension attribute holding its last-used parameters (cam.tool.<tool>)
+CRAFT_TOOLS = {"bridge": "bridge_p", "onekey": "onekey_p", "engrave_scan": "engrave_p"}
+
+
 class CraftExtension:
     """State + handlers. ``exec_dialogs=False`` (tests) applies stored parameters directly."""
 
@@ -247,6 +251,9 @@ class CraftExtension:
         self.dock_p = DockParams()
         from mlaser.cam.flycut import EngraveScanParams
         self.engrave_p = EngraveScanParams()
+        # the one-shot tools' last-used values survive a restart (cam.tool.*, Settings › CAM tools)
+        from . import tool_memory
+        tool_memory.bind(self, window.config, CRAFT_TOOLS)
         import tempfile
         self.bitmap_dir = os.path.join(tempfile.gettempdir(), "mlaser_bitmap")   # original: <app>\\Bitmap
         self.host = ToolHost(window.canvas)
@@ -276,8 +283,15 @@ class CraftExtension:
         d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w)
         if not self.exec_dialogs:
             d.store()
-            return True
-        return bool(d.exec())
+            ok = True
+        else:
+            ok = bool(d.exec())
+        if ok:
+            from . import tool_memory
+            tool = next((t for t, a in CRAFT_TOOLS.items() if getattr(self, a, None) is obj), None)
+            if tool is not None:
+                tool_memory.remember(self.w.config, tool, obj)
+        return ok
 
     # ---------------------------------------------------------------- canvas tools
     def start_tool(self, name: str, on_click, status_key: str, hover: bool = True) -> PickTool:
