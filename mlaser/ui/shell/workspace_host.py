@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
                                QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
@@ -518,13 +518,17 @@ class WorkspaceHost:
         if before is not None:
             # the new page's minimum is first asked for before its wrapper knows the room around
             # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
-            # its real minimum the window goes back to the size the user had, if that fits
-            QTimer.singleShot(0, win, lambda: self._keep_size(before, 6))
+            # its real minimum the window goes back to the size the user had, if that fits.
+            # Settled here, synchronously (the pending layout requests first): no timer, so the
+            # result does not depend on how soon a loaded machine runs it
+            for _ in range(4):
+                QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+            self._keep_size(before)
         for fn in list(self.listeners):
             fn(ws_id)
         return True
 
-    def _keep_size(self, before: QSize, again: int) -> None:
+    def _keep_size(self, before: QSize) -> None:
         win = self.w
         if not win.isVisible() or win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen):
             return
@@ -533,8 +537,6 @@ class WorkspaceHost:
             want = before.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
             if want != size and want.width() <= size.width() and want.height() <= size.height():
                 win.resize(want)
-        if again > 0:          # the page's sizes settle over a few event-loop turns
-            QTimer.singleShot(0 if again > 3 else 20, win, lambda: self._keep_size(before, again - 1))
 
     def resolve(self, ws_id: str) -> str:
         return self.aliases.get(ws_id, ws_id)
