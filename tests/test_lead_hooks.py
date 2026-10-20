@@ -160,10 +160,39 @@ def test_sim_estimate_message_is_formatted():
         w.log_panel.log = lambda m, *a, **k: lines.append(m)
         w.simulate()
         est = [l for l in lines if l.startswith("Estimated time:")]
-        assert est, (lines, w.jobs.preview and (w.jobs.preview.cancelled, w.jobs.preview.error))
+        tk = w.jobs.preview
+        assert est, (lines, len(w.document.parts), w.jobs.pending, dict(w.jobs.stats),
+                     tk and (tk.cancelled, tk.error, tk.toolpath_event.is_set(),
+                             None if tk.toolpath is None else len(tk.toolpath), tk.cached))
         assert "%" not in est[0] and "{" not in est[0] and " min " in est[0]
     finally:
         from wiring import dispose
+        dispose(w)
+
+
+def test_sim_uses_a_plan_that_finished_before_its_delivery():
+    """The worker finished the preview while its delivery to the window still waited in the
+    event queue: Sim said "Nothing to simulate" (macOS CI, where the debounce timer fired inside
+    Sim's own processEvents)."""
+    pytest.importorskip("PySide6")
+    from PySide6.QtWidgets import QApplication
+    from mlaser.ui import docops
+    from mlaser.ui.facade import DemoController
+    from mlaser.ui.mainwindow import MainWindow
+    from wiring import dispose
+    QApplication.instance() or QApplication([])
+    w = MainWindow(DemoController())
+    try:
+        w.jobs.debounce_s = 0                     # the request goes to the worker at once
+        w.set_document(docops.demo_document())
+        tk = w.jobs.preview
+        assert tk is not None and tk.wait_toolpath(60) is not None   # done; no events processed
+        assert not tk.toolpath_delivered
+        lines = []
+        w.log_panel.log = lambda m, *a, **k: lines.append(m)
+        w.simulate()
+        assert any(l.startswith("Estimated time:") for l in lines), lines
+    finally:
         dispose(w)
 
 

@@ -741,7 +741,9 @@ class MainWindow(QMainWindow):
         the compile itself keeps running in the worker)."""
         for _ in range(5):        # a newer preview replaced (cancelled) the one waited for: its turn
             tk = self.jobs.preview
-            if not (self.jobs.pending or (tk is not None and not tk.toolpath_event.is_set())):
+            # done is not enough: the worker may have finished while its delivery to this
+            # window still waits in the event queue (Sim then said "no toolpath": macOS CI)
+            if not self.jobs.pending and (tk is None or tk.cancelled or tk.toolpath_delivered):
                 break
             self.jobs.settle(toolpath_only=True)
             if self.jobs.preview is tk and not self.jobs.pending:
