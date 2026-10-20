@@ -29,6 +29,10 @@ EXIT_REFUSED = 6        # queue add refused (validation, the approval list is fu
 
 INPUT_SUFFIXES = (".dxf", ".svg", ".chf", ".mlz")
 
+#: the JSON output's unit of every length (and mm/s, mm², ... for the other quantities): JSON never
+#: follows ``--units``, only the text output does
+JSON_UNITS = "mm"
+
 
 class CliError(Exception):
     """An error with its exit code and a stable ``code`` for the JSON output."""
@@ -249,7 +253,43 @@ def document_summary(doc: Document) -> dict:
               "bbox": [x0, y0, x1, y1], "size_mm": [max(0.0, x1 - x0), max(0.0, y1 - y0)]})
 
 
+# ------------------------------------------------------------------------------ display units
+_OUT: dict[str, Any] = {"units": None, "system": None, "config": None}
+
+
+def set_output_units(system: Optional[str], config_path: Optional[str] = None) -> None:
+    """The text output's units for this run: ``--units`` (``metric`` / ``imperial``), else the
+    config's ``units.system`` (resolved on first use, so a JSON-only run never loads it)."""
+    _OUT.update(units=None, system=system, config=config_path)
+
+
+def out_units() -> Any:
+    """The :class:`mlaser.services.units.Units` of the text output (never the process-global
+    units of the GUI: the CLI output depends only on its arguments and the config file)."""
+    from mlaser.services.units import Units
+    if _OUT["units"] is None:
+        system = _OUT["system"]
+        if system is None:
+            try:
+                system = str(config_service(_OUT["config"]).get("units.system", "metric") or "metric")
+            except Exception:  # noqa: BLE001 - an unreadable config: metric
+                system = "metric"
+        _OUT["units"] = Units(system)
+    return _OUT["units"]
+
+
+def parse_length(text: Any, what: str = "length") -> float:
+    """A length given on the command line, in mm: a plain number is mm (as always); a unit may be
+    typed (``3.2mm``, ``0.125in``, ``1/8in``, ``2'6"``)."""
+    from mlaser.services.units import Units
+    try:
+        return Units("metric").parse(str(text), "length")
+    except ValueError as exc:
+        raise CliError(f"{what} {text!r}: not a length (a number in mm, or with a unit: 0.125in)",
+                       EXIT_USAGE, "usage") from exc
+
+
 __all__ = ["CliError", "EXIT_OK", "EXIT_CHECK", "EXIT_USAGE", "EXIT_INPUT", "EXIT_FAILED", "EXIT_OUTPUT",
            "EXIT_REFUSED", "load_document", "save_document", "parse_tech", "open_store", "find_technology",
            "apply_technology", "technology_ref", "config_service", "make_request", "plan", "plan_summary",
-           "document_summary", "used_layers", "r"]
+           "document_summary", "used_layers", "r", "JSON_UNITS", "set_output_units", "out_units", "parse_length"]
