@@ -77,6 +77,8 @@ class FieldDialog(Dialog):
                 w.setValue(float(v))
                 if unit:
                     w.setSuffix(suffix_for(unit))
+                elif "angle" in attr:          # an angle in degrees (min_angle, angle_deg ...)
+                    w.setSuffix(" °")
             elif kind == "bool":
                 w = QCheckBox(label)
                 w.setChecked(bool(v))
