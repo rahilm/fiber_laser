@@ -146,7 +146,8 @@ ignore = ["E702", "E731", "E741"]
 python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/_native", "mlaser/nc", "mlaser/services",
          "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py",
-         "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels"]
+         "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels",
+         "mlaser/ui/plugin_manager.py"]   # the Plugin manager dialog (Review 2)
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
@@ -211,6 +212,16 @@ forbidden_modules = [
     "mlaser.parity", "mlaser._compat",
 ]
 # no ignores left: LayerView's defaults are injected (parity_ports.mainapp.layer.set_layer_defaults)
+
+[[tool.importlinter.contracts]]
+# the plugin manager's untrusted-input code (indexes, manifests, version specifiers) and the
+# plugins' HTTP client hold no route to the machine (docs/dev/PLUGIN_STANDARD.md §5); the
+# manager itself reaches the controller only through services.plugins (the plugin view)
+name = "Plugin HTTP and manifest parsing cannot reach the machine"
+type = "forbidden"
+source_modules = ["mlaser.services.plugin_http", "mlaser.services.plugin_manifest", "mlaser.services.pep440"]
+forbidden_modules = ["mlaser.controller", "mlaser.devices", "mlaser.protocol", "mlaser.nc.stream",
+                     "mlaser.machine", "mlaser.ui", "PySide6"]
 
 [[tool.importlinter.contracts]]
 # the automation API and the notifications hold no route to the machine: no controller, no card

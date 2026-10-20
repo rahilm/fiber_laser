@@ -2,15 +2,20 @@
 
 Adds one command, ``hello.grid``, that appends a grid of squares to the drawing as one undoable
 edit, a "Hello" ribbon tab with its button, and typed settings (rows, columns, size, gap) that
-appear in the configuration store as ``plugin.hello.*``.  Install it next to mlaser
-(``pip install -e examples/mlaser_hello``) and start the application with plugins enabled.
+appear in the configuration store as ``plugin.hello.*``.
+
+It follows the plugin standard (docs/dev/PLUGIN_STANDARD.md): the manifest
+``mlaser-plugin.toml`` next to this file declares the id, the API and application ranges and the
+one permission it uses (``document``).  Build the wheel (``uv build --wheel examples/mlaser_hello``)
+and install it in the Plugin manager (Options+ > Plugins > Install from file), or for development
+``pip install -e examples/mlaser_hello``; then enable it in Service mode and restart.
 """
 from __future__ import annotations
 
 from mlaser.model import Contour, Craft, Line, Part
 from mlaser.services.config import Setting
 
-PLUGIN_API = 1          # the plugin API version this plugin was written for
+PLUGIN_API = 2          # the plugin API version this plugin was written for
 
 
 def square(x: float, y: float, size: float) -> Contour:

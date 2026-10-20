@@ -1,0 +1,24 @@
+[plugin]
+id = "example"                          # = entry-point name; ^[a-z][a-z0-9_]{1,31}$
+name = "Example"
+version = "0.1.0"                       # = the distribution version
+entry = "mlaser_example:plugin"         # = the entry-point value
+api = ">=2,<3"                          # plugin API range
+mlaser = ">=0.1.0rc1"                   # application version range
+summary = "An example mlaser plugin"
+description = "What it does, for the Browse tab of the Plugin manager."
+authors = ["Your Name <you@example.org>"]
+license = "MIT"
+homepage = "https://github.com/OWNER/REPO"
+source = "https://github.com/OWNER/REPO"
+min_mode = "engineer"
+icon = "icon.svg"                       # optional: SVG (currentColor) or PNG inside the package
+
+[permissions]                           # declare only what you use; shown before install and enable
+network = []                            # e.g. ["api.example.org"] or ["*.example.org"]
+files = false
+document = true
+orders = false
+queue = false
+machine = false
+secrets = false

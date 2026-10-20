@@ -4,6 +4,7 @@
 |---|---|
 | [Architecture](ARCHITECTURE.md) | package layers, import rules, the parity fence, services |
 | [Plugins](PLUGINS.md) | writing a plugin: `PluginContext`, workspaces, docks, commands, hooks |
+| [Plugin standard](PLUGIN_STANDARD.md) | the normative standard for third-party plugins: packaging, manifest, plugin API 2, permissions, repositories and the index format ([schema](plugin-index.schema.json)), what the Plugin manager verifies; [repository template](plugin-repo-template/README.md) |
 | [Automation API](API.md) | the local REST + WebSocket API: resources, events, queue intake, why there is no remote control |
 | [Performance](PERFORMANCE.md) | measurements, the optional native kernel ([NATIVE_KERNEL.md](NATIVE_KERNEL.md)) |
 | [Testing](TESTING.md) | test suites and markers, goldens, the contract checked on every commit |

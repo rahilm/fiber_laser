@@ -1,0 +1,27 @@
+# A template for an mlaser plugin in its own repository (docs/dev/PLUGIN_STANDARD.md).
+# Rename: the distribution (mlaser-example), the package (mlaser_example), the plugin id (example).
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mlaser-example"
+version = "0.1.0"                       # = [plugin] version in mlaser_example/mlaser-plugin.toml
+description = "An example mlaser plugin"
+readme = "README.md"
+license = "MIT"
+requires-python = ">=3.12"
+# libraries the plugin imports besides mlaser; the plugin manager installs nothing: each one must
+# already be in the mlaser installation (the bundle ships ezdxf, numpy, shapely, segno, Pillow ...)
+dependencies = []
+
+# exactly one entry point: <plugin id> = "<module>:<object with register(ctx)>"
+[project.entry-points."mlaser.plugins"]
+example = "mlaser_example:plugin"
+
+[tool.setuptools]
+packages = ["mlaser_example"]
+
+# the manifest (and the icon) are package data, so they are in the wheel's RECORD
+[tool.setuptools.package-data]
+mlaser_example = ["mlaser-plugin.toml", "icon.svg"]

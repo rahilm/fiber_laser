@@ -39,7 +39,7 @@ class Host:
 
 @pytest.fixture
 def ctl():
-    c = simrig.simulator_controller("card", time_scale=4.0)
+    c = simrig.simulator_controller("card", time_scale=2.0)   # 4x underran the FIFO on a slow CI runner
     yield c
     try:
         if c.sim is not None:

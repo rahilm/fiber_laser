@@ -1,0 +1,31 @@
+[plugin]
+id = "onshape"
+name = "Onshape"
+version = "0.1.0"
+entry = "mlaser_onshape:plugin"
+api = ">=2,<3"
+mlaser = ">=0.1.0rc1"
+summary = "Browse Onshape documents, pick the parts for this laser, and turn their flat faces into DXF order lines"
+description = """
+Reads an assembly's flattened bill of materials through Onshape's public REST API with the
+team's own API keys, selects the parts whose process property names this machine, measures
+their thickness, maps the Onshape material to the technology database, draws each part's flat
+face as an R12 DXF and adds the parts as order lines grouped by material x thickness, ready to
+load into Nest. It never starts anything on the machine.
+"""
+authors = ["mlaser contributors"]
+license = "MIT"
+homepage = "https://github.com/rahilm/fiber_laser/tree/main/plugins/mlaser-onshape"
+source = "https://github.com/rahilm/fiber_laser"
+min_mode = "engineer"
+
+[permissions]
+# cad.onshape.com, and Onshape Enterprise domains (<company>.onshape.com) for a configured
+# Enterprise server; no other host is ever contacted
+network = ["cad.onshape.com", "*.onshape.com"]
+files = true
+document = false
+orders = true
+queue = false
+machine = false
+secrets = true

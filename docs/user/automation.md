@@ -48,6 +48,7 @@ command for one JSON object on standard output, for scripts. Options common to a
 | `convert` | `.dxf` / `.svg` / `.chf` / `.mlz` into each other. DXF and SVG get the geometry only (one DXF layer per process layer); `.chf` and `.mlz` keep leads, kerf and joints, `.mlz` also the layer parameters |
 | `queue add` | submits a job for approval (see below); a `.mlz` is converted to a `.chf` for the queue |
 | `queue list` | the queue and the jobs waiting for approval (read-only) |
+| `plugin ...` | the Plugin manager: `list`, `search`, `info`, `install`, `uninstall`, `update`, `enable`, `disable`, `hosts`, `repo add/remove/list` ([Plugins](plugins.md#command-line)) |
 
 `--tech` picks a record of the technology database like Process > Apply: material (any unique
 part of its name), thickness, and the gas and nozzle when needed to make it unique, e.g.
@@ -68,7 +69,7 @@ the CLI also reads `name`, `rotation` (allowed step in degrees, 0 = none) and `m
 | 3 | an input file is missing, unreadable or of an unsupported type |
 | 4 | the work failed: compile or nest error, unknown or ambiguous technology |
 | 5 | an output file could not be written |
-| 6 | `queue add` refused (the approval list is full) |
+| 6 | `queue add` refused (the approval list is full); `plugin` refused (a verification check, https only, `--yes` missing) |
 
 With `--json` an error is `{"ok": false, "exit_code": N, "error": {"code": "...", "message": "..."}}`.
 

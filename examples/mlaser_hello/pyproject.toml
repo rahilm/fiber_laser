@@ -2,14 +2,26 @@
 requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
+# An mlaser plugin following docs/dev/PLUGIN_STANDARD.md: a pure-Python wheel with exactly one
+# "mlaser.plugins" entry point and the manifest mlaser_hello/mlaser-plugin.toml inside the package.
 [project]
 name = "mlaser-hello"
-version = "0.1.0"
+version = "0.2.0"                       # = [plugin] version of the manifest
 description = "Example mlaser plugin: a command that adds a grid of squares (docs/dev/PLUGINS.md)"
 license = "MIT"
 requires-python = ">=3.12"
-dependencies = ["mlaser"]
+# no runtime dependency on "mlaser" itself: the application provides it (a plugin that needs
+# another library lists it here; the plugin manager requires it to be present already)
+dependencies = []
 
-# mlaser finds plugins through this entry-point group (services.plugins.discover)
+# mlaser finds plugins through this entry-point group (services.plugins.discover); the name is
+# the plugin id (= [plugin] id) and the value the object with register(ctx) (= [plugin] entry)
 [project.entry-points."mlaser.plugins"]
 hello = "mlaser_hello:plugin"
+
+[tool.setuptools]
+packages = ["mlaser_hello"]
+
+# the manifest is package data: listed in the wheel's RECORD, read without importing the plugin
+[tool.setuptools.package-data]
+mlaser_hello = ["mlaser-plugin.toml"]

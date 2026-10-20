@@ -111,8 +111,9 @@ def test_fifo_resume_goes_through_the_gate_and_repierces(make_ctl):
     ctl.pause()
     assert wait_until(lambda: not ctl.sim.state.fifo_running, 2) is not None
     ctl.disarm("test")                     # arming is checked again by the resume
-    ctl.resume()
-    assert ctl.breakpoint is not None and not ctl._busy()
+    ctl.resume()                           # refused: disarmed; the held job ends as a breakpoint
+    # the job thread records the breakpoint asynchronously (a slow runner saw None here)
+    assert wait_until(lambda: ctl.breakpoint is not None and not ctl._busy(), 10) is not None
     assert not ctl.sim.state.fifo_running
     assert ctl.arm()
     ctl.resume()

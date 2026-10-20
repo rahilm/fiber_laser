@@ -10,6 +10,8 @@ command        what it does
 ``convert``    between ``.dxf`` / ``.svg`` / ``.chf`` / ``.mlz``
 ``queue add``  submit a job for the machine's queue: it waits for the operator's approval
 ``queue list`` the queue and the jobs waiting for approval (read-only)
+``plugin``     the plugin manager: list, search, info, install, uninstall, update,
+               enable, disable, repo add|remove|list (:mod:`mlaser.cli.plugin`)
 =============  =====================================================================
 
 ``--json`` prints one JSON object on stdout (``{"command", "ok", "exit_code", ...}``; on an
@@ -36,7 +38,7 @@ from typing import Any, Callable, Optional
 from .common import (EXIT_CHECK, EXIT_FAILED, EXIT_INPUT, EXIT_OK, EXIT_OUTPUT, EXIT_REFUSED, EXIT_USAGE,
                      CliError)
 
-SUBCOMMANDS = ("compile", "estimate", "nest", "validate", "convert", "queue")
+SUBCOMMANDS = ("compile", "estimate", "nest", "validate", "convert", "queue", "plugin")
 EXIT_CODES = {EXIT_OK: "ok", EXIT_CHECK: "check failed", EXIT_USAGE: "usage", EXIT_INPUT: "input",
               EXIT_FAILED: "failed", EXIT_OUTPUT: "output", EXIT_REFUSED: "refused"}
 
@@ -155,6 +157,8 @@ def build_parser() -> argparse.ArgumentParser:
     p = qs.add_parser("list", help="the queue and the jobs waiting for approval")
     _common(p)
     p.add_argument("--data-dir", metavar="DIR")
+    from .plugin import add_parser as _plugin_parser
+    _plugin_parser(sub, _common, _Parser)
     return ap
 
 
@@ -184,14 +188,23 @@ def main(argv: Optional[list[str]] = None, out: Any = None, err: Any = None) -> 
         except SystemExit as exc:            # --help of a subcommand
             return int(exc.code or 0)
         if args.command is None or (args.command == "queue" and getattr(args, "queue_command", None) is None):
-            raise CliError("a command is required (compile, estimate, nest, validate, convert, queue add|list)",
-                           EXIT_USAGE, "usage")
+            raise CliError("a command is required (compile, estimate, nest, validate, convert, queue add|list, "
+                           "plugin ...)", EXIT_USAGE, "usage")
+        if args.command == "plugin" and getattr(args, "plugin_command", None) is None:
+            raise CliError("plugin: a command is required (list, search, info, install, uninstall, update, "
+                           "enable, disable, repo add|remove|list)", EXIT_USAGE, "usage")
         from . import commands
         fn = {"compile": commands.cmd_compile, "estimate": commands.cmd_estimate, "nest": commands.cmd_nest,
               "validate": commands.cmd_validate, "convert": commands.cmd_convert}.get(args.command)
         if args.command == "queue":
             fn = {"add": commands.cmd_queue_add, "list": commands.cmd_queue_list}[args.queue_command]
+        if args.command == "plugin":
+            from .plugin import cmd_plugin
+            fn = cmd_plugin
         name = args.command + (f" {args.queue_command}" if args.command == "queue" else "")
+        if args.command == "plugin":
+            name += f" {args.plugin_command}" + (f" {args.repo_command}" if args.plugin_command == "repo"
+                                                 and getattr(args, "repo_command", None) else "")
         assert fn is not None
         code, result, text = fn(args)
         result = {"command": name, "ok": code == EXIT_OK, "exit_code": code, **result}

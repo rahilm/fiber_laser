@@ -23,6 +23,7 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [Practice](practice.md) | guided lessons on the simulator: load a sheet, frame, cut, hold, alarms, resume |
 | [Labels and marking](labels.md) | part labels, QR job tickets, remnant labels, part-ID etching |
 | [Notifications](notifications.md) | sheet done, queue waiting, alarms, maintenance: ntfy, e-mail, webhook |
+| [Plugins](plugins.md) | the Plugin manager: install, enable, update and remove plugins, repositories, `mlaser plugin` |
 | [Automation](automation.md) | the command line (compile, estimate, nest, validate, convert, queue) and the automation API |
 | [Machine](machine.md) | homing, jogging, outputs, follower, calibration and diagnostics |
 | [FAQ](faq.md) | common questions and problems |

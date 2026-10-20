@@ -5,6 +5,10 @@ A plugin adds commands, panels and settings to the application through one objec
 (`mlaser/ui/ext_*.py`) are plugins written against the same API, so they are the largest
 examples; `examples/mlaser_hello/` is the smallest.
 
+The **normative rules** for a third-party plugin (packaging, the manifest `mlaser-plugin.toml`,
+plugin API 2, permissions, repositories, what the Plugin manager verifies) are in
+[PLUGIN_STANDARD.md](PLUGIN_STANDARD.md); this guide is the how-to.
+
 ## 1. Shape of a plugin
 
 A plugin is a module, or any object, with `register(ctx)`:
@@ -12,7 +16,7 @@ A plugin is a module, or any object, with `register(ctx)`:
 ```python
 from mlaser.services.config import Setting
 
-PLUGIN_API = 1                     # the API version the plugin was written for (optional)
+PLUGIN_API = 2                     # the API version the plugin was written for
 
 def register(ctx):
     s = ctx.settings_schema([Setting("size", "float", 10.0, unit="mm", min=0.1, max=1000.0)])
@@ -33,7 +37,14 @@ Declare an entry point in the group `mlaser.plugins` of your package:
 hello = "mlaser_hello:plugin"      # module, or module:object with register(ctx)
 ```
 
-`pip install -e examples/mlaser_hello` installs the example.  The application loads its
+Next to the entry point the package ships its manifest, `<package>/mlaser-plugin.toml`
+(package data; [PLUGIN_STANDARD.md §2](PLUGIN_STANDARD.md#2-the-manifest-mlaser-plugintoml)):
+id, version, entry point, the API and application ranges and the permissions it uses.  The
+application reads it from the installed distribution without importing the plugin.
+
+`pip install -e examples/mlaser_hello` installs the example for development; users install
+wheels with the **Plugin manager** (Options+ > Plugins, or `mlaser plugin install`), which
+verifies them first ([PLUGIN_STANDARD.md §7](PLUGIN_STANDARD.md#7-installation-what-the-manager-checks-and-does)).  The application loads its
 built-in plugins (`mlaser.ui.mainwindow.EXTENSIONS`) first.  Installed entry points are
 **listed but not loaded** until a service engineer enables them in **Options+ > Plugins**
 (Service mode; see [§6](#6-trust-model)); the enabled ones load at the next start, sorted by
@@ -53,7 +64,7 @@ name is already taken is ignored with a log line.
 | `ctx.on("document_imported", fn)` | `fn(path, document)` after File > Open or Import read a drawing (DXF, SVG, G-code, chf); the built-in Orders plugin runs the import review from it ([import.md](../user/import.md)) |
 | `ctx.on_plan(fn)` | `fn(planned_job)` when a new PlannedJob is ready (preview = what Start cuts) |
 | `ctx.on_close(fn)` | before the window closes (save state, close devices) |
-| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises.  Used today: `dxf.mode` (ext_options), `machine.monitor_host` (ext_machine: `fn(key, factory)` shows a device monitor as a panel of the Machine workspace), `queue` / `queue_runner` / `remnants` / `intake` (run: the job queue, its runner, the remnant store, the jobs waiting for approval, `mlaser.services.intake`), `ledger` (report), `automation.server` (ext_automation, None while off), `practice.active` (ext_practice: `fn() -> bool`, a practice lesson runs; its jobs are recorded as source `practice`, `mlaser.services.runsource`); read when present: `user_mode` (`fn() -> "operator" / "engineer" / "service"`), `workspace.show` (`fn(name)`, the shell's switcher) |
+| `ctx.provide(name, fn)` | a single-slot provider; e.g. `"nudge"` takes over the arrow keys.  A second provider raises.  Used today: `dxf.mode` (ext_options), `machine.monitor_host` (ext_machine: `fn(key, factory)` shows a device monitor as a panel of the Machine workspace), `queue` / `queue_runner` / `remnants` / `intake` (run: the job queue, its runner, the remnant store, the jobs waiting for approval, `mlaser.services.intake`), `ledger` (report), `orders.load_group` (orders: `fn(key, replace=None)` loads one material × thickness group of the order book into the Nest workspace; the `orders.to_nest` command uses the group selected in the Orders workspace), `automation.server` (ext_automation, None while off), `practice.active` (ext_practice: `fn() -> bool`, a practice lesson runs; its jobs are recorded as source `practice`, `mlaser.services.runsource`); read when present: `user_mode` (`fn() -> "operator" / "engineer" / "service"`), `workspace.show` (`fn(name)`, the shell's switcher) |
 | `ctx.add_dock(widget, title, area="right")` | a dock widget (`left` / `right` / `bottom` / `top`) |
 | `ctx.add_ribbon_tab(title, command_ids)` | a ribbon tab with one button per command |
 | `ctx.add_workspace(name, widget, title, **options)` | a task workspace in the shell's rail, or the content of a built-in slot (§5); kept in `window.workspaces` too |
@@ -61,6 +72,23 @@ name is already taken is ignored with a log line.
 | `ctx.on_workspace_changed(fn)`, `ctx.on_user_mode_changed(fn)` | `fn(workspace_id)` / `fn(mode)` after the shell switched |
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
 | `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs |
+
+**Plugin API 2** (`PLUGIN_API = 2`; the contract is
+[PLUGIN_STANDARD.md §4](PLUGIN_STANDARD.md#4-plugin-api-2)):
+
+| Call | What it does |
+|---|---|
+| `ctx.manifest`, `ctx.permissions`, `ctx.icon` | the parsed manifest, the frozen permissions, the manifest icon's path |
+| `ctx.data_dir` | the plugin's own writable directory `<data dir>/plugins/data/<id>/` |
+| `ctx.http.get(url, params=, headers=, timeout=, max_bytes=, auth=)`, `ctx.http.post(url, json=, data=, ...)` | https to the hosts of `permissions.network` (and hosts granted in the Plugin manager); checked redirects, a size cap, retries with `Retry-After`; list values in `params` repeat the key |
+| `ctx.secrets.get/set/delete(key)` | credentials in the keyring or a 0600 file, namespaced to the plugin (needs `secrets`) |
+| `ctx.run_in_background(fn, on_done=, on_error=, on_progress=)` | `fn` (or `fn(progress=report)`) on a worker; the callbacks on the GUI thread, progress coalesced |
+| `ctx.services.orders`, `.orders_load_group`, `.technology`, `.queue`, `.intake`, `.config` | the window's public services (orders / queue need their permission) |
+| `ctx.show_message(text, level)` | a status-bar message |
+
+A plugin with a manifest gets `PermissionError` when it uses an API it did not declare
+(`document` for `ctx.edit`, `machine` for `ctx.controller`, ...).  Without a manifest a plugin is
+*legacy*: API 1 only.
 
 Data that belongs to the job (a technology assignment, queue entries, a plugin's own state) is
 saved in the `.mlz` project and its autosave when the plugin registers a section:
@@ -168,6 +196,9 @@ switches; `window.shell.host.pages[id]` is the page.
 
 ## 6. Trust model
 
+The plugin standard's security model and its limits:
+[PLUGIN_STANDARD.md §5](PLUGIN_STANDARD.md#5-permissions-and-the-security-model).
+
 **A plugin is trusted code.**  It runs inside the mlaser process with the user's operating-system
 privileges and the machine's authority: it can read and write the user's files, open network
 connections, start processes, and call everything the application can call, including the
@@ -179,7 +210,9 @@ only when you would run its author's program on the machine's PC.
 
 | Protection | What it gives | What it does not |
 |---|---|---|
-| Opt-in loading | Entry-point plugins are discovered and listed (Options+ > Plugins, with their entry point, package and status) but imported only when the allowlist `plugins.allowlist` in `config.json` names them **with the same target** (`module:attr`).  Enabling needs Service mode and a confirmation, is audited (`plugin_allowlist`), and applies at the next start.  A package that points its name at other code shows as `changed` and is not loaded until it is enabled again. | No signature or hash check: anyone who can write to the Python environment or to `config.json` can change what runs. |
+| Opt-in loading | Entry-point plugins are discovered and listed (Options+ > Plugins, with their entry point, package, permissions and status) but imported only when the allowlist `plugins.allowlist` in `config.json` names them **with the same target** (`module:attr`) and, for a plugin with a manifest, with the permissions accepted then (`plugins.accepted`).  Enabling needs Service mode and a confirmation listing the permissions, is audited (`plugin_allowlist`), and applies at the next start.  A package that points its name at other code, or declares other permissions, shows as `changed` and is not loaded until it is enabled again. | The sha256 / RECORD checks of the Plugin manager prove a download is the one the index lists, not who wrote it (no signatures); anyone who can write to the plugin site directory, the Python environment or `config.json` can change what runs. |
+| Verified installs | The Plugin manager installs only pure wheels whose hash matches the index, whose `RECORD` hashes every file, whose manifest matches the index and the entry point, that are in the `api` / `mlaser` ranges, whose dependencies are present and whose modules collide with nothing; every install, update, removal and refusal is audited ([PLUGIN_STANDARD.md §7](PLUGIN_STANDARD.md#7-installation-what-the-manager-checks-and-does)). | Code is still code: verification is about integrity and compatibility, not intent. |
+| Declared permissions | The manifest's `[permissions]` are shown before install and enable and enforced on the application's own APIs (http hosts, secrets, the controller, the document, orders, queue). | Not a sandbox: plugin code can import `socket`, `subprocess` or reach `ctx.window`. |
 | Load order | Enabled plugins load after the safety UI (state banner, run bar, Stop / Hold keys, pre-flight dialog) exists; every load is audited (`plugin_loaded`). | A plugin can still change the window afterwards. |
 | Reserved commands | A plugin that is not built in cannot register `run.*`, `shell.*` or `workspace.*` command ids (`ReservedCommandError`): it can neither take over Stop / Hold / Arm nor make start-up fail by pre-claiming them.  A failing plugin is rolled back and logged. | Other commands are first come, first served (a duplicate raises). |
 | The safety guard | Every request to the card goes through the supervisor's command policy (docs/SAFETY.md §3): emission while disarmed is refused, halts always pass, the interlocks and the watchdog work as for the core. | It prevents **accidents** (a plugin that forgets to arm, a bug that writes a laser word while disarmed); it does not stop a **hostile** plugin, which can reach the transport or the guard's configuration through Python. |
@@ -204,3 +237,19 @@ including `safety.*` and the LAN monitor's settings; `ctx.window` is the main wi
 a plugin can replace the `process` profile or providers such as `project.open` (all by design for
 trusted code).  Report a plugin or a path around the guard that a well-meaning plugin could hit
 by accident privately, as [SECURITY.md](../../SECURITY.md) describes.
+
+## 7. Publishing
+
+1. Package the plugin as in [PLUGIN_STANDARD.md §1-2](PLUGIN_STANDARD.md#1-packaging) (start
+   from [plugin-repo-template](plugin-repo-template/README.md) or `examples/mlaser_hello`).
+2. Check it: `python -m mlaser.services.plugin_index check dist/<wheel>.whl`.
+3. Publish: tag a release; the template's workflow attaches the wheel, `SHA256SUMS` and
+   `mlaser-plugin-index.json` (built by `python -m mlaser.services.plugin_index build`).  Or host
+   an index anywhere over https.
+4. Users add `github:<owner>/<repo>` (or your index URL) under Plugin manager > Repositories
+   and install from Browse; a service engineer enables it.
+
+The project's own plugins live in `plugins/<name>/`; `.github/workflows/package.yml` builds
+their wheels and the index that is the application's default repository, and CI runs each
+plugin's `tests/` with the plugin installed editable (`plugins/conftest.py` makes the core's
+`tests/` helpers importable).
