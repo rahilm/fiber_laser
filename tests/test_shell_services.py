@@ -36,7 +36,9 @@ def test_declared_min_mode_wins():
 
 def test_pin_hash_and_verify():
     h = um.hash_pin("1234")
-    assert h.startswith("pbkdf2-sha256$") and "1234" not in h
+    # the plaintext PIN is not stored: no field of the hash record is the PIN (a substring test
+    # flaked: random salt/hash hex contains "1234" by chance)
+    assert h.startswith("pbkdf2-sha256$") and "1234" not in h.split("$")
     assert um.verify_pin("1234", h) and not um.verify_pin("1235", h)
     assert not um.verify_pin("1234", "garbage")
     assert um.hash_pin("1234") != h                     # salted
