@@ -71,30 +71,33 @@ def run(build) -> dict:
 
 
 def cases(only: set[str], seeds: range):
+    """(key, build(workers)): every golden job, its cut chains planned serially (workers=0) or
+    by a pool of that many processes (mlaser.nc.parallel)."""
     from mlaser.nc import Machine, compile_job
     if "jobs_samples" in only:
         for name, doc, _host in G.sample_docs():
             for cname, (cam, mach) in G.SAMPLE_CONFIGS.items():
                 yield (f"jobs_samples/{name}#{cname}",
-                       lambda doc=doc, cam=cam, mach=mach: compile_job(doc, dict(cam), Machine(**mach)))
+                       lambda w, doc=doc, cam=cam, mach=mach: compile_job(doc, dict(cam), Machine(**mach), workers=w))
     if "jobs_random" in only:
         for seed in seeds:
-            def build(seed=seed):
+            def build(w, seed=seed):
                 doc, cam, machine, dry = G.random_doc(seed)
-                return compile_job(doc, cam, machine, dry_run=dry)
+                return compile_job(doc, cam, machine, dry_run=dry, workers=w)
             yield f"jobs_random/seed{seed:03d}", build
 
 
 def compare(only: set[str], seeds: range, verbose: bool = False,
-            profile: str = ORIGINAL.name) -> tuple[int, int, list[str]]:
-    """(jobs, steps, differences) of ``original-python`` against ``profile``."""
+            profile: str = ORIGINAL.name, workers: int = 0) -> tuple[int, int, list[str]]:
+    """(jobs, steps, differences) of ``original-python`` (serial) against ``profile`` with
+    ``workers`` planning processes (0: serial)."""
     n = steps = 0
     bad: list[str] = []
     for key, build in cases(only, seeds):
         with use_profile(ORIGINAL_PYTHON):
-            a = run(build)
+            a = run(lambda: build(0))
         with use_profile(profile):
-            b = run(build)
+            b = run(lambda: build(workers))
         n += 1
         steps += a.get("steps", 0)
         if a != b:
@@ -119,6 +122,9 @@ def main(argv=None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     ap.add_argument("--profile", default=ORIGINAL.name, choices=[ORIGINAL.name, N.NAME],
                     help="the profile compared with original-python (default: the default one)")
+    ap.add_argument("--workers", type=int, default=0,
+                    help="plan the compared run's cut chains in a pool of N processes "
+                         "(mlaser.nc.parallel; default 0: serial)")
     a = ap.parse_args(argv)
     N.require()
     st = N.kernel_status()
@@ -127,10 +133,13 @@ def main(argv=None) -> int:
         print("the default profile does not run the C kernel here: nothing to compare")
         return 2
     t = time.perf_counter()
-    n, steps, bad = compare(set(a.only), _seeds(a.seeds), a.verbose, a.profile)
+    n, steps, bad = compare(set(a.only), _seeds(a.seeds), a.verbose, a.profile, a.workers)
     print(f"{n} jobs, {steps} steps: {len(bad)} differ ({time.perf_counter() - t:.0f} s)")
     print("kernel coverage (calls by the kernel / handed to the port):", dict(N.STATS))
     print("smoother coverage (C / handed to the port):", dict(NS.STATS))
+    if a.workers:
+        from mlaser.nc import parallel
+        print("parallel planning:", dict(parallel.STATS))
     return 1 if bad else 0
 
 

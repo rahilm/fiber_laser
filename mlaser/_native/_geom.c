@@ -1952,6 +1952,112 @@ decline:
     Py_RETURN_NONE;
 }
 
+/*
+ * sample_profile(block, period_ms) -> (bytes of doubles, all finite) or None: Profile.sample
+ * (profile.py FUN_1000f730, the rapids' samples): positions while t <= T from t = 0, divided by
+ * L, then multiplied by 1 / (last value); [] when T / period * 1000 + 0.5 < 1 or no sample.  The
+ * divisions are the port's _div: IEEE (x / 0 = +-inf, 0 / 0 = nan), as C divides.
+ */
+static PyObject *g_sample_profile(PyObject *self, PyObject *args)
+{
+    PyObject *t;
+    double period;
+    if (!PyArg_ParseTuple(args, "Od", &t, &period))
+        return NULL;
+    double B[20];
+    if (!PyTuple_Check(t) || PyTuple_GET_SIZE(t) != 20)
+        Py_RETURN_NONE;
+    for (int j = 0; j < 20; j++)
+        if (f_item(t, j, &B[j]) < 0)
+            Py_RETURN_NONE;
+    const double *tt7 = B + 6, *s7 = B + 13;
+    double T = tt7[0] + tt7[1] + tt7[2] + tt7[3] + tt7[4] + tt7[5] + tt7[6];
+    double n = T / period * 1000.0 + 0.5;
+    DVec out = {NULL, 0, 0};
+    if (n >= 1.0) {
+        double dt = period * 0.001;
+        double e[7], base[7], acc = 0.0, bb = 0.0;
+        for (int k = 0; k < 7; k++) {
+            acc = acc + tt7[k];
+            e[k] = acc;
+        }
+        base[0] = 0.0;
+        for (int k = 0; k < 6; k++) {
+            bb = s7[k] + bb;
+            base[k + 1] = bb;
+        }
+        double tt = 0.0;
+        for (int k = 0; k < 7; k++) {
+            if (k < 6) {
+                while (tt < e[k]) {
+                    if (out.n >= MAX_PLAN_SAMPLES || dpush(&out, prof_pos(B, k, tt, e, base)) < 0)
+                        goto decline;
+                    tt = tt + dt;
+                }
+            } else {
+                while (tt <= T) {
+                    if (out.n >= MAX_PLAN_SAMPLES || dpush(&out, prof_pos(B, k, tt, e, base)) < 0)
+                        goto decline;
+                    tt = tt + dt;
+                }
+            }
+        }
+        if (out.n) {
+            double L = B[0];
+            for (Py_ssize_t i = 0; i < out.n; i++)
+                out.v[i] = out.v[i] / L;
+            double r = 1.0 / out.v[out.n - 1];
+            for (Py_ssize_t i = 0; i < out.n; i++)
+                out.v[i] = out.v[i] * r;
+        }
+    }
+    int fin = 1;
+    for (Py_ssize_t i = 0; i < out.n && fin; i++)
+        fin = isfinite(out.v[i]) != 0;
+    PyObject *b = PyBytes_FromStringAndSize((const char *)out.v, (Py_ssize_t)(out.n * (Py_ssize_t)sizeof(double)));
+    PyMem_Free(out.v);
+    if (!b)
+        return NULL;
+    return Py_BuildValue("(NO)", b, fin ? Py_True : Py_False);
+decline:
+    PyMem_Free(out.v);
+    PyErr_Clear();
+    Py_RETURN_NONE;
+}
+
+/* rapid_points(us, ax, ay, px, py) -> bytes x0, y0, ...: (a + (p - a) * u) per u (compile_items'
+ * rapid_to) */
+static PyObject *g_rapid_points(PyObject *self, PyObject *args)
+{
+    PyObject *uo;
+    double ax, ay, px, py;
+    if (!PyArg_ParseTuple(args, "Odddd", &uo, &ax, &ay, &px, &py))
+        return NULL;
+    Py_buffer ub;
+    if (PyObject_GetBuffer(uo, &ub, PyBUF_FORMAT | PyBUF_C_CONTIGUOUS) < 0)
+        return NULL;
+    const char *f = ub.format ? ub.format : "B";
+    if (*f == '<' || *f == '=' || *f == '@')
+        f++;
+    if (ub.itemsize != 8 || strcmp(f, "d") != 0) {
+        PyBuffer_Release(&ub);
+        PyErr_SetString(PyExc_TypeError, "a buffer of doubles is needed");
+        return NULL;
+    }
+    Py_ssize_t n = ub.len / 8;
+    const double *u = (const double *)ub.buf;
+    PyObject *res = PyBytes_FromStringAndSize(NULL, (Py_ssize_t)(2 * n * (Py_ssize_t)sizeof(double)));
+    if (res) {
+        double *o = (double *)PyBytes_AS_STRING(res);
+        for (Py_ssize_t i = 0; i < n; i++) {
+            o[2 * i] = ax + (px - ax) * u[i];
+            o[2 * i + 1] = ay + (py - ay) * u[i];
+        }
+    }
+    PyBuffer_Release(&ub);
+    return res;
+}
+
 /* ============================================================================ module part */
 static PyMethodDef geom_methods[] = {
     {"crt_hypot", g_hypot, METH_VARARGS, "crtmath.hypot(x, y) of two floats"},
@@ -1961,6 +2067,8 @@ static PyMethodDef geom_methods[] = {
     {"ct_build", g_ct_build, METH_VARARGS, "ct_build(ctrl, knots, sample_tol) -> CTable or None"},
     {"sample_path", g_sample_path, METH_VARARGS, "sample_path(pieces, cum, ss) -> bytes or None"},
     {"sample_plan", g_sample_plan, METH_VARARGS, "sample_plan(blocks, dt) -> bytes or None"},
+    {"sample_profile", g_sample_profile, METH_VARARGS, "sample_profile(block, period_ms) -> (bytes, finite) or None"},
+    {"rapid_points", g_rapid_points, METH_VARARGS, "rapid_points(us, ax, ay, px, py) -> bytes"},
     {NULL, NULL, 0, NULL},
 };
 

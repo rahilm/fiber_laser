@@ -197,15 +197,16 @@ class NativeEmitter(S.Emitter):
         STATS["to_port"] += 1
         super().to(x, y, laser, duty, freq, power)
 
-    def to_path(self, pts: Sequence[S.Point], laser: bool) -> None:
-        """``for x, y in pts: self.to(x, y, laser)`` in one kernel call (a rapid's samples)."""
-        if pts:
+    def to_path(self, pts: Sequence[Any], laser: bool) -> None:
+        """``for x, y in pts: self.to(x, y, laser)`` in one kernel call (a rapid's samples);
+        ``pts`` may also be a flat ``array('d')`` x0, y0, x1, y1, ..."""
+        if len(pts):
             d, f = _small_int(self.duty), _small_int(self.freq)
             if d is not None and f is not None and self._emit(
                     pts, None, 0.0, 0.0, None, None, None, None, None, False, 0, bool(laser), d, f, False):
                 STATS["to_path"] += 1
                 return
-        for x, y in pts:
+        for x, y in (tuple_points(pts) if type(pts) is array else pts):
             self.to(x, y, laser)
 
     def dwell(self, seconds: float, laser: bool) -> None:

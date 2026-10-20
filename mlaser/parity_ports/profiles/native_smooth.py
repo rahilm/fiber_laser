@@ -272,6 +272,46 @@ class NativeSmoothedPath(SM.SmoothedPath):
         return out
 
 
+def profile_samples(pr: Any, period_ms: float) -> Any:
+    """compile_items' rapid samples: ``pr.sample(period_ms)`` (Profile.sample, FUN_1000f730) as
+    an ``array('d')``, ``[1.0]`` when a value is not finite (the compiler's guard), then the
+    first one dropped unless it is the only one; None when the C code declines (the caller
+    runs the port)."""
+    from ..cadmodule.profile import Profile
+    if _K is None or type(pr) is not Profile:
+        return None
+    try:
+        blk = tuple(_fl48(v) for v in (pr.L, pr.vs, pr.vmax, pr.ve, pr.A, pr.J, *pr.t, *pr.s))
+    except TypeError:
+        return None
+    r = _K.sample_profile(blk, period_ms) if type(period_ms) in (int, float) else None
+    if r is None:
+        STATS["plan_port"] += 1
+        return None
+    b, finite = r
+    us = array("d")
+    if finite:
+        us.frombytes(b)
+    else:
+        us.append(1.0)
+    STATS["plan"] += 1
+    return us[1:] if len(us) > 1 else us
+
+
+def rapid_points(us: Any, a: Any, p: Any) -> Any:
+    """``[(a + (p - a) * u) for u in us]`` (compile_items' rapid_to) as a flat ``array('d')``
+    x0, y0, x1, ...; None when ``us`` is not an array or a coordinate is not a float / an int
+    below 2^53 (the caller runs the Python expression)."""
+    if _K is None or type(us) is not array:
+        return None
+    vals = (a[0], a[1], p[0], p[1])
+    if not all(type(v) is _F or (type(v) is int and -(1 << 53) < v < (1 << 53)) for v in vals):
+        return None
+    out = array("d")
+    out.frombytes(_K.rapid_points(us, *vals))
+    return out
+
+
 def native_smooth_path_points(moves, cfg=None, params: Optional[SM.SmoothParams] = None,
                               lead_index: Optional[int] = None):
     """The port's smooth_path_points on the native classes (always; no selection: raises
