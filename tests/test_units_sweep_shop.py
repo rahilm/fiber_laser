@@ -153,12 +153,12 @@ def test_shop_workspaces_show_no_metric_text_in_imperial(win, app, tmp_path):
     pump(app)
     _check("import review", dlg)
     dlg.close()
-    from mlaser.ui.ext_process import RatesDialog
-    rd = RatesDialog(proc.ctx, win)
-    rd.show()
+    # the cost rates' home: Settings › Costing (process.rates opens it)
+    win.run("process.rates")
+    rd = win._settings_window
     pump(app)
-    _check("rates", rd)
-    assert rd.fields["gas_o2_per_m3"].suffix().endswith("/ft³")
+    _check("rates", rd.pages["costing"])
+    assert rd.rows["costing.gas_o2_per_m3"].editor.suffix().endswith("/ft³")
     rd.close()
 
 
@@ -241,10 +241,10 @@ def test_report_rate_per_square_foot_is_stored_per_square_metre(win, app):
     win.config.set("units.system", "imperial")
     rep = win.extension("report")
     sb = QuantitySpinBox("per_large_area", minimum=0, maximum=1e6)
-    sb.setValue(float(rep.settings["material_per_m2"]))
-    sb.valueChanged.connect(lambda v: rep.settings.__setitem__("material_per_m2", v))
+    sb.setValue(float(win.config.get("costing.material_per_m2")))
+    sb.valueChanged.connect(lambda v: win.config.set("costing.material_per_m2", v))
     type_into(sb, "1")                                         # 1 per ft²
-    assert float(rep.settings["material_per_m2"]) == pytest.approx(1 / 0.09290304)
+    assert float(win.config.get("costing.material_per_m2")) == pytest.approx(1 / 0.09290304)
     assert rep.ledger.rates.material_per_m2 == pytest.approx(10.7639104, rel=1e-7)
     sb2 = QuantitySpinBox("per_long_length", minimum=0, maximum=1e6)
     type_into(sb2, "0.3048")                                   # per ft -> per m
@@ -252,19 +252,18 @@ def test_report_rate_per_square_foot_is_stored_per_square_metre(win, app):
 
 
 def test_rates_dialog_edits_in_imperial_store_metric(win, app):
-    from mlaser.ui.ext_process import RatesDialog
+    """Settings › Costing (the rates' home) takes imperial prices and stores metric ones."""
+    from mlaser.ui.settings_dialog import SettingsDialog
     win.config.set("units.system", "imperial")
-    proc = win.extension("ext_process")
-    rd = RatesDialog(proc.ctx, win)
-    type_into(rd.fields["sheet_w_mm"], "120")
-    type_into(rd.fields["gas_n2_per_m3"], "1")                 # 1 per ft³
-    type_into(rd.fields["gas_flow_l_min"], "100")              # 100 ft³/h
-    before = float(proc.settings["material_per_kg"])
-    rd._ok()
-    assert float(proc.settings["sheet_w_mm"]) == pytest.approx(3048.0)
-    assert float(proc.settings["gas_n2_per_m3"]) == pytest.approx(1 / 0.028316846592)
-    assert float(proc.settings["gas_flow_l_min"]) == pytest.approx(100 * 28.316846592 / 60)
-    assert float(proc.settings["material_per_kg"]) == before
+    rd = SettingsDialog(win, instant=True)
+    rd.show()
+    type_into(rd.rows["costing.gas_n2_per_m3"].editor, "1")      # 1 per ft³
+    type_into(rd.rows["costing.material_per_kg"].editor, "2")    # 2 per lb
+    before = float(win.config.get("costing.machine_per_h"))
+    assert float(win.config.get("costing.gas_n2_per_m3")) == pytest.approx(1 / 0.028316846592)
+    assert float(win.config.get("costing.material_per_kg")) == pytest.approx(2 / 0.45359237)
+    assert float(win.config.get("costing.machine_per_h")) == before
+    rd.close()
 
 
 # --------------------------------------------------------------------------- text outside widgets

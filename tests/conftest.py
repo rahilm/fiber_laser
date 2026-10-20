@@ -58,6 +58,8 @@ UI_MODULES = {
     "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
+    # Review 2 UI wave: the Settings window
+    "test_settings_dialog",
     # UI wave: process & technology
     "test_ui_process_paths", "test_one_home",
     # display units (units track)

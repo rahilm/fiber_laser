@@ -23,6 +23,7 @@ state banner or the run bar before anything can fire.
 from __future__ import annotations
 
 import argparse
+import os
 import multiprocessing
 import sys
 
@@ -56,7 +57,7 @@ def main(argv=None) -> int:
         return cli_main(words)
     ap = argparse.ArgumentParser(prog="mlaser")
     ap.add_argument("file", nargs="?", help=".chf / .dxf / .svg / .nc to open")
-    ap.add_argument("--lang", default="en", help="language code (en; zh, ru, de, es, pt, fr, it, pl, vi, tr "
+    ap.add_argument("--lang", default=None, help="language code (en; zh, ru, de, es, pt, fr, it, pl, vi, tr "
                     "after importing them from an Mlaser install)")
     ap.add_argument("--import-lang", metavar="PATH",
                     help="import the translations of your own Mlaser install (folder or Lang/*.txt file)")
@@ -107,17 +108,21 @@ def main(argv=None) -> int:
             print("imported languages:", ", ".join(tr.import_from(args.import_lang)), file=sys.stderr)
         except FileNotFoundError as exc:
             print(exc, file=sys.stderr)
-    try:
-        tr.set_language(args.lang)
-    except KeyError:
-        print(f"unknown language {args.lang!r}; using English", file=sys.stderr)
-    if tr.language not in {li.code for li in tr.available()}:
-        print(f"no texts for {args.lang!r}: import them with --import-lang <your Mlaser folder>; "
-              "showing English", file=sys.stderr)
     # the configuration first: the controller is built with the machine's safety I/O
     # (interlocks, "PC alive" heartbeat: services.safety_io, docs/SAFETY.md §8, §11)
     from mlaser.services.config import ConfigService
     config = ConfigService()
+    # the language: --lang, else Settings > General > Language (shell.language; empty = the
+    # system's language when mlaser has its texts), else English
+    from .settings_apply import resolve_language
+    lang = args.lang or resolve_language(tr, str(config.get("shell.language", "") or ""))
+    try:
+        tr.set_language(lang)
+    except KeyError:
+        print(f"unknown language {lang!r}; using English", file=sys.stderr)
+    if tr.language not in {li.code for li in tr.available()}:
+        print(f"no texts for {lang!r}: import them with --import-lang <your Mlaser folder>; "
+              "showing English", file=sys.stderr)
     ctl = None
     if not args.fake:
         try:
@@ -132,8 +137,11 @@ def main(argv=None) -> int:
                      config=config, entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
+    last = str(config.get("app.last_file", "") or "")
     if args.file:
         win.load_path(args.file)
+    elif config.get("app.reopen_last", False) and last and os.path.isfile(last) and not args.demo:
+        win.load_path(last)            # Settings > General > Open the last drawing at start
     elif args.demo:
         win.set_document(docops.demo_document())
     if ctl is None:

@@ -213,7 +213,11 @@ class DrawExtension:
         self.size = SizeParams()
         self.merge = MergeParams()
         self.adv = AdvTextParams()
-        self.fine = FineTuneParams(step=float(window.settings.get("SP.KeyboardMoveStep", 1.0)))
+        # the arrow-key step is a preference (Settings > Design & CAM defaults > Editing)
+        cfg = window.config
+        self.fine = FineTuneParams(step=float(cfg.get("design.nudge_step", 1.0)),
+                                   auto=bool(cfg.get("design.nudge_auto", True)))
+        cfg.subscribe(self._config_changed)
         from mlaser.cam.array import FillParams
         self.fill = FillParams()
         self.polygon_sides = 6     # FUN_100ef350 passes 6
@@ -570,20 +574,22 @@ class DrawExtension:
         self.start(T.MeasureTool(), done)
 
     # ------------------------------------------------------------ fine-tune
+    def _config_changed(self, key: str) -> None:
+        if key in ("*", "design.nudge_step", "design.nudge_auto"):
+            cfg = self.w.config
+            self.fine.step = float(cfg.get("design.nudge_step", 1.0))
+            self.fine.auto = bool(cfg.get("design.nudge_auto", True))
+
     def fine_tune_dialog(self):
-        p = self.fine
-        d = _Dialog(self.w.tr_, "mf445", self.w)
-        st = d.add("mf447", _lspin(0.01, 1000, p.step))
-        au = d.add("mf446", QCheckBox())
-        au.setChecked(p.auto)
-        d.buttons()
-        if self._run_dialog(d) and self.exec_dialogs:
-            p.step, p.auto = st.value(), au.isChecked()
-        self.w.settings["SP.KeyboardMoveStep"] = p.step
+        """mf445 keyboard fine-tuning: the arrow-key step's one home is Settings › Canvas
+        (``design.nudge_step`` / ``design.nudge_auto``); the command opens that page."""
+        opener = getattr(self.w, "settings_dialog", None)
+        if self.exec_dialogs and opener is not None:
+            opener().show_page("canvas")
         act = self.w.ribbon.actions.get("draw.fine_tune")
         if act is not None:
             act.blockSignals(True)
-            act.setChecked(p.auto)
+            act.setChecked(self.fine.auto)
             act.blockSignals(False)
 
     def step_for(self, dx: float, dy: float) -> float:

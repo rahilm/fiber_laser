@@ -12,6 +12,7 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [The window](shell.md) | workspaces and the rail, the command palette (Ctrl+K), user modes and PINs, themes, the classic ribbon |
 | [Units](units.md) | metric or imperial everywhere, per-quantity overrides, typing values with units (`1/8"`, `2'6"`, `3.2 mm`) |
 | [Keyboard shortcuts](keyboard.md) | every key, generated from the command registry |
+| [Settings](settings.md) | the application's preferences (Settings… / Options… / Preferences…): every setting, its default and what it does |
 | [Safety](safety.md) | arming, pre-flight checks, faults, the laser-off mode, what software cannot do |
 | [Importing your Mlaser setup](importing-mlaser-setup.md) | machine parameters, layer parameters, languages and drawings from an existing Mlaser install |
 | [Design](design.md) | importing DXF/SVG/G-code, drawing and editing, text |

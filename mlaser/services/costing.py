@@ -49,6 +49,33 @@ class Rates:
     sheet_h_mm: float = 0.0
 
 
+#: the ``costing.*`` keys of the cost card's rates (Settings › Costing)
+CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY", "₹": "INR", "zł": "PLN", "₺": "TRY"}
+
+
+def iso_currency(text: Any) -> str:
+    """A currency as its ISO 4217 code ("€" -> "EUR"); unknown text is kept."""
+    t = str(text or "").strip()
+    return CURRENCY_SYMBOLS.get(t, t.upper() if len(t) == 3 and t.isalpha() else t)
+
+
+def rates_from_config(cfg: Any) -> Rates:
+    """The cost card's :class:`Rates` from the ConfigService (``costing.*``).  The sheet size
+    comes from the job (the cut bounding box) and the gas flow from the technology."""
+    def g(key: str, default: float = 0.0) -> float:
+        try:
+            return float(cfg.get(key, default))
+        except (TypeError, ValueError):
+            return default
+    return Rates(currency=iso_currency(cfg.get("costing.currency", "EUR")) or "EUR",
+                 machine_per_h=g("costing.machine_per_h"), power_per_kwh=g("costing.power_per_kwh"),
+                 gas_per_m3={"O2": g("costing.gas_o2_per_m3"), "N2": g("costing.gas_n2_per_m3"),
+                             "Air": g("costing.gas_air_per_m3")},
+                 material_per_kg=g("costing.material_per_kg"), laser_rated_w=g("costing.laser_rated_w"),
+                 wall_plug_eff=g("costing.wall_plug_pct", 35.0) / 100.0, machine_kw=g("costing.machine_kw"),
+                 nozzle_cd=g("costing.nozzle_cd", 0.8))
+
+
 @dataclass(frozen=True)
 class Line:
     """One line of the card.  ``key`` is the catalogue id suffix (``cost.line.<key>``).

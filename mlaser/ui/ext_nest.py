@@ -300,12 +300,29 @@ class NestPanel(QWidget):
         return rows[0] if rows else (0 if self.results.rowCount() else None)
 
 
+# ---------------------------------------------------------------------------- defaults
+def default_sheet(cfg) -> NestSheet:
+    """A sheet of the default size (Settings > Nest: ``nest.sheet_width`` / ``nest.sheet_height``)."""
+    if cfg is None:
+        return NestSheet()
+    return NestSheet(float(cfg.get("nest.sheet_width", 3000.0)), float(cfg.get("nest.sheet_height", 1500.0)))
+
+
+def new_job(cfg) -> NestJob:
+    """An empty nest with the default spacing and edge margin (``nest.spacing`` / ``nest.margin``)."""
+    job = NestJob()
+    if cfg is not None:
+        job.params.spacing = float(cfg.get("nest.spacing", job.params.spacing))
+        job.params.margin = float(cfg.get("nest.margin", job.params.margin))
+    return job
+
+
 # ---------------------------------------------------------------------------- extension
 class NestExtension:
     def __init__(self, ctx):
         self.ctx = ctx
         self.window = window = ctx.window
-        self.job = NestJob()
+        self.job = new_job(getattr(window, "config", None))
         self.path: Optional[str] = None
         self.dirty = False
         self.panel = NestPanel(self)
@@ -330,7 +347,7 @@ class NestExtension:
 
     # -------------------------------------------------- project
     def new_project(self) -> None:
-        self.job = NestJob()
+        self.job = new_job(getattr(self.window, "config", None))
         self.path = None
         self.dirty = False
         self.show()
@@ -429,7 +446,7 @@ class NestExtension:
         if not self.job.parts:
             self.add_part_from_selection()
         if not self.job.sheets:
-            self.job.add_sheet(NestSheet())
+            self.job.add_sheet(default_sheet(getattr(self.window, "config", None)))
         dlg = None
         if interactive:
             dlg = QProgressDialog(_tr(self.window, "mf464", "Advanced Nest"), _tr(self.window, "ap0", "Cancel"),

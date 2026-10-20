@@ -225,6 +225,13 @@ class OptionsExtension:
             ]
         )
         self.apply()
+        # the Settings window writes these keys directly: make the change active at once
+        ctx.config.subscribe(self._config_changed)
+
+    def _config_changed(self, key: str) -> None:
+        if key in ("*", "plugin.ext_options.parity_profile", "plugin.ext_options.kerf_clipper",
+                   "plugin.ext_options.dxf_modern"):
+            self.apply()
 
     def apply(self) -> None:
         """Make the stored choices active (start-up and after a change)."""
@@ -279,8 +286,14 @@ class OptionsExtension:
     def netcheck(self) -> None:
         NetCheckDialog(self.w).exec()
 
-    def plugins(self) -> "PluginsDialog":
-        """The Plugins dialog; Save stores the allowlist (persisted at once, used at the next start)."""
+    def plugins(self):
+        """``app.plugins``: the allowlist's one home is the Plugin manager (enable / disable,
+        machine authority, permissions); this command opens it."""
+        return self.plugin_manager()
+
+    def allowlist_dialog(self) -> "PluginsDialog":
+        """The compact allowlist dialog (kept for the plugin-trust tests and scripts); Save stores
+        the allowlist (persisted at once, used at the next start)."""
         from mlaser.services.plugins import ALLOWLIST_KEY, AUTHORITY_KEY
         cfg = self.ctx.config
         d = PluginsDialog(self.w, list(getattr(self.w, "plugin_catalog", []) or []), cfg.get(ALLOWLIST_KEY, {}),

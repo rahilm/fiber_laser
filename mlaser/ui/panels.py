@@ -183,6 +183,7 @@ class LayerPanel(QWidget):
                     val = getattr(lp, attr)
                     if attr in self.KINDS:
                         it = set_cell(QTableWidgetItem(), float(val) * self._scale(attr), self.KINDS[attr], trim=True)
+                        txt = it.text()
                     else:
                         txt = self.tr_.tr(GAS_KEYS[int(val) % len(GAS_KEYS)]) if attr == "gas" else f"{val:g}"
                         it = QTableWidgetItem(txt)

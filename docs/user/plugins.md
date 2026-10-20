@@ -9,7 +9,7 @@ installed runs until a service engineer enables it.
 > shows what a plugin declares it will use (its *permissions*) and holds it to that on its own
 > interfaces, but this is not a sandbox. Install only plugins from authors you trust.
 
-Open the Plugin manager with **Options+ > Plugins** (or the command palette, Ctrl+K,
+Open the Plugin manager from **Settings › Plugins**, with **Options+ > Plugins** (or the command palette, Ctrl+K,
 "Plugins"). Engineer mode can look; **installing, enabling, updating and removing need Service
 mode**.
 

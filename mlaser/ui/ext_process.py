@@ -10,8 +10,9 @@ Registered through the plugin API only (docs/dev/PLUGINS.md):
   :mod:`mlaser.ui.preview_scrubber`; its overlay draws on the canvas scene).
 * commands ``process.show``, ``process.apply``, ``process.rates``, ``props.show``,
   ``preview.play``, ``preview.clear`` and a ribbon tab.
-* settings ``plugin.ext_process.*``: the machine profile of the technology store and the cost
-  rates.
+* settings ``plugin.ext_process.machine_profile`` (the technology store's machine profile); the
+  cost rates are the application's (Settings › Costing, ``costing.*``): ``process.rates`` opens
+  that page.
 * hooks: ``on_plan`` (the PlannedJob of the preview: timeline, cost card), ``on_document_changed``
   (layers, properties), the canvas selection (properties).
 """
@@ -20,108 +21,24 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PySide6.QtWidgets import QDialog, QDialogButtonBox, QDoubleSpinBox, QFormLayout, QLabel, QLineEdit, QVBoxLayout
 
 from mlaser.services.config import Setting
-from mlaser.services.costing import Rates, card_for_plan
+from mlaser.services.costing import Rates, card_for_plan, rates_from_config
 from mlaser.services.preview import Timeline, build_timeline
 from mlaser.services.technology import TechnologyStore
-from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
+from mlaser.ui.units_qt import on_units_changed
 
 PLUGIN_API = 1
 LAZY_TIMELINE_ITEMS = 1_000_000      # larger plans (about 0.5 s to build) wait for the first scrub / play
 
 SETTINGS = [
     Setting("machine_profile", "str", "default", label="process.set.machine_profile"),
-    Setting("currency", "str", "€", label="process.set.currency"),
-    Setting("machine_per_h", "float", 0.0, "€/h", 0.0, 100000.0, label="process.set.machine_per_h"),
-    Setting("power_per_kwh", "float", 0.0, "€/kWh", 0.0, 1000.0, label="process.set.power_per_kwh"),
-    Setting("gas_o2_per_m3", "float", 0.0, "€/m³", 0.0, 10000.0, label="process.set.gas_o2"),
-    Setting("gas_n2_per_m3", "float", 0.0, "€/m³", 0.0, 10000.0, label="process.set.gas_n2"),
-    Setting("gas_air_per_m3", "float", 0.0, "€/m³", 0.0, 10000.0, label="process.set.gas_air"),
-    Setting("material_per_kg", "float", 0.0, "€/kg", 0.0, 100000.0, label="process.set.material_per_kg"),
-    Setting("laser_rated_w", "float", 0.0, "W", 0.0, 100000.0, label="process.set.laser_rated_w"),
-    Setting("wall_plug_pct", "float", 35.0, "%", 1.0, 100.0, label="process.set.wall_plug"),
-    Setting("machine_kw", "float", 0.0, "kW", 0.0, 1000.0, label="process.set.machine_kw"),
-    Setting("nozzle_cd", "float", 0.8, "", 0.1, 1.0, label="process.set.nozzle_cd"),
-    Setting("gas_flow_l_min", "float", 0.0, "l/min", 0.0, 100000.0, label="process.set.gas_flow"),
-    Setting("sheet_w_mm", "float", 0.0, "mm", 0.0, 100000.0, label="process.set.sheet_w"),
-    Setting("sheet_h_mm", "float", 0.0, "mm", 0.0, 100000.0, label="process.set.sheet_h"),
 ]
-RATE_KEYS = [s.key for s in SETTINGS if s.key != "machine_profile"]
-#: rate fields shown in the display units (mlaser.services.units); the stored values stay
-#: per m³ / per kg / l/min / mm.  Prices carry the currency as a prefix ("€ 0.120 /ft³").
-RATE_KINDS = {"gas_o2_per_m3": "per_volume", "gas_n2_per_m3": "per_volume", "gas_air_per_m3": "per_volume",
-              "material_per_kg": "per_mass", "gas_flow_l_min": "flow", "sheet_w_mm": "length",
-              "sheet_h_mm": "length"}
 
 
-def rates_from(settings: Any) -> Rates:
-    g = settings.get
-    return Rates(currency=str(g("currency") or "€"), machine_per_h=float(g("machine_per_h")),
-                 power_per_kwh=float(g("power_per_kwh")),
-                 gas_per_m3={"O2": float(g("gas_o2_per_m3")), "N2": float(g("gas_n2_per_m3")),
-                             "Air": float(g("gas_air_per_m3"))},
-                 material_per_kg=float(g("material_per_kg")), laser_rated_w=float(g("laser_rated_w")),
-                 wall_plug_eff=float(g("wall_plug_pct")) / 100.0, machine_kw=float(g("machine_kw")),
-                 nozzle_cd=float(g("nozzle_cd")), gas_flow_l_min=float(g("gas_flow_l_min")) or None,
-                 sheet_w_mm=float(g("sheet_w_mm")), sheet_h_mm=float(g("sheet_h_mm")))
-
-
-class RatesDialog(QDialog):
-    """Cost rates and assumptions (the plugin settings), every field with its unit."""
-
-    def __init__(self, ctx: Any, parent=None) -> None:
-        super().__init__(parent)
-        self.ctx = ctx
-        t = ctx.tr.tr
-        self.setWindowTitle(t("cost.rates"))
-        lay = QVBoxLayout(self)
-        note = QLabel(t("cost.rates_note"))
-        note.setWordWrap(True)
-        lay.addWidget(note)
-        f = QFormLayout()
-        lay.addLayout(f)
-        self.fields: dict[str, Any] = {}
-        st = ctx.settings
-        for key in RATE_KEYS:
-            s = st.setting(key)
-            if s.kind == "str":
-                w: Any = QLineEdit(str(st[key]))
-            elif key in RATE_KINDS:
-                kind = RATE_KINDS[key]
-                w = QuantitySpinBox(kind, minimum=s.min if s.min is not None else 0.0,
-                                    maximum=s.max if s.max is not None else 1e9,
-                                    decimals=0 if kind == "length" else 3)
-                w.setValue(float(st[key]))
-                if kind.startswith("per_"):
-                    w.setPrefix(f"{st['currency']} ")
-                if key in ("gas_flow_l_min", "sheet_w_mm", "sheet_h_mm"):
-                    w.setSpecialValueText(t("process.set.auto"))
-            else:
-                w = QDoubleSpinBox()
-                w.setDecimals(3)
-                w.setRange(s.min if s.min is not None else 0.0, s.max if s.max is not None else 1e9)
-                w.setValue(float(st[key]))
-                unit = s.unit.replace("€", str(st["currency"]))
-                if unit:
-                    w.setSuffix(f" {unit}")
-                if key in ("gas_flow_l_min", "laser_rated_w", "sheet_w_mm", "sheet_h_mm"):
-                    w.setSpecialValueText(t("process.set.auto"))
-            lab = QLabel(t(s.label))
-            lab.setBuddy(w)
-            w.setAccessibleName(t(s.label))
-            f.addRow(lab, w)
-            self.fields[key] = w
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def _ok(self) -> None:
-        for key, w in self.fields.items():
-            self.ctx.settings[key] = w.text() if isinstance(w, QLineEdit) else w.value()
-        self.accept()
+def rates_from(config: Any) -> Rates:
+    """The cost card's rates: Settings › Costing (``costing.*``, one rate model for the app)."""
+    return rates_from_config(config)
 
 
 class ProcessExtension:
@@ -205,9 +122,11 @@ class ProcessExtension:
         self.scrubber.play()
 
     def rates_dialog(self) -> None:
-        d = RatesDialog(self.ctx, self.ctx.window)
-        if d.exec():
-            self.update_card()
+        """The rates' one home is Settings › Costing."""
+        w = self.ctx.window
+        opener = getattr(w, "settings_dialog", None)
+        if opener is not None:
+            opener().show_page("costing")
 
     # ---------------------------------------------------------------- hooks
     def _close(self) -> None:
@@ -226,7 +145,7 @@ class ProcessExtension:
         self.properties.refresh()
 
     def _config_changed(self, key: str) -> None:
-        if key.startswith("plugin.ext_process.") and not key.endswith("machine_profile"):
+        if key == "*" or key.startswith("costing."):
             self.update_card()
 
     def _plan(self, plan: Any) -> None:
@@ -257,7 +176,7 @@ class ProcessExtension:
             self.workspace.card.set_card(None)
             return
         unit = int(self.ctx.config.get("UN.GasPressureUnit", 0) or 0)
-        self.card = card_for_plan(self.plan, self.timeline, rates_from(self.settings), unit)
+        self.card = card_for_plan(self.plan, self.timeline, rates_from(self.ctx.config), unit)
         self.workspace.card.set_card(self.card)
 
     def _time_changed(self, t: float) -> None:
