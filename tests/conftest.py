@@ -58,6 +58,8 @@ UI_MODULES = {
     "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
+    # UI wave: responsive layout harness
+    "test_responsive_layout", "test_responsive_helpers", "test_machine_setup",
     # Review 2 UI wave: the Settings window
     "test_settings_dialog",
     # UI wave: process & technology

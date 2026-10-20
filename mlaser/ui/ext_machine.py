@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDia
 from mlaser.controller import coords as C
 from mlaser.controller import edgeseek as E
 from mlaser.controller.machine_ops import CO2, FIBER, MachineOps
+from mlaser.services.config import NamespaceView
 
 UPGRADE_WORD = "UPGRADE"
 
@@ -69,20 +70,81 @@ class UpgradeConfirmDialog(QDialog):
         lay.addWidget(self.bb)
 
 
+class RegistryValues(NamespaceView):
+    """The machine operations' values with **one home per key** (WORK_ITEMS R-2): a key of the
+    ConfigService schema (``MSC.CoordSysType``, ``MC.MarkPtIndex``, ``GRP.EdgeSeek*`` ...) is
+    read and written as the registry key itself (Machine › Setup edits it, the operations see
+    the change at once); only the operations' own state (``param_dir``, ``edge_angle`` ...) lives
+    under ``machine_ops.``."""
+
+    def __init__(self, svc, prefix: str = "machine_ops") -> None:
+        super().__init__(svc, prefix, registry_fallback=True)
+
+    def __getitem__(self, key: str):
+        if key in self._svc.schema:
+            if key in self._svc.values:
+                return self._svc.values[key]
+            raise KeyError(key)
+        return super().__getitem__(key)
+
+    def __setitem__(self, key: str, value) -> None:
+        if key in self._svc.schema:
+            self._svc.set(key, value)
+            return
+        super().__setitem__(key, value)
+
+    def migrate(self, log: Optional[Callable[[str], None]] = None) -> list[str]:
+        """Fold the old ``machine_ops.<registry key>`` copies into the registry key (the copy
+        wins: it is the value the machine ran with) and drop them.  Returns the keys moved."""
+        moved = []
+        for key in self._own():
+            if key not in self._svc.schema:
+                continue
+            shadow = self._svc.values.get(self._p + key)
+            if self._svc.values.get(key) != shadow:
+                try:
+                    self._svc.set(key, shadow)
+                    moved.append(key)
+                    if log is not None:
+                        log(f"settings: {key} = {shadow!r} (moved from machine_ops.{key})")
+                except ValueError as exc:
+                    if log is not None:
+                        log(f"settings: machine_ops.{key} = {shadow!r} not moved ({exc})")
+            self._svc.reset(self._p + key)
+        return moved
+
+
+#: registry keys the machine operations hold objects for (rebuilt when one changes)
+COORD_KEYS = frozenset({"MSC.CoordSysType", "MSC.ToolCoordPtStr", "MSC.MarkPtStr", "MSC.DockPtType",
+                        "MC.XFastMoveSpeed", "MC.XFastMoveAcc"})
+EDGE_KEYS = frozenset(E.EdgeSeekParams.KEYS.values()) | {"GRP.EdgeSeekStartPointX", "GRP.EdgeSeekStartPointY"}
+
+
 class MachineExtension:
     def __init__(self, ctx, app_dir: Optional[str] = None):
         self.ctx = ctx
         self.w = window = ctx.window
-        self.values = ctx.config.namespace("machine_ops")
-        self.ops = MachineOps(window.ctl, self.values, app_dir, log=self.log)
         self.bridge = _Bridge()
         self.bridge.call.connect(lambda fn: fn())
+        self.values = RegistryValues(ctx.config)
+        self.values.migrate(self.log)
+        self.ops = MachineOps(window.ctl, self.values, app_dir, log=self.log)
+        ctx.config.subscribe(self._config_changed)
         self.layer_tables: dict[int, dict] = {}
         self._params = None
         self.workspace = None                 # the Machine workspace (workspaces.machine)
         self.last_wizard: Optional[QDialog] = None
         from mlaser.services.alarm_history import default_history
         self.history = default_history()
+
+    def _config_changed(self, key: str) -> None:
+        """A registry value the operations hold changed (Machine › Setup, a wizard, an import):
+        rebuilt at once, no restart."""
+        if key in COORD_KEYS:
+            self.ops.coords = C.CoordSystems.from_values(self.values)
+            self.w.ctl.coords = self.ops.coords          # as select_coord does
+        if key in EDGE_KEYS:
+            self.ops.edge = E.EdgeSeekParams.from_values(self.values)
 
     # ------------------------------------------------------------------ helpers
     def log(self, msg: str) -> None:
@@ -227,6 +289,14 @@ class MachineExtension:
             ws.show()
             ws.raise_()
         return ws
+
+    def show_setup(self) -> None:
+        """Machine › Setup (``hw.options`` comes here: one editor for the machine settings)."""
+        show = getattr(self.w, "show_workspace", None)
+        if callable(show):
+            show("machine")
+        if self.workspace is not None:
+            self.workspace.show_section("settings")
 
     # ------------------------------------------------------------------ laser type
     def laser_type(self) -> None:
@@ -569,7 +639,7 @@ COMMAND_MIN_MODES = {
     "job.offline": "engineer", "param.backup": "service", "param.backup_hw": "service",
     "param.backup_file": "engineer", "param.restore": "service", "param.restore_hw": "service",
     "param.restore_file": "service", "file.task_import": "operator", "file.task_save": "operator",
-    "app.recovery": "operator", "machine.safety_io": "engineer",
+    "app.recovery": "operator", "machine.safety_io": "engineer", "machine.setup": "engineer",
 }
 COMMAND_MIN_MODES.update({f"coord.tool{i}": "operator" for i in range(1, 7)})
 
@@ -615,6 +685,7 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
         _register(ctx, cmd, fn)
     for cmd, fn, label in (
             ("machine.workspace", ext.show_workspace, "ws.machine.title"),
+            ("machine.setup", ext.show_setup, "home.machine_setup"),
             ("wizard.edge_seek_cap4", lambda: ext.wizard_edge("cap4"), "wizard.edge.title_cap4"),
             ("wizard.edge_seek_cap3", lambda: ext.wizard_edge("cap3"), "wizard.edge.title_cap3"),
             ("wizard.edge_seek_disc", lambda: ext.wizard_edge("disc"), "wizard.edge.title_disc"),

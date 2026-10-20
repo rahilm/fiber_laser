@@ -49,6 +49,7 @@ from mlaser.services.remnants import RemnantStore, polygon_of
 from mlaser.services import units as U
 
 from ..icons import icon
+from ..responsive import CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout, keep_min_size
 from ..safety_texts import remedy
 from ..units_qt import on_units_changed
 from . import TOUCH, TOUCH_MIN, show_workspace, tr
@@ -94,9 +95,9 @@ QUEUE_MSGS = {
 
 
 def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, pt: float = 15.0, bold: bool = True) -> QPushButton:
-    btn.setMinimumHeight(h)
-    if w:
-        btn.setMinimumWidth(w)
+    # the touch size is kept against style sheets (an Operator-mode min-height rule used to
+    # drop it to 22 px after leaving Operator mode: responsive.keep_min_size)
+    keep_min_size(btn, QSize(w, h))
     f = btn.font()
     f.setPointSizeF(pt)
     f.setBold(bold)
@@ -387,7 +388,9 @@ class QueuePanel(QWidget):
         v.addWidget(self.table, 1)
         self.totals = QLabel()
         v.addWidget(self.totals)
-        g = QGridLayout()
+        # the key column (Job) stretches; the others hide by priority when the view is narrow
+        ColumnFitter(self.table, {0: 2, 2: 3, 3: 3, 4: 4, 5: 1, 6: 1, 7: 0, 8: 0, 9: -1}, stretch=1)
+        g = FlowLayout(uniform=True)
         self.buttons: dict[str, QPushButton] = {}
         specs = (("add", "queue.btn.add", "Add job...", self.add_file),
                  ("up", "queue.btn.up", "Move up", lambda: self._move(-1)),
@@ -400,9 +403,11 @@ class QueuePanel(QWidget):
             b = _big(QPushButton(tr(w, tid, text)), TOUCH_MIN, pt=11.0, bold=False)
             b.setObjectName(f"queue_{key}")
             b.clicked.connect(lambda _=False, f=fn: f())
-            g.addWidget(b, n // 4, n % 4)
+            g.addWidget(b)
             self.buttons[key] = b
-        qty = QHBoxLayout()
+        qty_box = QWidget()
+        qty = QHBoxLayout(qty_box)
+        qty.setContentsMargins(0, 0, 0, 0)
         qty.addWidget(QLabel(tr(w, "queue.qty", "Quantity (sheets)")))
         self.qty = QSpinBox()
         self.qty.setObjectName("queue_qty")
@@ -411,7 +416,7 @@ class QueuePanel(QWidget):
         self.qty.setMinimumWidth(110)
         self.qty.editingFinished.connect(self._qty_changed)
         qty.addWidget(self.qty)
-        g.addLayout(qty, 1, 3)
+        g.addWidget(qty_box)
         v.addLayout(g)
         self.table.itemSelectionChanged.connect(self._selected)
         self._sync = False
@@ -662,17 +667,17 @@ class OperatorScreen(QWidget):
         arow.addWidget(self.reset_btn)
         arow.addWidget(self.details_btn)
         ab.addLayout(arow)
+        self.alarm_box.setVisible(False)            # refresh() shows it while alarms are active
         left.addWidget(self.alarm_box)
         body.addLayout(left, 1)
 
-        # --- right: the big targets
-        right = QVBoxLayout()
-        right.setSpacing(8)
-        col = QWidget()
-        col.setObjectName("run_controls_column")
-        col.setLayout(right)
-        col.setMinimumWidth(300)
-        col.setMaximumWidth(380)
+        # --- right: the big targets (ui/responsive.py ColumnsPanel): STOP, Hold / Start,
+        # Frame / Dry run and Arm always shown in full; the breakpoint resume and the queue card
+        # below them, in a second column when the page is too short for one, folded (resume
+        # first) only when even that does not fit; the queue card stays open while it asks for
+        # the next sheet
+        self.controls = ColumnsPanel(max_columns=2, compact=False, grow=True)
+        self.controls.setObjectName("run_controls_column")
         self.buttons: dict[str, QPushButton] = {}
 
         def add(key: str, tid: str, text: str, fn, h: int = TOUCH, pt: float = 16.0, ico: str = "",
@@ -686,42 +691,43 @@ class OperatorScreen(QWidget):
             self.buttons[key] = b
             return b
 
+        def row(*widgets: QWidget) -> QWidget:
+            box = QWidget()
+            lay = QHBoxLayout(box)
+            lay.setContentsMargins(0, 0, 0, 0)
+            lay.setSpacing(8)
+            for x in widgets:
+                lay.addWidget(x)
+            return box
+
         stop = add("stop", "run.btn.stop", "STOP", lambda: self._ui("stop"), int(TOUCH * 1.4), 22, "player-stop", "#ffffff")
         stop.setToolTip(tr(w, "run.tip.stop", "Stop the job (Esc or F12)"))
         stop.setStyleSheet("QPushButton{background:#c62828;color:#ffffff;border-radius:6px;}"
                            "QPushButton:pressed{background:#8e0000;}")
-        right.addWidget(stop)
-        hs = QHBoxLayout()
-        hs.addWidget(add("hold", "run.btn.hold", "HOLD", lambda: self._ui("hold"), int(TOUCH * 1.2), 18,
-                         "player-pause", "#ff8f00"))
-        hs.addWidget(add("start", "run.btn.start", "START", lambda: self._ui("start"), int(TOUCH * 1.2), 18,
-                         "player-play", "#2e7d32"))
-        right.addLayout(hs)
+        self.controls.add_pinned(stop)
+        self.controls.add_pinned(row(
+            add("hold", "run.btn.hold", "HOLD", lambda: self._ui("hold"), int(TOUCH * 1.2), 18, "player-pause", "#ff8f00"),
+            add("start", "run.btn.start", "START", lambda: self._ui("start"), int(TOUCH * 1.2), 18, "player-play",
+                "#2e7d32")))
         self.buttons["hold"].setToolTip(tr(w, "run.tip.hold", "Hold / continue (Space)"))
         self.buttons["start"].setToolTip(tr(w, "run.tip.start", "Start or continue (F5): pre-flight check first"))
-        fd = QHBoxLayout()
-        fd.addWidget(add("frame", "run.btn.frame", "Frame", lambda: self._ui("frame"), pt=13, ico="frame"))
-        fd.addWidget(add("dry_run", "run.btn.dry_run", "Dry run", lambda: self._ui("dry_run"), pt=13, ico="route"))
-        right.addLayout(fd)
-        right.addWidget(add("arm", "run.btn.arm", "Arm laser", lambda: self._ui("toggle_arm"), pt=13, ico="bolt"))
-        rl = QLabel(tr(w, "run.resume", "Resume from the breakpoint"))
-        right.addWidget(rl)
-        rs = QHBoxLayout()
-        rs.addWidget(add("resume_here", "run.btn.resume_here", "Here", lambda: self.resume("exact"), TOUCH_MIN, 12,
-                         "player-skip-forward"))
-        rs.addWidget(add("resume_contour", "run.btn.resume_contour", "Contour start",
+        self.controls.add_pinned(row(
+            add("frame", "run.btn.frame", "Frame", lambda: self._ui("frame"), pt=13, ico="frame"),
+            add("dry_run", "run.btn.dry_run", "Dry run", lambda: self._ui("dry_run"), pt=13, ico="route")))
+        self.controls.add_pinned(add("arm", "run.btn.arm", "Arm laser", lambda: self._ui("toggle_arm"), pt=13, ico="bolt"))
+        resume = row(add("resume_here", "run.btn.resume_here", "Here", lambda: self.resume("exact"), TOUCH_MIN, 12,
+                         "player-skip-forward"),
+                     add("resume_contour", "run.btn.resume_contour", "Contour start",
                          lambda: self.resume("contour"), TOUCH_MIN, 12, "restore"))
-        right.addLayout(rs)
+        self.resume_section = CollapsibleSection(tr(w, "run.resume", "Resume from the breakpoint"), resume,
+                                                 priority=0)
+        self.resume_section.setObjectName("run_resume_section")
+        self.controls.add_section(self.resume_section)
         # queue card
-        card = QFrame()
+        card = QWidget()
         card.setObjectName("run_queue_card")
-        card.setFrameShape(QFrame.StyledPanel)
         cv = QVBoxLayout(card)
-        self.queue_title = QLabel()
-        f = self.queue_title.font()
-        f.setBold(True)
-        self.queue_title.setFont(f)
-        cv.addWidget(self.queue_title)
+        cv.setContentsMargins(0, 0, 0, 0)
         self.queue_msg = QLabel()
         self.queue_msg.setObjectName("run_queue_msg")
         self.queue_msg.setWordWrap(True)
@@ -730,9 +736,10 @@ class OperatorScreen(QWidget):
                          self.confirm_sheet, TOUCH, 14, "truck-loading"))
         cv.addWidget(add("queue_mode", "run.btn.queue_run", "Run queue", self.toggle_queue, TOUCH_MIN, 12,
                          "list-numbers"))
-        right.addWidget(card)
-        right.addStretch(1)
-        body.addWidget(col)
+        self.queue_section = CollapsibleSection("", card, priority=1)
+        self.queue_section.setObjectName("run_queue_section")
+        self.controls.add_section(self.queue_section)
+        body.addWidget(self.controls)
 
         self.timer = QTimer(self)
         self.timer.setInterval(150)
@@ -871,8 +878,10 @@ class OperatorScreen(QWidget):
         b["resume_contour"].setEnabled(bp and not fault and not s.alarms)
         # queue card
         r = self.ws.runner
-        self.queue_title.setText(tr(w, "run.queue.title", "Queue: {n} jobs, {left} sheets left",
-                                    n=len(self.ws.queue), left=self.ws.queue.totals()["remaining"]))
+        title = tr(w, "run.queue.title", "Queue: {n} jobs, {left} sheets left",
+                   n=len(self.ws.queue), left=self.ws.queue.totals()["remaining"])
+        if self.queue_section.title() != title:
+            self.queue_section.setTitle(title)
         msg = _msg(w, r.message)
         if r.current is not None and r.state != "idle":
             msg = (msg + "\n" if msg else "") + tr(w, "run.queue.next", "Next: {name} (sheet {n}/{total}{sheet})",
@@ -893,7 +902,14 @@ class OperatorScreen(QWidget):
             self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)), ent)
         if waiting != self.load_card.isVisibleTo(self):
             self.load_card.setVisible(waiting)
-        b["confirm_sheet"].setVisible(r.state in ("confirm", "starting"))
+        asking = r.state in ("confirm", "starting")
+        b["confirm_sheet"].setVisible(asking)
+        prio = 10 if asking else 1             # the operator must see "Sheet loaded: start"
+        if self.queue_section.priority != prio:
+            self.queue_section.priority = prio
+            if asking:
+                self.queue_section.user_choice = None
+            self.controls.schedule()
         b["confirm_sheet"].setEnabled(r.state == "confirm" and connected and not fault and not job)
         b["queue_mode"].setText(tr(w, "run.btn.queue_leave", "Leave queue") if r.state != "idle"
                                 else tr(w, "run.btn.queue_run", "Run queue"))

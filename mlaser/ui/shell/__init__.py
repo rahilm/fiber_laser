@@ -29,7 +29,7 @@ from __future__ import annotations
 import os
 from typing import Any, Optional
 
-from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer
+from PySide6.QtCore import QByteArray, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
 from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMessageBox, QToolButton,
                                QVBoxLayout, QWidget)
@@ -40,6 +40,7 @@ from mlaser.services.config import Setting
 from mlaser.services.workspaces import SLOTS, WorkspaceSpec, command_workspace
 
 from . import keymap, theme
+from .dock_policy import CANVAS_MIN, DockPolicy  # noqa: F401 - CANVAS_MIN re-exported
 from .workspace_host import WorkspaceHost
 
 SETTINGS = [
@@ -49,10 +50,9 @@ SETTINGS = [
     Setting("shell.welcome_done", "bool", False, label="shell.welcome.title", section="shell", source="app"),
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
     Setting("shell.workspace", "str", "design", label="shell.rail", section="shell", source="app"),
+    Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
 ]
-LAYOUT_VERSION = 3
-NARROW = 1400          # logical px: below this the side docks share one tabbed column
-CANVAS_MIN = 480       # logical px: the canvas width fit_docks keeps (tests/test_shell.py)
+LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
 
 class _WindowWatch(QObject):
@@ -98,6 +98,7 @@ class Shell:
         self._default_state: Optional[QByteArray] = None
         self.palette = None
         self.topbar = None
+        self.dock_policy = DockPolicy(window)
         self.menu_ctl = None
         self.menubar = None
         self.native = None
@@ -188,6 +189,7 @@ class Shell:
             ("shell.set_pins", lambda: self.set_pins(), "shell.pin.setup_title", False, ""),
             ("shell.import_params", lambda: self.import_params(), "shell.import_params", False, "engineer"),
             ("run.start", lambda: su.start(), "shell.run.start", False, ""),
+            ("run.start_selection", lambda: su.start_selection(), "shell.run.start_selection", False, ""),
             ("run.hold", lambda: su.hold(), "shell.run.hold", False, ""),
             ("run.stop", lambda: su.stop(), "shell.run.stop", False, ""),
             ("run.frame", lambda: su.frame(), "shell.run.frame", False, ""),
@@ -584,6 +586,10 @@ class Shell:
     # ------------------------------------------------------------------ layout
     def _first_show(self) -> None:
         w = self.w
+        if self._fit_screen:
+            self._clamp_to_screen()          # the frame is known now
+        pol = self.dock_policy
+        pol.enabled = True
         # the canvas starts with the keyboard focus (its one-key tools, Space = Hold while a job
         # runs), not the first widget of the chain: the command search field
         from PySide6.QtWidgets import QApplication
@@ -597,46 +603,34 @@ class Shell:
         saved = self.config.get("shell.layout", "")
         if saved:
             try:
-                w.restoreState(QByteArray.fromBase64(saved.encode("ascii")), LAYOUT_VERSION)
+                if w.restoreState(QByteArray.fromBase64(saved.encode("ascii")), LAYOUT_VERSION):
+                    # the saved widths are the user's: kept, and clamped to this window
+                    w.layout().activate()
+                    for d in pol.side_docks():
+                        pol.remember(d)
             except Exception:  # noqa: BLE001 - a broken saved layout falls back to the default
                 pass
             self.host.activate(self.host.current, force=True)
         ws = self.config.get("shell.workspace", "design")
         if ws in self.host.specs and ws != self.host.current:
             self.host.activate(ws)
+        pol.apply()
 
     def fit_docks(self) -> None:
-        """Dock sizes for the window's logical size: at least 1280×800 (1920×1080 at 150 %)
-        without clipped controls.  Below :data:`NARROW` px the layers/parts dock is tabbed with
-        the run-control dock in one right-hand column, so the canvas keeps its width."""
+        """Dock sizes for the window as it is now (:mod:`.dock_policy`): the remembered or
+        natural widths, given back in proportion when the page needs the room."""
         w = self.w
-        W, H = w.width(), w.height()
-        left, right, log = getattr(w, "left_dock", None), getattr(w, "right_dock", None), getattr(w, "log_dock", None)
-        if left is None or right is None:
-            return
-        if W < NARROW:
-            if w.dockWidgetArea(left) != Qt.RightDockWidgetArea or left not in w.tabifiedDockWidgets(right):
-                w.addDockWidget(Qt.RightDockWidgetArea, left)
-                w.tabifyDockWidget(right, left)
-            right.raise_()
-            w.resizeDocks([right], [max(300, min(380, int(W * 0.3)))], Qt.Horizontal)
-        else:
-            if w.dockWidgetArea(left) != Qt.LeftDockWidgetArea:
-                w.addDockWidget(Qt.LeftDockWidgetArea, left)
-            w.resizeDocks([left, right], [max(240, min(320, int(W * 0.2))), max(300, min(380, int(W * 0.24)))],
-                          Qt.Horizontal)
-        # the docks' minimum widths follow the platform's font metrics (macOS: a few px wider):
-        # give the canvas its CANVAS_MIN back from the right dock
         lay = w.layout()
-        central = w.centralWidget()
-        if lay is not None and central is not None:
+        if lay is not None:
             lay.activate()
-            short = CANVAS_MIN - central.width()
-            if short > 0 and right.width() > 300:
-                w.resizeDocks([right], [max(300, right.width() - short)], Qt.Horizontal)
-                lay.activate()
-        if log is not None:
-            w.resizeDocks([log], [110 if H < 900 else 150], Qt.Vertical)
+        pol = self.dock_policy
+        was, pol.enabled = pol.enabled, True
+        try:
+            pol.apply()
+        finally:
+            pol.enabled = was or pol.enabled
+        if lay is not None:
+            lay.activate()
 
     def reset_layout(self) -> None:
         """Default dock positions and sizes, all toolbars back, the Design workspace."""
@@ -646,6 +640,7 @@ class Shell:
         for d in self.host.docks():
             if d.isFloating():
                 d.setFloating(False)
+        self.dock_policy.forget()
         self.fit_docks()
         self.config.set("shell.layout", "")
         self.host.activate("design" if "design" in self.host.visible_ids() else self.host.visible_ids()[0],
@@ -654,14 +649,61 @@ class Shell:
 
     def _on_close(self) -> None:
         """Remember the dock layout (only of a window that was shown: a test or a headless
-        window has no layout worth keeping)."""
+        window has no layout worth keeping) and, for a window placed by :meth:`fit_to_screen`,
+        its geometry."""
         if self._default_state is not None:
             try:
                 self.config.set("shell.layout", bytes(self.w.saveState(LAYOUT_VERSION).toBase64()).decode("ascii"))
+                if self._fit_screen:
+                    self.config.set("shell.geometry", bytes(self.w.saveGeometry().toBase64()).decode("ascii"))
             except Exception:  # noqa: BLE001
                 pass
         if self.native is not None:
             self.native.close()
+
+    # ------------------------------------------------------------------ window geometry
+    _fit_screen = False
+
+    def fit_to_screen(self, screen=None) -> None:
+        """Start-up geometry (the application calls it before ``show``): the saved geometry, or
+        on the first start the whole available screen (menu bar and Dock / taskbar excluded),
+        never larger than the screen and never smaller than what the content needs.  Checked
+        again once the window frame is known (:meth:`_clamp_to_screen`)."""
+        from PySide6.QtGui import QGuiApplication
+        w = self.w
+        self._fit_screen = True
+        scr = screen or w.screen() or QGuiApplication.primaryScreen()
+        if scr is None:
+            return
+        avail = scr.availableGeometry()
+        saved = self.config.get("shell.geometry", "") or ""
+        restored = False
+        if saved:
+            try:
+                restored = bool(w.restoreGeometry(QByteArray.fromBase64(saved.encode("ascii"))))
+            except Exception:  # noqa: BLE001 - a broken saved geometry: first-start size
+                restored = False
+        if not restored:
+            w.setGeometry(avail)
+        self._clamp_to_screen(scr)
+
+    def _clamp_to_screen(self, screen=None) -> None:
+        w = self.w
+        scr = screen or w.screen()
+        if scr is None or w.isMaximized() or w.isFullScreen():
+            return
+        avail = scr.availableGeometry()
+        frame = w.frameGeometry()
+        extra_w = max(frame.width() - w.width(), 0)
+        extra_h = max(frame.height() - w.height(), 0)
+        size = w.size().boundedTo(avail.size() - QSize(extra_w, extra_h))
+        if size != w.size():
+            w.resize(size)
+        frame = w.frameGeometry()
+        x = min(max(frame.x(), avail.x()), avail.right() - frame.width() + 1)
+        y = min(max(frame.y(), avail.y()), avail.bottom() - frame.height() + 1)
+        if (x, y) != (frame.x(), frame.y()):
+            w.move(x, y)
 
     # ------------------------------------------------------------------ welcome / docs / import
     def show_welcome(self):

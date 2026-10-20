@@ -167,6 +167,7 @@ def main(argv=None) -> int:
             win.log_panel.log("simulator unavailable: using the protocol-free demo controller")
     if logdir is not None:
         win.log_panel.log(f"log files: {logdir}")
+    win.shell.fit_to_screen()            # the saved geometry or the available screen, never larger
     win.show()
     from . import native_report
     native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)

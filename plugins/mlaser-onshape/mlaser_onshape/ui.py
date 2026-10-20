@@ -29,6 +29,25 @@ LENGTH_COLS = (4, 5, 6)
 C_NAME, C_PN, C_MAT, C_SHEET, C_TP, C_TV, C_TL, C_QTY, C_MADE, C_CUT, C_PROC, C_FACE, C_STATUS, C_NOTES = range(len(COLS))
 
 
+def _flow_layout() -> Any:
+    """The host's wrapping button row (mlaser.ui.responsive.FlowLayout), or None (older host)."""
+    try:
+        from mlaser.ui.responsive import FlowLayout
+    except ImportError:
+        return None
+    return FlowLayout(justify=False)
+
+
+def _fit_columns(table: Any, priorities: dict, key: int) -> None:
+    """The host's responsive columns (no horizontal scroll bar: the less important columns hide
+    while the table is narrow), when the host offers them (mlaser 2026-10 and later)."""
+    try:
+        from mlaser.ui.responsive import ColumnFitter
+    except ImportError:          # an older host: the table scrolls as before
+        return
+    ColumnFitter(table, priorities, stretch=key)
+
+
 def _mm(v: Optional[float]) -> str:
     """A thickness (mm) as a table cell in the display units (the unit is in the header)."""
     if v is None:
@@ -101,6 +120,8 @@ class OnshapeWorkspace(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
+        _fit_columns(self.table, {C_PN: 3, C_MAT: 2, C_SHEET: 4, C_TP: 0, C_TV: 0, C_TL: 1, C_QTY: 5, C_MADE: 4,
+                                  C_CUT: 6, C_PROC: 1, C_FACE: 0, C_STATUS: 5, C_NOTES: -1}, C_NAME)
         self.table.itemChanged.connect(self._item_changed)
         rl.addWidget(self.table, 3)
         bar = QHBoxLayout()
@@ -115,17 +136,23 @@ class OnshapeWorkspace(QWidget):
         self.b_cancel = QPushButton("Cancel")
         self.b_cancel.setEnabled(False)
         self.b_cancel.clicked.connect(self.cancel)
-        # two rows, so the panel fits a 1280 px window next to the tabs
-        bar.addWidget(self.b_sel)
-        bar.addWidget(self.b_face)
-        bar.addStretch(1)
-        bar.addWidget(self.b_cancel)
-        rl.addLayout(bar)
-        bar2 = QHBoxLayout()
-        bar2.addWidget(self.b_go)
-        bar2.addWidget(self.b_orders)
-        bar2.addStretch(1)
-        rl.addLayout(bar2)
+        buttons = (self.b_sel, self.b_face, self.b_go, self.b_orders, self.b_cancel)
+        flow = _flow_layout()
+        if flow is not None:            # the host's wrapping row: as many buttons per row as fit
+            for b in buttons:
+                flow.addWidget(b)
+            rl.addLayout(flow)
+        else:                           # an older host: two rows
+            bar.addWidget(self.b_sel)
+            bar.addWidget(self.b_face)
+            bar.addStretch(1)
+            bar.addWidget(self.b_cancel)
+            rl.addLayout(bar)
+            bar2 = QHBoxLayout()
+            bar2.addWidget(self.b_go)
+            bar2.addWidget(self.b_orders)
+            bar2.addStretch(1)
+            rl.addLayout(bar2)
         pl = QHBoxLayout()
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)

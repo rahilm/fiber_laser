@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QScrollArea, QTabWidget)
+                               QMessageBox, QTabWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
@@ -201,11 +201,10 @@ class MainWindow(QMainWindow):
         self.left_dock = self._dock("lp0", left, Qt.LeftDockWidgetArea)
 
         # right: control panel
+        # (no scroll area: the panel reflows and folds to fit the dock, ui/responsive.py)
         self.control = ControlPanel(self.tr_, self.ctl, lambda: self.document)
-        sa = QScrollArea()
-        sa.setWidget(self.control)
-        sa.setWidgetResizable(True)
-        self.right_dock = self._dock("mf141", sa, Qt.RightDockWidgetArea)
+        self.control.bind_config(self.config)
+        self.right_dock = self._dock("mf141", self.control, Qt.RightDockWidgetArea)
 
         # bottom: log / alarms
         self.log_panel = LogPanel(self.tr_)

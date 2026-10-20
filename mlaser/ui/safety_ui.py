@@ -26,14 +26,15 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialog,
                                QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTextEdit,
-                               QToolBar, QVBoxLayout, QWidget)
+                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStyle, QTextEdit,
+                               QMenu, QToolBar, QToolButton, QVBoxLayout, QWidget)
 
 from .._power import keep_awake
 
 from ..machine import events as EV
 from ..services import units
 from . import qtbridge
+from .responsive import keep_min_size
 from .safety_texts import remedy
 
 log = logging.getLogger("mlaser.ui.safety")
@@ -321,7 +322,6 @@ class RunBar(QToolBar):
         self.setIconSize(QSize(28, 28))
         self.pill = QLabel(" OFFLINE ")
         self.pill.setObjectName("run_state")
-        self.pill.setMinimumWidth(120)
         self.pill.setAlignment(Qt.AlignCenter)
         f = self.pill.font()
         f.setBold(True)
@@ -338,22 +338,85 @@ class RunBar(QToolBar):
             b = QPushButton(text)
             b.setObjectName(f"run_{key}")
             b.setToolTip(tip)
-            b.setMinimumSize(QSize(MIN_TARGET + (24 if key == "stop" else 0), MIN_TARGET))
+            # the touch size is kept against style sheets (an Operator-mode min-height rule used to
+            # leave these at 22 px after leaving Operator mode: responsive.keep_min_size)
+            keep_min_size(b, QSize(MIN_TARGET + (24 if key == "stop" else 0), MIN_TARGET))
             b.clicked.connect(lambda _=False, f=fn: f())
             if key == "stop":
                 b.setStyleSheet("QPushButton{background:#c62828;color:white;font-weight:bold;}")
-            self.addWidget(b)
             self.buttons[key] = b
+            if key != "start":
+                self.addWidget(b)
+            else:
+                # explicit scope: "Start selection only" (it used to hide in a Run Control check
+                # box that silently changed what Start did)
+                more = QToolButton()
+                more.setObjectName("run_start_menu")
+                more.setArrowType(Qt.DownArrow)
+                more.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
+                more.setToolTip("More ways to start")
+                more.setAccessibleName("Start options")
+                menu = QMenu(more)
+                act = menu.addAction("Start selection only")
+                act.setObjectName("run_start_selection")
+                act.triggered.connect(lambda _=False: ui.start_selection())
+                more.menu_ = menu
+                more.clicked.connect(lambda _=False, m=menu, b=more: m.popup(b.mapToGlobal(b.rect().bottomLeft())))
+                keep_min_size(more, QSize(MIN_TARGET // 3, MIN_TARGET))
+                box = QWidget()                   # Start and its menu arrow side by side
+                box.setObjectName("run_start_box")
+                bl = QHBoxLayout(box)
+                bl.setContentsMargins(0, 0, 0, 0)
+                bl.setSpacing(0)
+                bl.addWidget(b)
+                bl.addWidget(more)
+                self.addWidget(box)
+                self.start_menu = more
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
-        self.progress.setMinimumWidth(160)
         self.progress.setTextVisible(True)
         self.progress.setFormat("")
+        self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.addWidget(self.progress)
         self.eta = QLabel("")
-        self.eta.setMinimumWidth(110)
         self.addWidget(self.eta)
+        self._alt = {"hold": "Continue", "arm": "Disarm"}      # the longer texts the buttons take
+        self.fit()
         self._style = ""
+
+    def fit(self) -> None:
+        """Every button's full text fits, also its longer state (Continue, Disarm), and the bar
+        never hides a button in its overflow menu: its minimum width is what they need, so the
+        window's minimum follows (docs/dev/RESPONSIVE.md)."""
+        fm = self.fontMetrics()
+        for key, b in self.buttons.items():
+            bfm = b.fontMetrics()
+            text_w = max(bfm.horizontalAdvance(t) for t in (b.text(), self._alt.get(key, "")) if t)
+            pad = b.sizeHint().width() - bfm.horizontalAdvance(b.text())
+            keep_min_size(b, QSize(max(MIN_TARGET + (24 if key == "stop" else 0), text_w + pad), MIN_TARGET))
+        self.pill.setMinimumWidth(max(fm.horizontalAdvance(f" {t} ") for t in
+                                      ("SIMULATOR", "RUNNING", "OFFLINE", "DISARMED", "DRY-RUN"))
+                                  + 2 * fm.horizontalAdvance("M"))
+        self.progress.setMinimumWidth(fm.horizontalAdvance("100 %") * 2)
+        self.eta.setMinimumWidth(fm.horizontalAdvance("00:00:00") + fm.horizontalAdvance("M"))
+        lay = self.layout()
+        sp = lay.spacing() if lay is not None else 0
+        st = self.style()
+        need = sum(w.minimumWidth() + sp for w in (self.pill, *self.buttons.values(), self.start_menu,
+                                                   self.progress, self.eta))
+        if lay is not None:
+            m = lay.contentsMargins()
+            need += m.left() + m.right()
+        need += 2 * st.pixelMetric(QStyle.PM_ToolBarFrameWidth, None, self) + 2 * st.pixelMetric(
+            QStyle.PM_ToolBarItemMargin, None, self)
+        if self.isMovable():
+            need += st.pixelMetric(QStyle.PM_ToolBarHandleExtent, None, self)
+        self.setMinimumWidth(need)
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "_alt", None) is not None:
+            self.fit()
 
     def refresh(self, st, ms, running: bool, eta: str) -> None:
         kind = st.banner if st is not None else "OFFLINE"
@@ -612,10 +675,13 @@ class SafetyUI(QObject):
     def _dialogs(self) -> bool:
         return not getattr(self.w, "_test_no_dialogs", False)
 
-    def _selected_only(self) -> bool:
-        panel = getattr(self.w, "control", None)
-        cb = getattr(panel, "selected_only", None)
-        return bool(cb.isChecked()) if cb is not None else False
+    def start_selection(self) -> None:
+        """Start only the selected parts (refused, with a message, when nothing is selected)."""
+        doc = self.w.document
+        if doc is None or not any(getattr(p, "selected", False) for p in doc.parts):
+            self.w.statusBar().showMessage("Start selection: select the parts to cut first", 6000)
+            return
+        self.start(selected_only=True)
 
     def _extent(self, doc):
         try:
@@ -625,18 +691,18 @@ class SafetyUI(QObject):
             bb = doc.bbox() if hasattr(doc, "bbox") else None
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
-    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None) -> bool:
+    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False) -> bool:
         """Run the controller's pre-flight check; show the dialog when it finds anything."""
         ctl = self.w.ctl
         try:
-            rep = ctl.preflight(action, doc, self._selected_only(), extent=self._extent(doc) if doc else None,
+            rep = ctl.preflight(action, doc, selected_only, extent=self._extent(doc) if doc else None,
                                 emits=emits)
         except TypeError:
             rep = ctl.preflight(action, doc)
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
         from .workspaces.cutting_strategy import augment_preflight as augment_cutting
-        rep = augment_cutting(self.w, rep, action, doc, self._selected_only())   # lead / tip warnings
+        rep = augment_cutting(self.w, rep, action, doc, selected_only)   # lead / tip warnings
         rep = contribute_preflight(self.w, rep, action, doc, emits)   # plugins (material check)
         if not rep.issues:
             return True
@@ -664,7 +730,9 @@ class SafetyUI(QObject):
         on it).  Without the services layer: the controller itself."""
         return getattr(self.w, "run_controls", None) or self.w.ctl
 
-    def start(self) -> None:
+    def start(self, selected_only: bool = False) -> None:
+        """Start (or resume) the job; ``selected_only``: only the selected parts, asked for
+        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch."""
         ctl, doc = self.w.ctl, self.w.document
         ms = ctl.state()
         if ms.mode == "pause" or ctl.breakpoint is not None:
@@ -680,10 +748,10 @@ class SafetyUI(QObject):
                 return
             if not self.arm(confirm=False):
                 return
-        if not self.preflight_ok("start" if emits else "dry_run", doc, emits):
+        if not self.preflight_ok("start" if emits else "dry_run", doc, emits, selected_only=bool(selected_only)):
             return
         self._shown = None
-        self._runner().start(doc, selected_only=self._selected_only())
+        self._runner().start(doc, selected_only=bool(selected_only))
         self._after("Start")
 
     def hold(self) -> None:

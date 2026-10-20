@@ -16,6 +16,9 @@ file needs no decorator: `parity` (tests/parity/), `golden` (tests/golden/), `sa
 (tests/safety/), `ui` (modules listed in `UI_MODULES`, Qt offscreen), `sim` (modules that start
 the UDP card simulator), `unit` (everything else). Qt runs with `QT_QPA_PLATFORM=offscreen`.
 
+The responsive-layout harness (`tests/test_responsive_layout.py`, a `ui` module) sweeps the real
+window over sizes, dock widths, a larger font and 2x scale: see [Responsive layout](RESPONSIVE.md).
+
 ## Goldens
 
 `tools/make_goldens.py` writes the frozen artefacts in `tests/golden/` (`.chf` round trips,

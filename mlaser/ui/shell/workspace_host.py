@@ -24,16 +24,18 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
-                               QSplitter, QStackedWidget, QTabWidget, QToolBar, QToolButton,
+                               QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
 from mlaser.services.workspaces import BUILTIN, SLOTS, WorkspaceSpec, slot_for
 
 from ..icons import command_icon, icon
+from ..responsive import CurrentPageStack, FitArea
+from .dock_policy import CANVAS_MIN
 
 
 #: workspaces that never share the window with docked panels (see the module docstring)
@@ -164,6 +166,7 @@ class WorkspacePage(QWidget):
             self.splitter = QSplitter(Qt.Horizontal)
             self.splitter.setChildrenCollapsible(True)
             self.canvas_slot = QWidget()
+            self.canvas_slot.setMinimumWidth(CANVAS_MIN)       # the drawing stays workable
             lay = QVBoxLayout(self.canvas_slot)
             lay.setContentsMargins(0, 0, 0, 0)
             self.splitter.addWidget(self.canvas_slot)
@@ -186,13 +189,10 @@ class WorkspacePage(QWidget):
 
     @staticmethod
     def _fit(widget: QWidget) -> QWidget:
-        """A contributed page in a frameless scroll area: its minimum size never forces the
-        main window wider or taller than the screen (1280 × 800, 150 %)."""
-        sa = QScrollArea()
-        sa.setObjectName("shell_ws_scroll")
-        sa.setFrameShape(QFrame.NoFrame)
-        sa.setWidgetResizable(True)
-        sa.setWidget(widget)
+        """A contributed page in a :class:`~mlaser.ui.responsive.FitArea`: the window keeps the
+        page's own minimum (the page reflows above it, it never scrolls), capped by the screen
+        so a page too large for a small screen scrolls instead of pushing the window off it."""
+        sa = FitArea(widget)
         widget.show()
         return sa
 
@@ -271,10 +271,17 @@ class WorkspacePage(QWidget):
         tb = self.toolbar
         if not tb.actions():
             return
-        want = Qt.ToolButtonTextBesideIcon
-        tb.setToolButtonStyle(want)
+        def apply(style) -> None:
+            tb.setToolButtonStyle(style)
+            for act in tb.actions():         # a command without an icon keeps its text
+                btn = tb.widgetForAction(act)
+                if isinstance(btn, QToolButton) and act.icon().isNull():
+                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        apply(Qt.ToolButtonTextBesideIcon)
         if tb.sizeHint().width() > max(self.width(), 1):
-            tb.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            apply(Qt.ToolButtonIconOnly)
+        if tb.layout() is not None:
+            tb.layout().invalidate()
 
     def show_canvas(self, canvas: QWidget) -> None:
         if self.canvas_slot is None:
@@ -284,6 +291,60 @@ class WorkspacePage(QWidget):
             canvas.setParent(self.canvas_slot)
             lay.addWidget(canvas)
         canvas.show()
+
+
+class PageStack(CurrentPageStack):
+    """The workspace page stack (its size is the current page's)."""
+
+
+class _RailFit(QObject):
+    """The rail's labels go (icons only, the names in the tooltips and accessible names) when
+    the window is too short for them, and come back when it grows; its minimum height is what
+    the icon-only buttons need, so no workspace ever hides in the overflow menu."""
+
+    def __init__(self, rail: QToolBar):
+        super().__init__(rail)
+        self.rail = rail
+        self._busy = False
+        rail.installEventFilter(self)
+
+    def _need(self, style) -> int:
+        old = self.rail.toolButtonStyle()
+        if old != style:
+            self.rail.setToolButtonStyle(style)
+        lay = self.rail.layout()
+        sp = lay.spacing() if lay is not None else 0
+        m = lay.contentsMargins() if lay is not None else None
+        h = sum(self.rail.widgetForAction(a).sizeHint().height() + sp for a in self.rail.actions()
+                if a.isVisible() and self.rail.widgetForAction(a) is not None)
+        if m is not None:
+            h += m.top() + m.bottom()
+        h += 2 * self.rail.style().pixelMetric(QStyle.PM_ToolBarFrameWidth, None, self.rail)
+        if old != style:
+            self.rail.setToolButtonStyle(old)
+        return h
+
+    def fit(self) -> None:
+        if self._busy:
+            return
+        self._busy = True
+        try:
+            full = self._need(Qt.ToolButtonTextUnderIcon)
+            compact = self._need(Qt.ToolButtonIconOnly)
+            want = Qt.ToolButtonTextUnderIcon if self.rail.height() >= full else Qt.ToolButtonIconOnly
+            if self.rail.toolButtonStyle() != want:
+                self.rail.setToolButtonStyle(want)
+            if self.rail.minimumHeight() != compact:
+                self.rail.setMinimumHeight(compact)
+            self.rail.setProperty("responsive_state", "labels" if want == Qt.ToolButtonTextUnderIcon else "icons")
+        finally:
+            self._busy = False
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if obj is self.rail and ev.type() in (QEvent.Resize, QEvent.Show, QEvent.StyleChange, QEvent.FontChange,
+                                              QEvent.ActionAdded, QEvent.ActionRemoved, QEvent.ActionChanged):
+            QTimer.singleShot(0, self.fit)
+        return False
 
 
 class WorkspaceHost:
@@ -297,7 +358,7 @@ class WorkspaceHost:
         self._action = actions
         self._allowed = allowed
         self._mode = mode
-        self.stack = QStackedWidget()
+        self.stack = PageStack()
         self.stack.setObjectName("shell_stack")
         self.pages: dict[str, WorkspacePage] = {}
         self.specs: dict[str, WorkspaceSpec] = {}
@@ -312,6 +373,7 @@ class WorkspaceHost:
         self.rail.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
         self.rail.setIconSize(QSize(26, 26))
         self.rail.toggleViewAction().setVisible(False)
+        self._rail_fit = _RailFit(self.rail)
         tr.bind(self.rail, "shell.rail", self.rail.setWindowTitle)
         self.rail.setAccessibleName("Workspaces")
         tr.bind(self.rail, "shell.rail", self.rail.setAccessibleName)
@@ -425,10 +487,14 @@ class WorkspaceHost:
         canvas = self.canvas_widget()
         if spec.canvas and canvas is not None:
             page.show_canvas(canvas)
+        # docks the new workspace does not want go first, its own come after the page switch:
+        # the window's minimum never adds the old docks to the new page (or the reverse), which
+        # used to grow the window on a switch (docs/dev/RESPONSIVE.md)
+        self._apply_docks(prev, spec, show=False)
         self.stack.setCurrentWidget(page)
         self.current = ws_id
         self.rail_actions[ws_id].setChecked(True)
-        self._apply_docks(prev, spec)
+        self._apply_docks(prev, spec, hide=False)
         for fn in list(self.listeners):
             fn(ws_id)
         return True
@@ -441,19 +507,21 @@ class WorkspaceHost:
         spec = spec if spec is not None else self.specs.get(self.current)
         return spec is not None and (spec.id in EXCLUSIVE or bool(spec.extra.get("exclusive_docks")))
 
-    def _apply_docks(self, prev: Optional[WorkspaceSpec], spec: WorkspaceSpec) -> None:
+    def _apply_docks(self, prev: Optional[WorkspaceSpec], spec: WorkspaceSpec, show: bool = True,
+                     hide: bool = True) -> None:
         """Docks named by the new workspace are shown; docks named by any other workspace (the
         "owned" docks) are hidden; every other dock stays as the user or a plugin left it,
         except in an exclusive workspace, which hides every other docked panel (restored when
         the operator leaves it)."""
-        self.watch_docks()
+        if hide:
+            self.watch_docks()
         if self.exclusive(spec):
             want = set(spec.docks or ())
             for d in self.docks():
-                if d.objectName() not in want and not d.isHidden() and not d.isFloating():
+                if hide and d.objectName() not in want and not d.isHidden() and not d.isFloating():
                     self._suppressed.add(d.objectName())
                     d.hide()
-        elif self._suppressed:
+        elif self._suppressed and show:
             owned = set(self._managed_docks)
             for s in self.specs.values():
                 owned.update(s.docks or ())
@@ -470,9 +538,9 @@ class WorkspaceHost:
         for d in self.docks():
             name = d.objectName()
             if name in want:
-                if d.isHidden() and not d.isFloating():
+                if show and d.isHidden() and not d.isFloating():
                     d.show()
-            elif name in owned and not d.isHidden() and not d.isFloating():
+            elif hide and name in owned and not d.isHidden() and not d.isFloating():
                 d.hide()
 
     def docks(self) -> list:

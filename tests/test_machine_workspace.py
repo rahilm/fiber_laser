@@ -106,9 +106,15 @@ def test_settings_panel_applies_typed_values(app, win):
     ed.setValue(2500.0)
     assert sp.apply() == 1
     assert win.config.get("MAC.SoftLimitMaxLen") == 2500.0
+    # the search looks through every Setup section (Machine › Setup, WORK_ITEMS R-1)
     sp.search.setText("stroke")
-    hidden = [sp.tree.topLevelItem(0).child(j).isHidden() for j in range(sp.tree.topLevelItem(0).childCount())]
-    assert False in hidden and True in hidden
+    rows = [sp.tree.topLevelItem(i).child(j) for i in range(sp.tree.topLevelItemCount())
+            for j in range(sp.tree.topLevelItem(i).childCount())]
+    shown = [r for r in rows if not r.isHidden()]
+    assert shown and all("stroke" in (r.text(0) + r.text(2)).lower() for r in shown)
+    assert len({sp.keys[r.text(2)] for r in shown}) > 1          # several sections
+    sp.search.setText("")
+    assert sp.section.currentData() == "MachineAxisConfig_0" and "MAC.SoftLimitMaxLen" in sp._editors
 
 
 def test_edge_wizard_dry_run_review_and_abort(app, win):

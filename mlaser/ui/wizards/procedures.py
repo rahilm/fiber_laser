@@ -153,6 +153,18 @@ class EdgeSeekWizard(WizardDialog):
                 setattr(prm, attr, w.value())
         if not self.proc.dry_run:                    # remembered like the original's dialog
             self.ext.ops.edge = copy.copy(prm)
+            # ... and saved in the registry at once (Machine › Setup › Edge seek shows it;
+            # it survives a restart: WORK_ITEMS R-2)
+            vals = getattr(self.ext, "values", None)
+            if vals is not None:
+                from mlaser.controller.edgeseek import EdgeSeekParams
+                pairs = [(key, getattr(prm, attr)) for attr, key in EdgeSeekParams.KEYS.items()]
+                pairs += [("GRP.EdgeSeekStartPointX", prm.start[0]), ("GRP.EdgeSeekStartPointY", prm.start[1])]
+                for key, val in pairs:
+                    try:
+                        vals[key] = val
+                    except ValueError as exc:
+                        self.ext.log(f"edge seek: {key} not saved ({exc})")
         return True
 
     def status_text(self) -> str:

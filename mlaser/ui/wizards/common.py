@@ -98,8 +98,14 @@ class JogPad(QWidget):
     KEEPALIVE_MS = 100
     log = Signal(str)
 
+    #: the persisted jog values every jog pad shows (WORK_ITEMS R-3): continuous or step, the
+    #: step length (mm), fast
+    STEP_KEY, LENGTH_KEY, FAST_KEY = "MC.IsStepMove", "MC.StepLength", "MC.IsFastMode"
+
     def __init__(self, window: Any, controller: Callable[[], Any], z: bool = True,
-                 parent: Optional[QWidget] = None) -> None:
+                 parent: Optional[QWidget] = None, home: bool = False) -> None:
+        """``home``: this pad is the jog values' home (the Machine workspace's); the others are
+        quick switches on the same keys."""
         super().__init__(parent)
         self.w = window
         self.ctl = controller
@@ -155,6 +161,60 @@ class JogPad(QWidget):
         app = QApplication.instance()
         if app is not None:
             app.applicationStateChanged.connect(self._app_state)
+        # one jog step / fast for every pad, persisted (WORK_ITEMS R-3)
+        from .. import homes
+        role = homes.EDITOR if home else homes.SHORTCUT
+        for b in self.step_buttons:
+            b.setProperty(homes.PROP_VALUE, f"cfg:{self.LENGTH_KEY}")
+            b.setProperty(homes.PROP_ROLE, role)
+        self.fast.setProperty(homes.PROP_VALUE, f"cfg:{self.FAST_KEY}")
+        self.fast.setProperty(homes.PROP_ROLE, role)
+        self.config = getattr(window, "config", None)
+        self._syncing = False
+        if self.config is not None and hasattr(self.config, "subscribe"):
+            self._sync()
+            self.steps.buttonClicked.connect(lambda _b: self._store())
+            self.fast.toggled.connect(lambda _on: self._store())
+            self._unsub = self.config.subscribe(self._config_changed)
+            self.destroyed.connect(lambda *_a, u=self._unsub: u())
+
+    # ------------------------------------------------------------------ persisted values
+    def _config_changed(self, key: str) -> None:
+        if key in (self.STEP_KEY, self.LENGTH_KEY, self.FAST_KEY):
+            try:
+                self._sync()
+            except RuntimeError:          # the pad is being deleted
+                pass
+
+    def _sync(self) -> None:
+        cfg = self.config
+        self._syncing = True
+        try:
+            stepping = bool(cfg.get(self.STEP_KEY, False))
+            mm = float(cfg.get(self.LENGTH_KEY, 1.0) or 1.0)
+            if not stepping:
+                self.step_buttons[0].setChecked(True)
+            else:
+                steps = [b for b in self.step_buttons if float(b.property("step_mm")) > 0]
+                best = min(steps, key=lambda b: abs(float(b.property("step_mm")) - mm))
+                best.setChecked(True)
+            self.fast.setChecked(bool(cfg.get(self.FAST_KEY, False)))
+        finally:
+            self._syncing = False
+
+    def _store(self) -> None:
+        if self._syncing or self.config is None:
+            return
+        step = self.step_mm()
+        try:
+            if self.config.get(self.STEP_KEY, False) != (step > 0):
+                self.config.set(self.STEP_KEY, step > 0)
+            if step > 0 and self.config.get(self.LENGTH_KEY) != step:
+                self.config.set(self.LENGTH_KEY, step)
+            if self.config.get(self.FAST_KEY, False) != self.fast.isChecked():
+                self.config.set(self.FAST_KEY, self.fast.isChecked())
+        except ValueError:
+            pass
 
     def _step_labels(self, u: Any) -> None:
         for b, mm in zip(self.step_buttons[1:], jog_steps_mm()):

@@ -18,7 +18,7 @@ import os
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComboBox, QDialog,
+from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDialog,
                                QDialogButtonBox, QDoubleSpinBox, QFileDialog,
                                QFormLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
                                QMessageBox,
@@ -27,9 +27,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
 
 from ..model import Document
 from ..services import units
-from ..nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, NestJob,
-                    NestParams, NestPart, NestSheet, apply_result, nest, stats)
-from ..nest.engine import NestEngineUnavailable, available_engines
+from ..nest import (NestJob,
+                    NestPart, NestSheet, apply_result, nest, stats)
+from ..nest.engine import NestEngineUnavailable
 from ..nest.apply import layout_parts
 from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 
@@ -66,83 +66,6 @@ def _spin(lo, hi, val, dec=2) -> QDoubleSpinBox:
 
 
 # ---------------------------------------------------------------------------- dialogs
-class NestParamsDialog(QDialog):
-    """``mf412`` Nest Parameters: spacing ``pd_Nest_PartSpace``, edge ``pd_Nest_EdgeStock``,
-    rotation step ``pd_Nest_PartRotateStepAngle``, direction ``pd_Nest_NestDir`` (L2R/D2U),
-    part-in-part ``pd_Nest_NestPartInner``, share edge ``pd_Nest_ShareEdge`` (+ min length),
-    accuracy ``pd_Nest_NestAccuracy`` (curve tolerance), plus rebuild-only raster cell,
-    mirror, kerf, time limit and engine (raster default; sparrow/spyrrow when installed)."""
-
-    def __init__(self, window, params: NestParams, parent=None):
-        super().__init__(parent)
-        self.params = params
-        self.setWindowTitle(_tr(window, "mf412", "Nest Parameters"))
-        lay = QVBoxLayout(self)
-        f = QFormLayout()
-        lay.addLayout(f)
-        self.spacing = _len(0, 1000, params.spacing)
-        self.margin = _len(0, 1000, params.margin)
-        self.step = _spin(0, 360, params.rotation_step)
-        self.direction = QComboBox()
-        self.direction.addItem(_tr(window, "pd_Nest_NestDir_L2R", "Left to Right"), GRAVITY_LEFT)
-        self.direction.addItem(_tr(window, "pd_Nest_NestDir_D2U", "Down to Up"), GRAVITY_BOTTOM)
-        self.direction.addItem("Auto", GRAVITY_AUTO)       # AutoNest direction 3 (no lang key)
-        self.direction.setCurrentIndex(max(0, self.direction.findData(params.gravity)))
-        self.inner = QCheckBox()
-        self.inner.setChecked(params.part_in_part)
-        self.mirror = QCheckBox()
-        self.mirror.setChecked(params.allow_mirror)
-        self.share = QCheckBox()
-        self.share.setChecked(params.common_line)
-        self.share_min = _len(0, 10000, params.share_edge_min_len)
-        self.kerf = _len(0, 100, params.kerf, 3, "small_length")
-        self.accuracy = _len(0.1, 1.0, params.accuracy, 2, "small_length")   # curve tolerance (mm)
-        self.cell = _len(0, 50, params.resolution or 0.0)
-        self.cell.setSpecialValueText("auto")
-        self.time_limit = _spin(1, 3600, params.time_limit_s, 0)
-        self.engine = QComboBox()
-        self.engine.addItem("Raster (built-in)", ENGINE_RASTER)
-        self.engine.addItem("Sparrow (spyrrow)", ENGINE_SPYRROW)
-        if ENGINE_SPYRROW not in available_engines():
-            item = self.engine.model().item(1)
-            if item is not None:
-                item.setEnabled(False)
-            self.engine.setItemData(1, "needs the optional package spyrrow: pip install 'mlaser[nest]'",
-                                    Qt.ToolTipRole)
-        self.engine.setCurrentIndex(max(0, self.engine.findData(params.engine)))
-        for key, dflt, w in (("pd_Nest_PartSpace", "Part Space", self.spacing),
-                             ("pd_Nest_EdgeStock", "Edge stock", self.margin),
-                             ("pd_Nest_PartRotateStepAngle", "Part rotate step angle", self.step),
-                             ("pd_Nest_NestDir", "Nest Direction", self.direction),
-                             ("pd_Nest_NestPartInner", "Is Nest in part inner", self.inner),
-                             ("", "Mirror", self.mirror),
-                             ("pd_Nest_ShareEdge", "Enable share edge", self.share),
-                             ("pd_Nest_ShareEdgeMinLen", "Min length of share edge", self.share_min),
-                             ("", "Kerf (share edge spacing)", self.kerf),
-                             ("pd_Nest_NestAccuracy", "Nest Graph accuracy", self.accuracy),
-                             ("", "Raster cell", self.cell),
-                             ("", "Time limit (s)", self.time_limit),
-                             ("", "Engine", self.engine)):
-            f.addRow(_label(window, key, dflt) if key else dflt, w)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
-
-    def apply(self) -> NestParams:
-        p = self.params
-        p.spacing, p.margin, p.rotation_step = self.spacing.value(), self.margin.value(), self.step.value()
-        p.gravity = self.direction.currentData()
-        p.part_in_part, p.allow_mirror = self.inner.isChecked(), self.mirror.isChecked()
-        p.common_line, p.share_edge_min_len = self.share.isChecked(), self.share_min.value()
-        p.kerf = self.kerf.value()
-        p.accuracy = self.accuracy.value()
-        p.resolution = self.cell.value() or None
-        p.time_limit_s = self.time_limit.value()
-        p.engine = self.engine.currentData() or ENGINE_RASTER
-        return p
-
-
 class SheetDialog(QDialog):
     """Standard sheet (``mf473``/``np_StdSheet``): width ``pd769``, height ``pd768``,
     count ``pd767``."""
@@ -436,10 +359,13 @@ class NestExtension:
         return sh
 
     def params_dialog(self) -> None:
-        d = NestParamsDialog(self.window, self.job.params, self.window)
-        if d.exec():
-            d.apply()
-            self.dirty = True
+        """``nest.params``: the Nest workspace's job panel is the one editor of the nest
+        parameters (WORK_ITEMS R-5): open it with its options shown."""
+        from . import homes
+        homes.edit_in(self.window, "nest.spacing")
+        ws = self.window.findChild(QWidget, "nest_workspace")
+        if ws is not None and hasattr(ws, "show_options"):
+            ws.show_options(True)
 
     # -------------------------------------------------- run / result
     def run(self, interactive: bool = True):

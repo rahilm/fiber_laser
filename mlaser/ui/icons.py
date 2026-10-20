@@ -122,6 +122,7 @@ COMMAND_ICONS: dict[str, str] = {
     # control panel (object names of the buttons)
     "jog_Y+": "arrow-up", "jog_Y-": "arrow-down", "jog_X-": "arrow-left", "jog_X+": "arrow-right",
     "jog_Z+": "arrow-bar-to-up", "jog_Z-": "arrow-bar-to-down",
+    "jog_zero": "focus-centered", "jog_home_z": "home",
     "run.start": "player-play", "run.pause": "player-pause", "run.stop": "player-stop",
 }
 

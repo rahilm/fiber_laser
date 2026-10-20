@@ -17,6 +17,8 @@ on:
       - "mlaser/_power.py"
       - "packaging/**"
       - "tools/native_check.py"
+      - "tests/test_responsive_layout.py"
+      - "tests/layout_audit.py"
       - ".github/workflows/native-check.yml"
 
 concurrency:
@@ -69,6 +71,18 @@ jobs:
       - name: From source, dark theme chosen in mlaser (system light)
         if: always()
         run: uv run --locked python tools/native_check.py --label mac-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/macos
+      - name: Responsive layout harness (macOS style)
+        if: always()
+        env:
+          QT_QPA_PLATFORM: cocoa
+          MLASER_LAYOUT_STYLE: macOS
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: macos
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
       - name: Build the .app
         if: always()
         run: uv run --locked python packaging/build.py
@@ -112,6 +126,19 @@ jobs:
         if: always()
         shell: bash
         run: uv run --locked python tools/native_check.py --label win-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/windows
+      - name: Responsive layout harness (windows11 style)
+        if: always()
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: windows
+          MLASER_LAYOUT_STYLE: windows11
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: windows
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
       - name: Build the bundle
         if: always()
         run: uv run --locked python packaging/build.py
@@ -158,6 +185,18 @@ jobs:
         run: uv sync --locked --group packaging --all-extras
       - name: From source (uv run mlaser)
         run: uv run --locked python tools/native_check.py --label linux-source --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/linux
+      - name: Responsive layout harness (Fusion on X11)
+        if: always()
+        env:
+          QT_QPA_PLATFORM: xcb
+          MLASER_LAYOUT_STYLE: Fusion
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: linux
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
       - name: Build the bundle
         if: always()
         run: uv run --locked python packaging/build.py
