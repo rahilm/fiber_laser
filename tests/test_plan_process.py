@@ -252,7 +252,10 @@ def test_plan_finishing_after_a_stop_never_starts(monkeypatch):
         assert t.wait_toolpath(120) is not None and not t.done_event.is_set()
         ctl.stop()
         assert t.wait(120) is not None
-        svc.settle(t)
+        svc.settle(t)          # the worker may be delivering it right now (inline post): wait
+        t_end = time.monotonic() + 20
+        while not results and time.monotonic() < t_end:
+            time.sleep(0.01)
         assert results and results[0][0] is False, results
         assert not ctl.job_active()
         assert svc.stats["process_compiles"] == 1

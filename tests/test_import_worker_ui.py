@@ -140,3 +140,23 @@ def test_load_path_still_opens_files(qapp, tmp_path):
     save_project(p, doc)
     assert w.load_path(str(p)) is True
     assert len(w.document.parts) == 1
+
+
+def test_gui_wait_lowers_the_switch_interval(qapp):
+    """While the progress dialog waits for the worker, the GIL switch interval is 0.5 ms (the
+    GUI thread starved on macOS CI with the default 5 ms: 3 ticks of a 20 ms timer in 1 s), and
+    it is restored afterwards."""
+    import sys
+
+    from mlaser._sched import RESPONSIVE_SWITCH_S
+    from mlaser.ui.import_worker import run_import
+    before = sys.getswitchinterval()
+    seen = []
+
+    def fn():
+        time.sleep(0.3)                     # past the first join: the dialog loop is waiting
+        seen.append(sys.getswitchinterval())
+        return 1
+    assert run_import(None, fn) == 1
+    assert seen and seen[0] <= RESPONSIVE_SWITCH_S + 1e-9
+    assert sys.getswitchinterval() == before
