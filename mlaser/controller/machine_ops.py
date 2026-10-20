@@ -71,7 +71,7 @@ class MachineOps:
 
     def require_card(self, what: str) -> bool:
         if not self.connected():
-            self.log(f"{what}: needs a connected motion card (mp22 offline)")
+            self.log(f"{what}: needs a connected motion card (offline)")
             return False
         return True
 
@@ -216,7 +216,7 @@ class MachineOps:
             return (0.0, 0.0)
         pos = self.head()
         n = c.set_tool_origin(pos)
-        self.log(f"mp131: Tool Coord {n} Origin Point, ({pos[0]:.3f}, {pos[1]:.3f})")
+        self.log(f"Tool coordinate {n}: origin set at ({pos[0]:.3f}, {pos[1]:.3f})")
         self.save_values()
         return pos
 
@@ -258,7 +258,7 @@ class MachineOps:
         pos = self.head()
         self.coords.marks[n] = (float(pos[0]), float(pos[1]))
         self.marks_set.add(n)
-        self.log(f"mp88: Mark P{n + 1}, ({pos[0]:.3f}, {pos[1]:.3f})")
+        self.log(f"Mark P{n + 1} set at ({pos[0]:.3f}, {pos[1]:.3f})")
         self.save_values()
         return self.coords.marks[n]
 
@@ -290,7 +290,7 @@ class MachineOps:
                              wait: bool = False):
         """A250211_0 (FUN_005c0ad0): run the 3/4-point sequence in a worker thread; ``apply``
         receives the :class:`EdgeSeekResult` (the dialog's OK, FUN_00557d90)."""
-        if not self.require_card("A250211_0 edge seek") or self.busy():
+        if not self.require_card("Edge seek") or self.busy():
             return None
         if not self.values.get("ZF.ZFType", 1):
             self.log("A250211_0: edge seek needs the on-board follower (ZF.ZFType)")
@@ -311,7 +311,7 @@ class MachineOps:
 
     def edge_seek_disc(self, guess=None, apply: Optional[Callable] = None, wait: bool = False):
         """newLang27 disc search (FUN_005c1ff0 -> FUN_005c2060)."""
-        if not self.require_card("newLang27 disc search") or self.busy():
+        if not self.require_card("Disc edge seek") or self.busy():
             return None
 
         def done(res):
@@ -394,7 +394,7 @@ class MachineOps:
         if t == 0:
             self.log("A240827_1: no autofocus head configured (AF.AFType = None)")
             return False
-        if not self.require_card("A240827_1 focus go origin"):
+        if not self.require_card("Focus homing"):
             return False
         if t in (5, 6):
             mask = 0x10 if t == 5 else 1 << int(float(self.values.get("AF.AFAxis", 4) or 4))
@@ -428,7 +428,7 @@ class MachineOps:
         else:
             self.log(f"A240827_1: AF type {t} not supported (VM +0x200, U)")
             return False
-        self.log("A240827_1: focus go origin")
+        self.log("Focus homing started")
         return True
 
     # ------------------------------------------------------------------ hardware

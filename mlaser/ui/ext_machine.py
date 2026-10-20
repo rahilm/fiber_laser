@@ -594,7 +594,7 @@ class MachineExtension:
         self.normal_exit = sec.get("NormalExit", "1") != "0"
         if sec.get("NormalExit", "1") == "0":
             # a real dialog, not a log line (docs/review/ux.md P0-7)
-            self.log("mp18: the last run ended abnormally")
+            self.log("The last run ended abnormally")
             try:
                 from PySide6.QtCore import QTimer
 

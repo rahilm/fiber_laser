@@ -567,13 +567,13 @@ class ControlPanel(QWidget):
         if self.machine_ops is not None:
             self.machine_ops.set_mark(self.mark_index.currentIndex())
         else:
-            self.log.emit("mp39: mark points need the machine extension")
+            self.log.emit(f"{self.tr_.tr('mp39')}: mark points need the machine extension")
 
     def _return_mark(self) -> None:
         if self.machine_ops is not None:
             self.machine_ops.return_mark(self.mark_index.currentIndex())
         else:
-            self.log.emit("af10: mark points need the machine extension")
+            self.log.emit(f"{self.tr_.tr('af10')}: mark points need the machine extension")
 
     # -- helpers
     def _section(self, key: str, body: QWidget, priority: int) -> CollapsibleSection:
@@ -696,13 +696,13 @@ class LogPanel(QTabWidget):
         return QSize(800, 140)
 
     def log(self, msg: str) -> None:
-        key = msg.split(":", 1)[0]
-        # "<key>" -> translation; "<key>: detail" -> "<translation> (detail)". Templates with
-        # placeholders are formatted by the caller, never shown raw.
-        if " " not in msg and self.tr_.has(msg):
+        # "<key>" -> its text; "<key>: detail" -> "<text>: detail"; an opaque key of the
+        # original is never shown (Translator.log_text).  Templates with placeholders are
+        # formatted by the caller, never shown raw.
+        if " " not in msg and self.tr_.has(msg) and "{" not in self.tr_.tr(msg):
             msg = self.tr_.tr(msg)
-        elif self.tr_.has(key) and ":" in msg and "%" not in self.tr_.tr(key) and "{" not in self.tr_.tr(key):
-            msg = f"{self.tr_.tr(key)} ({msg.split(':', 1)[1].strip()})"
+        else:
+            msg = self.tr_.log_text(msg)
         self.text.appendPlainText(time.strftime("%H:%M:%S  ") + msg)
 
     def add_alarm(self, text: str) -> None:

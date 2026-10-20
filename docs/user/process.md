@@ -73,7 +73,7 @@ once. If you delete examples, they are not added again.
 
 ## 2. Process workspace
 
-Open it with **Process+ → Process** (or the *Process* tab next to *Layer Parameters*).
+Open it with **Process+ → Process** (or the *Process* tab next to *Layer parameters*).
 
 1. Choose **Material**, **Thickness**, **Gas** and **Nozzle**. The lists only offer
    combinations that exist.
@@ -82,7 +82,7 @@ Open it with **Process+ → Process** (or the *Process* tab next to *Layer Param
 4. Press **Apply technology**. This is one undo step (Ctrl+Z restores the layers and parts).
 
 Applying a technology sets the layer's parameters exactly as if you had typed them into the
-*Layer Parameters* dialog. Parameters the technology does not set get the original program's
+*Layer parameters* dialog. Parameters the technology does not set get the original program's
 defaults. Values from an earlier `LayerPara.xml` do not remain.
 
 The **Layers** list shows each layer in use with its technology and its state:

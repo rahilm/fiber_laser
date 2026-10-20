@@ -433,7 +433,7 @@ class DrawExtension:
             doc.parts.extend(new)
             return len(new)
         n = self.edit(do, parts=sel)
-        self.log(f"mf254: {n}" if n else self.t("A251103_0"))
+        self.log(f"mf254: {n} part(s)" if n else self.t("A251103_0"))
 
     # ------------------------------------------------------------ trim / extend / split
     def pick(self, name: str, op: Callable[[list, tuple, float], bool]) -> None:
@@ -533,7 +533,7 @@ class DrawExtension:
     def select_similar(self):
         n = AR.select_similar(self.w.document)
         self._sync_selection()
-        self.log(f"mf37: {n}")
+        self.log(f"mf37: {n} contour(s) selected")
 
     def select_depth(self, sub: int):
         AR.select_by_topology(self.w.document, sub)

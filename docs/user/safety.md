@@ -13,7 +13,7 @@ connect it to a machine. The technical design behind it is the
 1. Run everything on the simulator first (`mlaser --demo`).
 2. **Physically disable the laser** (interlock or key switch off) and start with
    `mlaser --real --laser-off`. In this dry-run mode every step is sent with the laser off.
-3. Keep the e-stop within reach. Use **Frame** and **Dry Cut** before any real cut.
+3. Keep the e-stop within reach. Use **Frame** and **Dry run** before any real cut.
 4. Load your machine's real parameters ([Importing your Mlaser setup](importing-mlaser-setup.md)).
    They set the step scale (pulses per mm) and the gas and follower wiring. Check the scale and
    the speed with a short jog.
