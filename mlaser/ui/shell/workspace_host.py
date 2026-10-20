@@ -496,19 +496,32 @@ class WorkspaceHost:
         spec = self.specs.get(self.current)
         if spec is None or not self.exclusive(spec) or d.objectName() in (spec.docks or ()):
             return
-        if d.isFloating() or d.isHidden():
+        if d.isFloating():
             return
         self._suppressed.add(d.objectName())
         QTimer.singleShot(0, lambda d=d: self._hide_if_still(d))
 
     def _hide_if_still(self, d) -> None:
-        try:
-            spec = self.specs.get(self.current)
-            if spec is not None and self.exclusive(spec) and not d.isFloating() \
-                    and d.objectName() not in (spec.docks or ()):
-                d.hide()
-        except RuntimeError:            # the dock was deleted meanwhile
-            pass
+        """Hide ``d`` and every other docked panel that is visible on the exclusive workspace:
+        hiding one tab of a tabified group raises its sibling (macOS delivers that sibling's
+        visibility change before it is visible), so sweep until none is left."""
+        spec = self.specs.get(self.current)
+        if spec is None or not self.exclusive(spec):
+            return
+        keep = set(spec.docks or ())
+        for _ in range(8):
+            shown = []
+            for x in [d, *self.docks()]:
+                try:
+                    if x.isVisible() and not x.isFloating() and x.objectName() not in keep:
+                        shown.append(x)
+                except RuntimeError:     # the dock was deleted meanwhile
+                    continue
+            if not shown:
+                return
+            for x in shown:
+                self._suppressed.add(x.objectName())
+                x.hide()
 
     def refresh_mode(self) -> None:
         """The user mode changed: rail, toolbars and placeholders follow."""
