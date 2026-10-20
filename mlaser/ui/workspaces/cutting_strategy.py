@@ -7,9 +7,14 @@ The panel works on the open drawing (docs/user/cutting-strategy.md):
   red on the canvas); *Fix* moves their start or shortens them (:func:`mlaser.cam.collision.fix`);
   *Place starts* puts every start on a corner or a straight segment by the rules
   (:func:`mlaser.cam.leadplace.place_leads`).
-* **Tipping**: *Check* lists the freed pieces that can tip on the slats (the bed of the machine
-  settings, ``bed.*``; :func:`mlaser.cam.tipping.analyse`); *Fix* applies the chosen strategy
+* **Tipping**: *Check* lists the freed pieces that can tip on the slats (the bed of the machine,
+  ``bed.*``; :func:`mlaser.cam.tipping.analyse`); *Fix* applies the recipe's strategy
   (micro-joint, cut last, rapids avoid; :func:`mlaser.cam.tipping.apply`).
+
+One home per value (SETTINGS_MAP §3.2, WORK_ITEMS P-9): the rules (where starts go, the
+smallest feature, the lead clearance, the tip strategy) are **recipe rules** edited in
+Process › Library (:func:`recipe_rules`); the bed model is a machine setting edited in
+Machine › Setup › Bed.  The panel shows both read-only with "Edit in …" and keeps the actions.
 
 Every change is one undoable edit.  :func:`augment_preflight` adds the ``lead_collision`` (and,
 when ``cam.preflight_tip_check`` is on, ``tip_risk``) warnings to the pre-flight report of a
@@ -21,9 +26,7 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
-    QComboBox,
     QLabel,
     QListWidget,
     QPushButton,
@@ -32,9 +35,32 @@ from PySide6.QtWidgets import (
 )
 
 from mlaser.services import units as U
-from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
+from mlaser.ui.units_qt import on_units_changed
 
 from . import tr
+
+#: the recipe rules of the cutting strategy and their defaults (Technology.rules): the start
+#: placement (``lead_place``: mlaser.cam.leadplace.LeadRules), the lead check's clearance
+#: (``lead_check``) and the tip-avoiding strategy (``tip``)
+RULE_DEFAULTS = {("lead_place", "prefer"): "auto", ("lead_place", "min_feature_mm"): 5.0,
+                 ("lead_check", "clearance_mm"): 0.5, ("tip", "strategy"): "joint"}
+PREFER = (("auto", "cutstrat.prefer.auto", "automatic"), ("corner", "cutstrat.prefer.corner", "corners"),
+          ("straight", "cutstrat.prefer.straight", "long straight segments"))
+TIP = (("joint", "cutstrat.tip.joint", "micro-joint on the heavy side"),
+       ("last", "cutstrat.tip.last", "cut last, rapids around"),
+       ("avoid", "cutstrat.tip.avoid", "rapids around only"))
+
+
+def recipe_rules(tech: Any) -> dict:
+    """{(group, key): value} of the cutting-strategy rules of technology ``tech`` (None: the
+    defaults)."""
+    rules = (getattr(tech, "rules", None) or {}) if tech is not None else {}
+    out = {}
+    for (g, k), dflt in RULE_DEFAULTS.items():
+        grp = rules.get(g) or {}
+        v = grp.get(k, grp.get(k[:-3]) if k.endswith("_mm") else None)
+        out[(g, k)] = type(dflt)(v) if v is not None else dflt
+    return out
 
 
 def _cfg(window: Any, key: str, default: Any) -> Any:
@@ -85,56 +111,37 @@ def augment_preflight(
 
 
 class CuttingStrategyPanel(QWidget):
-    """The Process workspace's *Cutting strategy* tab (module doc)."""
+    """The Process workspace's *Cutting strategy* tab (module doc).  ``store``: the technology
+    store (the recipe rules)."""
 
-    def __init__(self, ctx: Any, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, ctx: Any, parent: Optional[QWidget] = None, store: Any = None) -> None:
         super().__init__(parent)
+        from mlaser.ui.homes import EditInLink, bind_mirror
+        from mlaser.ui.responsive import ColumnsPanel, flow
+        from mlaser.ui.techform import Section
+
         self.ctx = ctx
+        self.store = store
         w = self.window_ = ctx.window
         self.setObjectName("cutting_strategy")
-        # the tab's one scroll area: the panel fits any height the Process column has
-        from PySide6.QtWidgets import QFrame, QScrollArea
-
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(0, 0, 0, 0)
-        sa = QScrollArea()
-        sa.setWidgetResizable(True)
-        sa.setFrameShape(QFrame.NoFrame)
-        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        outer.addWidget(sa)
-        body = QWidget()
-        sa.setWidget(body)
-        root = QVBoxLayout(body)
-        root.setContentsMargins(4, 4, 4, 4)
-        # ---- leads
-        from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section
-
-        lform = ResponsiveForm()   # label beside or above the field, from the width it has
-        lf = lform.form
-        self.prefer = QComboBox()
-        self.prefer.setObjectName("cutstrat_prefer")
-        for data, key, text in (
-            ("auto", "cutstrat.prefer.auto", "automatic"),
-            ("corner", "cutstrat.prefer.corner", "corners"),
-            ("straight", "cutstrat.prefer.straight", "long straight segments"),
-        ):
-            self.prefer.addItem(tr(w, key, text), data)
-        lf.addRow(tr(w, "cutstrat.prefer", "Start on"), self.prefer)
-        self.prefer.setToolTip(
-            tr(
-                w,
-                "cutstrat.prefer.tip",
-                "automatic: a corner on parts with sharp corners, else the longest straight segment",
-            )
-        )
-        self.min_feature = QuantitySpinBox("length", minimum=0.0, maximum=1000.0, decimals=1, value=5.0)
-        self.min_feature.setObjectName("cutstrat_min_feature")
-        lf.addRow(tr(w, "cutstrat.min_feature", "Avoid features shorter than"), self.min_feature)
-        self.clearance = QuantitySpinBox("small_length", minimum=0.0, maximum=50.0, decimals=2, value=0.5)
-        self.clearance.setObjectName("cutstrat_clearance")
-        lf.addRow(tr(w, "cutstrat.clearance", "Clearance to other contours"), self.clearance)
-        rw = QWidget()
-        row = FlowLayout(rw, 6)
+        outer.setContentsMargins(4, 4, 4, 4)
+        panel = ColumnsPanel(max_columns=2)
+        outer.addWidget(panel)
+        # ---- leads: the recipe's rules (read-only) and the actions
+        lb = QWidget()
+        lv = QVBoxLayout(lb)
+        lv.setContentsMargins(0, 0, 0, 0)
+        self.lead_rules = QLabel()
+        self.lead_rules.setObjectName("cutstrat_lead_rules")
+        self.lead_rules.setWordWrap(True)
+        bind_mirror(self.lead_rules, "recipe.rules.lead_place.prefer", getattr(w, "tr_", None))
+        lv.addWidget(self.lead_rules)
+        self.rules_link = EditInLink(w, "recipe.rules.lead_place.prefer", tr=getattr(w, "tr_", None))
+        self.rules_link.setObjectName("cutstrat_rules_link")
+        self.rules_link.setWordWrap(True)
+        lv.addWidget(self.rules_link)
+        buttons = []
         for key, text, fn, name in (
             ("cutstrat.check_leads", "Check", self.check_leads, "cutstrat_check_leads"),
             ("cutstrat.fix_leads", "Fix", self.fix_leads, "cutstrat_fix_leads"),
@@ -142,88 +149,106 @@ class CuttingStrategyPanel(QWidget):
         ):
             b = QPushButton(tr(w, key, text))
             b.setObjectName(name)
-            b.setMinimumHeight(32)
             b.clicked.connect(lambda _=False, f=fn: f())
-            row.addWidget(b)
-        lf.addRow(rw)
-        root.addWidget(Section("cutstrat_leads", tr(w, "cutstrat.leads", "Lead-ins"), lform))
-        # ---- tipping
-        tform = ResponsiveForm()
-        tf = tform.form
+            buttons.append(b)
+        lv.addWidget(flow(buttons, justify=False))
+        panel.add_section(Section("cutstrat_leads", tr(w, "cutstrat.leads", "Lead-ins"), lb, priority=2))
+        # ---- tipping: the bed (Machine › Setup) and the recipe's strategy, read-only
+        tb = QWidget()
+        tv = QVBoxLayout(tb)
+        tv.setContentsMargins(0, 0, 0, 0)
         self.bed_label = QLabel()
         self.bed_label.setObjectName("cutstrat_bed")
         self.bed_label.setWordWrap(True)
-        tf.addRow(self.bed_label)
-        # the bed model lives in the machine settings (ConfigService bed.*): edited here
-        bed_w = QWidget()
-        bed = FlowLayout(bed_w, 6)
-        self.bed_fields: dict[str, Any] = {}
-        for key, lo, hi, dec, tip_key, tip in (
-            ("bed.slat_pitch", 5.0, 1000.0, 1, "bed.set.slat_pitch", "Slat pitch (centre to centre)"),
-            ("bed.slat_width", 0.5, 50.0, 1, "bed.set.slat_width", "Slat width"),
-            ("bed.slat_offset", -1.0, 1000.0, 1, "bed.set.slat_offset", "First slat position (-1 = unknown)"),
-        ):
-            sp = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec)
-            sp.setObjectName("cutstrat_" + key.replace(".", "_"))
-            sp.setToolTip(tr(w, tip_key, tip))
-            if key == "bed.slat_offset":
-                sp.setSpecialValueText(tr(w, "cutstrat.bed.offset_unknown", "unknown"))
-            sp.setValue(float(_cfg(w, key, lo)))
-            sp.valueChanged.connect(lambda v, k=key: self._set_bed(k, float(v)))
-            self.bed_fields[key] = sp
-            bed.addWidget(sp)
-        self.bed_dir = QComboBox()
-        self.bed_dir.setObjectName("cutstrat_bed_direction")
-        self.bed_dir.addItem(tr(w, "cutstrat.bed.along_y", "slats along Y"), 0)
-        self.bed_dir.addItem(tr(w, "cutstrat.bed.along_x", "slats along X"), 1)
-        self.bed_dir.setCurrentIndex(1 if int(_cfg(w, "bed.slat_direction", 0)) == 1 else 0)
-        self.bed_dir.currentIndexChanged.connect(lambda i: self._set_bed("bed.slat_direction", int(i)))
-        bed.addWidget(self.bed_dir)
-        tf.addRow(bed_w)
-        self.strategy = QComboBox()
-        self.strategy.setObjectName("cutstrat_tip_strategy")
-        for data, key, text in (
-            ("joint", "cutstrat.tip.joint", "micro-joint on the heavy side"),
-            ("last", "cutstrat.tip.last", "cut last, rapids around"),
-            ("avoid", "cutstrat.tip.avoid", "rapids around only"),
-        ):
-            self.strategy.addItem(tr(w, key, text), data)
-        tf.addRow(tr(w, "cutstrat.tip.strategy", "Strategy"), self.strategy)
-        rw = QWidget()
-        row = FlowLayout(rw, 6)
+        bind_mirror(self.bed_label, "cfg:bed.slat_pitch", getattr(w, "tr_", None))
+        tv.addWidget(self.bed_label)
+        self.bed_link = EditInLink(w, "cfg:bed.slat_pitch", tr=getattr(w, "tr_", None))
+        self.bed_link.setObjectName("cutstrat_bed_link")
+        self.bed_link.setWordWrap(True)
+        tv.addWidget(self.bed_link)
+        self.tip_rule = QLabel()
+        self.tip_rule.setObjectName("cutstrat_tip_rule")
+        self.tip_rule.setWordWrap(True)
+        bind_mirror(self.tip_rule, "recipe.rules.tip.strategy", getattr(w, "tr_", None))
+        tv.addWidget(self.tip_rule)
+        buttons = []
         for key, text, fn, name in (
             ("cutstrat.check_tip", "Check", self.check_tipping, "cutstrat_check_tip"),
             ("cutstrat.fix_tip", "Fix", self.fix_tipping, "cutstrat_fix_tip"),
         ):
             b = QPushButton(tr(w, key, text))
             b.setObjectName(name)
-            b.setMinimumHeight(32)
             b.clicked.connect(lambda _=False, f=fn: f())
-            row.addWidget(b)
-        tf.addRow(rw)
-        root.addWidget(Section("cutstrat_tipping", tr(w, "cutstrat.tipping", "Tipping on the slats"), tform))
-        # ---- results
+            buttons.append(b)
+        tv.addWidget(flow(buttons, justify=False))
+        panel.add_section(Section("cutstrat_tipping", tr(w, "cutstrat.tipping", "Tipping on the slats"), tb,
+                                  priority=1))
+        # ---- results (a list: may scroll)
         self.summary = QLabel()
         self.summary.setObjectName("cutstrat_summary")
         self.summary.setWordWrap(True)
-        root.addWidget(self.summary)
+        outer.addWidget(self.summary)
         self.issues = QListWidget()
         self.issues.setObjectName("cutstrat_issues")
-        self.issues.setMinimumHeight(self.issues.fontMetrics().height() * 4)
-        root.addWidget(self.issues, 1)
+        self.issues.setMinimumHeight(self.issues.fontMetrics().height() * 3)
+        outer.addWidget(self.issues, 1)
+        outer.setStretch(0, 0)
         self.refresh_bed()
         on_units_changed(self, lambda _u: self.refresh_bed(), now=False)
+        cfg = getattr(w, "config", None)
+        if cfg is not None and hasattr(cfg, "subscribe"):
+            self._unsub = cfg.subscribe(self._config_changed)
+
+    def _config_changed(self, key: str) -> None:
+        if key == "*" or key.startswith("bed."):
+            try:
+                self.refresh_bed()
+            except RuntimeError:          # the panel is gone (window closed)
+                pass
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self.refresh_bed()
 
     # ------------------------------------------------------------------ helpers
-    def _set_bed(self, key: str, value: Any) -> None:
-        cfg = getattr(self.window_, "config", None)
-        if cfg is None:
-            return
-        try:
-            cfg.set(key, value)
-        except ValueError as exc:
-            self.summary.setText(str(exc))
-        self.refresh_bed()
+    def rules_tech(self) -> tuple[Any, Optional[int]]:
+        """(technology, layer) whose rules apply: the recipe of the layer chosen in Process, else
+        of the first layer of the drawing (None: no recipe, the defaults)."""
+        from mlaser.services import inheritance as I
+
+        doc = self._doc()
+        if doc is None or self.store is None:
+            return None, None
+        ext = self.window_.extension("ext_process") if hasattr(self.window_, "extension") else None
+        ws = getattr(ext, "workspace", None)
+        layers = sorted({p.craft.layer for p in doc.parts})
+        cur = getattr(ws, "current_layer", None)
+        li = cur if cur in layers else (layers[0] if layers else None)
+        if li is None:
+            return None, None
+        return I.recipe_of(doc, li, self.store), li
+
+    def rules(self) -> dict:
+        return recipe_rules(self.rules_tech()[0])
+
+    def refresh_rules(self) -> None:
+        from mlaser.services import inheritance as I
+
+        w = self.window_
+        tech, li = self.rules_tech()
+        r = recipe_rules(tech)
+        u = U.current()
+        prefer = dict((d, tr(w, k, t)) for d, k, t in PREFER).get(r[("lead_place", "prefer")], r[("lead_place", "prefer")])
+        tip = dict((d, tr(w, k, t)) for d, k, t in TIP).get(r[("tip", "strategy")], r[("tip", "strategy")])
+        src = (tr(w, "cutstrat.from_recipe", "From {recipe}.", recipe=I.recipe_label(tech)) if tech is not None
+               else tr(w, "cutstrat.no_recipe", "No recipe on the layer: the default rules."))
+        self.lead_rules.setText(tr(
+            w, "cutstrat.rules", "Start on {prefer}; no start on features shorter than {min}; clearance {clear}. {source}",
+            prefer=prefer, min=u.fmt(r[("lead_place", "min_feature_mm")], "length", trim=True),
+            clear=u.fmt(r[("lead_check", "clearance_mm")], "small_length", trim=True), source=src))
+        self.tip_rule.setText(tr(w, "cutstrat.tip.rule", "Strategy: {strategy}. {source}", strategy=tip, source=src))
+        self.rules_link.target = tech
+        self.rules_link.setVisible(tech is not None)
 
     def refresh_bed(self) -> None:
         b = bed_of(self.window_)
@@ -243,15 +268,19 @@ class CuttingStrategyPanel(QWidget):
                 where=where,
             )
         )
+        self.refresh_rules()
 
     def lead_params(self):
+        """The lead check / placement parameters: the recipe's rules (Process › Library)."""
         from mlaser.cam.collision import LeadCheckParams
         from mlaser.cam.leadplace import LeadRules
 
-        rules = LeadRules(
-            prefer=str(self.prefer.currentData() or "auto"), min_feature=self.min_feature.value()
-        )
-        return LeadCheckParams(clearance=self.clearance.value(), rules=rules)
+        r = self.rules()
+        rules = LeadRules(prefer=str(r[("lead_place", "prefer")]), min_feature=float(r[("lead_place", "min_feature_mm")]))
+        return LeadCheckParams(clearance=float(r[("lead_check", "clearance_mm")]), rules=rules)
+
+    def tip_strategy(self) -> str:
+        return str(self.rules()[("tip", "strategy")])
 
     def _cam(self) -> Any:
         return getattr(self.window_, "cam_params", None)
@@ -357,7 +386,7 @@ class CuttingStrategyPanel(QWidget):
         from mlaser.cam import tipping
 
         self.refresh_bed()
-        bed, strat = bed_of(self.window_), str(self.strategy.currentData() or "joint")
+        bed, strat = bed_of(self.window_), self.tip_strategy()
         box: list = []
         self.ctx.edit(
             lambda d: box.append(tipping.apply(d, bed, strat)),
@@ -379,9 +408,9 @@ class CuttingStrategyPanel(QWidget):
         return rep
 
 
-def install(ctx: Any, tabs: Any) -> CuttingStrategyPanel:
+def install(ctx: Any, tabs: Any, store: Any = None) -> CuttingStrategyPanel:
     """Add the panel as a tab of the Process workspace and register its commands."""
-    panel = CuttingStrategyPanel(ctx)
+    panel = CuttingStrategyPanel(ctx, store=store)
     tabs.addTab(panel, tr(ctx.window, "cutstrat.tab", "Cutting strategy"))
     for cmd, fn, label in (
         ("cam.lead_check", panel.check_leads, "cutstrat.cmd.lead_check"),
@@ -394,7 +423,7 @@ def install(ctx: Any, tabs: Any) -> CuttingStrategyPanel:
     return panel
 
 
-__all__ = ["CuttingStrategyPanel", "augment_preflight", "bed_of", "install"]
+__all__ = ["CuttingStrategyPanel", "augment_preflight", "bed_of", "install", "recipe_rules", "RULE_DEFAULTS"]
 
 
 def _has_lead_in(doc: Any) -> bool:

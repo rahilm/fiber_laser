@@ -32,7 +32,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QComplet
 from mlaser.nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT,
                          GRAVITY_RIGHT, GRAVITY_TOP, NestJob, NestSheet)
 from mlaser.nest.engine import available_engines
-from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF
+from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF, NestParams
 from mlaser.services import units as U
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
@@ -494,8 +494,11 @@ class NestWorkspace(QWidget):
         self.common_line = self._check("nestws.opt.common_line", "Common line", "nestws_common_line")
         self.share_min = self._qspin("length", 0.1, 10000, 20.0)
         self.share_min.setToolTip(tr(w, "nestws.opt.share_min", "shortest shared edge"))
-        self.kerf = self._qspin("small_length", 0, 10, 0.2, 2)
-        self.kerf.setToolTip(tr(w, "nestws.opt.kerf", "kerf: the part distance with common line"))
+        # the cut width of a common line: the layer's kerf, read-only (one home: SETTINGS_MAP §3.4)
+        self.kerf_info = QLabel()
+        self.kerf_info.setObjectName("nestws_kerf")
+        self.kerf_info.setWordWrap(True)
+        homes.bind_mirror(self.kerf_info, "layer.craft.kerf_width", getattr(w, "tr_", None))
         self.part_in_part = self._check("nestws.opt.part_in_part", "Part in part", "nestws_part_in_part")
         self.mirror = self._check("nestws.opt.mirror", "Mirror (all parts)", "nestws_mirror")
         self.gravity = self._combo(((GRAVITY_LEFT, "nestws.grav.left", "left"),
@@ -512,7 +515,8 @@ class NestWorkspace(QWidget):
         self.cell = self._qspin("length", 0, 50, 0.0, 1)
         self.cell.setObjectName("nestws_cell")
         self.cell.setSpecialValueText(tr(w, "nestws.opt.auto", "auto"))
-        ng.addWidget(_pair("", self.common_line, self.share_min, self.kerf))
+        ng.addWidget(_pair("", self.common_line, self.share_min))
+        ng.addWidget(self.kerf_info)
         ng.addWidget(self.part_in_part)
         ng.addWidget(self.mirror)
         ng.addWidget(_pair(tr(w, "nestws.opt.gravity", "Gravity"), self.gravity))
@@ -534,23 +538,25 @@ class NestWorkspace(QWidget):
         self.remnant_min.setToolTip(tr(w, "nestws.opt.remnant_min", "narrowest remnant worth separating"))
         self.lead_fix = self._check("nestws.opt.lead_fix", "Fix lead collisions", "nestws_lead_fix")
         self.tip_check = self._check("nestws.opt.tip_check", "Tip-avoiding order", "nestws_tip_check")
-        self.tip_strategy = self._combo((("joint", "nestws.tip.joint", "micro-joint"),
-                                         ("last", "nestws.tip.last", "cut last"),
-                                         ("avoid", "nestws.tip.avoid", "rapids avoid")),
-                                        "nestws_tip_strategy")
+        # the tip strategy is a recipe rule (Process › Library): shown read-only
+        self.tip_info = QLabel()
+        self.tip_info.setObjectName("nestws_tip_strategy")
+        self.tip_info.setWordWrap(True)
+        homes.bind_mirror(self.tip_info, "recipe.rules.tip.strategy", getattr(w, "tr_", None))
         sg.addWidget(_pair(tr(w, "nestws.opt.scrap", "Skeleton cut-up"), self.scrap, self.scrap_pitch))
         sg.addWidget(_pair("", self.remnant_cut, self.remnant_min))
         sg.addWidget(self.lead_fix)
-        sg.addWidget(_pair("", self.tip_check, self.tip_strategy))
+        sg.addWidget(self.tip_check)
+        sg.addWidget(self.tip_info)
         box.addTab(sb, tr(w, "nestws.opt.strategy", "Cutting strategy"))
         for wid, vid in ((self.common_line, "nest.common_line"), (self.share_min, "nest.share_edge_min_len"),
-                         (self.kerf, "nest.kerf"), (self.part_in_part, "nest.part_in_part"),
+                         (self.part_in_part, "nest.part_in_part"),
                          (self.mirror, "nest.allow_mirror"), (self.gravity, "nest.gravity"),
                          (self.grain, "nest.grain"), (self.accuracy, "nest.accuracy"),
                          (self.cell, "nest.resolution"), (self.scrap, "nest.scrap_cut"),
                          (self.scrap_pitch, "nest.scrap_pitch"), (self.remnant_cut, "nest.remnant_cut"),
                          (self.remnant_min, "nest.remnant_min_width"), (self.lead_fix, "nest.lead_fix"),
-                         (self.tip_check, "nest.tip_check"), (self.tip_strategy, "nest.tip_strategy")):
+                         (self.tip_check, "nest.tip_check")):
             homes.bind_editor(wid, vid)
         for wid in (self.scrap, self.scrap_pitch, self.remnant_cut, self.remnant_min):
             sig = getattr(wid, "currentIndexChanged", None) or getattr(wid, "valueChanged", None) \
@@ -568,6 +574,52 @@ class NestWorkspace(QWidget):
             return
         self.options.setVisible(bool(on))
         self.options_btn.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
+
+    # ------------------------------------------------------------------ derived values (read-only)
+    def _layer_parts(self) -> list:
+        return [q for np_ in self.job.parts for q in np_.parts]
+
+    def cut_width(self) -> Optional[tuple[float, int]]:
+        """(cut width in mm, layer) of the job's parts: twice the effective kerf offset of their
+        layers (``Craft.kerf_width`` is the compensation, half the cut), the widest; None when no
+        part has a kerf.  The common line spaces the parts by it, the cut-up lines assume it."""
+        best: Optional[tuple[float, int]] = None
+        for q in self._layer_parts():
+            k = float(getattr(q.craft, "kerf_width", 0.0) or 0.0)
+            if k > 0 and (best is None or 2 * k > best[0]):
+                best = (2 * k, int(q.craft.layer))
+        return best
+
+    def tip_strategy(self) -> str:
+        """The tip-avoiding strategy: the rule of the recipe of the job's (first) layer."""
+        from mlaser.services import inheritance as I
+
+        from .cutting_strategy import recipe_rules
+        ext = self.window_.extension("ext_process") if hasattr(self.window_, "extension") else None
+        store = getattr(ext, "store", None)
+        parts = self._layer_parts()
+        tech = None
+        if store is not None and parts:
+            tech = I.recipe_of(self.window_.document, int(parts[0].craft.layer), store)
+        return str(recipe_rules(tech)[("tip", "strategy")])
+
+    def refresh_derived(self) -> None:
+        """The read-only kerf and tip strategy lines."""
+        w = self.window_
+        cut = self.cut_width()
+        if cut is None:
+            self.kerf_info.setText(tr(w, "nestws.kerf_none", "Common line cut width {cut}: no kerf on the parts' "
+                                      "layers, the default beam width",
+                                      cut=U.current().fmt(NestParams().strategy_kerf, "small_length", trim=True)))
+        else:
+            self.kerf_info.setText(tr(w, "nestws.kerf_from", "Common line cut width {cut} (kerf {kerf} from layer {n})",
+                                      cut=U.current().fmt(cut[0], "small_length", trim=True),
+                                      kerf=U.current().fmt(cut[0] / 2, "small_length", trim=True), n=cut[1]))
+        names = {"joint": ("nestws.tip.joint", "micro-joint"), "last": ("nestws.tip.last", "cut last"),
+                 "avoid": ("nestws.tip.avoid", "rapids avoid")}
+        key, text = names.get(self.tip_strategy(), names["joint"])
+        self.tip_info.setText(tr(w, "nestws.tip_from", "Tip strategy: {strategy} (recipe rule)",
+                                 strategy=tr(w, key, text)))
 
     def bed(self) -> Any:
         """The slat bed of the tip check (ConfigService ``bed.*``)."""
@@ -655,7 +707,7 @@ class NestWorkspace(QWidget):
         self.time_limit.setValue(p.time_limit_s)
         self.common_line.setChecked(p.common_line)
         self.share_min.setValue(p.share_edge_min_len)
-        self.kerf.setValue(p.kerf)
+        self.refresh_derived()
         self.part_in_part.setChecked(p.part_in_part)
         self.mirror.setChecked(p.allow_mirror)
         self.gravity.setCurrentIndex(max(0, self.gravity.findData(p.gravity)))
@@ -666,8 +718,6 @@ class NestWorkspace(QWidget):
         self.remnant_min.setValue(p.remnant_min_width)
         self.lead_fix.setChecked(p.lead_fix)
         self.tip_check.setChecked(p.tip_check)
-        self.tip_strategy.setCurrentIndex(max(0, self.tip_strategy.findData(
-            str(job.extra.get("tip_strategy", "joint")))))
         self.parts.setRowCount(len(job.parts))
         for r, np_ in enumerate(job.parts):
             vals = [np_.name, str(np_.quantity), "" if np_.max_quantity is None else str(np_.max_quantity),
@@ -786,7 +836,9 @@ class NestWorkspace(QWidget):
         p.resolution = self.cell.value() or None
         p.common_line = self.common_line.isChecked()
         p.share_edge_min_len = self.share_min.value()
-        p.kerf = self.kerf.value()
+        cut = self.cut_width()
+        # no kerf on the parts' layers: the default beam width of the strategy lines
+        p.kerf = p.strategy_kerf = cut[0] if cut is not None else NestParams().strategy_kerf
         p.part_in_part = self.part_in_part.isChecked()
         p.allow_mirror = self.mirror.isChecked()
         p.gravity = self.gravity.currentData() or GRAVITY_LEFT
@@ -797,7 +849,7 @@ class NestWorkspace(QWidget):
         p.remnant_min_width = self.remnant_min.value()
         p.lead_fix = self.lead_fix.isChecked()
         p.tip_check = self.tip_check.isChecked()
-        self.job.extra["tip_strategy"] = self.tip_strategy.currentData() or "joint"
+        self.job.extra["tip_strategy"] = self.tip_strategy()
         if not self._material_auto:
             self.job.extra["material"] = {"name": self.material.text().strip(),
                                           "thickness_mm": self.thickness.value(), "typed": True}

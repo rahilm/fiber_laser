@@ -65,9 +65,9 @@ class LayerPanel(QWidget):
         self.document = None
         v = QVBoxLayout(self)
         v.setContentsMargins(2, 2, 2, 2)
-        from .techform import FlowLayout
+        from .responsive import FlowLayout
         roww = QWidget()
-        row = FlowLayout(roww, 1)                # the swatches wrap in a narrow dock
+        row = FlowLayout(roww, justify=False, hspacing=1, vspacing=1)                # the swatches wrap in a narrow dock
         self.color_buttons = []
         for i in range(len(LAYER_COLORS)):
             b = QToolButton()

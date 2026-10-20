@@ -11,6 +11,18 @@ You find them in two places:
 * the **Nest** workspace, **Options → Cutting strategy**: applied to every sheet that goes to
   the queue (and to *Copy sheet to drawing*).
 
+**Where the settings live** (one place for each, [settings.md](settings.md)):
+
+* the **rules** (where starts go, the smallest feature that may carry a start, the lead
+  clearance, the tipping strategy) belong to the material: they are part of the technology
+  record, edited in **Process › Library**, section *Cutting strategy*. The Cutting strategy tab
+  shows the rules of the layer's recipe read-only, with a link to edit them; it keeps the
+  *Check*, *Fix* and *Place starts* actions;
+* the **bed** (slats) belongs to the machine: **Machine › Setup › Bed (slats)**. The tab shows it
+  read-only, with a link there;
+* the **kerf** is the layer's (or the part's): the Nest's common line uses it (the cut width is
+  twice the kerf compensation; with no kerf on the parts' layers, the default 0.2 mm beam).
+
 ## 1. Lead-in collision check
 
 A lead-in pierces in the scrap next to its contour. It is wrong when it
@@ -25,7 +37,7 @@ lead shapes.
 
 | Setting | Default | Meaning |
 |---|---|---|
-| Clearance to other contours | 0.5 mm | the lead's kerf keeps this distance from another contour |
+| Clearance to other contours | 0.5 mm | the lead's kerf keeps this distance from another contour (recipe rule `rules.lead_check.clearance_mm`) |
 | Kerf | the craft's kerf width, else 0.2 mm | width of the lead's own cut |
 | Sheet edge clearance | 2 mm | the pierce point keeps this distance from the sheet edge |
 | Shortest lead | 0.5 mm | a lead that would be shorter is flagged instead |
@@ -68,8 +80,9 @@ candidate, then runs the collision fix.
 A start in a corner hides the pierce mark in the corner; a start on a long straight segment
 keeps it away from small features where the heat would collect.
 
-**Per material.** A technology can carry its own rule (`rules.lead_place` in the technology
-database; applied with *Apply technology* when *Rules* is ticked), for example
+**Per material.** *Start on* and *Avoid features shorter than* are rules of the technology
+(Process › Library › Cutting strategy; `rules.lead_place` in the technology database); with
+`enabled` the starts are also placed when the recipe is assigned, for example
 
 ```json
 "rules": {"lead_place": {"enabled": true, "prefer": "corner", "min_feature_mm": 3,
@@ -82,8 +95,8 @@ When the last cut frees a part (or a *slug*, the inside of a hole), it rests on 
 bed. If it rests on one slat only, or its support does not surround its centre of gravity, it
 tips, stands up out of the sheet and the head hits it.
 
-**The bed model** (machine settings `bed.*`, edited at the top of the *Tipping* group of the
-Process *Cutting strategy* tab):
+**The bed model** (machine settings `bed.*`, edited in **Machine › Setup › Bed (slats)**; the
+*Tipping* group of the Process *Cutting strategy* tab shows it):
 
 | Setting | Default | Meaning |
 |---|---|---|
@@ -109,8 +122,9 @@ skeleton and are not at risk; a piece that fits between two slats falls through.
 Rapids always lift the head first. The rapid avoidance is the one of *Avoid cut holes* (cut holes
 are avoided too when that is on).
 
-Per material: `rules.tip` in the technology (`{"strategy": "last"}` for example; thin sheets tip
-more easily than thick ones). *Pre-flight: check tipping on the slats*
+The strategy is a rule of the material: *Tipping on the slats* in Process › Library › Cutting
+strategy (`rules.tip` in the technology, `{"strategy": "last"}` for example; thin sheets tip more
+easily than thick ones). The Nest uses the rule of the recipe of the job's layer. *Pre-flight: check tipping on the slats*
 (`cam.preflight_tip_check`, off by default) adds a `tip_risk` warning to the pre-flight.
 
 ## 4. Skeleton cut-up

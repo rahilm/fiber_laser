@@ -14,6 +14,10 @@ or "two columns of the widest section no longer fit".
    sections. When a panel does not fit, it first turns **compact** (smaller paddings), then
    **folds** its secondary sections, lowest priority first. A section the user opened stays open.
    *Lists* (item views, logs, card lists marked with `responsive.mark_list`) may scroll vertically.
+   A form that the user turns into a list (the technology form with *Show all parameters* or a
+   search: every matching parameter) marks itself as one while it is. A section the user opens
+   that is taller than the panel stays open and the panel scrolls (`scroll_overflow`); the
+   default layout never does.
 3. **STOP, Hold, Start and Arm are never folded, moved, scrolled away or shrunk.** They keep at
    least 56 px (`responsive.TARGET`) in every user mode and theme (`responsive.keep_min_size`).
    Other touch controls on the Run screen keep at least 44 px.
@@ -30,9 +34,10 @@ or "two columns of the widest section no longer fit".
 | Helper | Use |
 |---|---|
 | `FlowLayout(uniform=…, justify=…)` | Buttons that wrap to the next row. `uniform=True` gives an auto-fit grid of equal columns. It reports `heightForWidth`. It sizes and places the widgets' own rectangles, not the style's layout-item rectangles, because the macOS style's bezels lie outside those. |
-| `ResponsiveForm` | Puts the label beside the field while the widest label plus the widest field minimum fit, and above it otherwise. Its `heightForWidth` is the height of the arrangement that width gets, before the form is resized to it. |
-| `CollapsibleSection(title, body, collapsible, priority)` | A titled section. The header is a button with an arrow, so keyboard and screen readers can use it. |
-| `ColumnsPanel(max_columns, grow=…)` | Arranges sections in 1–3 columns. Default: as many columns as the width allows. `grow=True`: one column until the height runs out, then more columns, asking the parent for the width. `add_pinned` widgets (STOP) are always shown in full. |
+| `ResponsiveForm` | Puts the label beside the field while the widest label plus the widest field minimum fit, and above it otherwise. `addRow(widget)` spans both columns; `set_row_visible(field, on)` hides a row (it takes no room). Its `heightForWidth` is the height of the arrangement that width gets, before the form is resized to it. |
+| `CollapsibleSection(title, body, collapsible, priority, fit_title=False)` | A titled section. The header is a button with an arrow, so keyboard and screen readers can use it. `fit_title`: a long title ends in "…" in a narrow panel (full text in the tooltip), and a folded section shows `set_summary(text)` after its title ("in: Line 3 mm · out: None"). `open_by_user()`: open it as the user would ("Edit in …"). |
+| `ElidedToolButton` | A tool button whose text ends in "…" when it is narrower than the text (full text in the tooltip). Section titles, the source chip of an inherited value. |
+| `ColumnsPanel(max_columns, grow=…, scroll_overflow=…)` | Arranges sections in 1–3 columns. Default: as many columns as the width allows. `grow=True`: one column until the height runs out, then more columns, asking the parent for the width. `add_pinned` widgets (STOP) are always shown in full. `column_min`: a callable giving the width a column needs before a second one is used (forms pass the width their labels need beside the fields). `scroll_overflow=True` (a panel in a scroll area: Properties, the technology form): the section the user opened last is never folded again, what does not fit then scrolls; its minimum is the folded height at its width (headers side by side when wide), and after folding it reopens the sections that still fit (`refill`). `fold=False`: nothing folds (a list). |
 | `CompactWhenNarrow`, `set_compact` | Smaller paddings, and icon-only `compactable` tool buttons whose text moves to the tooltip. |
 | `ColumnFitter(view, priorities, stretch)` | Tables and trees: hides low-priority columns while the view is narrow and shows them again when it widens. |
 | `FitArea` | The shell's page wrapper. It takes the page's minimum (height-for-width aware) as its own, capped at 85 % of the screen. |
@@ -61,12 +66,18 @@ or "two columns of the widest section no longer fit".
 
   | Workspace | Minimum (logical px) |
   |---|---|
-  | Design | 939 × 404 |
-  | Process | 886 × 730 |
+  | Design | 946 × 446 |
+  | Process (no drawing / a drawing, a part selected) | 891 × 641 / 999 × 722 |
+  | Process › Library | 881 × 648 |
   | Nest | 881 × 765 |
   | Run | 881 × 658 |
   | Report | 968 × 716 |
   | Machine | 881 × 564 |
+
+  (Design's minimum grew from 404 when the layer legend's swatches moved to the responsive
+  `FlowLayout`, whose minimum counts the rows it wraps to. The Properties dock's minimum width
+  is its sections' own, so it is never squeezed below a field; with a selection that is wider
+  than the empty panel's.)
 
   A minimum height can grow when the window gets narrower, because rows that wrap need more
   height. The page wrapper reports this and the window follows.
@@ -138,4 +149,11 @@ reports and screenshots are in the `native-<os>` artifacts, under `shots/layout/
 
 Violations in panels that another track owns are listed in `PENDING` with their owner. They
 are reported but do not fail the test. `test_pending_still_needed` removes an entry once its
-violations are gone.
+violations are gone. `PENDING` is empty: every violation fails.
+
+`test_panels_with_a_selection` audits the panels that follow the selection with one: the
+Properties dock in Design and in Process (also with a contour of a multi-contour part picked),
+the layer inspector with a layer chosen and the Process › Library page, light and dark, at every
+sample size; the window must keep the sample size (the Process page does not push it taller).
+A checkable button with `responsive_views` in an exclusive group (Process *Drawing | Library*)
+is visited as a view too.

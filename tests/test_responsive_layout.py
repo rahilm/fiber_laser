@@ -40,12 +40,7 @@ TOUCH_MIN = 40
 
 #: violations in panels another track owns (ui_wave_brief.md "File ownership"): reported, not
 #: failed here; the owner's harness entry goes once it is fixed (test_pending_still_needed)
-PENDING: dict[str, str] = {
-    # Process & technology track (ui_wave_brief.md): Properties dock, Process workspace panels
-    "PropertiesPanel#properties_panel": "Process & technology",
-    "ProcessWorkspace#process_workspace >": "Process & technology",
-    "CanvasHud#canvas_hud": "Process & technology",      # the canvas overlay (646c40c)
-}
+PENDING: dict[str, str] = {}
 
 
 # ----------------------------------------------------------------------------- the window
@@ -213,10 +208,17 @@ def _sub_views(page, app, label: str):
     from PySide6.QtWidgets import QAbstractButton, QComboBox, QListWidget
     for b in page.findChildren(QAbstractButton):
         if b.property("responsive_views") and b.isVisible() and b.isCheckable() and not b.isChecked():
+            # a page switch (an exclusive group: Process › Drawing | Library) goes back to the
+            # button that was checked; a toggle (the Nest options) is unchecked again
+            grp = b.group()
+            prev = grp.checkedButton() if grp is not None and grp.exclusive() else None
             b.setChecked(True)
             _pump(app)
             yield f"{label}/{b.objectName()}"
-            b.setChecked(False)
+            if prev is not None:
+                prev.setChecked(True)
+            else:
+                b.setChecked(False)
             _pump(app)
     for nav in page.findChildren(QListWidget):
         if not nav.property("responsive_views") or not nav.isVisible():
@@ -369,6 +371,58 @@ def _fail_text(rows) -> str:
 
 
 # ----------------------------------------------------------------------------- tests
+def test_panels_with_a_selection(win, app):
+    """The panels that follow the selection, with one: the Properties dock in Design (Transform
+    and Layer) and in Process (every CAM section; a multi-contour part's contour picked), the
+    layer inspector with a layer chosen, the Library page; light and dark.  The window keeps
+    the sample size (the Process page does not push it taller)."""
+    from mlaser import ops
+    rep = Report()
+    doc0 = win.document
+    win.set_document(ops.demo_document())
+    host = win.shell.host
+    grew = []
+    try:
+        for theme in ("light", "dark"):
+            win.shell.set_theme(theme, persist=False)
+            _restyle(app)
+            for size in SAMPLES:
+                for ws in ("design", "process"):
+                    host.activate(ws)
+                    win.canvas.select_parts([0])
+                    _pump(app)
+                    s = _fit(win, app, size)
+                    if s.height() > size[1]:
+                        grew.append(f"{theme} {ws} {size}: window {s.width()}x{s.height()}")
+                    _pump(app, 0.02)
+                    rep.add("selection", s, f"{theme}_{ws}", A.audit(win))
+                    rep.shot(win, s, f"selection_{theme}_{ws}")
+                    if ws != "process":
+                        continue
+                    pp = win.extension("ext_process").properties
+                    pp.pick_contour(1)                      # a hole of the plate: its own values
+                    _pump(app)
+                    rep.add("selection", s, f"{theme}_{ws}_contour", A.audit(win))
+                    pp.pick_contour(None)
+                    pw = win.extension("ext_process").workspace
+                    pw.show_page(1)
+                    _pump(app)
+                    s = _fit(win, app, size)
+                    rep.add("selection", s, f"{theme}_{ws}_library", A.audit(win))
+                    rep.shot(win, s, f"selection_{theme}_library")
+                    pw.show_page(0)
+                    _pump(app)
+    finally:
+        win.shell.set_theme("light", persist=False)
+        _restyle(app)
+        win.canvas.select_parts([])
+        win.set_document(doc0)
+        _pump(app)
+    rep.write("selection")
+    text = _fail_text(rep.rows)
+    assert not text and not grew, text + "\n" + "\n".join(grew)
+
+
 def test_minimum_size_fits_the_smallest_sample(win, app):
     """What the content needs (docs/dev/RESPONSIVE.md): at most 1280 × 800 at the default font."""
     win.shell.host.activate("design")

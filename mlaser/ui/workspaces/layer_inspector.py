@@ -20,15 +20,16 @@ from dataclasses import replace
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QInputDialog, QLabel, QMessageBox, QPushButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QComboBox, QInputDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout,
+                               QWidget)
 
 from mlaser.model import LayerParams
 from mlaser.services import inheritance as I
 from mlaser.services import technology as T
 from mlaser.ui.inherited_field import InheritedField
 from mlaser.ui.techform import quantity
-from mlaser.ui.techform import FlowLayout, Section, TechForm
+from mlaser.ui.responsive import FlowLayout
+from mlaser.ui.techform import TechForm
 
 from .recipe_picker import RecipePicker
 
@@ -79,34 +80,14 @@ class LayerInspector(QWidget):
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 4, 0, 0)
         lay.setSpacing(4)
+        # one line: the layer and the recipe it follows (a link to it in the Library)
         self.title = QLabel()
-        f = self.title.font()
-        f.setBold(True)
-        self.title.setFont(f)
+        self.title.setObjectName("layer_title")
+        self.title.setWordWrap(True)
+        self.title.setTextFormat(Qt.RichText)
+        self.title.linkActivated.connect(self._open_recipe)
         lay.addWidget(self.title)
-        self.recipe_line = QLabel()
-        self.recipe_line.setWordWrap(True)
-        self.recipe_line.setTextFormat(Qt.RichText)
-        self.recipe_line.linkActivated.connect(self._open_recipe)
-        lay.addWidget(self.recipe_line)
-        # ---- recipe
-        body = QWidget()
-        bv = QVBoxLayout(body)
-        bv.setContentsMargins(0, 0, 0, 0)
-        self.picker = RecipePicker(self.tr_, store)
-        bv.addWidget(self.picker)
-        row = QHBoxLayout()
-        row.addStretch(1)
-        self.assign_btn = QPushButton(t("layer.assign"))
-        self.assign_btn.setToolTip(t("layer.assign_tip"))
-        self.assign_btn.clicked.connect(self.assign_picked)
-        row.addWidget(self.assign_btn)
-        bv.addLayout(row)
-        self.recipe_section = Section("layer_recipe", t("layer.recipe"), body, expanded=False)
-        lay.addWidget(self.recipe_section)
-        from mlaser.ui.homes import bind_editor
-        for w in (self.picker.material, self.picker.thickness, self.picker.gas, self.picker.nozzle):
-            bind_editor(w, f"layer.recipe.{w.accessibleName()}")
+        self.recipe_line = self.title          # (the old name)
         # ---- values
         unit = int(ctx.config.get("UN.GasPressureUnit", 0) or 0) if getattr(ctx, "config", None) is not None else 0
         self.form = TechForm(self.tr_, unit, scope="layer")
@@ -121,15 +102,36 @@ class LayerInspector(QWidget):
             self.craft_fields[vid] = fld
             rows.append((t(label), fld, t(help_), secondary))
         self.form.add_section("layer_craft", t("layer.craft_section"), rows)
-        lay.addWidget(self.form, 1)
+        # ---- recipe: the picker and the recipe actions, a section of the form (it folds with
+        # the others when the column is short; open first while the layer has no recipe)
+        body = QWidget()
+        bv = QVBoxLayout(body)
+        bv.setContentsMargins(0, 0, 0, 0)
+        self.no_recipe = QLabel(t("layer.no_recipe"))
+        self.no_recipe.setWordWrap(True)
+        bv.addWidget(self.no_recipe)
+        self.picker = RecipePicker(self.tr_, store)
+        bv.addWidget(self.picker)
+        self.assign_btn = QPushButton(t("layer.assign"))
+        self.assign_btn.setToolTip(t("layer.assign_tip"))
+        self.assign_btn.clicked.connect(self.assign_picked)
         acts = QWidget()
-        fl = FlowLayout(acts, 6)
+        fl = FlowLayout(acts, justify=False, hspacing=6, vspacing=6)
+        fl.addWidget(self.assign_btn)
+        self.action_buttons: dict[str, QPushButton] = {}
         for key, fn in (("layer.save_new", self.save_as_recipe), ("layer.push", self.push_into_recipe),
                         ("layer.reset_all", self.reset_all)):
             b = QPushButton(t(key))
             b.clicked.connect(lambda _c=False, f=fn: f())
             fl.addWidget(b)
-        lay.addWidget(acts)
+            self.action_buttons[key] = b
+        bv.addWidget(acts)
+        self.recipe_section = self.form.add_widget_section("layer_recipe", t("layer.recipe"), body, at=0,
+                                                           priority=15)
+        from mlaser.ui.homes import bind_editor
+        for w in (self.picker.material, self.picker.thickness, self.picker.gas, self.picker.nozzle):
+            bind_editor(w, f"layer.recipe.{w.accessibleName()}")
+        lay.addWidget(self.form, 1)
         self.setEnabled(False)
 
     # ---------------------------------------------------------------- state
@@ -153,21 +155,29 @@ class LayerInspector(QWidget):
         t = self.tr_
         li = self.layer
         doc = self.document
+        # no layer (no drawing): no values to show, the form takes no room
+        self.form.setVisible(li is not None)
         if li is None:
             self.title.setText(t.tr("layer.none"))
-            self.recipe_line.setText("")
             self.setEnabled(False)
             return
         lp = doc.layers.get(li)
-        self.title.setText(t.format("layer.title", n=li))
+        title = f"<b>{t.format('layer.title', n=li)}</b>"
         tech = I.recipe_of(doc, li, self.store)
         if tech is not None:
-            self.recipe_line.setText(t.format("layer.follows", recipe=f"<a href='recipe'>{I.recipe_label(tech)}</a>"))
+            self.title.setText(title + " · " + t.format("layer.follows",
+                                                        recipe=f"<a href='recipe'>{I.recipe_label(tech)}</a>"))
             self.picker.pick(tech.key)
+            self.recipe_section.set_summary(I.recipe_label(tech))
         else:
-            self.recipe_line.setText(t.tr("layer.no_recipe"))
-            if not self.recipe_section.expanded():
-                self.recipe_section.set_expanded(True)
+            self.title.setText(title)
+            self.recipe_section.set_summary(t.tr("layer.no_recipe_short"))
+        # no recipe: the picker comes first (it is what to do next)
+        self.no_recipe.setVisible(tech is None)
+        self.recipe_section.priority = 15 if tech is not None else 90
+        if tech is None and self.recipe_section.user_choice is False:
+            self.recipe_section.user_choice = None
+        self.form.panel.schedule()
         marks = I.layer_overrides(lp)
         values = T.layer_values(lp) if lp is not None else T.registry_defaults()
         here = t.format("inherit.set_on", where=t.format("inherit.src.layer", n=li))

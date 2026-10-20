@@ -35,10 +35,9 @@ from __future__ import annotations
 
 from typing import Any, Callable, Iterable, Optional
 
-from PySide6.QtCore import QPoint, QRect, QSize, Qt, Signal
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame, QHBoxLayout,
-                               QLabel, QLayout, QLineEdit, QScrollArea, QSizePolicy, QSpinBox, QToolButton,
-                               QVBoxLayout, QWidget)
+from PySide6.QtCore import QSize, Qt, Signal
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFrame, QHBoxLayout, QLabel, QLineEdit,
+                               QScrollArea, QSizePolicy, QSpinBox, QToolButton, QVBoxLayout, QWidget)
 
 from mlaser.services import technology as T
 
@@ -71,175 +70,76 @@ def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
     return s
 
 # --------------------------------------------------------------------------- layout helpers
+# the layouts are the responsive ones (docs/dev/RESPONSIVE.md): FlowLayout, ResponsiveForm and
+# the collapsible sections of a ColumnsPanel
+from .responsive import LIST_PROP, CollapsibleSection, ColumnsPanel, FlowLayout, ResponsiveForm  # noqa: E402
 
 
-class FlowLayout(QLayout):
-    """Items left to right, wrapping to the next line when the width runs out (chips, check
-    boxes).  Height for width, so the parent grows by lines instead of scrolling sideways."""
+class Section(CollapsibleSection):
+    """A collapsible section of a form (:class:`~mlaser.ui.responsive.CollapsibleSection`): its
+    title is cut with "…" in a narrow panel (full text in the tooltip) and, folded, it shows a
+    summary line of its values.  ``expanded=False``: folded until the user opens it."""
 
-    def __init__(self, parent: Optional[QWidget] = None, spacing: int = 6) -> None:
-        super().__init__(parent)
-        self._items: list = []
-        self._sp = spacing
-        self.setContentsMargins(0, 0, 0, 0)
-
-    def addItem(self, item) -> None:   # noqa: N802 - Qt
-        self._items.append(item)
-
-    def count(self) -> int:
-        return len(self._items)
-
-    def itemAt(self, i: int):   # noqa: N802 - Qt
-        return self._items[i] if 0 <= i < len(self._items) else None
-
-    def takeAt(self, i: int):   # noqa: N802 - Qt
-        return self._items.pop(i) if 0 <= i < len(self._items) else None
-
-    def expandingDirections(self):   # noqa: N802 - Qt
-        return Qt.Orientations(0)
-
-    def hasHeightForWidth(self) -> bool:   # noqa: N802 - Qt
-        return True
-
-    def heightForWidth(self, w: int) -> int:   # noqa: N802 - Qt
-        return self._do(QRect(0, 0, w, 0), True)
-
-    def setGeometry(self, r) -> None:   # noqa: N802 - Qt
-        super().setGeometry(r)
-        self._do(r, False)
-
-    def sizeHint(self) -> QSize:   # noqa: N802 - Qt
-        return self.minimumSize()
-
-    def minimumSize(self) -> QSize:   # noqa: N802 - Qt
-        s = QSize()
-        for it in self._items:
-            s = s.expandedTo(it.minimumSize())
-        m = self.contentsMargins()
-        return s + QSize(m.left() + m.right(), m.top() + m.bottom())
-
-    def _do(self, r, test: bool) -> int:
-        m = self.contentsMargins()
-        x, y = r.x() + m.left(), r.y() + m.top()
-        right = r.right() - m.right()
-        line_h = 0
-        for it in self._items:
-            w = it.widget()
-            if w is not None and w.isHidden():
-                continue
-            sh = it.sizeHint()
-            if x + sh.width() > right + 1 and line_h > 0:
-                x = r.x() + m.left()
-                y += line_h + self._sp
-                line_h = 0
-            if not test:
-                it.setGeometry(QRect(QPoint(x, y), sh))
-            x += sh.width() + self._sp
-            line_h = max(line_h, sh.height())
-        return y + line_h - r.y() + m.bottom()
+    def __init__(self, sid: str, title: str, body: QWidget, expanded: bool = True,
+                 parent: Optional[QWidget] = None, priority: int = 0) -> None:
+        super().__init__(title, body, priority=priority, parent=parent, fit_title=True)
+        self.sid = sid
+        self.setObjectName(f"techform_section_{sid}")
+        self.header.setObjectName("techform_section_header")
+        if not expanded:
+            self.user_choice = False
+            self.set_expanded(False)
 
 
-class ResponsiveForm(QWidget):
-    """A QFormLayout whose rows put the label beside the field while the widest label + field
-    fit the form's current width, and above it when they do not (content-driven, re-evaluated
-    on every resize; no breakpoints)."""
+def beside_width(panel: ColumnsPanel) -> int:
+    """The column width at which every form of ``panel`` has its labels beside the fields:
+    a panel takes a second column only when each column is that wide."""
+    out = 0
+    for sec in panel.sections:
+        body = getattr(sec, "body", None)
+        if sec.isHidden() or not isinstance(body, ResponsiveForm):
+            continue
+        m = sec.frame.layout().contentsMargins()
+        out = max(out, body.needed_beside() + m.left() + m.right() + 2 * sec.frame.frameWidth())
+    return out
+
+
+class FormScroll(QScrollArea):
+    """The scroll area of a form panel: while it is a *form* its minimum height is the panel's
+    folded minimum (the page grows instead of scrolling); while it is a *list* (every parameter,
+    a search: ``responsive_scroll = "list"``) it may scroll."""
 
     def __init__(self, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        self.form = QFormLayout(self)
-        self.form.setContentsMargins(4, 2, 4, 2)
-        self.form.setFieldGrowthPolicy(QFormLayout.AllNonFixedFieldsGrow)
-        self.form.setLabelAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.form.setRowWrapPolicy(QFormLayout.DontWrapRows)
-        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+        self.setWidgetResizable(True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-    def needed_width(self) -> int:
-        """Width the side-by-side layout needs: widest visible label + widest field minimum."""
-        lw = fw = 0
-        f = self.form
-        for r in range(f.rowCount()):
-            li = f.itemAt(r, QFormLayout.LabelRole)
-            fi = f.itemAt(r, QFormLayout.FieldRole)
-            if li is not None and li.widget() is not None and not li.widget().isHidden():
-                lab = li.widget()
-                lw = max(lw, lab.fontMetrics().horizontalAdvance(lab.text()) + 4)
-            if fi is not None:
-                w = fi.widget()
-                if w is not None and w.isHidden():
-                    continue
-                fw = max(fw, fi.minimumSize().width())
-        m = f.contentsMargins()
-        return lw + fw + max(f.horizontalSpacing(), 6) + m.left() + m.right()
+    def is_list(self) -> bool:
+        return self.property(LIST_PROP) == "list"
 
-    def update_wrap(self) -> None:
-        wrap = self.width() < self.needed_width()
-        want = QFormLayout.WrapAllRows if wrap else QFormLayout.DontWrapRows
-        if self.form.rowWrapPolicy() != want:
-            self.form.setRowWrapPolicy(want)
+    def set_list(self, on: bool) -> None:
+        if on != self.is_list():
+            self.setProperty(LIST_PROP, "list" if on else "")
+            self.updateGeometry()
 
-    def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        w = self.widget()
+        base = super().minimumSizeHint()
+        if w is None:
+            return base
+        fw = 2 * self.frameWidth()
+        m = w.minimumSizeHint()
+        h = m.height()
+        if isinstance(w, ColumnsPanel) and self.width() > 0:
+            h = w.folded_height(self.viewport().width())      # headers side by side when wide
+        h = base.height() if self.is_list() else h + fw
+        return QSize(m.width() + fw, h)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
-        self.update_wrap()
-
-    def minimumSizeHint(self) -> QSize:   # noqa: N802 - Qt
-        # wrapped rows need only the widest field: the form never forces a horizontal scroll
-        s = super().minimumSizeHint()
-        f = self.form
-        fw = 0
-        for r in range(f.rowCount()):
-            fi = f.itemAt(r, QFormLayout.FieldRole)
-            if fi is not None and (fi.widget() is None or not fi.widget().isHidden()):
-                fw = max(fw, fi.minimumSize().width())
-        return QSize(min(s.width(), fw + 12), s.height())
-
-
-class Section(QWidget):
-    """A collapsible section: a header button (title, open/closed arrow) and a body."""
-
-    toggled = Signal(bool)
-
-    def __init__(self, sid: str, title: str, body: QWidget, expanded: bool = True,
-                 parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
-        self.sid = sid
-        self.setObjectName(f"techform_section_{sid}")
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(0, 2, 0, 2)
-        lay.setSpacing(0)
-        self.header = QToolButton()
-        self.header.setObjectName("techform_section_header")
-        self.header.setText(title)
-        self.header.setCheckable(True)
-        self.header.setChecked(expanded)
-        self.header.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.header.setAutoRaise(True)
-        # a long title never widens the panel: it is clipped (full text in the tooltip)
-        self.header.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
-        self.header.setToolTip(title)
-        f = self.header.font()
-        f.setBold(True)
-        self.header.setFont(f)
-        self.header.toggled.connect(self.set_expanded)
-        lay.addWidget(self.header)
-        line = QFrame()
-        line.setFrameShape(QFrame.HLine)
-        line.setFrameShadow(QFrame.Sunken)
-        lay.addWidget(line)
-        self.body = body
-        lay.addWidget(body)
-        self.set_expanded(expanded)
-
-    def set_expanded(self, on: bool) -> None:
-        on = bool(on)
-        if self.header.isChecked() != on:
-            self.header.setChecked(on)
-            return
-        self.header.setArrowType(Qt.DownArrow if on else Qt.RightArrow)
-        self.body.setVisible(on)
-        self.toggled.emit(on)
-
-    def expanded(self) -> bool:
-        return self.header.isChecked()
+        if ev.size().width() != ev.oldSize().width():
+            self.updateGeometry()          # the folded minimum depends on the columns
 
 
 # --------------------------------------------------------------------------- the parameters
@@ -525,10 +425,35 @@ class TechField:
             or t in self.group.lower()
 
 
+def widget_text(w: QWidget) -> str:
+    """What an input shows, for a folded section's summary line."""
+    from PySide6.QtWidgets import QAbstractSpinBox
+    if isinstance(w, QCheckBox):
+        return w.text() if w.isChecked() else ""
+    if isinstance(w, QComboBox):
+        return w.currentText()
+    if isinstance(w, QAbstractSpinBox):
+        return w.text().strip()
+    if isinstance(w, QLineEdit):
+        return w.text().strip()
+    inner = getattr(w, "editor", None)            # an InheritedField
+    return widget_text(inner) if isinstance(inner, QWidget) else ""
+
+
+#: section id -> priority in the panel (a folded section of lower priority goes first)
+PRIORITY = {"cutting": 60, "leads": 50, "layer_craft": 50, "gas": 45, "height": 40, "piercing": 30,
+            "corners": 20, "record": 10, "advanced": 0}
+
+
 class TechForm(QWidget):
     """The parameter form (see the module docstring).  ``values()`` returns every field's value
     (GP key -> value); ``set_values(full, base, base_label)`` loads them with the base the
-    override markers compare with."""
+    override markers compare with.
+
+    Layout (docs/dev/RESPONSIVE.md): the sections are a :class:`ColumnsPanel` (as many columns
+    as the width allows; when the height runs out the sections fold, lowest priority first, each
+    showing a summary line, so the form does not scroll).  *Show all parameters* and a search
+    turn it into a list of every matching parameter, which may scroll."""
 
     changed = Signal()
     fieldEdited = Signal(str, object)     # key, new value (a user edit of one field)
@@ -545,9 +470,11 @@ class TechForm(QWidget):
         self.fields: dict[str, TechField] = {}
         self.sections: dict[str, Section] = {}
         self._forms: dict[str, ResponsiveForm] = {}
-        self._stage_boxes: list[Section] = []
+        self._stage_labels: list[QLabel] = []
+        self._group_labels: dict[str, list[tuple[QLabel, list[TechField]]]] = {}
         self._extra_rows: dict[str, list[tuple[QWidget, Callable[[str], bool], bool]]] = {}
         self._pinned: set = set()          # fields "Edit in …" asked to show
+        self._widget_sections: set[str] = set()
         t = tr.tr
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -558,40 +485,40 @@ class TechForm(QWidget):
         self.base_info.setWordWrap(True)
         self.base_info.setTextFormat(Qt.RichText)
         outer.addWidget(self.base_info)
-        bar = QVBoxLayout()
-        bar.setSpacing(2)
+        bar = QWidget()
+        bl = FlowLayout(bar, justify=True)
+        bl.setContentsMargins(0, 0, 0, 0)
         self.search = QLineEdit()
         self.search.setObjectName("techform_search")
         self.search.setPlaceholderText(t("techform.search"))
         self.search.setClearButtonEnabled(True)
         self.search.setAccessibleName(t("techform.search"))
+        fm = self.search.fontMetrics()
+        self.search.setMinimumWidth(fm.horizontalAdvance(t("techform.search")) + 3 * fm.height())
         self.search.textChanged.connect(lambda _t: self.apply_visibility())
-        bar.addWidget(self.search, 1)
+        bl.addWidget(self.search)
         self.show_all = QCheckBox(t("techform.show_all"))
         self.show_all.setObjectName("techform_show_all")
         self.show_all.setToolTip(t("techform.show_all_tip"))
         self.show_all.setChecked(advanced)
+        self.show_all.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.show_all.toggled.connect(lambda _v: self.apply_visibility())
         from .homes import bind_transient
         bind_transient(self.search, "view.search")      # view controls, not settings
         bind_transient(self.show_all, "view.show_all")
-        bar.addWidget(self.show_all)
-        outer.addLayout(bar)
-        self.scroll = QScrollArea()
+        bl.addWidget(self.show_all)
+        outer.addWidget(bar)
+        self.scroll = FormScroll()
         self.scroll.setObjectName("techform_scroll")
-        self.scroll.setWidgetResizable(True)
-        self.scroll.setFrameShape(QFrame.NoFrame)
-        self.scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        body = QWidget()
-        self.body_lay = QVBoxLayout(body)
-        self.body_lay.setContentsMargins(0, 0, 4, 0)
-        self.body_lay.setSpacing(2)
-        self.scroll.setWidget(body)
+        self.panel = ColumnsPanel(max_columns=3, compact=False, scroll_overflow=True)
+        self.panel.setObjectName("techform_panel")
+        self.panel.column_min = lambda: beside_width(self.panel)
+        self.scroll.setWidget(self.panel)
         outer.addWidget(self.scroll, 1)
         self.empty = QLabel(t("techform.no_match"))
         self.empty.setWordWrap(True)
         self.empty.setVisible(False)
-        self.body_lay.addWidget(self.empty)
+        self.panel.add_pinned(self.empty)
         # ---- sections
         self.pressure_unit = pressure_unit
         used: set[str] = set()
@@ -605,27 +532,27 @@ class TechForm(QWidget):
             for k in secondary:
                 self._add_field(sid, form, k, secondary=True)
                 used.add(k)
-        self._extra_anchor = self.body_lay.count()
+        self._extra_anchor = len(self.panel.sections)
         # ---- advanced: everything else by registry group
         adv = self._new_section("advanced", t("techform.sec.advanced"), expanded=False)
         for k in T.layer_registry():
             if k in used or k in SKIP or stage_of(k) is not None:
                 continue
             self._add_field("advanced", adv, k, secondary=True, grouped=True)
-        self.body_lay.addStretch(1)
         self.apply_visibility()
 
     # ---------------------------------------------------------------- building
     def _new_section(self, sid: str, title: str, expanded: bool = True,
-                     at: Optional[int] = None) -> ResponsiveForm:
+                     at: Optional[int] = None, priority: Optional[int] = None) -> ResponsiveForm:
         form = ResponsiveForm()
-        sec = Section(sid, title, form, expanded)
+        sec = Section(sid, title, form, expanded, priority=PRIORITY.get(sid, 25) if priority is None else priority)
         self.sections[sid] = sec
         self._forms[sid] = form
-        if at is None:
-            self.body_lay.addWidget(sec)
-        else:
-            self.body_lay.insertWidget(at, sec)
+        self.panel.add_section(sec)
+        if at is not None:
+            self.panel.sections.remove(sec)
+            self.panel.sections.insert(at, sec)
+        sec.toggled.connect(lambda _on: self._update_summaries())
         return form
 
     def _add_field(self, sid: str, form: ResponsiveForm, key: str, secondary: bool,
@@ -642,62 +569,82 @@ class TechForm(QWidget):
         if f.kind is not None:
             from .units_qt import on_units_changed
             on_units_changed(f.label, lambda _u, ff=f: ff.units_changed(), now=False)
-        if grouped and form.property("last_group") != f.group:
-            form.setProperty("last_group", f.group)
-            g = QLabel(f"<b>{f.group}</b>")
-            g.setObjectName("techform_group")
-            form.form.addRow(g)
-            f.group_label = g  # type: ignore[attr-defined]
-        form.form.addRow(f.label, f.container)
+        if grouped:
+            groups = self._group_labels.setdefault(sid, [])
+            if not groups or groups[-1][1][0].group != f.group:
+                g = QLabel(f"<b>{f.group}</b>")
+                g.setObjectName("techform_group")
+                form.addRow(g)
+                groups.append((g, []))
+            groups[-1][1].append(f)
+        form.addRow(f.label, f.container)
         self.fields[key] = f
         return f
 
     def _build_stages(self, used: set) -> None:
-        """One collapsible block per pierce stage inside the Piercing section."""
+        """One block per pierce stage inside the Piercing section: a heading and its rows."""
         form = self._forms["piercing"]
         t = self.tr_
         for s in range(MAX_STAGES):
-            sf = ResponsiveForm()
-            box = Section(f"stage{s}", t.format("techform.stage", n=s + 1), sf, expanded=True)
-            box.header.setFont(self.font())
-            self._stage_boxes.append(box)
-            form.form.addRow(box)
+            lab = QLabel(f"<b>{t.format('techform.stage', n=s + 1)}</b>")
+            lab.setObjectName(f"techform_stage{s}")
+            self._stage_labels.append(lab)
+            form.addRow(lab)
             for k in STAGE_PRIMARY:
                 key = f"GP.{k}{s}"
-                if self._add_field("piercing", sf, key, secondary=False):
+                if self._add_field("piercing", form, key, secondary=False):
                     used.add(key)
             for k in STAGE_SECONDARY:
                 key = f"GP.{k}{s}"
-                if self._add_field("piercing", sf, key, secondary=True):
+                if self._add_field("piercing", form, key, secondary=True):
                     used.add(key)
             for k in ("Enable", "Power", "Freq"):
                 key = f"GP.BoltDrill_{k}_{s + 1}"
-                if self._add_field("piercing", sf, key, secondary=True):
+                if self._add_field("piercing", form, key, secondary=True):
                     used.add(key)
-            self._forms[f"stage{s}"] = sf
 
     def add_section(self, sid: str, title: str, rows: Iterable[tuple[str, QWidget, str, bool]],
-                    expanded: bool = True, extra: Optional[QWidget] = None) -> ResponsiveForm:
+                    expanded: bool = True, extra: Optional[QWidget] = None,
+                    priority: Optional[int] = None) -> ResponsiveForm:
         """A caller's section (before Advanced): ``rows`` = (label, widget, help, secondary)."""
-        form = self._new_section(sid, title, expanded, at=self._extra_anchor)
+        form = self._new_section(sid, title, expanded, at=self._extra_anchor, priority=priority)
         self._extra_anchor += 1
         out = self._extra_rows.setdefault(sid, [])
         for label, w, help_, secondary in rows:
-            lab = QLabel(label)
-            lab.setWordWrap(True)
-            lab.setBuddy(w)
-            lab.setToolTip(help_)
+            lab = QLabel(label) if label else None
+            if lab is not None:
+                lab.setWordWrap(True)
+                lab.setBuddy(w)
+                lab.setToolTip(help_)
             w.setToolTip(help_)
-            w.setAccessibleName(label)
+            w.setAccessibleName(label or w.accessibleName() or (w.text() if hasattr(w, "text") else ""))
             if isinstance(w, QComboBox):
                 w.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
                 w.setMinimumContentsLength(6)
-            form.form.addRow(lab, w)
+            form.addRow(lab, w)
             text = f"{label} {help_}".lower()
             out.append((w, lambda q, tx=text: not q or q in tx, secondary))
+            for sig in ("valueChanged", "currentIndexChanged", "toggled", "textChanged"):
+                if hasattr(w, sig):
+                    getattr(w, sig).connect(lambda *_a: self._update_summaries())
+                    break
         if extra is not None:
-            form.form.addRow(extra)
+            form.addRow(extra)
         return form
+
+    def add_widget_section(self, sid: str, title: str, body: QWidget, at: int = 0, expanded: bool = True,
+                           priority: Optional[int] = None) -> Section:
+        """A caller's section holding any widget (the layer inspector's recipe picker): folds
+        with the others; hidden while a search runs."""
+        sec = Section(sid, title, body, expanded, priority=PRIORITY.get(sid, 25) if priority is None else priority)
+        self.sections[sid] = sec
+        self.panel.add_section(sec)
+        self.panel.sections.remove(sec)
+        self.panel.sections.insert(at, sec)
+        self._extra_anchor += 1
+        self._widget_sections.add(sid)
+        self.apply_visibility()
+        return sec
 
     # ---------------------------------------------------------------- values
     def set_values(self, full: dict, base: Optional[dict] = None, base_label: str = "",
@@ -773,6 +720,10 @@ class TechForm(QWidget):
     def advanced(self) -> bool:
         return self.show_all.isChecked()
 
+    def is_list(self) -> bool:
+        """Every parameter (or a search): a list that may scroll, not a form that fits."""
+        return self.advanced() or bool(self.search.text().strip())
+
     def reveal_widget(self, w: QWidget) -> None:
         """Show the row of ``w`` (an "Edit in …" target) whatever the filters say."""
         self.search.clear()
@@ -784,6 +735,11 @@ class TechForm(QWidget):
             if any(rw is w for rw, _m, sec in rows if sec):
                 self.show_all.setChecked(True)
         self.apply_visibility()
+        for sid, form in self._forms.items():
+            if form.isAncestorOf(w):
+                self.sections[sid].open_by_user()
+        self.panel.relayout()
+        self.scroll.ensureWidgetVisible(w)
 
     def field_visible(self, f: TechField, query: str) -> bool:
         """Whether a field applies and is wanted: its stage is used, its switch is on, it is a
@@ -804,62 +760,72 @@ class TechForm(QWidget):
     def apply_visibility(self) -> None:
         q = self.search.text().strip().lower()
         shown: dict[str, int] = {}
+        stage_shown: dict[int, int] = {}
         for f in self.fields.values():
             vis = self.field_visible(f, q)
-            form = self._form_of(f)
-            form.form.setRowVisible(f.container, vis)
+            self._form_of(f).set_row_visible(f.container, vis)
             if vis:
                 shown[f.section] = shown.get(f.section, 0) + 1
                 if f.stage is not None:
-                    shown[f"stage{f.stage}"] = shown.get(f"stage{f.stage}", 0) + 1
+                    stage_shown[f.stage] = stage_shown.get(f.stage, 0) + 1
         for sid, rows in self._extra_rows.items():
             for w, match, secondary in rows:
                 vis = match(q) and (not secondary or self.advanced() or bool(q))
-                self._forms[sid].form.setRowVisible(w, vis)
+                self._forms[sid].set_row_visible(w, vis)
                 if vis:
                     shown[sid] = shown.get(sid, 0) + 1
-        for s, box in enumerate(self._stage_boxes):
-            self._forms["piercing"].form.setRowVisible(box, shown.get(f"stage{s}", 0) > 0)
+        for s, lab in enumerate(self._stage_labels):
+            self._forms["piercing"].set_row_visible(lab, stage_shown.get(s, 0) > 0)
         # registry group titles of the Advanced section: only above visible fields
-        adv = self._forms.get("advanced")
-        if adv is not None:
-            groups: dict[QLabel, bool] = {}
-            cur = None
-            for r in range(adv.form.rowCount()):
-                it = adv.form.itemAt(r, QFormLayout.SpanningRole)
-                if it is not None and isinstance(it.widget(), QLabel):
-                    cur = it.widget()
-                    groups[cur] = False
-                    continue
-                fi = adv.form.itemAt(r, QFormLayout.FieldRole)
-                if cur is not None and fi is not None and adv.form.isRowVisible(r):
-                    groups[cur] = True
-            for lab, vis in groups.items():
-                adv.form.setRowVisible(lab, vis)
+        for sid, groups in self._group_labels.items():
+            for lab, fs in groups:
+                self._forms[sid].set_row_visible(lab, any(self._form_of(f).is_row_visible(f.container) for f in fs))
+        listy = self.is_list()
         for sid, sec in self.sections.items():
-            vis = shown.get(sid, 0) > 0
+            vis = shown.get(sid, 0) > 0 or (sid in self._widget_sections and not q)
             if sid == "advanced":
                 vis = vis and (self.advanced() or bool(q))
             sec.setVisible(vis)
-            if q and vis:
-                sec.set_expanded(True)
-        self.empty.setVisible(bool(q) and not any(sec.isVisible() for sec in self.sections.values()))
+            if q and vis and sec.user_choice is False:
+                sec.user_choice = None           # a search shows what it found
+        self.empty.setVisible(bool(q) and not any(not sec.isHidden() for sec in self.sections.values()))
+        self.panel.fold = not listy
+        self.scroll.set_list(listy)
         for form in self._forms.values():
-            form.update_wrap()
+            if form.width() > 0:
+                form.set_beside(form.width() >= form.needed_beside())
+        self._update_summaries()
+        self.panel.schedule()
+
+    def _update_summaries(self) -> None:
+        """The summary line of each section (shown while it is folded): its first visible
+        values ("100 mm/s · 100 % · 5000 Hz")."""
+        for sid, sec in self.sections.items():
+            if sid in self._widget_sections or (sec.expanded() and sec.summary()):
+                continue
+            parts: list[str] = []
+            for f in self.fields.values():
+                if f.section == sid and self._form_of(f).is_row_visible(f.container) and f.stage in (None, 0):
+                    txt = f.text_value(f.get())
+                    if txt and txt != "—":
+                        parts.append(txt)
+                if len(parts) >= 3:
+                    break
+            for w, _m, _sec in self._extra_rows.get(sid, []):
+                if len(parts) >= 3:
+                    break
+                if self._forms[sid].is_row_visible(w):
+                    txt = widget_text(w)
+                    if txt:
+                        parts.append(txt)
+            sec.set_summary(" · ".join(parts))
 
     def _form_of(self, f: TechField) -> ResponsiveForm:
-        if f.stage is not None and f"stage{f.stage}" in self._forms and f.section == "piercing":
-            return self._forms[f"stage{f.stage}"]
         return self._forms[f.section]
 
     def section_order(self) -> list[str]:
         """Section ids top to bottom."""
-        out = []
-        for i in range(self.body_lay.count()):
-            w = self.body_lay.itemAt(i).widget()
-            if isinstance(w, Section):
-                out.append(w.sid)
-        return out
+        return [s.sid for s in self.panel.sections if isinstance(s, Section)]
 
     def visible_keys(self) -> list[str]:
         """Parameters currently shown (tests)."""
@@ -868,10 +834,7 @@ class TechForm(QWidget):
             sec = self.sections[f.section]
             if sec.isHidden():
                 continue
-            form = self._form_of(f)
-            if form.form.isRowVisible(f.container) and (f.stage is None or
-                                                        self._forms["piercing"].form.isRowVisible(
-                                                            self._stage_boxes[f.stage])):
+            if self._form_of(f).is_row_visible(f.container):
                 out.append(k)
         return out
 
