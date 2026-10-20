@@ -230,9 +230,19 @@ class OnshapeService:
                                   float(self.get("utilisation")))
 
     def load_into_nest(self, key: tuple[str, float]) -> Any:
-        """Load one material x thickness group of the Orders book into Nest (the Orders
-        workspace's own command, so the technology is picked the same way)."""
+        """Load one material x thickness group of the Orders book into Nest, the way the Orders
+        workspace's *Load into Nest* does (so the technology is picked the same way).
+
+        The command ``orders.to_nest`` drops its arguments (its parameters have defaults, so
+        the registry calls it without the key and it loads the group selected in the Orders
+        workspace); the Orders extension's ``to_nest(key)`` is called directly when the window
+        offers it, and the command is the fallback."""
+        win = getattr(self.ctx, "window", None)
+        ext = win.extension("orders") if win is not None and hasattr(win, "extension") else None
+        ext = ext[0] if isinstance(ext, tuple) else ext
+        if ext is not None and hasattr(ext, "to_nest"):
+            return ext.to_nest(tuple(key))
         cmds = getattr(self.ctx, "commands", None)
         if cmds is None:
-            raise OnshapeError("no command registry")
+            raise OnshapeError("Load into Nest needs the Orders workspace")
         return cmds.run("orders.to_nest", tuple(key))

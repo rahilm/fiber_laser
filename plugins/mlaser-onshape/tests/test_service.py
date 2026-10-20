@@ -128,8 +128,20 @@ def test_full_run_statuses_dxfs_and_orders(svc, fake, ctx):
     assert g3.parts == 4 and g3.quantity == 5 + 3 + 7 + 3 and g3.sheets == 1
     # the book groups by the same key, so Load into Nest finds the lines
     assert g3.key in dict(book.groups())
-    svc.load_into_nest(g3.key)
+    svc.load_into_nest(g3.key)                           # no window: the command
     assert ctx.commands.ran == [("orders.to_nest", (g3.key,))]
+    got = []
+
+    class Orders:
+        def to_nest(self, key=None, replace=None):
+            got.append(key)
+            return ["parts"]
+
+    class Win:
+        def extension(self, name):
+            return Orders() if name == "orders" else None
+    ctx.window = Win()
+    assert svc.load_into_nest(g3.key) == ["parts"] and got == [g3.key]
 
 
 def test_dxfs_import_as_closed_parts_in_mlaser(svc):
