@@ -26,7 +26,15 @@ from __future__ import annotations
 import os
 import weakref
 from dataclasses import dataclass
+import sys
 from typing import Callable, Optional
+
+_MAC = sys.platform == "darwin"
+
+
+def _native_keys(text: str) -> str:
+    from .shell.keymap import native_text
+    return native_text(text, "darwin")
 
 from mlaser import i18n as cat
 from mlaser.i18n import importer
@@ -171,8 +179,9 @@ class Translator:
     def tr(self, key: str, default: Optional[str] = None) -> str:
         t = self._lookup(key, self.language)
         if t is None:
-            return default if default is not None else key
-        return t
+            t = default if default is not None else key
+        # shortcut text as the platform writes it: "(Ctrl+K)" is "(⌘K)" on macOS (Native track)
+        return _native_keys(t) if _MAC and "+" in t else t
 
     def format(self, key: str, *args, default: Optional[str] = None, **kwargs) -> str:
         """Translated text with its placeholders filled (positional values follow the catalogue's

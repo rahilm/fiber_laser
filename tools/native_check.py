@@ -126,8 +126,10 @@ def probe_linux(pid: int) -> dict[str, Any]:
                              "_KDE_NET_WM_DESKTOP_FILE", "_NET_WM_PID", "_KDE_NET_WM_APPMENU_SERVICE_NAME"])
                       + "\n_NET_WM_ICON: " + ("present" if "_NET_WM_ICON(CARDINAL)" in sh(["xprop", "-id", i, "-notype", "_NET_WM_ICON"], 30)[:200]
                                               else "absent") for i in ids}
-    act = out["active"].split()[-1] if out["active"] else ""
-    out["is_front"] = any(int(i, 16) == int(act, 16) for i in ids if act.startswith("0x")) if act.startswith("0x") else False
+    act = out["active"].replace(",", " ").split()
+    act_id = next((t for t in act if t.startswith("0x") and t != "0x0"), "")
+    out["active_pid"] = sh(["xprop", "-id", act_id, "_NET_WM_PID"]) if act_id else ""
+    out["is_front"] = any(f"= {p}" in out["active_pid"] for p in pids)
     return out
 
 
@@ -221,6 +223,8 @@ def main(argv: Optional[list[str]] = None) -> int:
     ap.add_argument("--mac-app", help="launch this .app bundle through LaunchServices (open)")
     ap.add_argument("--expect", action="store_true")
     ap.add_argument("--summary", help="append the markdown to this file (GITHUB_STEP_SUMMARY)")
+    ap.add_argument("--set", action="append", default=[], metavar="KEY=JSON",
+                    help="a ConfigService value for the run (default: shell.welcome_done=true)")
     ap.add_argument("cmd", nargs=argparse.REMAINDER)
     a = ap.parse_args(argv)
     cmd = a.cmd[1:] if a.cmd[:1] == ["--"] else a.cmd
@@ -230,6 +234,15 @@ def main(argv: Optional[list[str]] = None) -> int:
     rep_path = (out / f"{a.label}-report.json").resolve()
     if rep_path.exists():
         rep_path.unlink()
+    seed = {"shell.welcome_done": True}
+    for kv in a.set:
+        k, _, v = kv.partition("=")
+        try:
+            seed[k] = json.loads(v)
+        except ValueError:
+            seed[k] = v
+    (tmp / "config").mkdir(parents=True, exist_ok=True)
+    (tmp / "config" / "config.json").write_text(json.dumps({"version": 1, "values": seed}), encoding="utf-8")
     env = dict(os.environ)
     env.update({"MLASER_NATIVE_REPORT": str(rep_path), "MLASER_CONFIG_DIR": str(tmp / "config"),
                 "MLASER_DATA_DIR": str(tmp / "data"), "MLASER_LOG_DIR": str(tmp / "log"),

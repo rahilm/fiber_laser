@@ -30,6 +30,7 @@ env:
   PYTHONUTF8: "1"
   MLASER_NO_FIRSTRUN: "1"
   MLASER_BUILD_NATIVE: "1"
+  UV_PYTHON_PREFERENCE: only-managed     # a python-build-standalone 3.12 (shared libpython for PyInstaller)
 
 jobs:
   macos:
@@ -64,6 +65,9 @@ jobs:
           osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' || true
           uv run --locked python tools/native_check.py --label mac-source-dark --out shots --summary "$GITHUB_STEP_SUMMARY" -- uv run --locked mlaser --demo
           osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to false' || true
+      - name: From source, dark theme chosen in mlaser (system light)
+        if: always()
+        run: uv run --locked python tools/native_check.py --label mac-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
       - name: Build the .app
         if: always()
         run: uv run --locked python packaging/build.py
@@ -103,6 +107,10 @@ jobs:
           Set-ItemProperty -Path $k -Name AppsUseLightTheme -Value 0 -Type DWord
           uv run --locked python tools/native_check.py --label win-source-dark --out shots --summary "$env:GITHUB_STEP_SUMMARY" -- uv run --locked mlaser --demo
           Set-ItemProperty -Path $k -Name AppsUseLightTheme -Value 1 -Type DWord
+      - name: From source, dark theme chosen in mlaser (system light)
+        if: always()
+        shell: bash
+        run: uv run --locked python tools/native_check.py --label win-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
       - name: Build the bundle
         if: always()
         run: uv run --locked python packaging/build.py
