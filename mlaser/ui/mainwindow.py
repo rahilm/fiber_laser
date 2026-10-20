@@ -123,6 +123,8 @@ class MainWindow(QMainWindow):
         # with its undo history, the command registry and the plugin hooks
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        from mlaser.services import units as _units
+        _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
         self.docs = DocumentService()
         self.commands = CommandRegistry()
         self.hooks = Hooks()
