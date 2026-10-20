@@ -23,7 +23,6 @@ from typing import Any, Optional
 
 from PySide6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -33,6 +32,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from mlaser.services import units as U
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 from . import tr
 
@@ -114,17 +116,11 @@ class CuttingStrategyPanel(QWidget):
                 "automatic: a corner on parts with sharp corners, else the longest straight segment",
             )
         )
-        self.min_feature = QDoubleSpinBox()
-        self.min_feature.setRange(0.0, 1000.0)
-        self.min_feature.setDecimals(1)
-        self.min_feature.setValue(5.0)
-        self.min_feature.setSuffix(" mm")
+        self.min_feature = QuantitySpinBox("length", minimum=0.0, maximum=1000.0, decimals=1, value=5.0)
+        self.min_feature.setObjectName("cutstrat_min_feature")
         lf.addRow(tr(w, "cutstrat.min_feature", "Avoid features shorter than"), self.min_feature)
-        self.clearance = QDoubleSpinBox()
-        self.clearance.setRange(0.0, 50.0)
-        self.clearance.setDecimals(2)
-        self.clearance.setValue(0.5)
-        self.clearance.setSuffix(" mm")
+        self.clearance = QuantitySpinBox("small_length", minimum=0.0, maximum=50.0, decimals=2, value=0.5)
+        self.clearance.setObjectName("cutstrat_clearance")
         lf.addRow(tr(w, "cutstrat.clearance", "Clearance to other contours"), self.clearance)
         row = QHBoxLayout()
         for key, text, fn, name in (
@@ -156,11 +152,8 @@ class CuttingStrategyPanel(QWidget):
             ("bed.slat_width", 0.5, 50.0, 1, "bed.set.slat_width", "Slat width"),
             ("bed.slat_offset", -1.0, 1000.0, 1, "bed.set.slat_offset", "First slat position (-1 = unknown)"),
         ):
-            sp = QDoubleSpinBox()
+            sp = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec)
             sp.setObjectName("cutstrat_" + key.replace(".", "_"))
-            sp.setRange(lo, hi)
-            sp.setDecimals(dec)
-            sp.setSuffix(" mm")
             sp.setToolTip(tr(w, tip_key, tip))
             if key == "bed.slat_offset":
                 sp.setSpecialValueText(tr(w, "cutstrat.bed.offset_unknown", "unknown"))
@@ -206,6 +199,7 @@ class CuttingStrategyPanel(QWidget):
         self.issues.setObjectName("cutstrat_issues")
         root.addWidget(self.issues, 1)
         self.refresh_bed()
+        on_units_changed(self, lambda _u: self.refresh_bed(), now=False)
 
     # ------------------------------------------------------------------ helpers
     def _set_bed(self, key: str, value: Any) -> None:
@@ -223,16 +217,16 @@ class CuttingStrategyPanel(QWidget):
         where = (
             tr(self.window_, "cutstrat.bed.unknown", "position unknown (worst case)")
             if b.offset is None
-            else tr(self.window_, "cutstrat.bed.offset", "first slat at {o:g} mm", o=b.offset)
+            else tr(self.window_, "cutstrat.bed.offset", "first slat at {o}", o=U.current().fmt(b.offset, "length", trim=True))
         )
         self.bed_label.setText(
             tr(
                 self.window_,
                 "cutstrat.bed",
-                "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where}",
+                "Bed: slats along {d}, pitch {p}, width {w}, {where}",
                 d=b.direction.upper(),
-                p=b.pitch,
-                w=b.width,
+                p=U.current().fmt(b.pitch, "length", trim=True),
+                w=U.current().fmt(b.width, "length", trim=True),
                 where=where,
             )
         )

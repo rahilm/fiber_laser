@@ -16,7 +16,7 @@ Layout recovered from report.exe FUN_004054d0 (paintRequested slot, 0x405764 ...
 from __future__ import annotations
 
 import os
-from typing import Iterable, Optional
+from typing import Any, Iterable, Optional
 
 from PySide6.QtCore import QMarginsF, QRectF, Qt
 from PySide6.QtGui import QFont, QImage, QPageLayout, QPageSize, QPainter, QPdfWriter, QPen
@@ -36,19 +36,35 @@ LABELS = {
 FONT = "SimSun"          # 宋体 (0x40dcb4); Qt falls back to any installed font
 
 
-def rows_for(rec: JobRecord, lang: str = "zh") -> list[tuple[str, str, str, str]]:
+def converts(units: Any) -> bool:
+    """True when ``units`` (a :class:`mlaser.services.units.Units`, handed in by the UI: this
+    package sits below the services) shows lengths in something other than mm.  Metric keeps
+    report.exe's own texts exactly."""
+    return units is not None and units.unit("length") != "mm"
+
+
+def size_text(rec: JobRecord, units: Any = None) -> str:
+    return units.fmt_size(rec.width, rec.height, decimals=2) if converts(units) else rec.size_text()
+
+
+def length_text(metres: float, units: Any = None) -> str:
+    """A cut / move length (the record keeps metres)."""
+    return units.fmt(metres * 1000.0, "long_length", decimals=2) if converts(units) else f"{metres:.2f} m"
+
+
+def rows_for(rec: JobRecord, lang: str = "zh", units: Any = None) -> list[tuple[str, str, str, str]]:
     L = LABELS["zh" if lang == "zh" else "en"]
     return [
         (L["name"], rec.name, L["date"], rec.start),
-        (L["size"], rec.size_text(), L["est"], rec.duration_text(lang)),
-        (L["cut"], f"{rec.cut_m:.2f} m", L["cut_t"], f"{rec.cut_s:.2f} Sec"),
-        (L["move"], f"{rec.move_m:.2f} m", L["move_t"], f"{rec.move_s:.2f} Sec"),
+        (L["size"], size_text(rec, units), L["est"], rec.duration_text(lang)),
+        (L["cut"], length_text(rec.cut_m, units), L["cut_t"], f"{rec.cut_s:.2f} Sec"),
+        (L["move"], length_text(rec.move_m, units), L["move_t"], f"{rec.move_s:.2f} Sec"),
         (L["pierce"], str(rec.pierces), L["pierce_t"], f"{rec.pierce_s:.2f} Sec"),
     ]
 
 
 def paint_record(p: QPainter, page: QRectF, rec: JobRecord, image_dir: Optional[str],
-                 lang: str = "zh") -> list[str]:
+                 lang: str = "zh", units: Any = None) -> list[str]:
     """Paint one report page; returns warnings (missing image)."""
     L = LABELS["zh" if lang == "zh" else "en"]
     warnings = []
@@ -80,7 +96,7 @@ def paint_record(p: QPainter, page: QRectF, rec: JobRecord, image_dir: Optional[
     p.setFont(f)
     rh = 45 * unit
     cols = [0.0, 0.22, 0.5, 0.75, 1.0]
-    for row in rows_for(rec, lang):
+    for row in rows_for(rec, lang, units):
         p.drawLine(int(x0), int(y), int(x0 + w), int(y))
         for i, txt in enumerate(row):
             r = QRectF(x0 + cols[i] * w + 4 * unit, y, (cols[i + 1] - cols[i]) * w - 8 * unit, rh)
@@ -91,16 +107,17 @@ def paint_record(p: QPainter, page: QRectF, rec: JobRecord, image_dir: Optional[
 
 
 def paint_records(p: QPainter, page_rect_fn, new_page_fn, records: Iterable[JobRecord],
-                  image_dir: Optional[str], lang: str = "zh") -> list[str]:
+                  image_dir: Optional[str], lang: str = "zh", units: Any = None) -> list[str]:
     warnings: list[str] = []
     for i, rec in enumerate(records):
         if i:
             new_page_fn()
-        warnings += paint_record(p, page_rect_fn(), rec, image_dir, lang)
+        warnings += paint_record(p, page_rect_fn(), rec, image_dir, lang, units)
     return warnings
 
 
-def export_pdf(path: str, records: list[JobRecord], image_dir: Optional[str], lang: str = "zh") -> list[str]:
+def export_pdf(path: str, records: list[JobRecord], image_dir: Optional[str], lang: str = "zh",
+               units: Any = None) -> list[str]:
     """Save the report pages as PDF (report.exe "Save Pdf": QPdfWriter, A4)."""
     wr = QPdfWriter(path)
     wr.setPageSize(QPageSize(QPageSize.A4))
@@ -110,20 +127,21 @@ def export_pdf(path: str, records: list[JobRecord], image_dir: Optional[str], la
     try:
         def rect():
             return QRectF(0, 0, wr.width(), wr.height())
-        warnings = paint_records(p, rect, wr.newPage, records, image_dir, lang)
+        warnings = paint_records(p, rect, wr.newPage, records, image_dir, lang, units)
     finally:
         p.end()
     return warnings
 
 
-def print_to(printer, records: list[JobRecord], image_dir: Optional[str], lang: str = "zh") -> list[str]:
+def print_to(printer, records: list[JobRecord], image_dir: Optional[str], lang: str = "zh",
+             units: Any = None) -> list[str]:
     """``paintRequested(QPrinter*)`` handler of the print preview."""
     p = QPainter(printer)
     try:
         def rect():
             r = printer.pageRect(QPrinter_unit())
             return QRectF(0, 0, r.width(), r.height())
-        return paint_records(p, rect, printer.newPage, records, image_dir, lang)
+        return paint_records(p, rect, printer.newPage, records, image_dir, lang, units)
     finally:
         p.end()
 

@@ -26,6 +26,7 @@ import time
 from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
+from mlaser.services import units as _units
 
 Ring = list[list[float]]
 STATUSES = ("available", "reserved", "used")
@@ -165,8 +166,8 @@ class Remnant:
     def label(self) -> str:
         w, h = self.size
         mat = f" {self.material}" if self.material else ""
-        thk = f" {self.thickness_mm:g} mm" if self.thickness_mm else ""
-        return f"{self.id} {w:.0f}x{h:.0f} mm{mat}{thk}"
+        thk = f" {_units.mm_text(self.thickness_mm)}" if self.thickness_mm else ""
+        return f"{self.id} {_units.mm_size(w, h, sep='x')}{mat}{thk}"
 
     def nest_sheet(self, quantity: int = 1) -> Any:
         """A :class:`mlaser.nest.NestSheet` with this remnant's true outline."""
