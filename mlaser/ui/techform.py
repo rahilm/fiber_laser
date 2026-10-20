@@ -458,9 +458,10 @@ class TechForm(QWidget):
     changed = Signal()
 
     def __init__(self, tr: Any, pressure_unit: int = 0, parent: Optional[QWidget] = None,
-                 advanced: bool = False) -> None:
+                 advanced: bool = False, scope: Optional[str] = None) -> None:
         super().__init__(parent)
         self.tr_ = tr
+        self.scope = scope            # "recipe" / "layer": the fields are that home's editors
         self.setObjectName("techform")
         self._loading = False
         self.base_label = ""
@@ -469,6 +470,7 @@ class TechForm(QWidget):
         self._forms: dict[str, ResponsiveForm] = {}
         self._stage_boxes: list[Section] = []
         self._extra_rows: dict[str, list[tuple[QWidget, Callable[[str], bool], bool]]] = {}
+        self._pinned: set = set()          # fields "Edit in …" asked to show
         t = tr.tr
         outer = QVBoxLayout(self)
         outer.setContentsMargins(0, 0, 0, 0)
@@ -493,6 +495,9 @@ class TechForm(QWidget):
         self.show_all.setToolTip(t("techform.show_all_tip"))
         self.show_all.setChecked(advanced)
         self.show_all.toggled.connect(lambda _v: self.apply_visibility())
+        from .homes import bind_transient
+        bind_transient(self.search, "view.search")      # view controls, not settings
+        bind_transient(self.show_all, "view.show_all")
         bar.addWidget(self.show_all)
         outer.addLayout(bar)
         self.scroll = QScrollArea()
@@ -554,6 +559,9 @@ class TechForm(QWidget):
         f.secondary = secondary
         f.section = sid
         f.reset.clicked.connect(lambda _c=False, ff=f: self.reset_field(ff.key))
+        if self.scope:
+            from .homes import bind_editor
+            bind_editor(f.widget, f"{self.scope}.{key}")
         if grouped and form.property("last_group") != f.group:
             form.setProperty("last_group", f.group)
             g = QLabel(f"<b>{f.group}</b>")
@@ -669,9 +677,23 @@ class TechForm(QWidget):
     def advanced(self) -> bool:
         return self.show_all.isChecked()
 
+    def reveal_widget(self, w: QWidget) -> None:
+        """Show the row of ``w`` (an "Edit in …" target) whatever the filters say."""
+        self.search.clear()
+        for f in self.fields.values():
+            if f.widget is w:
+                self._pinned.add(f.key)
+                self.show_all.setChecked(f.secondary or self.show_all.isChecked())
+        for sid, rows in self._extra_rows.items():
+            if any(rw is w for rw, _m, sec in rows if sec):
+                self.show_all.setChecked(True)
+        self.apply_visibility()
+
     def field_visible(self, f: TechField, query: str) -> bool:
         """Whether a field applies and is wanted: its stage is used, its switch is on, it is a
         primary field (or all parameters / a search are on) and it matches the search."""
+        if f.key in self._pinned and not query:
+            return True
         if f.stage is not None and f.stage >= self.stages():
             return False
         dep = DEPENDS.get(f.key)

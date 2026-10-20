@@ -216,6 +216,17 @@ class PropertiesPanel(QScrollArea):
         row.addWidget(b1)
         row.addWidget(b2)
         f.addRow(roww)
+        from mlaser.ui.homes import bind_editor
+
+        for vid, w in (("part.x", self.x), ("part.y", self.y), ("part.width", self.w), ("part.height", self.h),
+                       ("part.rotate_by", self.rot), ("part.layer", self.layer),
+                       ("craft.kerf_comp", self.kerf_kind), ("craft.kerf_width", self.kerf_w),
+                       ("craft.micro_joint.count", self.mj_count), ("craft.micro_joint.length", self.mj_len),
+                       ("craft.start_param", self.start), ("craft.cool.max_angle", self.cool_angle)):
+            bind_editor(w, vid)
+        for name in ("in", "out"):
+            for field, w in zip(("kind", "angle_deg", "length", "radius"), self.lead_w[name]):
+                bind_editor(w, f"craft.lead_{name}.{field}")
         self.lay.addStretch(1)
         for cb in body.findChildren(QComboBox):          # no combo forces the dock wider
             cb.setSizeAdjustPolicy(QComboBox.AdjustToMinimumContentsLengthWithIcon)
@@ -475,7 +486,8 @@ class PropertiesPanel(QScrollArea):
         if all(_same_lead(p.craft.lead_in, lin) and _same_lead(p.craft.lead_out, lout) for p in self.selected()):
             self.canvas.clear_preview()
             return
-        self._edit(lambda d: ops.apply_lead(d, lin, lout), "props.edit.leads")
+        from mlaser.services.inheritance import start_is_set
+        self._edit(lambda d: ops.apply_lead(d, lin, lout, keep_start=start_is_set), "props.edit.leads")
 
     # ---------------------------------------------------------------- kerf
     def _kerf(self) -> tuple[int, float]:
@@ -507,12 +519,14 @@ class PropertiesPanel(QScrollArea):
             return
         frac = self.start.value() / 100.0
         from mlaser.cam.manual import set_start_at
+        from mlaser.services.inheritance import mark_start
 
         def fn(d: Document) -> None:
             for p in ops.contour_targets(d):
                 if p.contours:
                     ci = self._outer(p)
                     set_start_at(p, ci, frac * p.contours[ci].length())
+                    mark_start(p, ci)        # set by hand: lead edits keep it
         self._edit(fn, "props.edit.start")
 
     def _start_auto(self) -> None:

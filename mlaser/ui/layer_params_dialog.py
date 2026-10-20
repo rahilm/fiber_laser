@@ -64,7 +64,7 @@ class LayerParamDialog(QDialog):
                 unit = int(cfg.get("UN.GasPressureUnit", 0) or 0)
             except Exception:  # noqa: BLE001
                 unit = 0
-        self.form = TechForm(tr, unit)
+        self.form = TechForm(tr, unit, scope="layer")
         lay.addWidget(self.form, 1)
         full = T.registry_defaults()
         full.update({k: v for k, v in vals.items() if k in full})

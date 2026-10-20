@@ -316,7 +316,13 @@ class CraftExtension:
         def click(p, mods):
             h = self._hit(p, closed_only=True)
             if h is not None:
-                f = self.edit(lambda d: M.set_start_at(d.parts[h.part], h.contour, h.dist))
+                from mlaser.services.inheritance import mark_start
+
+                def do(d):
+                    f = M.set_start_at(d.parts[h.part], h.contour, h.dist)
+                    mark_start(d.parts[h.part], h.contour)       # lead edits keep it
+                    return f
+                f = self.edit(do)
                 self.log(f"mf93: start {f:.4f}")
             return True
         self.start_tool("start_point", click, "mf93")

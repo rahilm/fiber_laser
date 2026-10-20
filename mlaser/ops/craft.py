@@ -25,7 +25,8 @@ def default_lead_params() -> tuple[LeadParams, LeadParams]:
     )
 
 
-def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start_mode: int = 0) -> int:
+def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start_mode: int = 0,
+               keep_start=None) -> int:
     """引线 (lead) on the selected parts (all parts when none is selected).
 
     O (parity harness ``app_lead``, the original MainApp on basic_r2000.dxf with the dialog
@@ -41,6 +42,10 @@ def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start
     Parts with several contours get per-contour crafts (:func:`mlaser.cam.manual.contour_craft`,
     honoured by the toolpath), so each contour keeps its own start.  Returns the number of
     parts changed.
+
+    ``keep_start(part, ci) -> bool``: contours whose start was set by hand
+    (:func:`mlaser.services.inheritance.start_is_set`) keep it; without it (the parity default)
+    every start is chosen again.
     """
     from mlaser.cam.ordering import choose_start
 
@@ -64,7 +69,7 @@ def apply_lead(doc: Document, lead_in, lead_out, closed_only: bool = True, start
             cr.lead_out = copy.deepcopy(lead_out)
             c = p.contours[i]
             L = c.length()
-            if set_start and c.closed and L > 0:
+            if set_start and c.closed and L > 0 and not (keep_start is not None and keep_start(p, i)):
                 cr.start_param = (choose_start(c, start_mode, lead_in.length) % L) / L
         n += 1
     return n

@@ -58,7 +58,7 @@ UI_MODULES = {
     # Review 2 plugin manager
     "test_plugin_manager_ui",
     # UI wave: process & technology
-    "test_ui_process_paths",
+    "test_ui_process_paths", "test_one_home",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

@@ -288,8 +288,10 @@ def diff(old: Optional[Technology], new: Technology) -> list[Change]:
 # --------------------------------------------------------------------------- layers
 def layer_values(lp: Optional[LayerParams]) -> dict[str, Any]:
     """The effective GP.* values of a layer, as the job compiler reads them (LayerView)."""
-    from mlaser.parity_ports.mainapp.layer import LayerView
+    from mlaser.formats.params import layer_default_values
+    from mlaser.parity_ports.mainapp.layer import LayerView, set_layer_defaults
 
+    set_layer_defaults(layer_default_values, replace_existing=False)   # the registry's, unless set
     v = dict(LayerView(lp).values)
     reg = layer_registry()
     return {k: v.get(k, d.default_value) for k, d in reg.items()}

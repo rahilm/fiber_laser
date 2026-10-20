@@ -559,6 +559,19 @@
   "help.section.user": "User guide",
   "help.title": "Help",
   "help.topics": "Topics",
+  "home.edit_in": "Edit in {home}",
+  "home.machine_setup": "Machine › Setup",
+  "home.nest_job": "Nest › Job",
+  "home.process_layers": "Process › Layers",
+  "home.process_library": "Process › Library",
+  "home.process_properties": "Process › Properties",
+  "home.run": "Run",
+  "home.select_parts": "Select the parts whose cut settings you want to change. The layer defaults are in Process › Layers.",
+  "home.settings": "Settings",
+  "inherit.src.contour": "this contour",
+  "inherit.src.layer": "layer {n}",
+  "inherit.src.part": "this part",
+  "inherit.src.registry": "default",
   "io.axis": "Axis",
   "io.axis_2": "Axis",
   "io.di": "DI",
@@ -3579,6 +3592,12 @@
   "help.search_results": [
    "count",
    "query"
+  ],
+  "home.edit_in": [
+   "home"
+  ],
+  "inherit.src.layer": [
+   "n"
   ],
   "layerdlg.base_tech": [
    "name"

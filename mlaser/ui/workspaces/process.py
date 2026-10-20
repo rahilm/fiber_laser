@@ -83,7 +83,7 @@ class TechnologyEditor(QWidget):
         self.badge.setWordWrap(True)
         self.badge.setObjectName("tech_example_badge")
         lay.addWidget(self.badge)
-        self.form = TechForm(tr, pressure_unit)
+        self.form = TechForm(tr, pressure_unit, scope="recipe")
         self.form.changed.connect(self._edited)
         lay.addWidget(self.form, 1)
         self.fields = self.form.fields
@@ -154,6 +154,20 @@ class TechnologyEditor(QWidget):
                     break
             else:
                 w.editingFinished.connect(self._edited)
+        from mlaser.ui.homes import bind_editor
+
+        for vid, w in (("lead_in.kind", self.lead_kind), ("lead_in.length", self.lead_len),
+                       ("lead_in.angle_deg", self.lead_ang), ("lead_in.radius", self.lead_rad),
+                       ("lead_out.kind", self.lout_kind), ("lead_out.length", self.lout_len),
+                       ("kerf_comp", self.kerf_kind), ("kerf_width", self.kerf_w),
+                       ("micro_joint.count", self.mj_count), ("micro_joint.length", self.mj_len)):
+            bind_editor(w, f"recipe.craft.{vid}")
+        for vid, w in (("rules.small_feature.max_size_mm", self.sf_size),
+                       ("rules.small_feature.lead_length_mm", self.sf_lead),
+                       ("rules.corner.cool_points", self.corner_on), ("rules.corner.max_angle_deg", self.corner_angle),
+                       ("gas_flow_l_min", self.flow), ("density_g_cm3", self.density),
+                       ("verified", self.verified), ("notes", self.notes)):
+            bind_editor(w, f"recipe.{vid}")
         self.form.apply_visibility()
 
     # ---------------------------------------------------------------- load / read

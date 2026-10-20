@@ -1007,8 +1007,9 @@ class MainWindow(QMainWindow):
             sel = any(p.selected for p in self.document.parts)
             scope_all = not sel or not d.only_selected.isChecked()
             fn = ops.apply_lead if not scope_all else _on_all_parts(ops.apply_lead)
+            from mlaser.services.inheritance import start_is_set
             n = self._edit(fn, self.lead_in, self.lead_out, self.lead_closed_only, self.lead_start_mode,
-                           label="lead", scope="all" if scope_all else "targets")
+                           start_is_set, label="lead", scope="all" if scope_all else "targets")
             self.log_panel.log("mf207")
             self._report_scope("craft.msg.leads", n or 0, scope_all)
 
