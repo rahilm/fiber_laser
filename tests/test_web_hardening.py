@@ -76,6 +76,7 @@ def test_idle_clients_cannot_exhaust_threads_or_fds(busy):
         threads0, fds0 = threading.active_count(), _fds()
         if busy:
             hog.start()
+        t0 = time.monotonic()
         for _ in range(200):                      # half-open requests, never finished
             c = socket.create_connection(s.address, timeout=10)
             c.sendall(b"GET /status.json?t=")
@@ -83,12 +84,16 @@ def test_idle_clients_cannot_exhaust_threads_or_fds(busy):
         # every connection was either given a slot or refused with a 503
         assert _wait(lambda: s.rejected + s.admitted >= 200, 30.0), (s.rejected, s.admitted)
         assert s.rejected + s.admitted == 200
+        flood_s = time.monotonic() - t0
         # at most the cap of handler threads, at most the cap of server-side sockets, ever
         assert s.peak_connections <= 8
         assert threading.active_count() - threads0 - int(busy) <= 8
         assert _fds() - fds0 - len(socks) <= 8 + 2
-        if not busy:                              # an idle process accepts the flood at once
-            assert s.rejected >= 200 - 8
+        if flood_s < 2.0 * 0.75:
+            # the whole flood was handled before the first slot's 2 s socket timeout could free
+            # it: only the first 8 got a slot.  (A loaded runner can take longer even without a
+            # busy thread: 176 of 200 refused on Ubuntu CI, 2026-10-20; the caps held.)
+            assert s.admitted <= 8 and s.rejected >= 200 - 8, (s.admitted, s.rejected, flood_s)
         # the over-cap connections were told so and closed
         rejected = 0
         for c in socks:
