@@ -313,6 +313,21 @@ def _hidden(w: QWidget) -> bool:
     return w.isHidden() and w.testAttribute(Qt.WA_WState_ExplicitShowHide)
 
 
+class _FormGrid(QGridLayout):
+    """A ResponsiveForm's grid.  It reports the form's height for a width: a parent layout asks
+    a child widget's *layout* for its height for width (QWidgetItem), never the widget itself."""
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return isinstance(self.parentWidget(), ResponsiveForm)
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        form = self.parentWidget()
+        return form.heightForWidth(width) if isinstance(form, ResponsiveForm) else -1
+
+    def minimumHeightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        return self.heightForWidth(width)
+
+
 class ResponsiveForm(QWidget):
     """Rows of (label, field): the label beside the field when the widest label plus the widest
     field minimum fit the width, above it otherwise.  Its minimum width is the stacked one, so a
@@ -320,7 +335,7 @@ class ResponsiveForm(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._grid = QGridLayout(self)
+        self._grid = _FormGrid(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
         # the minimum is the stacked one (minimumSizeHint), not the grid's side-by-side one
         self._grid.setSizeConstraint(QLayout.SetNoConstraint)
@@ -415,10 +430,24 @@ class ResponsiveForm(QWidget):
         high in Run Control's DO section on the X11 and Windows runners)."""
         return self._height(width, width >= self.needed_beside())
 
+    def _row_gap(self, upper: list, lower: list) -> int:
+        """The grid's spacing between two rows: its own, or (-1) the style's spacing for the
+        controls involved, as QGridLayout asks it (under macOS 10 px between a label and the
+        field below it, 6 px elsewhere)."""
+        vs = self._grid.verticalSpacing()
+        if vs >= 0:
+            return vs
+
+        def types(ws):
+            t = QSizePolicy.ControlType.DefaultType
+            for w in ws:
+                t |= w.sizePolicy().controlType()
+            return t
+        gap = self.style().combinedLayoutSpacing(types(upper), types(lower), Qt.Vertical, None, self)
+        return gap if gap >= 0 else _spacing(self, False)
+
     def _height(self, width: int, beside: bool) -> int:
         g = self._grid
-        vs = g.verticalSpacing()
-        vs = vs if vs >= 0 else _spacing(self, False)
         hs = g.horizontalSpacing()
         hs = hs if hs >= 0 else _spacing(self)
         m = g.contentsMargins()
@@ -430,18 +459,20 @@ class ResponsiveForm(QWidget):
             hfw = x.heightForWidth(w) if x.hasHeightForWidth() else -1
             return max(hfw, x.sizeHint().height(), x.minimumSizeHint().height(), x.minimumHeight())
         field_w = max(inner - self._label_w() - hs, 1) if beside else inner
-        rows: list[int] = []
+        rows: list[tuple[int, list]] = []         # (height, the widgets in that grid row)
         for lab, f in self._rows:
             if _hidden(f):
                 continue
             if lab is None:
-                rows.append(h(f, inner))
+                rows.append((h(f, inner), [f]))
             elif beside:
-                rows.append(max(h(lab, self._label_w()), h(f, field_w)))
+                rows.append((max(h(lab, self._label_w()), h(f, field_w)), [lab, f]))
             else:
-                rows.append(h(lab, inner))
-                rows.append(h(f, inner))
-        return sum(rows) + vs * max(len(rows) - 1, 0) + m.top() + m.bottom()
+                rows.append((h(lab, inner), [lab]))
+                rows.append((h(f, inner), [f]))
+        total = sum(r[0] for r in rows)
+        total += sum(self._row_gap(rows[i][1], rows[i + 1][1]) for i in range(len(rows) - 1))
+        return total + m.top() + m.bottom()
 
     def _place(self) -> None:
         self._placing = True
@@ -818,6 +849,16 @@ def set_compact(root: QWidget, on: bool, ratio: float = 0.5) -> None:
                 w.setToolButtonStyle(Qt.ToolButtonIconOnly)
             elif w.property("comfortable_style") is not None:
                 w.setToolButtonStyle(Qt.ToolButtonStyle(int(w.property("comfortable_style"))))
+    # the layouts' cached sizes (a box layout's height for width, a parent's cached item sizes)
+    # are stale until their next layout pass, and a panel measures its sections right after
+    # this: drop the caches now, innermost first, so the next measure sees the new spacing
+    # (Run Control was laid out with the compact heights once comfortable again: the jog pad
+    # 2 px and the DO form 3-5 px short on the X11, Windows and macOS runners)
+    for w in reversed([root, *root.findChildren(QWidget)]):
+        lay = w.layout()
+        if lay is not None:
+            lay.invalidate()
+        w.updateGeometry()
 
 
 class CompactWhenNarrow(QObject):

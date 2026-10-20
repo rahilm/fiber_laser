@@ -74,8 +74,8 @@ def test_columns_panel_folds_then_recovers(app):
     for i in range(4):
         body = QWidget()
         v = QVBoxLayout(body)
-        for k in range(4):
-            v.addWidget(QPushButton(f"s{i} b{k}"))
+        for k in range(2):          # small enough for a 1024 x 768 screen (the macOS runner's
+            v.addWidget(QPushButton(f"s{i} b{k}"))      # window server caps the window to it)
         s = R.CollapsibleSection(f"Section {i}", body, priority=i)
         p.add_section(s)
         secs.append(s)
@@ -224,6 +224,15 @@ def test_responsive_form_height_for_width_follows_the_arrangement(app):
     assert form.beside()
     h_narrow = form.heightForWidth(narrow)            # asked while still beside
     assert h_narrow > form.heightForWidth(wide)
+    # a parent layout asks the form's *layout* (QWidgetItem), not the widget: same answer
+    parent = QWidget()
+    QVBoxLayout(parent).setContentsMargins(0, 0, 0, 0)
+    holder = R.ResponsiveForm()
+    for i in range(3):
+        holder.addRow(f"A rather long label {i}", QSpinBox())
+    parent.layout().addWidget(holder)
+    assert parent.layout().hasHeightForWidth()
+    assert parent.layout().heightForWidth(narrow) == holder.heightForWidth(narrow) > holder.heightForWidth(wide)
     form.resize(narrow, h_narrow)
     _pump(app)
     assert not form.beside()
@@ -272,3 +281,52 @@ def test_flow_layout_uses_widget_rects_with_layout_item_margins(app):
         box.deleteLater()
         app.setStyle(old_style)
         _pump(app)
+
+
+def _clipped_children(panel) -> list[str]:
+    bad = []
+    for w in panel.findChildren(QWidget):
+        if not w.isVisible() or w.parentWidget() is None or w.objectName().startswith("qt_"):
+            continue
+        if w.height() < w.minimumSizeHint().height() and w.minimumHeight() == 0:
+            bad.append(f"{type(w).__name__} {w.objectName()} {w.height()} < {w.minimumSizeHint().height()}")
+        if not w.parentWidget().rect().contains(w.geometry()):
+            bad.append(f"{type(w).__name__} {w.objectName()} {w.geometry()} outside {w.parentWidget().rect()}")
+    return bad
+
+
+def test_columns_panel_relayout_after_compact_uses_fresh_sizes(app):
+    """Compact mode changes the layouts' spacings; the panel measures its sections right after,
+    and must not use the layouts' cached (other mode's) heights: back to comfortable, sections
+    laid out with the compact heights cut their content (Run Control's jog pad and DO form)."""
+    from PySide6.QtWidgets import QGridLayout, QSpinBox
+    p = R.ColumnsPanel(max_columns=1)
+    for i in range(3):
+        body = QWidget()
+        v = QVBoxLayout(body)
+        v.setSpacing(12)
+        pad = QWidget()
+        g = QGridLayout(pad)
+        g.setSpacing(10)
+        for r in range(3):
+            for c in range(3):
+                b = QPushButton(f"{r}{c}")
+                b.setMinimumSize(44, 44)
+                g.addWidget(b, r, c)
+        v.addWidget(pad)
+        form = R.ResponsiveForm()
+        form.addRow(f"Value {i}", QSpinBox())
+        v.addWidget(form)
+        p.add_section(R.CollapsibleSection(f"Section {i}", body, priority=i))
+    p.ensurePolished()
+    w = p.sizeHint().width()
+    full = p.sizeHint().height()
+    p.resize(w, full + 40)
+    p.show()
+    _pump(app)
+    for h in (full - 30, full - 60, full + 40, full - 30, full + 40):      # compact and back
+        p.resize(w, h)
+        _pump(app, 2)
+        if "compact" not in str(p.property(R.STATE_PROP)):
+            assert not _clipped_children(p), (h, p.property(R.STATE_PROP), _clipped_children(p))
+    p.close()
