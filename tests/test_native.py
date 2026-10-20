@@ -69,10 +69,11 @@ def _bar_actions(bar) -> list:
 @pytest.mark.parametrize("plat", PLATS)
 def test_layout_places_every_command_once(win, plat):
     ids = list(win.ribbon.actions)
-    menus = menu_spec.layout(ids, plat)
+    from mlaser.ui.shell.menubar import HAVE_HOMES
+    menus = menu_spec.layout(ids, plat, nav=HAVE_HOMES)
     placed = menu_spec.placement(menus)            # raises on a command placed twice
     expected = {c for c in ids if not c.startswith(menu_spec.DYNAMIC_PREFIXES)}
-    assert set(placed) == expected | {"nav.layer_parameters"}
+    assert set(placed) == expected | ({"nav.layer_parameters"} if HAVE_HOMES else set())
     assert [m.id for m in menus] == ["file", "edit", "view", "draw", "process", "workspace", "machine",
                                      "tools", "window", "help"]
     # the conventional places
@@ -445,6 +446,7 @@ def test_linux_launcher_entry_signal():
 def test_setting_entries_go_to_their_home(win, app):
     """Layer parameters, Lead, Kerf, Micro-joint, Hardware parameters and Nest parameters in the
     menu bar navigate to the one home of the value (mlaser/ui/homes.py), not a second editor."""
+    pytest.importorskip("mlaser.ui.homes")
     acts = {a.data(): a for _p, a in _bar_actions(win.shell.menubar)}
     for cid in menu_spec.NAV:
         a = acts[cid]

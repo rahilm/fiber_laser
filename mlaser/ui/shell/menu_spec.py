@@ -292,10 +292,13 @@ def _filter(entries: list[Entry], known: set[str], seen: set[str]) -> list[Entry
     return out
 
 
-def layout(commands: Iterable[str], plat: str, settings_cmd: Optional[str] = None) -> list[Menu]:
-    """The menus for the registered ``commands`` on ``plat`` (see the module docstring)."""
+def layout(commands: Iterable[str], plat: str, settings_cmd: Optional[str] = None,
+           nav: bool = True) -> list[Menu]:
+    """The menus for the registered ``commands`` on ``plat`` (see the module docstring);
+    ``nav``: the menu-only entries of :data:`NAV` (when the one-home navigation exists)."""
     known = {c for c in commands if not c.startswith(DYNAMIC_PREFIXES)}
-    known |= {c for c in NAV if c.startswith("nav.") and NAV_GATE.get(c, "") in known}
+    if nav:
+        known |= {c for c in NAV if c.startswith("nav.") and NAV_GATE.get(c, "") in known}
     menus = _menus(plat)
     if settings_cmd and settings_cmd != "app.options":
         # the Settings track's command takes the place of app.options

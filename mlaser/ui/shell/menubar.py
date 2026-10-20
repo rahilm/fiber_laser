@@ -25,6 +25,16 @@ from PySide6.QtWidgets import QDockWidget, QMenu, QMenuBar
 from .. import native
 from . import menu_spec as spec
 
+def _have_homes() -> bool:
+    """The one-home navigation (mlaser/ui/homes.py, Process & technology track X-1)."""
+    import importlib.util
+    return importlib.util.find_spec("mlaser.ui.homes") is not None
+
+
+#: the setting entries of the menu go to their home (:data:`menu_spec.NAV`) when it exists;
+#: before that branch is merged they are the commands' own actions
+HAVE_HOMES = _have_homes()
+
 _ROLE = {spec.ABOUT: QAction.AboutRole, spec.PREFERENCES: QAction.PreferencesRole, spec.QUIT: QAction.QuitRole,
          spec.APP_SPECIFIC: QAction.ApplicationSpecificRole}
 
@@ -56,7 +66,7 @@ class MenuBar:
     def action(self, cid: str) -> Optional[QAction]:
         """The menu's action for ``cid``: the command's own QAction, or for a setting the menu
         entry that goes to its home (:data:`menu_spec.NAV`)."""
-        if cid in spec.NAV:
+        if cid in spec.NAV and HAVE_HOMES:
             return self._nav_action(cid)
         return self.w.ribbon.actions.get(cid)
 
@@ -72,7 +82,7 @@ class MenuBar:
         act.setData(cid)
         act.setObjectName(f"nav_{cid}")
         act.setMenuRole(QAction.NoRole)
-        from .. import homes
+        from .. import homes  # type: ignore[attr-defined]
         go = homes.nav_command(self.w, cid, vid, need_selection=need_sel)
         act.triggered.connect(lambda _=False: go())
         if label_key:
@@ -108,7 +118,7 @@ class MenuBar:
     # ------------------------------------------------------------------ build
     def build(self) -> None:
         settings = self.settings_cmd()
-        self.layout = spec.layout(list(self.w.ribbon.actions.keys()), self.plat, settings)
+        self.layout = spec.layout(list(self.w.ribbon.actions.keys()), self.plat, settings, nav=HAVE_HOMES)
         roles = spec.roles(self.plat, settings)
         self._apply_labels(settings)
         old = list(self.menus.values())
@@ -127,7 +137,7 @@ class MenuBar:
             self.tr.bind(qm, m.title, lambda t, i=i: self._set_title(i, t))
             self._fill(qm, m.items)
         for cid in spec.all_ids(self.layout):
-            act = self.w.ribbon.actions.get(cid) if cid not in spec.NAV else None
+            act = self.w.ribbon.actions.get(cid) if not (cid in spec.NAV and HAVE_HOMES) else None
             if act is not None:
                 act.setMenuRole(_ROLE.get(roles.get(cid, ""), QAction.NoRole))
         if self.plat == native.MACOS:
