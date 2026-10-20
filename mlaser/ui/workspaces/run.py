@@ -16,6 +16,9 @@ P1-7, wireframe §4.4).
   (:class:`mlaser.services.queue.QueueRunner`).  After a cut sheet from a nest the leftover is
   stored as a remnant (:mod:`mlaser.services.remnants`); a remnant sheet is marked used.
 * **LAN monitor** (optional, off by default): the read-only status page of :mod:`mlaser.web`.
+* **Approval** (:class:`mlaser.ui.workspaces.approval.ApprovalPanel`): jobs submitted by the
+  automation API or the CLI (:mod:`mlaser.services.intake`) wait above the queue until the
+  operator approves them here; approving only adds them to the queue.
 
 Targets are at least 56 px (primary) / 44 px (all others); the layout works at 1280 x 800 and
 at 150 % scaling on 1920 x 1080 (``tests/test_ws_run.py``).  F11 toggles full screen in the
@@ -39,6 +42,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayo
 
 from mlaser.machine import events as EV
 from mlaser.services.config import Setting
+from mlaser.services.intake import IntakeStore
 from mlaser.services.operator import RunStatus, fmt_duration, run_status
 from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
@@ -225,6 +229,9 @@ class QueuePanel(QWidget):
         self.ws = ws
         w = ws.window
         v = QVBoxLayout(self)
+        from .approval import ApprovalPanel
+        self.approval = ApprovalPanel(ws)            # submitted jobs waiting for the operator
+        v.addWidget(self.approval)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.setObjectName("queue_table")
         self.table.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COLS])
@@ -278,6 +285,7 @@ class QueuePanel(QWidget):
     def refresh(self) -> None:
         q = self.ws.queue
         w = self.ws.window
+        self.approval.refresh()
         keep = self.selected_id()
         self._sync = True
         self.table.setRowCount(len(q))
@@ -711,6 +719,10 @@ class OperatorScreen(QWidget):
                                                    total=r.current.quantity,
                                                    sheet=f", {r.current.remnant_id or r.current.sheet}"
                                                    if (r.current.remnant_id or r.current.sheet) else "")
+        n_pending = len(self.ws.intake.pending)
+        if n_pending:
+            msg = (msg + "\n" if msg else "") + tr(w, "run.queue.pending", "{n} submitted job(s) wait for approval "
+                                                   "(Queue tab)", n=n_pending)
         self.queue_msg.setText(msg)
         b["confirm_sheet"].setVisible(r.state in ("confirm", "starting"))
         b["confirm_sheet"].setEnabled(r.state == "confirm" and connected and not fault and not job)
@@ -781,6 +793,9 @@ class RunWorkspace:
         if self.queue.load_error:
             self.log(f"queue: {self.queue.load_error} (the file was kept as queue.json.bad)")
         self.remnants = RemnantStore(os.path.join(d, "remnants.json"))
+        # jobs from the automation API / CLI: pending until the operator approves them here
+        self.intake = IntakeStore(d)
+        self.intake.scan()
         self.runner = QueueRunner(self.queue, load=self._load_entry, start=self._start_sheet,
                                   start_allowed=self._start_allowed,
                                   disarm=lambda why: self.window.ctl.disarm(why))
@@ -798,7 +813,9 @@ class RunWorkspace:
         ctx.add_workspace("run", self.screen, tr(self.window, "ws.run", "Run"))
         self.queue.subscribe(self._queue_changed)
         self.runner.subscribe(self._queue_changed)
+        self.intake.subscribe(self._queue_changed)
         ctx.provide("queue", lambda: self.queue)
+        ctx.provide("intake", lambda: self.intake)
         ctx.provide("remnants", lambda: self.remnants)
         ctx.provide("queue_runner", lambda: self.runner)
         ctx.on_controller_changed(lambda _c: self.attach())
@@ -989,6 +1006,12 @@ class RunWorkspace:
 
     def tick(self) -> None:
         self.runner.tick()
+        try:
+            for job in self.intake.scan():
+                self.log(tr(self.window, "approval.msg.submitted", "Job submitted for approval: {name} ({src})",
+                            name=job.name, src=f"{job.source} {job.client}".strip()))
+        except OSError as exc:  # noqa: PERF203 - the inbox must never stop the Run screen
+            log.debug("intake scan failed: %s", exc)
         if self.monitor is not None and self.monitor.running:
             self.publish_monitor()
 

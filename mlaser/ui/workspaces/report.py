@@ -8,6 +8,10 @@ the job open until it is resumed or stopped); the alarm and fault history comes 
 ``AlarmRaised`` / ``AlarmCleared`` / ``StateChanged`` events.  Records go to
 :class:`mlaser.report.ledger.Ledger` (``<data>/Report/production.jsonl``, ``alarms.jsonl``).
 
+Simulator, dry-run and practice jobs are recorded with their ``source``
+(:mod:`mlaser.services.runsource`) and left out of the figures unless the **Runs** filter shows
+them (review 2 P1-7).
+
 Cost: the plan's estimate ``cost`` (the Process track's time-and-cost card) when present, else
 the rates of this plugin's settings (``plugin.report.*``: machine, gas and power per hour, per
 metre cut, per pierce, material per m²); ``Ledger.cost_hook`` is the hook for other providers.
@@ -27,6 +31,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame
 
 from mlaser.machine import events as EV
 from mlaser.report import ledger as LG
+from mlaser.services import runsource as RS
 from mlaser.services.config import Setting
 from mlaser.services.operator import fmt_duration
 
@@ -35,6 +40,12 @@ from . import TOUCH_MIN, show_workspace, tr
 
 PERIODS = (("today", "report.period.today", "Today"), ("week", "report.period.week", "Last 7 days"),
            ("month", "report.period.month", "Last 30 days"), ("all", "report.period.all", "All"))
+#: the Runs filter: (key, i18n id, default text, sources shown)
+RUN_FILTERS = (("production", "report.runs.production", "Production only", RS.PRODUCTION),
+               ("all", "report.runs.all", "All runs (simulator, dry run, practice too)", RS.SOURCES))
+SOURCE_TEXT = {RS.REAL: ("report.source.real", "real"), RS.SIMULATOR: ("report.source.simulator", "simulator"),
+               RS.DRY_RUN: ("report.source.dry_run", "dry run"), RS.PRACTICE: ("report.source.practice", "practice")}
+RECORDED_MODES = ("process", "dry_run")
 RATE_KEYS = ("machine_per_h", "gas_per_h", "power_per_h", "per_cut_m", "per_pierce", "material_per_m2")
 
 
@@ -70,7 +81,7 @@ class ProductionRecorder:
         return fn() if fn is not None else None
 
     def _started(self, mode: str, info: str) -> None:
-        if mode != "process":
+        if mode not in RECORDED_MODES:
             self._ctx = {}
             return
         w = self.window
@@ -91,7 +102,8 @@ class ProductionRecorder:
                "estimate": est, "est_s": float(est.get("total", 0.0) or 0.0),
                "cut_m": float(est.get("cut_length", 0.0) or 0.0) / 1000.0,
                "move_m": float(est.get("rapid_length", 0.0) or 0.0) / 1000.0,
-               "pierces": int(pierces), "width_mm": max(0.0, x1 - x0), "height_mm": max(0.0, y1 - y0)}
+               "pierces": int(pierces), "width_mm": max(0.0, x1 - x0), "height_mm": max(0.0, y1 - y0),
+               "source": RS.window_job_source(w, mode)}
         runner = self._provider("queue_runner")
         ent = getattr(runner, "current", None) if runner is not None and runner.state != "idle" else None
         if ent is not None:
@@ -104,7 +116,7 @@ class ProductionRecorder:
         self._ctx = ctx
 
     def _finished(self, ev: Any) -> None:
-        if ev.mode != "process" or not self._ctx:
+        if ev.mode not in RECORDED_MODES or not self._ctx:
             return
         c, self._ctx = self._ctx, {}
         n_al = len(self.ledger.alarms(since=ev.start))
@@ -113,7 +125,8 @@ class ProductionRecorder:
                                   c["cut_m"], c["move_m"], c["pierces"], c["width_mm"], c["height_mm"],
                                   c.get("material", ""), float(c.get("thickness_mm", 0.0) or 0.0),
                                   float(c.get("utilisation", 0.0) or 0.0), c.get("queue_id", ""),
-                                  int(c.get("sheet_no", 0) or 0), c.get("remnant_id", ""), n_al)
+                                  int(c.get("sheet_no", 0) or 0), c.get("remnant_id", ""), n_al,
+                                  source=c.get("source", RS.REAL))
         self.ledger.add_job(rec, c["estimate"])
 
     def sync_alarms(self) -> None:
@@ -221,6 +234,15 @@ class ReportWorkspace(QWidget):
         self.period.currentIndexChanged.connect(lambda _i: self.refresh())
         top.addWidget(QLabel(tr(w, "report.period", "Period")))
         top.addWidget(self.period)
+        # simulator, dry-run and practice runs are not production: hidden unless asked for
+        self.runs = QComboBox()
+        self.runs.setObjectName("report_runs")
+        self.runs.setMinimumHeight(TOUCH_MIN)
+        for key, tid, text, _src in RUN_FILTERS:
+            self.runs.addItem(tr(w, tid, text), key)
+        self.runs.currentIndexChanged.connect(lambda _i: self.refresh())
+        top.addWidget(QLabel(tr(w, "report.runs", "Runs")))
+        top.addWidget(self.runs)
         top.addStretch(1)
         for key, tid, text, fn in (("refresh", "report.btn.refresh", "Refresh", self.refresh),
                                    ("csv", "report.btn.csv", "Export CSV...", self.export_csv),
@@ -273,7 +295,8 @@ class ReportWorkspace(QWidget):
                             tr(w, "report.col.result", "Result"), tr(w, "report.col.run", "Cutting time"),
                             tr(w, "report.col.est", "Estimated"), tr(w, "report.col.cut", "Cut (m)"),
                             tr(w, "report.col.pierces", "Pierces"), tr(w, "report.col.material", "Material"),
-                            tr(w, "report.col.util", "Util. %"), tr(w, "report.col.cost", "Cost")], "report_jobs")
+                            tr(w, "report.col.util", "Util. %"), tr(w, "report.col.cost", "Cost"),
+                            tr(w, "report.col.source", "Run")], "report_jobs")
         self.per_job = _table([tr(w, "report.col.name", "Job"), tr(w, "report.col.sheets", "Sheets"),
                                tr(w, "report.col.ok", "Done"), tr(w, "report.col.run", "Cutting time"),
                                tr(w, "report.col.cut", "Cut (m)"), tr(w, "report.col.cost", "Cost")], "report_per_job")
@@ -302,11 +325,21 @@ class ReportWorkspace(QWidget):
     def span(self) -> tuple[float, float]:
         return LG.period(self.period.currentData() or "week")
 
+    def sources(self) -> tuple[str, ...]:
+        """The job sources the Runs filter shows (real jobs only by default)."""
+        key = self.runs.currentData() or "production"
+        return next((src for k, _t, _d, src in RUN_FILTERS if k == key), RS.PRODUCTION)
+
+    def _source_text(self, source: str) -> str:
+        tid, default = SOURCE_TEXT.get(source or RS.REAL, (source, source))
+        return tr(self.w, tid, default) if tid != source else source
+
     def refresh(self) -> dict:
         w = self.w
         since, until = self.span()
         now = time.time()
-        jobs = self.ledger.jobs(since, until)
+        jobs = self.ledger.jobs(since, until, sources=self.sources())
+        hidden = len(self.ledger.jobs(since, until)) - len(jobs)
         alarms = self.ledger.alarms(since, until)
         s = LG.summary(jobs, alarms, now)
         days = LG.by_day(jobs, alarms, now)
@@ -329,14 +362,19 @@ class ReportWorkspace(QWidget):
                            fmt_duration(j.est_s) if j.est_s else "-", round(j.cut_m, 2), j.pierces,
                            " ".join(x for x in (j.material, f"{j.thickness_mm:g} mm" if j.thickness_mm else "") if x),
                            round(100 * j.utilisation, 1) if j.utilisation else "-",
-                           f"{float(j.cost.get('total', 0) or 0):.2f}"] for j in reversed(jobs)])
+                           f"{float(j.cost.get('total', 0) or 0):.2f}", self._source_text(j.source)]
+                          for j in reversed(jobs)])
         _fill(self.per_job, [[r["name"], r["jobs"], r["ok"], fmt_duration(r["run_s"]), round(r["cut_m"], 2),
                               f"{r['cost']:.2f}"] for r in LG.by_job(jobs)])
         _fill(self.alarms, [[_dt.datetime.fromtimestamp(a.t).strftime("%Y-%m-%d %H:%M:%S"), a.code, a.text,
                              fmt_duration(a.duration_s(now)) + ("" if a.cleared else " …"), a.job, a.remedy]
                             for a in reversed(alarms)])
-        self.note.setText(tr(w, "report.note", "Records: {path}", path=self.ledger.dir))
-        self.data = {"jobs": jobs, "alarms": alarms, "summary": s, "days": days}
+        note = tr(w, "report.note", "Records: {path}", path=self.ledger.dir)
+        if hidden:
+            note += "  ·  " + tr(w, "report.note.hidden", "{n} simulator / dry-run / practice runs not counted "
+                                 "(Runs: All shows them)", n=hidden)
+        self.note.setText(note)
+        self.data = {"jobs": jobs, "alarms": alarms, "summary": s, "days": days, "hidden": hidden}
         return self.data
 
     # ------------------------------------------------------------------ export
