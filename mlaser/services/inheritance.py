@@ -228,6 +228,8 @@ def set_override(doc: Document, store: Optional[T.TechnologyStore], level: str, 
     clears the mark instead.  The levels below follow (materialised).  Returns True when the
     value is an override afterwards."""
     if level == "layer":
+        if layer is None:
+            raise ValueError("layer level needs a layer")
         lp = doc.layers[layer]
         parent, _src = effective(doc, store, vid, layer=layer, upto=1)
         marks = layer_overrides(lp)
@@ -256,7 +258,7 @@ def set_override(doc: Document, store: Optional[T.TechnologyStore], level: str, 
         raise KeyError(f"{vid} is not a part / contour value")
     if level == "contour":
         from mlaser.cam.manual import contour_craft
-        cr = contour_craft(part, int(contour), create=True)
+        cr = contour_craft(part, int(contour or 0), create=True)
         parent, _src = effective(doc, store, vid, part=part, upto=3)
     else:
         cr = part.craft
@@ -278,6 +280,8 @@ def clear_override(doc: Document, store: Optional[T.TechnologyStore], level: str
                    contour: Optional[int] = None) -> Any:
     """Remove the override: the value returns to the inherited one (written).  Returns it."""
     if level == "layer":
+        if layer is None:
+            raise ValueError("layer level needs a layer")
         lp = doc.layers[layer]
         marks = layer_overrides(lp)
         marks.discard(vid)
@@ -306,9 +310,11 @@ def clear_override(doc: Document, store: Optional[T.TechnologyStore], level: str
 def reset_all(doc: Document, store: Optional[T.TechnologyStore], level: str, layer: Optional[int] = None,
               part: Optional[Part] = None, contour: Optional[int] = None) -> int:
     if level == "layer":
-        ids = layer_overrides(doc.layers.get(layer))
+        ids = layer_overrides(doc.layers.get(layer) if layer is not None else None)
+    elif part is None:
+        return 0
     else:
-        cr = _contour_craft(part, contour) if level == "contour" else (part.craft if part is not None else None)
+        cr = _contour_craft(part, contour) if level == "contour" else part.craft
         ids = craft_overrides(cr)
     for vid in sorted(ids):
         clear_override(doc, store, level, vid, layer=layer, part=part, contour=contour)
