@@ -119,6 +119,11 @@ class FlowLayout(QLayout):
 
     def addWidget(self, w: QWidget) -> None:  # noqa: N802 - Qt API
         self.addChildWidget(w)
+        # sizes and geometry in widget rectangles, not the style's "layout item" rectangles:
+        # the macOS style's buttons, combos and check boxes have layout item margins (the
+        # bezel's shadow), and rows sized from the smaller item rects left them shorter than
+        # their minimum (28 of 32 px) and spilling out of the flow's box (native-check, macOS)
+        w.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
         self.addItem(QWidgetItem(w))
         self.invalidate()
 
@@ -352,6 +357,39 @@ class ResponsiveForm(QWidget):
         m = self._grid.contentsMargins()
         w = max(self._label_w(), self._field_min()) + m.left() + m.right()
         return QSize(w, super().minimumSizeHint().height())
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        """The height at ``width`` in the arrangement that width gets (beside or above), not in
+        the current one: the form switches only when it is resized, and a parent that sized it
+        from the current arrangement left it short once it stacked (a spin box 22 of 24 px
+        high in Run Control's DO section on the X11 and Windows runners)."""
+        return self._height(width >= self.needed_beside())
+
+    def _height(self, beside: bool) -> int:
+        g = self._grid
+        vs = g.verticalSpacing()
+        vs = vs if vs >= 0 else _spacing(self, False)
+        m = g.contentsMargins()
+
+        def h(x: Optional[QWidget]) -> int:
+            if x is None or x.isHidden():
+                return 0
+            return max(x.sizeHint().height(), x.minimumSizeHint().height(), x.minimumHeight())
+        rows: list[int] = []
+        for lab, f in self._rows:
+            if f.isHidden():
+                continue
+            lh = h(lab)
+            if beside:
+                rows.append(max(lh, h(f)))
+            else:
+                if lh:
+                    rows.append(lh)
+                rows.append(h(f))
+        return sum(rows) + vs * max(len(rows) - 1, 0) + m.top() + m.bottom()
 
     def _place(self) -> None:
         g = self._grid

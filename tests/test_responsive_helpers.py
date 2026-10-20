@@ -79,10 +79,18 @@ def test_columns_panel_folds_then_recovers(app):
         s = R.CollapsibleSection(f"Section {i}", body, priority=i)
         p.add_section(s)
         secs.append(s)
+    # sizes measured once the style has polished the widgets (the macOS style changes the
+    # buttons' and headers' sizes when it polishes them: sizes taken before that were too small
+    # and the panel folded at "full" height on the macOS runner)
+    p.ensurePolished()
     w0 = p.minimumSizeHint().width()
     full = p.sizeHint().height()
     p.resize(w0, full + 10)
     p.show()
+    _pump(app)
+    w0 = p.minimumSizeHint().width()
+    full = p.sizeHint().height()
+    p.resize(w0, full + 10)
     _pump(app)
     assert all(s.expanded() for s in secs) and "1 col" in p.property(R.STATE_PROP)
     assert stop.height() >= 80 and all(s.y() >= stop.geometry().bottom() for s in secs)   # no overlap
@@ -198,3 +206,69 @@ def test_fit_area_deleted_with_a_layout_request_queued(app, monkeypatch):
     shiboken6.delete(area)                                           # the C++ side goes first
     _pump(app)
     assert not errors, errors
+
+
+def test_responsive_form_height_for_width_follows_the_arrangement(app):
+    """ResponsiveForm reports the height of the arrangement a width gets (above when narrow),
+    before it is resized: a parent that sized it from the current (beside) arrangement left
+    the stacked form short (Run Control's DO spin box 22 of 24 px, native-check X11/Windows)."""
+    from PySide6.QtWidgets import QSpinBox
+    form = R.ResponsiveForm()
+    for i in range(3):
+        form.addRow(f"A rather long label {i}", QSpinBox())
+    wide = form.needed_beside() + 40
+    narrow = form.needed_beside() - 20
+    form.resize(wide, form.heightForWidth(wide))
+    form.show()
+    _pump(app)
+    assert form.beside()
+    h_narrow = form.heightForWidth(narrow)            # asked while still beside
+    assert h_narrow > form.heightForWidth(wide)
+    form.resize(narrow, h_narrow)
+    _pump(app)
+    assert not form.beside()
+    for _lab, f in form.rows():                       # every field gets its full height
+        assert f.height() >= f.minimumSizeHint().height()
+        assert f.geometry().bottom() < form.height()
+    assert form.layout().minimumSize().height() <= h_narrow
+
+
+def test_flow_layout_uses_widget_rects_with_layout_item_margins(app):
+    """A style with layout item margins (the macOS style: a push button's bezel shadow lies
+    outside its "layout item" rectangle): the flow sizes rows from the widgets' own rectangles,
+    so every button gets its minimum height and stays inside the flow's box (native-check
+    macOS: "Go Origin height 28 < minimum 32", "Return cut by its parent")."""
+    from PySide6.QtWidgets import QComboBox, QProxyStyle, QStyle
+
+    class Margins(QProxyStyle):
+        def subElementRect(self, el, opt, w=None):  # noqa: N802 - Qt API
+            if el in (QStyle.SE_PushButtonLayoutItem, QStyle.SE_ComboBoxLayoutItem):
+                return opt.rect.adjusted(6, 2, -6, -6)
+            return super().subElementRect(el, opt, w)
+
+        def sizeFromContents(self, ct, opt, size, w=None):  # noqa: N802 - Qt API
+            s = super().sizeFromContents(ct, opt, size, w)
+            if ct in (QStyle.CT_PushButton, QStyle.CT_ComboBox):      # the bezel's 32 px
+                s.setHeight(max(s.height(), 32))
+            return s
+
+    old_style = app.style().name()
+    app.setStyle(Margins("Fusion"))      # an application style: the layout item margins apply
+    widgets = [QPushButton("Go Origin"), QComboBox(), QPushButton("Mark"), QPushButton("Return")]
+    widgets[1].addItem("Mark P1")
+    box = R.flow(widgets)                 # no margins, as in the panels
+    box_l = box.layout()
+    width = sum(x.sizeHint().width() for x in widgets[:3]) + 20
+    box.resize(width, box_l.heightForWidth(width))
+    box.show()
+    _pump(app)
+    try:
+        for i, x in enumerate(widgets):
+            assert x.height() >= x.minimumSizeHint().height(), (x, x.size())
+            assert box.rect().contains(x.geometry()), (x, x.geometry(), box.rect())
+            for y in widgets[i + 1:]:
+                assert not x.geometry().intersects(y.geometry()), (x, y)
+    finally:
+        box.deleteLater()
+        app.setStyle(old_style)
+        _pump(app)
