@@ -397,6 +397,10 @@ def _netcheck_ok(host, port, probe=False):
                                    local_ip="127.0.0.1")
 
 
+# a timing test (the heartbeat rate over a relay window): one rerun, as for the other timing
+# tests (r2 rules).  The macOS runners' late wake-ups gave 6.97 of 10 toggles/s once (CI
+# 2026-10-20); the procedure's own pass bound (60 %) held
+@pytest.mark.flaky(reruns=1)
 def test_commissioning_checklist_all_pass(tmp_path):
     ctl = simrig.simulator_controller("card", heartbeat_output=7)
     try:
