@@ -70,9 +70,22 @@ def test_link_loss_latches_a_fault_and_bounds_the_motion(make_ctl, process):
     assert ctl.stop().wait(10)
 
 
-def test_ui_process_killed_child_self_halts():
+def test_ui_process_killed_child_self_halts(tmp_path):
     """SIGKILL of the GUI process while its streaming child runs: the child sees the parent go
     (getppid / heartbeat) and halts the card itself."""
+    _kill_parent_and_check(tmp_path, slow_halt_s=0.0)
+
+
+def test_ui_process_killed_child_completes_a_slow_halt(tmp_path):
+    """CI (Ubuntu, 3.13): after the SIGKILL only the halt's first write ("stop motion") reached
+    the card and the beam stayed on.  The watchdog thread (daemon) ran the halt, its
+    ``cancel.set()`` let the child's main thread return, close the halt socket and exit under
+    it.  Here every halt step is slowed down in the child (a loaded host): the whole sequence,
+    PWM off included, must still reach the card."""
+    _kill_parent_and_check(tmp_path, slow_halt_s=0.05)
+
+
+def _kill_parent_and_check(tmp_path, slow_halt_s: float) -> None:
     if sys.platform == "win32":
         pytest.skip("POSIX kill semantics")
     from mlaser.controller.simulator import CardSimulator
@@ -84,6 +97,13 @@ def test_ui_process_killed_child_self_halts():
         from mlaser.protocol import frames as F
         from mlaser.controller.client import TransportConfig
         from mlaser.controller.stream import ProcessStreamer, WireJob
+        SLOW = {slow_halt_s!r}
+        if SLOW:   # module level: runs in the spawned child too (it re-imports this file)
+            import mlaser.controller.supervisor as S
+            _steps = S.halt_steps
+            def _slow_steps(*a, **k):
+                return [(n, (lambda fn=fn: (time.sleep(SLOW), fn()))) for n, fn in _steps(*a, **k)]
+            S.halt_steps = _slow_steps
         if __name__ == "__main__":
             job = WireJob([F.encode_step(10, 0, 5000, 100, 5000) for _ in range(30000)], period_ms=1.0)
             ps = ProcessStreamer(TransportConfig(host="127.0.0.1", port={sim.port}), 1000.0,
@@ -97,7 +117,8 @@ def test_ui_process_killed_child_self_halts():
             threading.Thread(target=die, daemon=True).start()
             ps.run_job(job)
     """)
-    path = os.path.join(os.path.dirname(__file__), "_kill_parent_tmp.py")
+    path = str(tmp_path / "kill_parent.py")
+    child = None
     try:
         with open(path, "w") as f:
             f.write(code)
@@ -124,12 +145,11 @@ def test_ui_process_killed_child_self_halts():
         assert [9999, 3, 5000, 0, 0] in sim.state.commands
     finally:
         sim.stop()
-        if os.path.exists(path):
-            os.remove(path)
-        try:
-            os.kill(child, signal.SIGKILL)       # never leave an orphan behind
-        except (NameError, OSError):
-            pass
+        if child is not None:
+            try:
+                os.kill(child, signal.SIGKILL)       # never leave an orphan behind
+            except OSError:
+                pass
 
 
 def test_streaming_child_killed_parent_halts(make_ctl):

@@ -98,6 +98,18 @@ class PendingJob:
         return d
 
 
+def path_inside(path: str, root: str, pathmod: Any = os.path) -> bool:
+    """``path`` lies inside ``root`` (both absolute and resolved).  Case-insensitive where the
+    file system is (``normcase``); paths on different Windows drives are simply not inside
+    (``commonpath`` raises ValueError for them, which the API turned into a 400 instead of the
+    ``forbidden_path`` 403: Windows CI, a drawing on D: and the job folders on C:)."""
+    p, r = pathmod.normcase(path), pathmod.normcase(root)
+    try:
+        return bool(pathmod.commonpath([p, r]) == r)
+    except ValueError:
+        return False
+
+
 def _clean_text(v: Any, key: str) -> str:
     s = "" if v is None else str(v)
     s = "".join(ch for ch in s if ch >= " " or ch == "\t").strip()
@@ -125,7 +137,7 @@ def validate(request: dict, source: str, client: str = "", allowed_roots: Option
         raise IntakeError(f"path: only {', '.join(QUEUE_SUFFIXES)} drawings can be queued", "unsupported")
     if allowed_roots is not None:
         roots = [os.path.realpath(os.path.abspath(r)) for r in allowed_roots if r]
-        if not any(os.path.commonpath([path, r]) == r for r in roots):
+        if not any(path_inside(path, r) for r in roots):
             raise IntakeError("path: outside the folders this API may queue from", "forbidden_path")
     if not os.path.isfile(path):
         raise IntakeError("path: file not found", "not_found")
@@ -357,11 +369,7 @@ class IntakeStore:
         return job
 
     def _is_upload(self, path: str) -> bool:
-        try:
-            return os.path.commonpath([os.path.realpath(path), os.path.realpath(self.files_dir)]) == \
-                os.path.realpath(self.files_dir)
-        except ValueError:
-            return False
+        return path_inside(os.path.realpath(path), os.path.realpath(self.files_dir))
 
 
 def store_upload(directory: os.PathLike | str, filename: str, content: bytes) -> str:

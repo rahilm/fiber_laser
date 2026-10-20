@@ -24,8 +24,13 @@ so a LAN peer must not be able to exhaust its threads or file descriptors (code 
   is closed) and a **lifetime** (``max_connection_s``, 30 s, enforced by the serving thread even
   for a client that trickles one byte at a time);
 * at most ``max_connections`` (16) connections are served at once, at most
-  ``max_per_client`` (4) from one address; a connection over a cap is answered ``503`` and
-  closed at once (no thread);
+  ``max_per_client`` (4) from one address; a connection over a cap is answered ``503`` at
+  once (no thread) and closed gracefully: the request bytes are read and discarded, the 503 is
+  followed by a FIN, and the accept loop closes the socket on the client's EOF or after
+  ``REFUSED_LINGER_S`` (only while the sockets held, these included, stay within
+  ``max_connections``; beyond that it is closed at once).  Closing a socket with unread
+  request bytes sends a TCP reset, and macOS discards a 503 that a reset overtakes (the
+  client saw only ``ECONNRESET``);
 * a **rate limit** per client address (token bucket, ``rate_per_s`` 5 requests/s, burst 20);
   over it, ``429`` with ``Retry-After``;
 * a request does no work on the GUI thread: it serves the bytes the application published
@@ -39,6 +44,7 @@ import json
 import logging
 import re
 import secrets
+import select
 import socket
 import threading
 import time
@@ -59,6 +65,9 @@ MAX_PER_CLIENT = 4               # ... from one client address
 RATE_PER_S = 5.0                 # requests per second and client address (token bucket)
 RATE_BURST = 20.0
 _MAX_CLIENTS_TRACKED = 1024      # rate-limit buckets kept (oldest dropped)
+REFUSED_LINGER_S = 1.0           # a refused connection is closed after the client's EOF or this
+_MAX_LINGERING = 64              # refused connections lingering at once, at most
+_DRAIN_BYTES = 65536             # read from a refused connection per pass, at most
 _TOKEN_RE = re.compile(r"([?&]t=)[^&\s\"']*")
 
 
@@ -190,18 +199,14 @@ class _Server(ThreadingHTTPServer):
 
     monitor: "MonitorServer"
 
+    _lingering: Optional[list] = None        # [(sock, close-by)] refused connections
+
     def process_request(self, request: Any, client_address: Any) -> None:
         m = self.monitor
         ip = str(client_address[0])
         if not m._enter(ip, request):
             m.rejected += 1
-            try:
-                request.settimeout(0.5)
-                request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
-                                b"Connection: close\r\nRetry-After: 2\r\n\r\n")
-            except OSError:
-                pass
-            self.shutdown_request(request)
+            self._refuse(request)
             return
         try:
             super().process_request(request, client_address)
@@ -215,8 +220,81 @@ class _Server(ThreadingHTTPServer):
         finally:
             self.monitor._leave(str(client_address[0]), request)
 
+    @staticmethod
+    def _drain(sock: Any) -> bool:
+        """Read what the client sent, without blocking; True at its EOF (or an error)."""
+        n = 0
+        while n < _DRAIN_BYTES:
+            try:
+                chunk = sock.recv(4096)
+            except (BlockingIOError, InterruptedError):
+                return False
+            except OSError:
+                return True
+            if not chunk:
+                return True
+            n += len(chunk)
+        return False
+
+    def _refuse(self, request: Any) -> None:
+        """The 503 of a connection over a cap, sent from the accept loop (no thread, no
+        blocking): drain the request, answer, FIN, and linger until the client closes."""
+        try:
+            request.setblocking(False)
+            eof = self._drain(request)
+            request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nContent-Length: 0\r\n"
+                            b"Connection: close\r\nRetry-After: 2\r\n\r\n")
+            request.shutdown(socket.SHUT_WR)
+        except OSError:
+            eof = True
+        if self._lingering is None:
+            self._lingering = []
+        # the sockets held stay within max_connections, the lingering ones included (a flood
+        # of refused connections costs no file descriptors): no room, close at once
+        room = self.monitor.connections + len(self._lingering) < min(self.monitor.max_connections,
+                                                                       _MAX_LINGERING)
+        if eof or not room:
+            self._close_quietly(request)
+            return
+        self._lingering.append((request, time.monotonic() + REFUSED_LINGER_S))
+
+    _linger_next = 0.0
+
+    def _linger(self) -> None:
+        """Close the refused connections whose client is done (or whose time is up).  At most
+        every 50 ms and only the readable ones: the accept loop keeps up with a flood."""
+        now = time.monotonic()
+        if not self._lingering or now < self._linger_next:
+            return
+        self._linger_next = now + 0.05
+        try:
+            readable = set(select.select([sk for sk, _t in self._lingering], [], [], 0)[0])
+        except (OSError, ValueError):
+            readable = {sk for sk, _t in self._lingering}
+        keep = []
+        for sock, t_end in self._lingering:
+            if (sock in readable and self._drain(sock)) or now >= t_end:
+                self._close_quietly(sock)
+            else:
+                keep.append((sock, t_end))
+        self._lingering = keep
+
+    @staticmethod
+    def _close_quietly(sock: Any) -> None:
+        try:
+            sock.close()
+        except OSError:
+            pass
+
     def service_actions(self) -> None:
         self.monitor._reap()
+        self._linger()
+
+    def server_close(self) -> None:
+        super().server_close()
+        for sock, _t in self._lingering or ():
+            self._close_quietly(sock)
+        self._lingering = None
 
     def handle_error(self, request: Any, client_address: Any) -> None:
         # a client that went away (reset, reaped) is not an application error: no stderr dump

@@ -295,6 +295,35 @@ def test_stream_cap_and_connection_limits(server):
     s1.close()
 
 
+def test_a_refused_connection_gets_its_503_without_a_reset(server):
+    """macOS CI (3.13): ``ECONNRESET`` instead of the 503.  The accept loop answered and closed
+    the socket with the request still unread, and a close with unread bytes sends a TCP reset,
+    which on macOS discards the 503 the client has not read yet.  The server now reads the
+    request, sends the 503 and a FIN, and closes after the client's EOF: a client that is still
+    sending after the refusal is not reset (Linux shows the reset as EPIPE on the next send)."""
+    srv = server(max_per_client=1)
+    held = socket.create_connection(srv.address, timeout=5)
+    time.sleep(0.2)
+    s = socket.create_connection(srv.address, timeout=5)
+    try:
+        s.sendall(b"GET /api/v1/health HTTP/1.1\r\nHost: x\r\n\r\n")
+        time.sleep(0.6)                                  # refused by now (accept loop: 0.25 s)
+        s.sendall(b"\r\n")
+        time.sleep(0.1)
+        s.sendall(b"\r\n")                               # a reset makes this raise
+        out = b""
+        while True:
+            chunk = s.recv(65536)
+            if not chunk:
+                break
+            out += chunk
+        assert out.startswith(b"HTTP/1.1 503") and b"Retry-After" in out
+    finally:
+        s.close()
+        held.close()
+    assert srv.rejected >= 1
+
+
 def test_rate_limit(server):
     srv = server(rate_per_s=0.5, rate_burst=3)
     codes = [http(srv, "GET", "/api/v1/status")[0] for _ in range(5)]

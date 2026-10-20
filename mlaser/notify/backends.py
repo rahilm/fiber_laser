@@ -11,7 +11,9 @@ import base64
 import hashlib
 import hmac
 import json
+import re
 import smtplib
+import socket
 import ssl
 import urllib.error
 import urllib.parse
@@ -96,6 +98,18 @@ def send_webhook(n: Any, cfg: dict, secret: str = "", timeout: float = TIMEOUT_S
     return f"webhook {code}"
 
 
+def _local_name() -> str:
+    """The name this host gives in EHLO, without a DNS lookup.  smtplib's default (and
+    ``make_msgid``'s) is ``socket.getfqdn()``, a reverse lookup that no socket timeout covers:
+    on macOS it took tens of seconds per call (CI: a mail to a local server took > 60 s)."""
+    try:
+        name = socket.gethostname()
+    except OSError:
+        name = ""
+    name = name.strip().rstrip(".")
+    return name if re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,252})", name) else "localhost"
+
+
 def send_email(n: Any, cfg: dict, secret: str = "", timeout: float = TIMEOUT_S) -> str:
     host = str(cfg.get("host") or "").strip()
     to = [a.strip() for a in str(cfg.get("to") or "").replace(";", ",").split(",") if a.strip()]
@@ -109,15 +123,18 @@ def send_email(n: Any, cfg: dict, secret: str = "", timeout: float = TIMEOUT_S) 
     msg["From"] = sender
     msg["To"] = ", ".join(to)
     msg["Date"] = formatdate(localtime=True)
-    msg["Message-ID"] = make_msgid("mlaser")
+    local = _local_name()
+    domain = sender.rpartition("@")[2].strip(" <>") or local
+    msg["Message-ID"] = make_msgid("mlaser", domain=domain)
     msg["X-Mlaser-Event"] = n.kind
     msg.set_content(n.message)
     ctx = ssl.create_default_context()
     smtp: smtplib.SMTP
     if security == "ssl":
-        smtp = smtplib.SMTP_SSL(host, port or 465, timeout=timeout, context=ctx)
+        smtp = smtplib.SMTP_SSL(host, port or 465, local_hostname=local, timeout=timeout, context=ctx)
     else:
-        smtp = smtplib.SMTP(host, port or (587 if security == "starttls" else 25), timeout=timeout)
+        smtp = smtplib.SMTP(host, port or (587 if security == "starttls" else 25), local_hostname=local,
+                            timeout=timeout)
     try:
         smtp.ehlo()
         if security == "starttls":
