@@ -442,3 +442,99 @@ def test_sampling_declines_odd_inputs_and_gives_the_ports_values():
     pb, gb = NS.native_smooth_path_points(mv, MotionConfig())
     ss = [0.0, 1.5, 7.25, 30.0]
     assert _hx([c for s in ss for c in ga.at(s)[0]]) == _hx(list(gb.points(ss)))
+
+
+# ----------------------------------------------------------------------------- ring sort
+from mlaser.parity_ports.cadmodule import ordering as ORD  # noqa: E402
+from mlaser.parity_ports.cadmodule import ordering_fast as ORDF  # noqa: E402
+
+
+class _Node:
+    def __init__(self, bbox):
+        self.bbox = bbox
+
+
+@st.composite
+def ring_nodes(draw):
+    kind = draw(st.integers(0, 3))
+    n = draw(st.integers(2, 60))
+    out = []
+    for k in range(n):
+        if kind == 0:        # floats anywhere
+            x, y = draw(st.floats(-500, 500)), draw(st.floats(-500, 500))
+        elif kind == 1:      # a grid: collinear rows / columns, the near-collinear rule
+            x, y = float((k % 7) * 30), float((k // 7) * 30)
+        elif kind == 2:      # duplicates and near-duplicates: the tolerance box
+            x = float(draw(st.integers(0, 4))) * 10 + draw(st.sampled_from([0.0, 1e-9, -1e-9]))
+            y = float(draw(st.integers(0, 4))) * 10
+        else:                # a line with jitter: sin close to 0.1, nearly equal lengths
+            x = k * 3.0 + draw(st.floats(-0.01, 0.01))
+            y = k * 0.3 + draw(st.floats(-0.01, 0.01))
+        w, h = draw(st.floats(0.0, 20.0)), draw(st.floats(0.0, 20.0))
+        out.append(_Node((x - w, y - h, x + w, y + h)))
+    return out
+
+
+@needs_kernel
+@settings(max_examples=400, deadline=None)
+@given(nodes=ring_nodes(), inside_out=st.booleans(), faithful=st.booleans())
+def test_ring_sort_matches_the_reference(nodes, inside_out, faithful):
+    old = ORD.RING_TOL_FAITHFUL
+    ORD.RING_TOL_FAITHFUL = faithful
+    try:
+        ref = ORD.ring_sort(nodes, inside_out)
+        got = ORDF.ring_sort(nodes, inside_out)
+    finally:
+        ORD.RING_TOL_FAITHFUL = old
+    assert [id(x) for x in got] == [id(x) for x in ref]
+
+
+@needs_kernel
+@settings(max_examples=200, deadline=None)
+@given(nodes=ring_nodes())
+def test_ring_kernel_quick_and_exact_paths_agree(nodes):
+    import math
+    P = [((x.bbox[0] + x.bbox[2]) / 2, (x.bbox[1] + x.bbox[3]) / 2) for x in nodes]
+    flat = array("d", [v for p in P for v in p])
+    x0 = min(x.bbox[0] for x in nodes)
+    y0 = min(x.bbox[1] for x in nodes)
+    args = (flat, 0.37, x0 - 1.0, y0, math.hypot)
+    assert K.ring_order(*args, False) == K.ring_order(*args, True)
+
+
+@needs_kernel
+def test_ring_sort_large_grid_and_python_fallbacks():
+    nodes = [_Node((float(i % 40) * 30, float(i // 40) * 30, float(i % 40) * 30 + 24, float(i // 40) * 30 + 24))
+             for i in range(900)]
+    assert [id(x) for x in ORDF.ring_sort(nodes)] == [id(x) for x in ORD.ring_sort(nodes)]
+    ints = [_Node((i, 0, i + 2, 2)) for i in range(5)]       # int bboxes: centres are floats
+    assert [id(x) for x in ORDF.ring_sort(ints, True)] == [id(x) for x in ORD.ring_sort(ints, True)]
+    assert ORDF.ring_sort(nodes[:1]) == nodes[:1]
+
+
+@needs_kernel
+@pytest.mark.parametrize("what", ["ring", "table", "crt"])
+def test_selfcheck_detects_wrong_geometry_kernels(monkeypatch, what):
+    class Kern:
+        def __getattr__(self, name):
+            return getattr(K, name)
+
+        def ring_order(self, *a):
+            out = K.ring_order(*a)
+            return out[:2][::-1] + out[2:] if what == "ring" else out
+
+        def ct_build(self, ctrl, knots, tol):
+            if what == "table":
+                knots = list(knots)
+                knots[4] = knots[4] * (1 + 2 ** -50)     # a last-bits difference in the table
+            return K.ct_build(ctrl, knots, tol)
+
+        def crt_acos(self, x):
+            r = K.crt_acos(x)
+            return math.nextafter(r, 4.0) if what == "crt" and x == 0.5 else r
+
+    fake = Kern()
+    monkeypatch.setattr(N, "_K", fake)
+    monkeypatch.setattr(NS, "_K", fake)
+    err = N.selfcheck()
+    assert err and ("ring" in err if what == "ring" else "smoother" in err), err

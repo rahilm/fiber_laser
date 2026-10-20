@@ -133,7 +133,24 @@ def main() -> None:
     ap.add_argument("--raster", type=int, default=0, metavar="W",
                     help="instead: compile_job of a W x 3/4 W px dither engraving (the review's "
                          "800 x 600 case: 54.6 M steps); prints the RSS growth")
+    ap.add_argument("--order", type=int, default=None, metavar="MODE",
+                    help="instead: build_toolpath with CamParams(sort_mode=MODE) (best of --repeat), "
+                         "e.g. 6 / 7 = ring sort")
     a = ap.parse_args()
+    if a.order is not None:
+        doc = make_doc(a.parts)
+        from mlaser.cam.toolpath import build_toolpath
+        build_toolpath(make_doc(4), CamParams(sort_mode=a.order))     # warm (kernel selection)
+        ts = []
+        for _ in range(a.repeat):
+            t = time.perf_counter()
+            items = build_toolpath(doc, CamParams(sort_mode=a.order))
+            ts.append(time.perf_counter() - t)
+        h = hashlib.sha256(repr([(type(i).__name__, getattr(i, "start", None), getattr(i, "end", None))
+                                 for i in items]).encode()).hexdigest()[:16]
+        print(f"N={a.parts} sort_mode={a.order}: build_toolpath best {min(ts):.2f} s, {len(items)} items, "
+              f"order fingerprint {h}")
+        return
     if a.raster:
         raster(a.raster)
         return

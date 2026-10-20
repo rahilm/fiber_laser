@@ -627,4 +627,9 @@ def selfcheck() -> str:
         STATS.update(saved)
     from . import native_smooth
     err = native_smooth.selfcheck()
-    return f"smoother: {err}" if err else ""
+    if err:
+        return f"smoother: {err}"
+    if hasattr(_K, "ring_order"):
+        from ..cadmodule import ordering_fast
+        err = ordering_fast.ring_selfcheck(_K)
+    return err

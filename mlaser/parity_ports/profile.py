@@ -250,7 +250,8 @@ ORIGINAL = ParityProfile(
         import_sort=f"{_PP}.cadmodule.ordering_fast:import_sort",
         local_optimal_elems=f"{_PP}.cadmodule.ordering_fast:local_optimal_elems",
         containers_last_faithful=f"{_PP}.cadmodule.ordering_fast:containers_last_faithful",
-        ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
+        # the same scan on the C kernel when the default selection chose it (ordering_fast)
+        ring_sort=f"{_PP}.cadmodule.ordering_fast:ring_sort",
         choose_start=f"{_PP}.cadmodule.ordering:choose_start",
     ),
     arcfit=Implementation(

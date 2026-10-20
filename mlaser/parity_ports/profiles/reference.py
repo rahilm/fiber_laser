@@ -29,6 +29,7 @@ REFERENCE = ORIGINAL.derive(
         import_sort=f"{_PP}.cadmodule.ordering:import_sort",
         local_optimal_elems=f"{_PP}.cadmodule.ordering:local_optimal_elems",
         containers_last_faithful=f"{_PP}.cadmodule.ordering:containers_last_faithful",
+        ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
     ),
     sampling=PYTHON_SAMPLING,
     smoother=PYTHON_SMOOTHER,

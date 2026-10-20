@@ -529,3 +529,85 @@ def import_sort(nodes: list[Node], small_first: bool = True, seed: int = 0,
 
     flat(roots)
     return out, reversed_ids
+
+
+# --------------------------------------------------------------------------- ring sort
+def _ring_kernel() -> Any:
+    """The C kernel's ring_order when the default selection chose the kernel, else None."""
+    from ..profiles import native
+    k = native._K
+    if k is None or not hasattr(k, "ring_order") or not native.native_selected():
+        return None
+    return k
+
+
+@port("0x1003f690", source="CADModule", status="observed",
+      note="drop-in of ordering.ring_sort: the same scan and decisions in C")
+def ring_sort(nodes: list, inside_out: bool = False) -> list:
+    """:func:`.ordering.ring_sort` (CRingSort, modes 6 / 7) with the same picks in the same
+    order, on the C kernel (``_ring.c``): the same sequential scan, each candidate decided with
+    the reference's double arithmetic; ``|w|`` is libm's hypot where every decision is more than
+    1e-13 from its threshold, else CPython's ``math.hypot`` (called back), as in the reference.
+    The reference (the Python port) runs when the default selection did not choose the kernel
+    (``MLASER_NATIVE``), and for coordinates that are not floats."""
+    from . import ordering as R
+    k = _ring_kernel()
+    if k is None or len(nodes) < 2:
+        return R.ring_sort(nodes, inside_out)
+    P = [((x.bbox[0] + x.bbox[2]) / 2, (x.bbox[1] + x.bbox[3]) / 2) for x in nodes]
+    x0 = min(x.bbox[0] for x in nodes); y0 = min(x.bbox[1] for x in nodes)
+    x1 = max(x.bbox[2] for x in nodes); y1 = max(x.bbox[3] for x in nodes)
+    n = len(nodes)
+    if R.RING_TOL_FAITHFUL:
+        tol = 0.1 * (x1 - x0) * (y1 - y0) / n
+    else:
+        tol = 0.1 * math.sqrt(max((x1 - x0) * (y1 - y0), 1e-12) / n)
+    rx, ry = x0 - 1.0, y0
+    vals = [v for p in P for v in p]
+    if not all(type(v) is float for v in vals) or type(tol) is not float or not all(
+            type(v) is float or (type(v) is int and -(1 << 53) < v < (1 << 53)) for v in (rx, ry)):
+        return R.ring_sort(nodes, inside_out)
+    from array import array
+    out = k.ring_order(array("d", vals), tol, rx, ry, math.hypot, False)
+    seq = [nodes[i] for i in out]
+    return seq[::-1] if inside_out else seq
+
+
+def ring_selfcheck(k: Any) -> str:
+    """Known-answer check of the C ring sort ``k.ring_order`` against the reference (part of the
+    kernel self-check, profiles/native.py): a 9 x 7 grid of equal parts (collinear rows, the
+    near-collinear rule), a jittered line and duplicates (the tolerance box); "" or what differs."""
+    from array import array
+    from . import ordering as R
+
+    class _N:
+        def __init__(self, b: tuple) -> None:
+            self.bbox = b
+
+    x = 0x5DEECE66D
+    sets = []
+    grid = [_N((c * 30.0, r * 30.0, c * 30.0 + 24.0, r * 30.0 + 24.0)) for r in range(7) for c in range(9)]
+    sets.append(grid)
+    line = []
+    for i in range(40):
+        x = (x * 0x5DEECE66D + 11) & ((1 << 48) - 1)
+        j = x / float(1 << 48) * 0.02 - 0.01
+        line.append(_N((i * 3.0 + j, i * 0.3, i * 3.0 + j + 1.0, i * 0.3 + 1.0)))
+    sets.append(line)
+    sets.append([_N((float(i % 3) * 10.0, 0.0, float(i % 3) * 10.0 + 2.0, 2.0)) for i in range(12)])
+    for nodes in sets:
+        P = [((n.bbox[0] + n.bbox[2]) / 2, (n.bbox[1] + n.bbox[3]) / 2) for n in nodes]
+        x0 = min(n.bbox[0] for n in nodes)
+        y0 = min(n.bbox[1] for n in nodes)
+        x1 = max(n.bbox[2] for n in nodes)
+        y1 = max(n.bbox[3] for n in nodes)
+        tol = 0.1 * math.sqrt(max((x1 - x0) * (y1 - y0), 1e-12) / len(nodes))
+        want = [id(n) for n in R.ring_sort(nodes)] if not R.RING_TOL_FAITHFUL else None
+        if want is None:
+            return ""
+        flat = array("d", [v for p in P for v in p])
+        for exact in (False, True):
+            got = [id(nodes[i]) for i in k.ring_order(flat, tol, x0 - 1.0, y0, math.hypot, exact)]
+            if got != want:
+                return f"ring sort differs from the reference ({len(nodes)} nodes)"
+    return ""
