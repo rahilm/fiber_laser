@@ -882,10 +882,12 @@ class OperatorScreen(QWidget):
             if asking:
                 self.queue_section.user_choice = None
             self.controls.schedule()
-        b["confirm_sheet"].setEnabled(r.state == "confirm" and connected and not fault and not job)
+        style.set_enabled(b["confirm_sheet"], r.state == "confirm" and connected and not fault and not job,
+                          tr(w, "run.why.no_sheet_wait", "The queue is not waiting for a sheet"))
         b["queue_mode"].setText(tr(w, "run.btn.queue_leave", "Leave queue") if r.state != "idle"
                                 else tr(w, "run.btn.queue_run", "Run queue"))
-        b["queue_mode"].setEnabled(r.state != "idle" or self.ws.queue.next_entry() is not None)
+        style.set_enabled(b["queue_mode"], r.state != "idle" or self.ws.queue.next_entry() is not None,
+                          tr(w, "run.why.queue_empty", "The queue has no job left to run"))
         # monitor chip
         mon = self.ws.monitor
         self.monitor_chip.setVisible(mon is not None and mon.running)

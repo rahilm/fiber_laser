@@ -49,7 +49,6 @@ ALLOWLIST: dict[str, dict[str, int]] = {
     "mlaser/ui/workspaces/approval.py": {"colour": 1, "margin": 1},
     "mlaser/ui/workspaces/cutting_strategy.py": {"margin": 1},
     "mlaser/ui/workspaces/layer_inspector.py": {"margin": 2},
-    "mlaser/ui/workspaces/nest.py": {"colour": 4, "font": 2, "margin": 4},
     "mlaser/ui/workspaces/orders.py": {"colour": 4, "margin": 1},
     "mlaser/ui/workspaces/process.py": {"margin": 8},
     "mlaser/ui/workspaces/recipe_picker.py": {"margin": 2},

@@ -246,13 +246,7 @@ def test_palette_shows_the_reason(app, stubbed):
 
 #: disabled buttons without a tooltip in files of other tracks (objectName or class: owner):
 #: left for them, to be emptied (see the module docstring)
-DISABLED_EXEMPT: dict[str, str] = {
-    # the Nest workspace (mlaser/ui/workspaces/nest.py): send / copy / cancel before a nest ran
-    "nestws_send": "nest.py", "QPushButton:Copy sheet to drawing": "nest.py", "QPushButton:Cancel": "nest.py",
-    # the Run screen (mlaser/ui/workspaces/run.py): offline, no breakpoint, no queue
-    "run_arm": "run.py", "run_dry_run": "run.py", "run_frame": "run.py", "run_queue_mode": "run.py",
-    "run_resume_contour": "run.py", "run_resume_here": "run.py",
-}
+DISABLED_EXEMPT: dict[str, str] = {}
 
 
 def test_disabled_buttons_say_why_in_every_workspace(app, stubbed):
