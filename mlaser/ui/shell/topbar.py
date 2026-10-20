@@ -1,5 +1,7 @@
-"""The top bar: application menu, file name with the unsaved-changes marker, command search,
-the safety state chips, the user mode and the language (docs/review/ux.md §4).
+"""The top bar: file name with the unsaved-changes marker, command search, the safety state
+chips, the user mode and the language (docs/review/ux.md §4).  The application menu is the
+native menu bar (menubar.py); the old in-window "Mlaser ⌄" button stays hidden for plugins
+that looked it up.
 
 The chips summarise Safety's state (:class:`mlaser.machine.safety.SafetyStatus`, the same
 snapshot the state banner shows): ``SIMULATOR``, ``DRY-RUN``, ``ARMED`` / ``DISARMED``,
@@ -12,7 +14,8 @@ from __future__ import annotations
 from typing import Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPushButton, QSizePolicy,
+from PySide6.QtGui import QKeySequence
+from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QSizePolicy,
                                QToolButton, QWidget)
 
 from mlaser.services import usermodes as um
@@ -56,6 +59,38 @@ def chip_kinds(st, alarms) -> list[str]:
     return [k for k in ORDER if k in out]
 
 
+class SearchField(QLineEdit):
+    """A search field that opens the command palette: a click, or typing (the first letters
+    go to the palette).  A real line edit, so it looks like the platform's search fields."""
+
+    def __init__(self, open_palette):
+        super().__init__()
+        self._open = open_palette
+        self.setReadOnly(True)
+        self.setClearButtonEnabled(False)
+        self.setFocusPolicy(Qt.StrongFocus)
+        self.setMinimumWidth(180)
+        self.setMaximumWidth(420)
+        self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+    def mousePressEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        ev.accept()
+        self._open("")
+
+    def keyPressEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        text = ev.text()
+        if ev.key() in (Qt.Key_Return, Qt.Key_Enter, Qt.Key_Space, Qt.Key_Down):
+            self._open("")
+        elif text and text.isprintable() and not (ev.modifiers() & (Qt.ControlModifier | Qt.MetaModifier)):
+            self._open(text)
+        else:
+            super().keyPressEvent(ev)
+
+    def click(self) -> None:
+        """(compatibility with the former push button)"""
+        self._open("")
+
+
 class TopBar(QWidget):
     def __init__(self, shell):
         super().__init__()
@@ -82,15 +117,13 @@ class TopBar(QWidget):
         self.file.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
         h.addWidget(self.file)
         h.addStretch(1)
-        self.search = QPushButton()
+        self.search = SearchField(lambda text: shell.open_palette(text))
         self.search.setObjectName("shell_search")
-        self.search.setFlat(True)
-        self.search.setCursor(Qt.IBeamCursor)
-        tr.bind(self.search, "shell.search", lambda t: self.search.setText(f"{t}   Ctrl+K"))
+        key = QKeySequence("Ctrl+K").toString(QKeySequence.NativeText)
+        tr.bind(self.search, "shell.search", lambda t: self.search.setPlaceholderText(f"{t}   {key}"))
         tr.bind(self.search, "shell.search", self.search.setAccessibleName)
         tr.bind(self.search, "shell.search.tip", self.search.setToolTip)
-        self.search.clicked.connect(lambda: shell.open_palette())
-        h.addWidget(self.search)
+        h.addWidget(self.search, 2)
         h.addStretch(1)
         self.chip_box = QWidget()
         cb = QHBoxLayout(self.chip_box)

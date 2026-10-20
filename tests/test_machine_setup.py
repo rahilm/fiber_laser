@@ -85,6 +85,11 @@ def test_edit_in_and_hw_options_open_setup(win, app):
     ws = win.extension("ext_machine").workspace
     assert win.shell.host.current == "machine" and ws.section() == "settings"
     assert not [d for d in app.topLevelWidgets() if type(d).__name__ == "ParamGridDialog" and d.isVisible()]
+    # the menu bar's entry goes to the same page (homes.nav_command "cfg:machine.setup")
+    win.show_workspace("design")
+    homes.edit_in(win, "cfg:machine.setup")
+    _pump(app)
+    assert win.shell.host.current == "machine" and ws.section() == "settings"
 
 
 def test_machine_ops_follow_the_registry_live(win, app):

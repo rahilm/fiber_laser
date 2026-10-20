@@ -35,13 +35,7 @@ _ALLOW = [(re.compile(p), r) for p, r in ALLOWLIST]
 #: widget subtrees converted by the parallel ui-process track (it owns these files in this wave
 #: and converts them to QuantitySpinBox itself); the lead removes these entries once it merges.
 #: (ancestor class name, or "groupbox:<i18n id>" for a QGroupBox titled with that id, reason)
-EXEMPT: list[tuple[str, str]] = [
-    ("TechnologyEditor", "technology editor: converted by ui-process"),
-    ("LayerParamDialog", "layer-parameters dialog: converted by ui-process"),
-    ("groupbox:props.leads", "Properties > Leads: converted by ui-process"),
-    ("groupbox:props.kerf", "Properties > Kerf: converted by ui-process"),
-    ("groupbox:props.joints", "Properties > Micro-joints: converted by ui-process"),
-]
+EXEMPT: list[tuple[str, str]] = []
 
 
 def _exempt_titles() -> set[str]:

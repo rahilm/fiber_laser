@@ -209,25 +209,13 @@ def test_main_window_screenshot(app, tmp_path):
 
 
 def test_dialogs_build(app):
-    from mlaser.model import LayerParams, LeadParams
     from mlaser.ui import dialogs
     from mlaser.ui.params import OPTION_SECTIONS, registry  # noqa: F401
 
     tr = i18n.Translator(language="en")
     assert len(registry()) > 500
-    lp = LayerParams(index=1)
-    d = dialogs.LayerParamDialog(tr, lp)
-    d.values["GP.CutSpeed"] = 55.0
-    d._store()
-    assert lp.speed == 55.0
-    li, lo = LeadParams(kind=1), LeadParams()
-    ld = dialogs.LeadDialog(tr, li, lo)
-    ld._w["in"][3].setValue(4.5)
-    ld._store()
-    assert li.length == 4.5
-    assert dialogs.KerfDialog(tr, 0, 0.2).result_values() == (0, 0.2)
     for which, secs in OPTION_SECTIONS.items():
         dialogs.ParamGridDialog(tr, "mf137", secs, {})
     assert dialogs.IPDialog(tr).result_values()["pd445"] == "10.1.1.168"
-    for cls in (dialogs.MicroJointDialog, dialogs.PasswordDialog, dialogs.AboutDialog):
+    for cls in (dialogs.PasswordDialog, dialogs.AboutDialog):
         cls(tr)

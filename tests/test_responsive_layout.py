@@ -9,8 +9,10 @@ The sizes are *sample points*, not design targets: the layouts adapt to the spac
 ``MLASER_LAYOUT_SHOTS=<dir>`` writes a report (``report.json``, ``report.md``) and a screenshot of
 every view at every sample size into ``<dir>``; ``MLASER_LAYOUT_TAG`` names the run (subfolder).
 ``MLASER_LAYOUT_STEP`` sets the sweep step (default 40 px).  ``MLASER_LAYOUT_STYLE`` runs under
-that Qt style (``macos``, ``windows11``, ``windowsvista``, ``fusion``, ...: the platform's native
-styles on the CI runners); by default the application's own style.
+that Qt style (``macOS``, ``windows11``, ``windowsvista``, ``Fusion``, ...: the platform's native
+styles on the CI runners); by default the application's own style.  With a real window server
+(``QT_QPA_PLATFORM=cocoa`` / ``windows`` / ``xcb``, the native-check workflow) the sizes are
+bounded by that screen.
 """
 from __future__ import annotations
 
@@ -89,12 +91,14 @@ def win(app, tmp_path_factory):
     for n in ("information", "warning", "critical", "question"):
         mp.setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
     # the offscreen screen is 800 × 800: pages must not be capped to it (FitArea's screen cap is
-    # tested on its own, test_fit_area_screen_cap)
-    try:
-        from mlaser.ui.responsive import FitArea
-        mp.setattr(FitArea, "_cap", lambda self, size: size)
-    except ImportError:          # a checkout before the responsive layout (the baseline run)
-        pass
+    # tested on its own, test_fit_area_takes_the_page_minimum_capped_by_the_screen).  On a real
+    # window server (the native-check CI runners) the real screen applies, cap included.
+    if not real_screen():
+        try:
+            from mlaser.ui.responsive import FitArea
+            mp.setattr(FitArea, "_cap", lambda self, size: size)
+        except ImportError:          # a checkout before the responsive layout (the baseline run)
+            pass
     w = real_window(config=ConfigService())
     onshape = _load_onshape(w)
     w.shell.host.refresh_mode()
@@ -122,9 +126,24 @@ def _restyle(app) -> None:
         app.setStyle(style)
 
 
+def real_screen() -> bool:
+    """A real window server (cocoa, windows, xcb, wayland): the sizes stay within its screen."""
+    from PySide6.QtGui import QGuiApplication
+    return QGuiApplication.platformName() not in ("offscreen", "minimal", "")
+
+
+def _screen_size(win) -> QSize:
+    scr = win.screen()
+    return scr.availableGeometry().size() if scr is not None else QSize(MAX_W, 1600)
+
+
 def _fit(win, app, size) -> QSize:
     """Resize to ``size`` (never below the window's own minimum, which is what the content needs)."""
-    s = QSize(*size).expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
+    s = QSize(*size)
+    if real_screen():                # a sample larger than this screen is measured at its size
+        frame = win.frameGeometry().size() - win.size()
+        s = s.boundedTo(_screen_size(win) - frame)
+    s = s.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
     win.resize(s)
     _pump(app, rounds=8)          # a page that needs more height when narrower grows the window
     return win.size()
@@ -370,9 +389,10 @@ def _sweep_sizes(win):
     m = win.minimumSizeHint().expandedTo(win.minimumSize())
     w0 = max(m.width(), 1)
     heights = sorted({max(m.height(), h) for h in (m.height(), *SWEEP_HEIGHTS)})
-    widths = list(range(w0, MAX_W + 1, STEP))
-    if widths[-1] != MAX_W:
-        widths.append(MAX_W)
+    top = min(MAX_W, _screen_size(win).width()) if real_screen() else MAX_W
+    widths = list(range(w0, max(top, w0) + 1, STEP))
+    if widths[-1] != top and top > w0:
+        widths.append(top)
     return widths, heights
 
 

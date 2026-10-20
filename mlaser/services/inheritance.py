@@ -341,6 +341,8 @@ def materialise(doc: Document, store: Optional[T.TechnologyStore], layers: Optio
     the GP values; every part / contour on those layers: the craft values).  A value already
     equal is not written, so a document whose marks were derived is left as it is.  Returns
     the number of values written."""
+    if not has_marks(doc):
+        derive_marks(doc, store)          # never overwrite values of a file whose marks are unknown
     want = set(layers) if layers is not None else set(doc.layers) | {p.craft.layer for p in doc.parts}
     n = 0
     for li in sorted(want):
@@ -355,8 +357,12 @@ def materialise(doc: Document, store: Optional[T.TechnologyStore], layers: Optio
                 _write_gp(lp, k, v)
                 n += 1
     for p in doc.parts:
-        if p.craft.layer in want:
-            n += _materialise_part(doc, store, p)
+        li = p.craft.layer
+        if li not in want:
+            continue
+        if T.layer_technology_ref(doc.layers.get(li)) is not None and recipe_of(doc, li, store) is None:
+            continue                      # the recipe is not known here (no store): leave the parts
+        n += _materialise_part(doc, store, p)
     return n
 
 
@@ -416,6 +422,14 @@ def derive_marks(doc: Document, store: Optional[T.TechnologyStore], force: bool 
             _set_marks(cc, cm)
             n += len(cm)
     return n
+
+
+def pin_crafts(parts: Iterable[Part]) -> None:
+    """Mark every craft value of ``parts`` (and their contours' own crafts) as their own: a
+    recipe assigned afterwards does not change their leads or kerf."""
+    for p in parts:
+        for cr in [p.craft] + [c.craft for c in p.contours if c.craft is not None and c.craft is not p.craft]:
+            _set_marks(cr, craft_overrides(cr) | set(CRAFT_IDS))
 
 
 # --------------------------------------------------------------------------- positions set by hand

@@ -242,10 +242,9 @@ class CamExtension:
         self.log(f"mf403: {self.edit(OC.alpha_clear, 'clear alpha corner', parts=self._targets())} contours")
 
     def cool_auto(self) -> None:
-        f = [("lead_point", "pd604", "bool", None), ("sharp", "pd605", "bool", None),
-             ("max_angle", "pd606", "float", (0, 180))]
-        if self.ask("mf407", self.cool_p, f):
-            self.log(f"mf407: {self.edit(lambda doc: OC.cool_auto(doc, self.cool_p), 'cool points', parts=self._targets())} points")
+        """Automatic cooling points with the rule of Process › Properties › Cooling points (its
+        one editor; cool_p holds it)."""
+        self.log(f"mf407: {self.edit(lambda doc: OC.cool_auto(doc, self.cool_p), 'cool points', parts=self._targets())} points")
 
     def cool_clear(self) -> None:
         self.edit(OC.cool_clear, "clear cool points", parts=self._targets())

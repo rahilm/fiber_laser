@@ -110,7 +110,7 @@ def ask(parent, key: str, text: str, title: str = "", dont_ask: bool = False,
     box = QMessageBox(parent)
     try:
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle(title or "Mlaser")
+        box.setWindowTitle(title)          # empty: the platform shows the app name (Native track)
         box.setText(text)
         box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Ok if default_yes else QMessageBox.Cancel)

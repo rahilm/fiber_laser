@@ -27,7 +27,8 @@ and a reset button, and the header counts them ("3 overridden on this layer").
 **Responsive**: each section's form puts the label beside the field when the widest label and
 field fit the width the panel actually has, and above the field when they do not; no widths
 are fixed, the form never scrolls horizontally.  Unit-bearing fields use
-:class:`mlaser.ui.quantity.QuantitySpinBox` (the Units track's widget).
+:class:`mlaser.ui.units_qt.QuantitySpinBox` (the Units track's widget: shown in the user's
+units, stored in mm / mm/s / bar).
 """
 
 from __future__ import annotations
@@ -41,7 +42,33 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout
 
 from mlaser.services import technology as T
 
-from .quantity import QuantitySpinBox, kind_for_unit, shrinkable
+from mlaser.services.units import kind_for_unit
+
+from .units_qt import QuantitySpinBox
+
+
+def shrinkable(w: QWidget, chars: int = 7) -> QWidget:
+    """Let a spin box shrink to its content instead of to the text of its largest value (a
+    range of ±1e6 asks ~170 px and forces a narrow dock to scroll sideways): the minimum width
+    becomes ``chars`` digits plus the suffix in the widget's own font."""
+    from PySide6.QtWidgets import QAbstractSpinBox
+
+    if isinstance(w, QAbstractSpinBox):
+        fm = w.fontMetrics()
+        suffix = w.suffix() if hasattr(w, "suffix") else ""
+        w.setMinimumWidth(fm.horizontalAdvance("8" * chars + suffix) + 2 * fm.height())
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return w
+
+
+def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
+             step: Optional[float] = None) -> QuantitySpinBox:
+    """A QuantitySpinBox (Units track) with the panels' defaults: no keyboard tracking (a value
+    is taken when the field is confirmed), shrinkable."""
+    s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=decimals, step=step)
+    s.setKeyboardTracking(False)
+    shrinkable(s)
+    return s
 
 # --------------------------------------------------------------------------- layout helpers
 
@@ -355,10 +382,9 @@ class TechField:
             self.label_text = name or key
             self.help = ""
         self.stage = st
-        rng = f"{d.min:g} … {d.max:g} {unit}".strip() if d.max > d.min and d.type_name not in ("bool", "enum") else ""
-        tip = (self.help + "\n\n" if self.help else "") + (name or key) + f"  [{key}]"
-        if rng:
-            tip += f"\n{tr.tr('tech.range')}: {rng}"
+        self.kind = kind
+        self._name = name or key
+        tip = self._make_tip()
         self.tooltip = tip
         w.setToolTip(tip)
         w.setAccessibleName(self.label_text)
@@ -378,15 +404,52 @@ class TechField:
         self.reset.setVisible(False)
         self.reset.setFocusPolicy(Qt.TabFocus)
         self.container = QWidget()
-        row = QHBoxLayout(self.container)
+        col = QVBoxLayout(self.container)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(0)
+        row = QHBoxLayout()
         row.setContentsMargins(0, 0, 0, 0)
         row.setSpacing(2)
         row.addWidget(w, 1)
         row.addWidget(self.reset)
+        col.addLayout(row)
+        # source chip (inheritance): "set on layer 2" under an overridden value
+        self.chip = QLabel()
+        self.chip.setObjectName("techform_chip")
+        self.chip.setWordWrap(True)
+        f = self.chip.font()
+        f.setPointSizeF(f.pointSizeF() * 0.85)
+        self.chip.setFont(f)
+        self.chip.setForegroundRole(self.chip.foregroundRole())
+        self.chip.hide()
+        col.addWidget(self.chip)
+        self.mark: Optional[bool] = None     # explicit override mark (inheritance), None = diff
+        self.here_label = ""
         self.base: Any = None
         self.overridden = False
         self.secondary = False
         self.section = ""
+
+    def _make_tip(self) -> str:
+        """Help, registry name and key, and the range in the display units."""
+        d, tr = self.d, self.tr_
+        rng = ""
+        if d.max > d.min and d.type_name not in ("bool", "enum"):
+            if self.kind is not None:
+                from mlaser.services import units
+                u = units.current()
+                rng = f"{u.fmt(d.min, self.kind, trim=True)} … {u.fmt(d.max, self.kind, trim=True)}"
+            else:
+                rng = f"{d.min:g} … {d.max:g} {self.unit}".strip()
+        tip = (self.help + "\n\n" if self.help else "") + self._name + f"  [{self.key}]"
+        if rng:
+            tip += f"\n{tr.tr('tech.range')}: {rng}"
+        return tip
+
+    def units_changed(self) -> None:
+        self.tooltip = self._make_tip()
+        self.widget.setToolTip(self.tooltip)
+        self.label.setToolTip(self.tooltip)
 
     # ---------------------------------------------------------------- value
     def set(self, v: Any) -> None:
@@ -426,14 +489,26 @@ class TechField:
         if isinstance(w, QComboBox):
             i = int(v or 0)
             return w.itemText(i) if 0 <= i < w.count() else str(v)
+        if self.kind is not None and isinstance(v, (int, float)):
+            from mlaser.services import units
+            return units.current().fmt(float(v), self.kind, trim=True)
         if isinstance(v, float):
             return f"{v:g} {self.unit}".strip()
         return f"{v} {self.unit}".strip() if v not in (None, "") else "—"
 
     def update_marker(self, base_label: str) -> None:
         cur = self.get()
-        self.overridden = self.base is not None and not T._same(cur, self.base)
-        self.reset.setVisible(self.overridden)
+        if self.mark is not None:
+            self.overridden = self.mark
+        else:
+            self.overridden = self.base is not None and not T._same(cur, self.base)
+        self.reset.setVisible(self.overridden and self.base is not None)
+        if self.here_label:
+            self.chip.setText(self.here_label if self.overridden else "")
+            self.chip.setVisible(self.overridden)
+            tip = self.tooltip + "\n\n" + (self.here_label if self.overridden else
+                                             self.tr_.format("techform.from", base=base_label))
+            self.widget.setToolTip(tip)
         if self.overridden:
             self.reset.setToolTip(self.tr_.format("techform.reset_tip", base=base_label,
                                                   value=self.text_value(self.base)))
@@ -456,6 +531,8 @@ class TechForm(QWidget):
     override markers compare with."""
 
     changed = Signal()
+    fieldEdited = Signal(str, object)     # key, new value (a user edit of one field)
+    fieldReset = Signal(str)              # key: the reset button of an overridden field
 
     def __init__(self, tr: Any, pressure_unit: int = 0, parent: Optional[QWidget] = None,
                  advanced: bool = False, scope: Optional[str] = None) -> None:
@@ -555,13 +632,16 @@ class TechForm(QWidget):
                    grouped: bool = False) -> Optional[TechField]:
         if key in self.fields or key not in T.layer_registry():
             return None
-        f = TechField(key, self.tr_, self._edited, self.pressure_unit)
+        f = TechField(key, self.tr_, lambda k=key: self._field_edited(k), self.pressure_unit)
         f.secondary = secondary
         f.section = sid
         f.reset.clicked.connect(lambda _c=False, ff=f: self.reset_field(ff.key))
         if self.scope:
             from .homes import bind_editor
             bind_editor(f.widget, f"{self.scope}.{key}")
+        if f.kind is not None:
+            from .units_qt import on_units_changed
+            on_units_changed(f.label, lambda _u, ff=f: ff.units_changed(), now=False)
         if grouped and form.property("last_group") != f.group:
             form.setProperty("last_group", f.group)
             g = QLabel(f"<b>{f.group}</b>")
@@ -620,12 +700,19 @@ class TechForm(QWidget):
         return form
 
     # ---------------------------------------------------------------- values
-    def set_values(self, full: dict, base: Optional[dict] = None, base_label: str = "") -> None:
+    def set_values(self, full: dict, base: Optional[dict] = None, base_label: str = "",
+                   marks: Optional[set] = None, here_label: str = "") -> None:
+        """Load values.  ``base``: what they are compared with / reset to; ``marks``: the keys
+        overridden here (inheritance; without it a value differing from ``base`` counts as
+        changed); ``here_label``: the words of the chip under an overridden value ("set on
+        layer 2")."""
         self._loading = True
         try:
             for k, f in self.fields.items():
                 f.set(full.get(k, f.d.default_value))
                 f.base = None if base is None else base.get(k, f.d.default_value)
+                f.mark = None if marks is None else (k in marks)
+                f.here_label = here_label
             self.base_label = base_label
         finally:
             self._loading = False
@@ -639,8 +726,17 @@ class TechForm(QWidget):
         self.fields[key].set(v)
         self._edited()
 
+    def _field_edited(self, key: str) -> None:
+        if self._loading:
+            return
+        self._edited()
+        self.fieldEdited.emit(key, self.fields[key].get())
+
     def reset_field(self, key: str) -> None:
         f = self.fields[key]
+        if f.mark is not None:                  # inheritance: the owner clears the override
+            self.fieldReset.emit(key)
+            return
         if f.base is not None:
             f.set(f.base)
             self._edited()

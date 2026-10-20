@@ -915,6 +915,7 @@ class FitArea(QScrollArea):
         self.setWidgetResizable(False)
         self.setWidget(widget)
         self._need = QSize(0, 0)
+        self._hint = QSize(0, 0)
         widget.installEventFilter(self)
 
     def _cap(self, size: QSize) -> QSize:
@@ -927,7 +928,7 @@ class FitArea(QScrollArea):
         avail = scr.availableSize()
         cap = QSize(int(avail.width() * self.SCREEN_SHARE), int(avail.height() * self.SCREEN_SHARE))
         win = self.window()
-        if win is not None and win is not self and win.isVisible():
+        if win is not None and win is not self and win.isVisible() and self.isVisible():
             chrome = win.frameGeometry().size() - self.size()
             cap = cap.boundedTo(QSize(max(avail.width() - chrome.width(), 1), max(avail.height() - chrome.height(), 1)))
         return size.boundedTo(cap)
@@ -952,8 +953,9 @@ class FitArea(QScrollArea):
         # the whole area (scroll bars or not): a page that fits shows none
         avail = self.contentsRect().size()
         need = self.need(avail.width())
-        if need != self._need:
-            self._need = need
+        hint = self.minimumSizeHint()
+        if need != self._need or hint != self._hint:
+            self._need, self._hint = need, hint
             self.updateGeometry()
         fits_w, fits_h = need.width() <= avail.width(), need.height() <= avail.height()
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if fits_w else Qt.ScrollBarAsNeeded)

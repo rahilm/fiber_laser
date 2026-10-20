@@ -48,7 +48,8 @@ def have(mod: str) -> bool:
 datas = []
 # mlaser package data: the [tool.setuptools.package-data] of pyproject.toml, plus any fonts that
 # may sit under mlaser/cad at build time
-datas += collect_data_files("mlaser.ui", includes=["resources/*.json", "resources/icons/tabler/*"])
+datas += collect_data_files("mlaser.ui", includes=["resources/*.json", "resources/icons/tabler/*",
+                                               "resources/icons/app/*"])
 datas += collect_data_files("mlaser.i18n", includes=["*.json", "qm/*.qm"])
 datas += collect_data_files("mlaser.formats", includes=["data/*"])
 datas += collect_data_files("mlaser.cad", includes=["**/*.ttf", "**/*.otf", "**/*.ttc", "**/*.shx",
@@ -123,9 +124,22 @@ a.datas = [d for d in a.datas if not cfg.drop_data(d[0])]
 
 pyz = PYZ(a.pure)                          # noqa: F821
 
-# optional app icon (none is shipped yet: PyInstaller's default icon is used)
-_icon = HERE / "icons" / ("mlaser.ico" if IS_WIN else "mlaser.icns")
-icon = str(_icon) if _icon.is_file() else None
+# the application icon, rendered from mlaser/ui/resources/icons/app/mlaser.svg
+# (packaging/make_icons.py: .icns for the .app, .ico for the Windows executables, the hicolor
+# PNGs for the Linux .desktop entry)
+import subprocess                                   # noqa: E402
+
+_icons = Path(workpath) / "icons"                   # noqa: F821 (set by PyInstaller)
+subprocess.run([sys.executable, str(HERE / "make_icons.py"), str(_icons)], check=True,
+               env={**os.environ, "QT_QPA_PLATFORM": "offscreen"})
+_icon = _icons / ("mlaser.ico" if IS_WIN else "mlaser.icns")
+icon = str(_icon) if _icon.is_file() and not IS_LINUX else None
+if IS_LINUX:
+    # the freedesktop entry and its icons (packaging/linux/README: install-desktop-entry.sh)
+    a.datas += [("share/applications/io.github.mlaser.desktop", str(HERE / "linux" / "io.github.mlaser.desktop"), "DATA"),
+                ("share/install-desktop-entry.sh", str(HERE / "linux" / "install-desktop-entry.sh"), "DATA")]
+    for _png in sorted((_icons / "hicolor").glob("*/apps/*.png")):
+        a.datas += [(f"share/icons/hicolor/{_png.parent.parent.name}/apps/{_png.name}", str(_png), "DATA")]
 
 
 def _exe(name: str, console: bool):
@@ -170,10 +184,30 @@ if IS_MAC:
         icon=icon,
         bundle_identifier="io.github.mlaser",
         info_plist={
+            "CFBundleName": APP,
+            "CFBundleDisplayName": APP,
             "CFBundleShortVersionString": cfg.version(ROOT),
             "CFBundleVersion": cfg.version(ROOT),
+            # a regular Dock application.  BUNDLE inherits ``console`` from the last executable
+            # of the COLLECT (mlaser-console, console=True) and then writes LSBackgroundOnly=true:
+            # macOS started the app with the "prohibited" activation policy, with no Dock icon,
+            # no menu bar and never frontmost (native-check workflow, 2026-10-20)
+            "LSBackgroundOnly": False,
+            "LSUIElement": False,
+            "NSPrincipalClass": "NSApplication",
             "NSHighResolutionCapable": True,
+            "NSRequiresAquaSystemAppearance": False,      # follow the system's dark appearance
+            "NSSupportsAutomaticGraphicsSwitching": True,
+            "LSApplicationCategoryType": "public.app-category.productivity",
             "LSMinimumSystemVersion": "12.0",
+            # drawings open from Finder (Open With / drag onto the Dock icon): QFileOpenEvent,
+            # mlaser/ui/native.py (argv_emulation stays off: it blocks the start-up event loop)
+            "CFBundleDocumentTypes": [
+                {"CFBundleTypeName": "Mlaser drawing", "CFBundleTypeRole": "Editor",
+                 "LSHandlerRank": "Owner", "CFBundleTypeExtensions": ["chf", "mlz"]},
+                {"CFBundleTypeName": "Drawing", "CFBundleTypeRole": "Viewer",
+                 "LSHandlerRank": "Alternate", "CFBundleTypeExtensions": ["dxf", "svg", "nc"]},
+            ],
             # the app talks to the card on the local network (macOS 15 local-network privacy)
             "NSLocalNetworkUsageDescription":
                 "mlaser talks to the laser's motion card on the local network.",

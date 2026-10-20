@@ -121,6 +121,7 @@ def register_homes(config: Any) -> dict[str, str]:
         homes.register_home(f"cfg:{k}", H_SETUP)
     for k in MOTION_KEYS:
         homes.register_home(f"cfg:{k}", H_JOG)
+    homes.register_home("cfg:machine.setup", H_SETUP)        # the page (the menu bar's entry)
     return keys
 MONITORS = (("controller", "ws.machine.mon_controller"), ("zf", "ws.machine.mon_follower"),
             ("af", "ws.machine.mon_autofocus"), ("ec", "ws.machine.mon_ethercat"))
@@ -417,6 +418,9 @@ def _resolve(window: Any, vid: str, target: Any = None) -> Optional[QWidget]:
     ws = window.findChild(MachineWorkspace)
     if ws is None:
         return None
+    if key == "machine.setup":                     # the page itself (menu bar: hw.options)
+        ws.show_section("settings")
+        return ws.settings_panel.section
     if key in MOTION_KEYS:
         ws.show_section("motion")
         return ws.coord if key == "MSC.CoordSysType" else (ws.jog.fast if key == "MC.IsFastMode"

@@ -569,9 +569,14 @@
   "home.run": "Run",
   "home.select_parts": "Select the parts whose cut settings you want to change. The layer defaults are in Process › Layers.",
   "home.settings": "Settings",
+  "inherit.from": "from {source}",
+  "inherit.mixed": "mixed: {n} of {total} parts set their own",
+  "inherit.reset_tip": "Restore: use the value from {source}",
+  "inherit.set_on": "set on {where}",
   "inherit.src.contour": "this contour",
   "inherit.src.layer": "layer {n}",
   "inherit.src.part": "this part",
+  "inherit.src.parts": "{n} parts",
   "inherit.src.registry": "default",
   "io.axis": "Axis",
   "io.axis_2": "Axis",
@@ -612,18 +617,38 @@
   "labels.set.ticket_page": "Job ticket page size",
   "labels.undo.etch": "Etch part IDs",
   "labels.undo.remove": "Remove part ID marking",
+  "layer.assign": "Assign recipe",
+  "layer.assign_tip": "The layer follows this technology record: its values and the parts' leads and kerf come from it, except what is set on the layer, a part or a contour.",
+  "layer.assigned": "Recipe {name} assigned to layer {layers}; {kept} values set on the layers and {parts} parts with their own settings kept",
+  "layer.craft_section": "Leads and kerf (layer defaults)",
+  "layer.edit.reset": "restore layer value",
+  "layer.edit.value": "layer value",
+  "layer.follows": "Follows {recipe}",
   "layer.import_the_layer_parameters": "Import the layer parameters",
   "layer.layer_parameters": "Layer Parameters",
+  "layer.no_recipe": "No recipe: every value is set on this layer. Choose a recipe below to follow a technology record.",
+  "layer.none": "Select a layer",
+  "layer.push": "Put changes into the recipe…",
+  "layer.push_confirm": "Save the {n} values set on this layer ({names}) as a new version of {recipe}? The layer then follows that version.",
+  "layer.recipe": "Recipe",
+  "layer.reset_all": "Restore all",
+  "layer.save_new": "Save as new recipe…",
   "layer.system_parameters_backup": "System parameters backup",
+  "layer.title": "Layer {n}",
   "layerdlg.base_tech": "technology {name}",
   "layerdlg.intro": "The process parameters of this layer. The important ones are shown first; tick Show all parameters for the rest, or search. Values changed on this layer are in bold with a restore button.",
   "layerdlg.title": "Layer {n} parameters",
+  "layers.edit_in": "Edit in Process › Layers",
   "leaddlg.at_corner": "Opposite side flag",
   "leaddlg.at_corner_tip": "The lead side flag of the .chf file (set when a contour is reversed). It is stored with the drawing; the toolpath does not use it.",
   "leaddlg.intro": "A lead-in starts the cut in the scrap, so the pierce mark is not on the part; a lead-out ends it there. The leads go to the selected parts, or to every part when nothing is selected.",
   "leaddlg.only_closed": "Closed contours only",
   "leaddlg.only_selected": "Selected parts only",
   "leaddlg.only_selected_tip": "Untick to set the leads on every part. With nothing selected they go to every part.",
+  "library.search": "Search material, thickness, gas…",
+  "library.tab.values": "Values",
+  "library.unused": "Not used in this drawing",
+  "library.used_by": "Used by layers {layers} of this drawing",
   "main.add_alpha_chamfer": "Add α Chamfer",
   "main.add_sheet": "Add Sheet",
   "main.alarm": "Alarm",
@@ -2363,6 +2388,9 @@
   "process.material": "Material",
   "process.no_technology": "No technology",
   "process.nozzle": "Nozzle",
+  "process.outdated": "Layers {layers} follow an older version of their recipe.",
+  "process.page.drawing": "Drawing",
+  "process.page.library": "Library",
   "process.pick": "Technology",
   "process.save_layer": "Save layer as technology…",
   "process.set.auto": "auto",
@@ -2381,20 +2409,22 @@
   "process.set.sheet_h": "Sheet height (0 = cut bounding box)",
   "process.set.sheet_w": "Sheet width (0 = cut bounding box)",
   "process.set.wall_plug": "Laser wall-plug efficiency (assumption)",
-  "process.state.as_applied": "As applied",
+  "process.state.as_applied": "As recipe",
   "process.state.example": "example values",
-  "process.state.manual": "Set by hand",
-  "process.state.missing": "Technology no longer in the database",
-  "process.state.modified": "Modified: {n} fields",
-  "process.state.newer": "version {v} available: apply again to use it",
-  "process.state.undefined": "Not defined: set its parameters",
+  "process.state.manual": "No recipe",
+  "process.state.missing": "Recipe no longer in the library",
+  "process.state.modified": "{n} set on the layer",
+  "process.state.newer": "recipe version {v} available: Update",
+  "process.state.undefined": "Not defined: choose a recipe",
   "process.tab": "Process+",
   "process.tab.changes": "What changed",
   "process.tab.estimate": "Estimate",
   "process.tab.history": "History",
+  "process.tab.layer": "Layer",
   "process.tab.technology": "Technology",
   "process.thickness": "Thickness",
   "process.title": "Process",
+  "process.update_layers": "Update",
   "process.with_joints": "Micro-joints",
   "process.with_kerf": "Kerf",
   "process.with_leads": "Leads",
@@ -2420,6 +2450,7 @@
   "props.cool_auto": "At sharp corners",
   "props.cool_info": "{n} cooling points on the selection",
   "props.dialog": "Dialog…",
+  "props.do_overcut": "Overcut",
   "props.edit.cool": "cooling points",
   "props.edit.cool_clear": "clear cooling points",
   "props.edit.joints": "micro-joints",
@@ -2427,8 +2458,10 @@
   "props.edit.kerf": "kerf",
   "props.edit.layer": "layer",
   "props.edit.leads": "leads",
+  "props.edit.reset": "restore inherited value",
   "props.edit.start": "start point",
   "props.edit.transform": "transform",
+  "props.gap": "Gap",
   "props.height": "Height",
   "props.joint_count": "Joints per part",
   "props.joint_info": "{n} micro-joints on the selection",
@@ -2457,7 +2490,11 @@
   "props.no_technology": "none (set by hand)",
   "props.none": "Nothing selected: select parts on the canvas.",
   "props.open_contours": "{n} open",
+  "props.overcut": "Overcut and gap",
+  "props.overcut_len": "Length",
+  "props.overcut_tip": "Length of the overcut (cut past the start) or the gap (stop before it) of the selected parts' contours.",
   "props.rotate_by": "Rotate by",
+  "props.seal": "Seal",
   "props.size_uniform": "Width and height scale together (arcs stay arcs).",
   "props.start": "Start point (outer contour)",
   "props.start_auto": "Automatic (long side)",
@@ -2865,9 +2902,44 @@
   "shell.language": "Language",
   "shell.layout_reset": "Layout reset to the default",
   "shell.menu": "Application menu",
+  "shell.menu.about": "About mlaser",
+  "shell.menu.appearance": "Appearance",
+  "shell.menu.array_more": "More arrays",
+  "shell.menu.automation": "Automation and notifications",
+  "shell.menu.auxiliary": "Auxiliary",
+  "shell.menu.clear_recent": "Clear Menu",
+  "shell.menu.diagnostics": "Diagnostics",
+  "shell.menu.draw": "Draw",
+  "shell.menu.edit": "Edit",
+  "shell.menu.exit": "Exit",
   "shell.menu.file": "File",
   "shell.menu.help": "Help",
+  "shell.menu.import_more": "Import and export",
+  "shell.menu.labels": "Labels and marking",
+  "shell.menu.layer_parameters": "Layer parameters…",
+  "shell.menu.machine": "Machine",
+  "shell.menu.machine_setup": "Machine setup…",
+  "shell.menu.monitors": "Monitors",
+  "shell.menu.more": "More",
+  "shell.menu.nest": "Nesting",
+  "shell.menu.open_recent": "Open Recent",
+  "shell.menu.options_win": "Options…",
+  "shell.menu.orders": "Orders",
+  "shell.menu.panels": "Panels",
+  "shell.menu.parameters": "Parameters",
+  "shell.menu.plugins": "Plugins…",
+  "shell.menu.preferences": "Preferences…",
+  "shell.menu.process": "Process",
+  "shell.menu.quit": "Quit mlaser",
+  "shell.menu.recent_drawings": "Recent drawings",
+  "shell.menu.select": "Select",
   "shell.menu.settings": "Settings",
+  "shell.menu.settings_mac": "Settings…",
+  "shell.menu.tools": "Tools",
+  "shell.menu.view": "View",
+  "shell.menu.window": "Window",
+  "shell.menu.wizards": "Procedures",
+  "shell.menu.workspace": "Workspace",
   "shell.menu.workspaces": "Workspaces",
   "shell.mode.changed": "User mode: {mode}",
   "shell.mode.choose": "User mode...",
@@ -2924,6 +2996,7 @@
   "shell.theme.dark": "Dark",
   "shell.theme.high_contrast": "High contrast",
   "shell.theme.light": "Light",
+  "shell.theme.system": "System appearance",
   "shell.unsaved": "unsaved changes",
   "shell.untitled": "Untitled",
   "shell.welcome.again": "Show this sheet at the next start",
@@ -2944,6 +3017,10 @@
   "shell.welcome.sim_title": "Practise on the simulator",
   "shell.welcome.start": "Start",
   "shell.welcome.title": "Welcome",
+  "shell.window.fullscreen": "Full Screen",
+  "shell.window.maximize": "Maximize",
+  "shell.window.minimize": "Minimize",
+  "shell.window.zoom": "Zoom",
   "shell.ws.design": "Design",
   "shell.ws.design.desc": "Draw, import and edit the parts on the canvas",
   "shell.ws.goto": "Workspace: {workspace}",
@@ -3083,6 +3160,7 @@
   "techform.f.stage_height": "Height",
   "techform.f.stage_power": "Laser power",
   "techform.f.stage_time": "Pierce time",
+  "techform.from": "Inherited from {base}",
   "techform.group.general": "General",
   "techform.h.cut_duty": "Share of each modulation period the laser is on. 100 % is continuous.",
   "techform.h.cut_freq": "Frequency of the laser modulation while cutting.",
@@ -3581,7 +3659,8 @@
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
-  "ws.run": "Run"
+  "ws.run": "Run",
+  "process.cmd.library": "Technology library"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -3627,7 +3706,40 @@
   "home.edit_in": [
    "home"
   ],
+  "inherit.from": [
+   "source"
+  ],
+  "inherit.mixed": [
+   "n",
+   "total"
+  ],
+  "inherit.reset_tip": [
+   "source"
+  ],
+  "inherit.set_on": [
+   "where"
+  ],
   "inherit.src.layer": [
+   "n"
+  ],
+  "inherit.src.parts": [
+   "n"
+  ],
+  "layer.assigned": [
+   "name",
+   "layers",
+   "kept",
+   "parts"
+  ],
+  "layer.follows": [
+   "recipe"
+  ],
+  "layer.push_confirm": [
+   "n",
+   "names",
+   "recipe"
+  ],
+  "layer.title": [
    "n"
   ],
   "layerdlg.base_tech": [
@@ -3635,6 +3747,9 @@
   ],
   "layerdlg.title": [
    "n"
+  ],
+  "library.used_by": [
+   "layers"
   ],
   "main.import_language_done": [
    "languages"
@@ -4507,10 +4622,16 @@
    "hosts",
    "name"
   ],
+  "process.outdated": [
+   "layers"
+  ],
   "tech.compare.count": [
    "n"
   ],
   "techform.base": [
+   "base"
+  ],
+  "techform.from": [
    "base"
   ],
   "techform.overridden": [

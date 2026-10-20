@@ -1,0 +1,211 @@
+name: Native check
+
+# Starts the real application (from source and from the PyInstaller bundle) on macOS, Windows
+# and Linux runners that have a window server, and records how the operating system sees it:
+# activation (Dock / taskbar, frontmost), the menu bar, the style and colour scheme, the app
+# identity, with full-screen screenshots.  tools/native_check.py, mlaser/ui/native_report.py,
+# docs/dev/NATIVE.md.  The summary of every run lists each platform's matrix; the screenshots
+# are the "native-<os>" artifacts.
+on:
+  workflow_dispatch:
+  push:
+    branches: ["ui-native", "native-check/**"]
+  pull_request:
+    paths:
+      - "mlaser/ui/**"
+      - "mlaser/__main__.py"
+      - "mlaser/_power.py"
+      - "packaging/**"
+      - "tools/native_check.py"
+      - "tests/test_responsive_layout.py"
+      - "tests/layout_audit.py"
+      - ".github/workflows/native-check.yml"
+
+concurrency:
+  group: native-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONUTF8: "1"
+  MLASER_NO_FIRSTRUN: "1"
+  MLASER_BUILD_NATIVE: "1"
+
+jobs:
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    env:
+      UV_PYTHON_PREFERENCE: only-managed   # like `uv run mlaser` on a Mac: uv's own Python, not a framework build
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --locked --group packaging --all-extras
+      - name: Environment
+        run: |
+          sw_vers; system_profiler SPDisplaysDataType | head -20 || true
+          osascript -e 'tell application "System Events" to get name of every process whose background only is false' || true
+          defaults read -g AppleInterfaceStyle 2>/dev/null || echo "appearance: light"
+      # a user who starts mlaser from a terminal: another application is frontmost
+      - name: From source (uv run mlaser)
+        run: |
+          osascript -e 'tell application "Finder" to activate' || true
+          uv run --locked python tools/native_check.py --label mac-source --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- uv run --locked mlaser --demo
+      - name: From source (python -m mlaser)
+        if: always()
+        run: |
+          osascript -e 'tell application "Finder" to activate' || true
+          uv run --locked python tools/native_check.py --label mac-module --out shots --summary "$GITHUB_STEP_SUMMARY" -- uv run --locked python -m mlaser --demo
+      - name: From source, dark appearance
+        if: always()
+        run: |
+          osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to true' || true
+          uv run --locked python tools/native_check.py --label mac-source-dark --out shots --summary "$GITHUB_STEP_SUMMARY" -- uv run --locked mlaser --demo
+          osascript -e 'tell application "System Events" to tell appearance preferences to set dark mode to false' || true
+      - name: From source, dark theme chosen in mlaser (system light)
+        if: always()
+        run: uv run --locked python tools/native_check.py --label mac-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/macos
+      - name: Responsive layout harness (macOS style)
+        if: always()
+        env:
+          QT_QPA_PLATFORM: cocoa
+          MLASER_LAYOUT_STYLE: macOS
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: macos
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
+      - name: Build the .app
+        if: always()
+        run: uv run --locked python packaging/build.py
+      - name: The .app (LaunchServices, open)
+        if: always()
+        run: |
+          osascript -e 'tell application "Finder" to activate' || true
+          plutil -p packaging/build/dist/mlaser.app/Contents/Info.plist || true
+          uv run --locked python tools/native_check.py --label mac-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect --mac-app packaging/build/dist/mlaser.app -- --demo
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-macos
+          path: shots/
+          retention-days: 14
+
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --locked --group packaging --all-extras
+      - name: From source (uv run mlaser)
+        shell: bash
+        run: uv run --locked python tools/native_check.py --label win-source --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- uv run --locked mlaser --demo
+      - name: From source, dark theme
+        if: always()
+        shell: pwsh
+        run: |
+          $k = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Themes\Personalize'
+          New-Item -Path $k -Force | Out-Null
+          Set-ItemProperty -Path $k -Name AppsUseLightTheme -Value 0 -Type DWord
+          uv run --locked python tools/native_check.py --label win-source-dark --out shots --summary "$env:GITHUB_STEP_SUMMARY" -- uv run --locked mlaser --demo
+          Set-ItemProperty -Path $k -Name AppsUseLightTheme -Value 1 -Type DWord
+      - name: From source, dark theme chosen in mlaser (system light)
+        if: always()
+        shell: bash
+        run: uv run --locked python tools/native_check.py --label win-source-theme-dark --out shots --summary "$GITHUB_STEP_SUMMARY" --set 'shell.theme="dark"' -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/windows
+      - name: Responsive layout harness (windows11 style)
+        if: always()
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: windows
+          MLASER_LAYOUT_STYLE: windows11
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: windows
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
+      - name: Build the bundle
+        if: always()
+        run: uv run --locked python packaging/build.py
+      - name: The bundle (mlaser.exe)
+        if: always()
+        shell: bash
+        run: uv run --locked python tools/native_check.py --label win-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- packaging/build/dist/mlaser/mlaser.exe --demo
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-windows
+          path: shots/
+          retention-days: 14
+
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      UV_PYTHON_PREFERENCE: only-managed   # python-build-standalone 3.12: a shared libpython for PyInstaller
+    steps:
+      - uses: actions/checkout@v4
+      - name: Virtual display, Xfce desktop, Qt runtime
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            xvfb xfce4 xfce4-panel xfwm4 xfdesktop4 dbus-x11 x11-utils wmctrl imagemagick \
+            libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libfontconfig1 libdbus-1-3 \
+            libglib2.0-0 fonts-dejavu-core xdg-desktop-portal xdg-desktop-portal-gtk
+          Xvfb :99 -screen 0 1920x1080x24 &
+          sleep 2
+          echo "DISPLAY=:99" >> "$GITHUB_ENV"
+          eval "$(DISPLAY=:99 dbus-launch --sh-syntax)"
+          echo "DBUS_SESSION_BUS_ADDRESS=$DBUS_SESSION_BUS_ADDRESS" >> "$GITHUB_ENV"
+          echo "XDG_CURRENT_DESKTOP=XFCE" >> "$GITHUB_ENV"
+          (DISPLAY=:99 startxfce4 > /tmp/xfce.log 2>&1 &)
+          sleep 10
+          DISPLAY=:99 wmctrl -m || true
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install (locked)
+        run: uv sync --locked --group packaging --all-extras
+      - name: From source (uv run mlaser)
+        run: uv run --locked python tools/native_check.py --label linux-source --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- uv run --locked mlaser --demo
+      # the responsive layout harness under this platform's own style and window server
+      # (docs/dev/RESPONSIVE.md): sizes up to this screen, every workspace, the sweeps; reports
+      # and screenshots in shots/layout/linux
+      - name: Responsive layout harness (Fusion on X11)
+        if: always()
+        env:
+          QT_QPA_PLATFORM: xcb
+          MLASER_LAYOUT_STYLE: Fusion
+          MLASER_LAYOUT_SHOTS: shots/layout
+          MLASER_LAYOUT_TAG: linux
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python -m pytest -q -p no:cacheprovider tests/test_responsive_layout.py tests/test_responsive_helpers.py tests/safety/test_touch_targets_mode_switch.py
+      - name: Build the bundle
+        if: always()
+        run: uv run --locked python packaging/build.py
+      - name: The bundle
+        if: always()
+        run: uv run --locked python tools/native_check.py --label linux-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- packaging/build/dist/mlaser/mlaser --demo
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: native-linux
+          path: shots/
+          retention-days: 14

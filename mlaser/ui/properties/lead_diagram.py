@@ -20,6 +20,12 @@ from mlaser.cam.leads import lead_in, lead_out, side_flag
 from mlaser.model import Arc, LeadParams
 
 
+def _fmt(v: float, kind: str) -> str:
+    """A length in the display units (Units track)."""
+    from mlaser.services import units
+    return units.current().fmt(float(v), kind, trim=True)
+
+
 def _seg_points(seg, n: int = 24):
     if isinstance(seg, Arc):
         return [seg.point_at(k / n) for k in range(n + 1)]
@@ -110,7 +116,7 @@ class LeadDiagram(QWidget):
             p.setPen(QPen(kc, 1.2, Qt.DashLine))
             p.drawPath(path([(-12.0, off), (12.0, off)]))
             p.drawText(QPointF(cx - 11.5 * s, cy - off * s + (14 if off < 0 else -6)),
-                       f"kerf {self.kerf_width:g} mm")
+                       f"kerf {_fmt(self.kerf_width, 'small_length')}")
         hi = pal.color(QPalette.Highlight)
         p.setPen(QPen(hi, 2.2))
         for poly in lin:
@@ -131,10 +137,11 @@ class LeadDiagram(QWidget):
         p.setPen(QPen(txt, 1.0))
         bx, by = 10.0, self.height() - 10.0
         p.drawLine(QPointF(bx, by), QPointF(bx + s, by))
-        p.drawText(QPointF(bx + s + 4, by + 4), "1 mm")
+        p.drawText(QPointF(bx + s + 4, by + 4), _fmt(1.0, "length"))
         lp = self.lead_in_p
         if lp.kind:
-            info = f"{lp.length:g} mm · {lp.angle_deg:g}°" + (f" · r {lp.radius:g} mm" if lp.kind == 3 else "")
+            info = f"{_fmt(lp.length, 'length')} · {lp.angle_deg:g}°" + (
+                f" · r {_fmt(lp.radius, 'length')}" if lp.kind == 3 else "")
             p.drawText(QRectF(self.rect()).adjusted(0, 0, -8, -4), int(Qt.AlignRight | Qt.AlignBottom), info)
         p.end()
 
