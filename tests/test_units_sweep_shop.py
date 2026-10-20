@@ -188,12 +188,11 @@ def test_nest_sheet_size_and_spacing_edited_in_inches_store_mm(win, app):
     type_into(nest.sheet_w, "120")
     type_into(nest.sheet_h, "60 in")
     type_into(nest.spacing, '1/8"')
-    type_into(nest.kerf, "0.2 mm")
     assert nest.sheet_w.value() == pytest.approx(3048.0)
     assert nest.sheet_h.value() == pytest.approx(1524.0)
     nest._apply_params()
     assert nest.job.params.spacing == pytest.approx(3.175)
-    assert nest.job.params.kerf == pytest.approx(0.2, abs=1e-12)
+    assert nest.job.params.kerf == pytest.approx(0.2, abs=1e-12)     # no layer kerf: the default
     margin = nest.margin.value()
     nest._apply_params()
     assert nest.job.params.margin == margin == 5.0          # untouched: exactly the mm value
@@ -225,15 +224,30 @@ def test_orders_join_tolerance_and_thickness_edited_in_inches_store_mm(win, app,
 
 def test_cutting_strategy_bed_edited_in_inches_stores_mm(win, app):
     win.config.set("units.system", "imperial")
+    from mlaser.ui.homes import edit_in, editors
     proc = win.extension("ext_process")
-    st = proc.strategy
-    type_into(st.bed_fields["bed.slat_pitch"], "4")
+    # the bed's one home: Machine › Setup › Bed (the cutting-strategy panel shows it read-only:
+    # its link goes there)
+    assert proc.strategy.bed_link.vid == "cfg:bed.slat_pitch"
+    pitch = edit_in(win, "cfg:bed.slat_pitch")
+    app.processEvents()
+    width = editors(win, "cfg:bed.slat_width")
+    assert pitch is not None and len(editors(win, "cfg:bed.slat_pitch")) == 1 and len(width) == 1
+    type_into(pitch, "4")
+    type_into(width[0], "0.125 in")
+    from mlaser.ui.workspaces.machine import SettingsPanel
+    panel = pitch.parentWidget()
+    while not isinstance(panel, SettingsPanel):
+        panel = panel.parentWidget()
+    panel.apply()                                            # Machine › Setup applies on Apply
     assert win.config.get("bed.slat_pitch") == pytest.approx(101.6)
-    type_into(st.bed_fields["bed.slat_width"], "0.125 in")
     assert win.config.get("bed.slat_width") == pytest.approx(3.175)
     assert not win.config.is_set("bed.slat_offset")           # never touched: never written
-    type_into(st.clearance, "0.02")
-    assert st.lead_params().clearance == pytest.approx(0.508)
+    assert "4 in" in proc.strategy.bed_label.text()
+    # the lead clearance is a recipe rule: its home is the Library editor
+    ed = proc.workspace.library.editor
+    type_into(ed.clearance, "0.02")
+    assert ed.current().rules["lead_check"]["clearance_mm"] == pytest.approx(0.508)
 
 
 def test_report_rate_per_square_foot_is_stored_per_square_metre(win, app):

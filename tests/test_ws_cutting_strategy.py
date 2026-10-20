@@ -84,7 +84,9 @@ def test_nest_options_strategy_and_queue(win, app, tmp_path):
     ws.options.setCurrentIndex(0)
     # a second run with common line, for the comparison
     ws.common_line.setChecked(True)
-    ws.kerf.setValue(0.2)
+    # the common line's cut width is the layers' kerf, shown read-only (one home: Process)
+    assert ws.kerf_info.property("mlaser_role") == "mirror" and ws.kerf_info.text()
+    assert ws.tip_info.property("mlaser_role") == "mirror"
     assert ws.start() and wait(app, lambda: not ws.service.running, 120)
     assert ws.compare.rowCount() == 2
     shot(host, "nest_compare_runs_1280x800.png")
@@ -141,14 +143,15 @@ def test_process_cutting_strategy_tab(win, app):
     from mlaser.cam import collision
 
     assert collision.analyse(win.document) == []
-    panel.bed_fields["bed.slat_pitch"].setValue(120.0)       # the bed model is a machine setting
-    panel.bed_dir.setCurrentIndex(1)
-    assert win.config.get("bed.slat_pitch") == 120.0 and win.config.get("bed.slat_direction") == 1
-    panel.bed_fields["bed.slat_pitch"].setValue(100.0)
-    panel.bed_dir.setCurrentIndex(0)
+    # the bed model is a machine setting (Machine › Setup › Bed): shown here read-only
+    win.config.set("bed.slat_pitch", 120.0)
+    win.config.set("bed.slat_direction", 1)
+    assert "120" in panel.bed_label.text() and panel.bed_label.property("mlaser_role") == "mirror"
+    win.config.set("bed.slat_pitch", 100.0)
+    win.config.set("bed.slat_direction", 0)
     risk = panel.check_tipping()
     assert risk  # the 60 x 40 plate on 100 mm slats
-    panel.strategy.setCurrentIndex(panel.strategy.findData("joint"))
+    assert panel.tip_strategy() == "joint"        # no recipe on the layers: the default rule
     trep = panel.fix_tipping()
     assert trep.joints and not panel.check_tipping()
     shot(ext.workspace.window(), "process_tip_fix_1280x800.png")
