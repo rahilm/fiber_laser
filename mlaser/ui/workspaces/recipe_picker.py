@@ -11,7 +11,7 @@ from PySide6.QtWidgets import QComboBox, QLabel, QToolButton, QVBoxLayout, QWidg
 
 from mlaser.services import technology as T
 from mlaser.ui import style
-from mlaser.ui.techform import FlowLayout, ResponsiveForm
+from mlaser.ui.responsive import FlowLayout, ResponsiveForm
 
 
 def _nz(nozzle: str, power_w: int) -> str:
@@ -60,7 +60,7 @@ class MaterialPicker(QWidget):
             by.setdefault(t.key.material, set()).add(t.key.thickness_mm)
         for m in sorted(by):
             row = QWidget()
-            fl = FlowLayout(row, 4)
+            fl = FlowLayout(row, justify=False, hspacing=style.SP1, vspacing=style.SP1)
             lab = QLabel(f"<b>{m}</b>")
             lab.setTextFormat(Qt.RichText)
             fl.addWidget(lab)
@@ -106,9 +106,9 @@ class RecipePicker(QWidget):
             lab = QLabel(t(key))
             lab.setBuddy(w)
             w.setAccessibleName(t(key))
-            pf.form.addRow(lab, w)
-        pf.form.setRowVisible(self.material, False)
-        pf.form.setRowVisible(self.thickness, False)
+            pf.addRow(lab, w)
+        pf.set_row_visible(self.material, False)
+        pf.set_row_visible(self.thickness, False)
         self.form = pf
         v.addWidget(pf)
         self.material.currentIndexChanged.connect(lambda _i: self._cascade(1))

@@ -35,8 +35,12 @@ from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGra
                                QGraphicsSimpleTextItem, QGraphicsView,
                                QStyleOptionGraphicsItem, QWidget)
 
+from .style import ICON_TINTS, SP1, SP2, font  # noqa: E402
+
 RES_DIR = os.path.join(os.path.dirname(__file__), "resources")
 
+# style-lint: colour table
+#: the original's 11 layer colours (document data, as the original shows them)
 _DEFAULT_COLORS = ["#00fc00", "#00fcfc", "#fc80fc", "#fcfc00", "#00a0e8", "#6e91be",
                    "#96dce6", "#b47855", "#ed1c24", "#999999", "#e6e6e6"]
 
@@ -66,8 +70,9 @@ CANVAS_COLORS: dict[str, str] = {
     "unclosed": "#ff0000", "selected": "#ffffff", "start": "#ffffff", "index": "#ffd700",
     "bbox": "#707070", "arrow": "#ffffff", "head": "#ff4040", "marker": "#00ffff",
     "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#b28cff", "kerf": "#ffc53d",
-    "pierce": "#ff4fa0",
+    "pierce": "#ff4fa0", "preview": "#e6e600", "preview_alert": "#e53935",
 }
+# style-lint: end
 _DISPLAY_LAYER_COLORS: Optional[list[str]] = None
 
 
@@ -93,8 +98,8 @@ class SelectionBand(QWidget):
     (solid outline, blue: parts entirely inside), to the left a **crossing** (dashed, green: parts
     it touches), the rule ``_rubber_select`` applies."""
 
-    WINDOW = QColor(30, 120, 230)
-    CROSSING = QColor(40, 160, 70)
+    WINDOW = QColor(ICON_TINTS["info"])         # solid: parts entirely inside
+    CROSSING = QColor(ICON_TINTS["success"])    # dashed: parts it touches
 
     def __init__(self, parent: QWidget) -> None:
         super().__init__(parent)
@@ -146,7 +151,7 @@ class ViewOptions:
     show_direction: bool = True       # direction arrows on the planned path
     show_move_path: bool = True       # rapids (dashed)
     show_toolpath: bool = True        # the planned toolpath: leads, kerf path, gaps, pierce points
-    background: str = "#000000"   # SP.DrawblkColor "Drawing area color" (default unverified)
+    background: str = CANVAS_COLORS["background"]   # SP.DrawblkColor "Drawing area color" (default unverified)
     table_size: tuple[float, float] = (3000.0, 1500.0)
     show_rulers: bool = True      # top / left rulers in the display units (docs/user/units.md)
     show_grid: bool = False       # grid lines at the ruler's major step
@@ -218,7 +223,9 @@ def _label_font() -> QFont:
     """The cut-order labels' font, made once (each ``QFont("Sans")`` is a font match; made per
     label it was a large part of drawing a new toolpath on macOS)."""
     if not _LABEL_FONT:
-        _LABEL_FONT.append(QFont("Sans", 8))
+        f = QFont("Sans")
+        f.setPointSizeF(font("caption").pointSizeF() or QFont().pointSizeF())
+        _LABEL_FONT.append(f)
     return _LABEL_FONT[0]
 
 
@@ -518,10 +525,10 @@ class CanvasHud(QFrame):
         self.setFrameShape(QFrame.NoFrame)
         self.setAutoFillBackground(False)
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(6, 3, 6, 3)
-        outer.setSpacing(1)
+        outer.setContentsMargins(SP2, SP1, SP2, SP1)
+        outer.setSpacing(SP1 // 4)
         lay = QHBoxLayout()
-        lay.setSpacing(8)
+        lay.setSpacing(SP2)
         outer.addLayout(lay)
         self.toggle = QCheckBox(tr("canvas.hud.toolpath"))
         self.toggle.setObjectName("canvas_hud_toolpath")
@@ -588,10 +595,14 @@ class CanvasHud(QFrame):
         self.legend.setVisible(self.view.options.show_toolpath)
         lay = self.layout()
         lay.activate()
-        w = min(max(self.layout().itemAt(0).sizeHint().width() + 12, 0), avail)
+        # what surrounds the row: the layout's margins and the frame's own (the style sheet's
+        # border), so the buttons get their full size hint
+        lm, fm = lay.contentsMargins(), self.contentsMargins()
+        pad = lm.left() + lm.right() + fm.left() + fm.right()
+        w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
         if self.legend.isVisible():
             # the legend wraps to the bar's width; it goes when even a short line does not fit
-            w = min(max(w, self.legend.sizeHint().width() + 12), avail)
+            w = min(max(w, self.legend.sizeHint().width() + pad), avail)
         h = self.layout().heightForWidth(w) if self.layout().hasHeightForWidth() else self.sizeHint().height()
         if self.legend.isVisible() and h > self.view.height() // 3:
             self.legend.setVisible(False)
@@ -937,7 +948,7 @@ class CanvasView(QGraphicsView):
             path = paths[name]
             if not show or path.isEmpty():
                 continue
-            color = "#fc0000" if name == "bad" else CANVAS_COLORS[name]
+            color = CANVAS_COLORS["unclosed"] if name == "bad" else CANVAS_COLORS[name]
             if name == "kerf":
                 # the kerf: a translucent band along the compensated path (the material the beam
                 # removes), so it reads as "offset path" even where it lies on the drawing
@@ -1569,12 +1580,12 @@ class CanvasView(QGraphicsView):
         hit = snap(self.document.parts, (x, y), tol_px * self.pixel_size(), extra)
         return (hit[0], hit[1]) if hit else ((x, y), None)
 
-    def set_preview(self, polylines=(), markers=(), color: str = "#e6e600") -> None:
+    def set_preview(self, polylines=(), markers=(), color: str = "") -> None:
         """Temporary overlay: ``polylines`` drawn as dashed lines (the original's yellow
         0.9/0.9/0 stipple, CADModule 0x10084000) and ``markers`` as small squares
         (snap indicators).  Replaces the previous preview."""
         self.clear_preview()
-        pen = QPen(QColor(color), 1, Qt.DashLine)
+        pen = QPen(QColor(color or CANVAS_COLORS["preview"]), 1, Qt.DashLine)
         pen.setCosmetic(True)
         for pts in polylines:
             pts = list(pts)

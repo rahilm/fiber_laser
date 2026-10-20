@@ -95,6 +95,8 @@ SETUP_SECTIONS: tuple = (
     ("ethercat", "ws.machine.hw_ethercat", lambda s: s.section == "ECParam"
      or (s.section == "ManuParam" and _hard(s) and s.key.startswith("EC."))),
     ("edge", "ws.machine.hw_edge", lambda s: s.section == "GraphParam" and s.key.startswith("GRP.Edge")),
+    # the slat bed of the tip check (cutting strategy, Nest): a machine setting (WORK_ITEMS P-9)
+    ("bed", "ws.machine.hw_bed", _pre("bed.")),
     ("advanced", "ws.machine.hw_advanced", lambda s: _hard(s) and (
         (s.section == "ManuParam" and s.key.startswith(("MP.", "MGP.")))
         or (s.section == "SoftParam" and s.key.startswith("SP.")))),

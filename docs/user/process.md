@@ -42,6 +42,14 @@ A technology holds:
 Every field shows its unit, and the editor refuses values outside the range of the original
 program's parameter table (hover a field to see its range and parameter name).
 
+The records are edited on the **Library** page of the Process workspace (the switch *Drawing |
+Library* at the top). The Library takes the whole width of the workspace (the drawing makes
+room and comes back with *Drawing*): the record list is beside the editor when the page is wide
+enough, above it when not, and the editor's sections sit in as many columns as fit. The form
+fits without scrolling: sections fold (each folded one shows its values on one line) when the
+room runs out. *Show all parameters* and the search box list every matching parameter, and that
+list scrolls.
+
 ### Where it is stored
 
 There is one database per machine profile, in the mlaser data directory
@@ -104,14 +112,14 @@ drawing (details in [Cutting strategy](cutting-strategy.md)):
   pierce at the sheet edge, and draws them red on the canvas; *Fix* moves their start or shortens
   them (the original's 0.7 rule); *Place starts* puts every start on a corner or a long straight
   segment by the rules (start on, smallest feature, clearance).
-* **Tipping on the slats**: the bed (slat pitch, width, position, direction; machine settings),
-  the strategy (micro-joint on the heavy side, cut last, rapids around), *Check* and *Fix*.
+* **Tipping on the slats**: the bed (shown; edited in Machine › Setup › Bed), the strategy of the
+  layer's recipe (micro-joint on the heavy side, cut last, rapids around; shown), *Check* and *Fix*.
 
 Each change is one undo step. The pre-flight check of a Start warns about colliding lead-ins
 (and, when turned on, about pieces that can tip).
 
-A technology can carry per-material rules for these: `rules.lead_place` (applied with *Rules*)
-and `rules.tip`.
+The rules (start on, smallest feature, clearance, tipping strategy) are the recipe's: edit them
+in **Library**, section *Cutting strategy*. The tab shows them with a link there.
 
 ## 3. Properties panel
 
@@ -123,15 +131,28 @@ list, or a button). Each applied change is one undo step.
 | Section | Fields |
 |---|---|
 | Transform | X / Y of the lower-left corner (mm), width / height (mm, they scale together so arcs stay arcs), rotate by (°) |
-| Layer | the layer of the selection, its technology, *Layer parameters…* |
-| Leads | lead in and lead out: type, angle (°), length (mm), radius (mm), with a live diagram of the lead on the scrap side |
+| Layer | the layer of the selection, its technology, a link to the layer's values (*Edit in Process › Layers*) |
+| Leads | lead in and lead out: type, then the sizes that type uses (a line: angle and length; line + arc: the radius too), with a live diagram of the lead on the scrap side |
 | Kerf | compensation (none / inside / outside) and width (mm) |
+| Start point | position along the contour (%) or *Automatic (long side)* |
 | Micro-joints | joints per part and length (mm): *Apply* / *Clear* |
-| Start point | position along the outer contour (%) or *Automatic (long side)* |
+| Overcut and gap | length (mm): *Gap*, *Overcut*, *Seal* |
 | Cooling points | at corners sharper than an angle (°), or *Clear* |
 
-The *Dialog…* buttons open the original dialogs (lead, kerf, micro-joint) for the options the
-panel does not show.
+Under each value, where it comes from: *from Mild steel S235 3 mm* (the recipe), *from layer 2*,
+or *set on this part* with a restore button. Click the source to edit it there.
+
+**It fits the panel.** When the panel is short, the sections you use least fold first (leads and
+kerf stay open longest); a folded section shows its values on one line (*Leads: in: Line 3 mm ·
+out: None*). Click a title to open it: the one you opened stays open, others fold to make room.
+Titles too long for a narrow panel end in "…" (the whole title is in the tooltip).
+
+**One contour of a part.** A part with several contours shows *Applies to*: choose a contour
+(*Contour 2 (hole)*) to give it its own lead, kerf or start point; the other contours keep the
+part's values. *Whole part* goes back to the part.
+
+**In Design** the panel shows *Transform* and *Layer* only; the cut settings are edited in the
+Process workspace (one place for each setting; the link takes you there).
 
 ## 4. Preview and estimate
 

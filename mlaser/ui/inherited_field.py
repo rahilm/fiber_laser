@@ -18,11 +18,12 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QAbstractSpinBox, QCheckBox, QComboBox, QHBoxLayout, QLineEdit,
                                QSizePolicy, QToolButton, QVBoxLayout, QWidget)
 
 from . import style
 from .homes import bind_editor, edit_in
+from .responsive import ElidedToolButton
 
 
 class InheritedField(QWidget):
@@ -55,11 +56,15 @@ class InheritedField(QWidget):
         self.reset_btn.hide()
         row.addWidget(self.reset_btn)
         col.addLayout(row)
-        self.chip = QLabel()
+        # the source: one line, cut with "…" in a narrow panel (the full text in its tooltip);
+        # a link to the parent level's home when there is one
+        self.chip = ElidedToolButton()
         self.chip.setObjectName("inherited_chip")
-        self.chip.setWordWrap(True)
-        self.chip.setTextFormat(Qt.RichText)
-        self.chip.linkActivated.connect(self._follow)
+        self.chip.setAutoRaise(True)
+        self.chip.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.chip.muted = True
+        self.chip.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Fixed)
+        self.chip.clicked.connect(lambda: self._follow(""))
         f = self.chip.font()
         f.setPointSizeF(f.pointSizeF() * 0.85)
         self.chip.setFont(f)
@@ -130,11 +135,13 @@ class InheritedField(QWidget):
             text = mixed
         elif overridden:
             text = t.format("inherit.set_on", where=here)
-        elif parent_vid:
-            text = t.format("inherit.from", source=f"<a href='#'>{source}</a>")
         else:
             text = t.format("inherit.from", source=source)
         self.chip.setText(text)
+        self.chip.muted = not (parent_vid and not overridden and not mixed)     # a link: normal text
+        self.chip.setCursor(Qt.PointingHandCursor if not self.chip.muted else Qt.ArrowCursor)
+        self.chip.setFocusPolicy(Qt.TabFocus if not self.chip.muted else Qt.NoFocus)
+        self.chip.update()
         f = self.editor.font()
         f.setBold(overridden)
         self.editor.setFont(f)

@@ -3,9 +3,10 @@
 In ``mlaser/ui`` and the bundled plugins' UI code:
 
 * **colour**: no colour literal (``"#c62828"``, ``QColor(21, 101, 192)``, ``Qt.red``, a named
-  colour in a style sheet) outside :mod:`mlaser.ui.shell.theme` and the safety colour table (the
-  lines between ``# style-lint: colour table`` and ``# style-lint: end`` in
-  :mod:`mlaser.ui.safety_ui`); code asks :func:`mlaser.ui.style.color` / ``css`` for a role;
+  colour in a style sheet) outside :mod:`mlaser.ui.shell.theme`, the safety colour table and the
+  canvas's data tables (the original's layer colours and drawing-area defaults): the lines
+  between ``# style-lint: colour table`` and ``# style-lint: end``; code asks
+  :func:`mlaser.ui.style.color` / ``css`` for a role;
 * **font**: no absolute font size (``setPointSizeF(13)``, ``font-size: 18pt``,
   ``QFont("Sans", 8)``, ``pointSizeF() + 2``); sizes are type-scale roles (:func:`style.font`);
 * **margin**: no literal layout margins or spacings other than 0 (``setContentsMargins(8, ...)``,
@@ -30,20 +31,14 @@ EXEMPT = {"mlaser/ui/shell/theme.py", "mlaser/ui/style.py"}
 
 #: files still to migrate: {path: {rule: count}}.  Only ever lower these numbers.
 ALLOWLIST: dict[str, dict[str, int]] = {
-    # Not this wave's polish: the Panels-fit track's files (properties panel, technology form,
-    # Process workspace, cutting strategy) and the canvas (the original's layer / drawing
-    # colours are data; the HUD belongs to that track).  Everything else is migrated.
-    "mlaser/ui/canvas.py": {"colour": 14, "font": 1, "margin": 3},
-    "mlaser/ui/properties/panel.py": {"margin": 1},
+    # the classic ribbon keeps the original's tight look on purpose (UI audit §9); everything
+    # else is migrated
     "mlaser/ui/ribbon.py": {"margin": 5},
-    "mlaser/ui/techform.py": {"margin": 7},
-    "mlaser/ui/workspaces/cutting_strategy.py": {"margin": 1},
-    "mlaser/ui/workspaces/process.py": {"margin": 8},
 }
 
 HEX = re.compile(r"(?<![&\w])#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?(?:[0-9a-fA-F]{2})?\b")
-NAMED_CSS = re.compile(r"(?:^|[;{\s])(?:color|background(?:-color)?|border(?:-color)?)\s*:\s*[^;}]*"
-                       r"\b(white|black|red|green|blue|orange|yellow|grey|gray|darkred)\b", re.I)
+NAMED_CSS = re.compile(r"(?:^|[;{\s])(?:color|background(?:-color)?|border(?:-color)?)\s*:\s*(?:[^;}]*\s)?"
+                       r"(white|black|red|green|blue|orange|yellow|grey|gray|darkred)\b(?!\()", re.I)
 CODE_COLOUR = [re.compile(r"\bQColor\(\s*\d"), re.compile(r"\bQt\.(?:GlobalColor\.)?(?:red|green|blue|yellow|black|"
                                                            r"white|darkRed|darkGreen|gray|darkGray|lightGray|cyan|"
                                                            r"magenta)\b")]
