@@ -89,7 +89,15 @@ def main(argv=None) -> int:
     from .i18n import Translator
     from .mainwindow import EXTENSIONS, MainWindow
 
-    app = QApplication.instance() or QApplication(sys.argv[:1])
+    # platform identity first (Windows AppUserModelID, macOS process name, Linux platform
+    # theme), then the application object (QFileOpenEvent from Finder / the Dock), its name,
+    # desktop file name and icon (mlaser/ui/native.py)
+    from . import native
+    app = QApplication.instance()
+    if app is None:
+        native.before_qapplication()
+        app = native.create_application(sys.argv[:1])
+    native.init_application(app)
     from mlaser._power import app_activity
     app_activity()                     # macOS: no App Nap (timers and priority kept)
     from . import i18n
@@ -152,6 +160,8 @@ def main(argv=None) -> int:
     if logdir is not None:
         win.log_panel.log(f"log files: {logdir}")
     win.show()
+    from . import native_report
+    native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
     return app.exec()
 

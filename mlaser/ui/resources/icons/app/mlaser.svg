@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <!-- mlaser application icon (MIT, part of mlaser): a fiber-laser head cutting a part out of a sheet -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2c3440"/>
+      <stop offset="1" stop-color="#151a21"/>
+    </linearGradient>
+    <linearGradient id="sheet" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c9d1db"/>
+      <stop offset="1" stop-color="#8a96a5"/>
+    </linearGradient>
+    <linearGradient id="head" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#e6ebf0"/>
+      <stop offset="0.5" stop-color="#ffffff"/>
+      <stop offset="1" stop-color="#aeb8c4"/>
+    </linearGradient>
+    <radialGradient id="spark" cx="0.5" cy="0.5" r="0.5">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.35" stop-color="#ffd27a"/>
+      <stop offset="1" stop-color="#ff6a00" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+  <!-- the sheet, in perspective -->
+  <path d="M150 700 L512 560 L874 700 L512 840 Z" fill="url(#sheet)"/>
+  <!-- the cut part's kerf -->
+  <path d="M330 702 L512 632 L694 702 L512 772 Z" fill="none" stroke="#1d2430" stroke-width="16" stroke-linejoin="round"/>
+  <!-- the cutting head -->
+  <path d="M432 150 H592 V330 L548 430 H476 L432 330 Z" fill="url(#head)"/>
+  <rect x="432" y="196" width="160" height="22" fill="#6b7787"/>
+  <!-- the beam -->
+  <path d="M502 430 H522 L516 700 H508 Z" fill="#ff3b1f"/>
+  <path d="M509 430 H515 L513 700 H511 Z" fill="#ffd0c4"/>
+  <circle cx="512" cy="702" r="70" fill="url(#spark)"/>
+</svg>

@@ -1,0 +1,16 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=mlaser
+GenericName=Laser cutting CAM and machine control
+Comment=Design, nest and cut sheet metal on a fiber-laser cutter
+Exec=mlaser %F
+TryExec=mlaser
+Icon=io.github.mlaser
+Terminal=false
+Categories=Graphics;Engineering;Qt;
+Keywords=laser;cutting;CAM;CNC;DXF;nesting;
+MimeType=image/vnd.dxf;image/svg+xml;
+StartupNotify=true
+StartupWMClass=mlaser
+SingleMainWindow=true

@@ -3,8 +3,9 @@ user docs: docs/user/shell.md; plugin API: docs/dev/PLUGINS.md §5).
 
 Layout of the main window with the shell::
 
-    ┌────────────────────────── top bar ───────────────────────────────────────────┐
-    │ [Mlaser ▾] file.chf ●     [Search commands…  Ctrl+K]   ◆SIMULATOR ●DISARMED │ mode │ lang
+    ┌────────────── menu bar (macOS: the global one; menubar.py) ──────────────────┐
+    ├────────────────────────── top bar ───────────────────────────────────────────┤
+    │ file.chf ●     [Search commands…  Ctrl+K]   ◆SIMULATOR ●DISARMED │ mode │ lang
     ├──────────────────────── safety state banner / alarm banner (safety_ui) ──────┤
     │rail│ workspace toolbar                                                        │
     │ ✎  ├───────────────────────────────────────────────┬──────────────────────────┤
@@ -30,7 +31,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMenu, QMessageBox, QToolButton,
+from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMessageBox, QToolButton,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
@@ -68,6 +69,10 @@ class _WindowWatch(QObject):
             if t == QEvent.Show and not self._shown:
                 self._shown = True
                 QTimer.singleShot(0, self.shell._first_show)
+                if self.shell.native is not None:
+                    QTimer.singleShot(0, self.shell.native.window_shown)
+            elif t == QEvent.WindowStateChange:
+                self.shell.set_full_screen(self.shell.w.isFullScreen())
             elif t == QEvent.Resize and self.shell.palette is not None and self.shell.palette.isVisible():
                 self.shell.palette._place()
         return False
@@ -93,6 +98,9 @@ class Shell:
         self._default_state: Optional[QByteArray] = None
         self.palette = None
         self.topbar = None
+        self.menu_ctl = None
+        self.menubar = None
+        self.native = None
         self.host = WorkspaceHost(window, self.tr, self.action, self.allows, lambda: self.modes.mode)
         self.host.listeners.append(self._workspace_changed)
         window.setCentralWidget(self.host.stack)
@@ -104,6 +112,7 @@ class Shell:
         v = QVBoxLayout(self.chrome)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        self._chrome_layout = v
         v.addWidget(self.topbar)
         v.addWidget(window.ribbon)
         window.setMenuWidget(self.chrome)
@@ -131,6 +140,8 @@ class Shell:
     # ------------------------------------------------------------------ phase 2
     def finish(self) -> None:
         w = self.w
+        from ..native import NativeIntegration
+        self.native = NativeIntegration(w, self.config, self.tr)
         self._register_commands()
         self._apply_keys()
         from .palette import CommandPalette
@@ -145,6 +156,10 @@ class Shell:
         w.docs.subscribe(self._document_changed)
         w._timer.timeout.connect(self._poll)
         w.hooks.add("close", self._on_close, "shell")
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        if app is not None:
+            app.styleHints().colorSchemeChanged.connect(self._scheme_changed)
         self._watch = _WindowWatch(self)
         w.installEventFilter(self._watch)
         w.setProperty("userMode", self.modes.mode)          # before the style sheet: one polish
@@ -179,6 +194,11 @@ class Shell:
             ("run.dry_run", lambda: su.dry_run(), "shell.run.dry_run", False, ""),
             ("run.arm", lambda: su.toggle_arm(), "shell.run.arm", False, ""),
             ("run.simulate", lambda: w.simulate(), "shell.run.simulate", False, "engineer"),
+            # Window menu (Native track): every platform; ⌃⌘F / F11 full screen
+            ("window.minimize", lambda: w.showMinimized(), "shell.window.minimize", False, "operator"),
+            ("window.zoom", lambda: self.toggle_zoom(), "shell.window.zoom", False, "operator"),
+            ("window.fullscreen", lambda on: self.set_full_screen(bool(on)), "shell.window.fullscreen", True,
+             "operator"),
         ]
         for m in um.MODES:
             cmds.append((f"shell.mode_{m}", lambda m=m: self.request_mode(m), f"shell.mode.switch_{m}", False, ""))
@@ -279,13 +299,14 @@ class Shell:
 
     def _apply_keys(self) -> None:
         w = self.w
-        for cmd, key in keymap.WINDOW_KEYS.items():
+        keys = keymap.window_keys()
+        for cmd, key in keys.items():
             act = self.action(cmd)
             if act is not None:
                 self._set_keys(act, key)
         for spec in self.host.specs.values():
             act = self.action(f"workspace.{spec.id}")
-            if act is not None and spec.shortcut and spec.shortcut not in keymap.WINDOW_KEYS.values():
+            if act is not None and spec.shortcut and spec.shortcut not in keys.values():
                 self._set_keys(act, spec.shortcut)
         self._canvas_keys = []
         for cmd, key in keymap.CANVAS_KEYS.items():
@@ -294,7 +315,7 @@ class Shell:
             sc.activated.connect(lambda c=cmd: w.run(c))
             self._canvas_keys.append(sc)
             act = self.action(cmd)
-            if act is not None and cmd not in keymap.WINDOW_KEYS:
+            if act is not None and cmd not in keys:
                 lk = act.property("lang_key") or ""
                 if lk:
                     self.tr.bind(act, lk, lambda t, a=act, k=key: a.setToolTip(f"{t} ({k})"))
@@ -304,7 +325,7 @@ class Shell:
         def ws(cmd: str) -> str:
             k = command_workspace(cmd, self.w.commands.get(cmd))
             return self.ws_title(k) if k else ""
-        return keymap.rows(self.label, ws, self.tr.tr, known=self.w.ribbon.actions.keys())
+        return keymap.rows(self.label, ws, self.tr.tr, known=self.w.ribbon.actions.keys(), plat=self._plat)
 
     def show_shortcuts(self):
         from .dialogs import ShortcutSheet
@@ -331,7 +352,7 @@ class Shell:
         workspace toolbar, the canvas (or the workspace page), then the run bar."""
         w = self.w
         tb = self.topbar
-        chain: list[QWidget] = [tb.menu_btn, tb.search, tb.mode_combo, w.lang_combo]
+        chain: list[QWidget] = [tb.search, tb.mode_combo, w.lang_combo]
         rail = self.host.rail
         for ws in self.host.visible_ids():
             b = rail.widgetForAction(self.host.rail_actions[ws])
@@ -442,6 +463,9 @@ class Shell:
     # ------------------------------------------------------------------ theme / classic
     def set_theme(self, name: str, persist: bool = True) -> str:
         self.theme = theme.apply(name, self.w)
+        if self.native is not None:
+            from PySide6.QtWidgets import QApplication
+            self.native.color_scheme_changed(theme.effective(self.theme, QApplication.instance()) != theme.LIGHT)
         act = self.action(f"shell.theme_{self.theme}")
         if act is not None and not act.isChecked():
             act.blockSignals(True)
@@ -450,6 +474,37 @@ class Shell:
         if persist:
             self.config.set("shell.theme", self.theme)
         return self.theme
+
+    def _scheme_changed(self, *_a) -> None:
+        """The system switched light/dark: the canvas (theme ``system``) and the title bar."""
+        from PySide6.QtWidgets import QApplication
+        app = QApplication.instance()
+        eff = theme.effective(self.theme, app)
+        if self.theme == theme.SYSTEM:
+            theme.apply_canvas_theme(eff, getattr(self.w, "canvas", None))
+            self.w.update()
+        if self.native is not None:
+            self.native.color_scheme_changed(eff != theme.LIGHT)
+
+    # ------------------------------------------------------------------ window
+    def toggle_zoom(self) -> None:
+        """Window > Zoom (macOS) / Maximize: the window fills the screen's work area or comes back."""
+        if self.w.isMaximized():
+            self.w.showNormal()
+        else:
+            self.w.showMaximized()
+
+    def set_full_screen(self, on: bool) -> None:
+        """Window > Enter Full Screen (⌃⌘F on macOS, F11 elsewhere)."""
+        if on and not self.w.isFullScreen():
+            self.w.showFullScreen()
+        elif not on and self.w.isFullScreen():
+            self.w.showNormal()
+        act = self.action("window.fullscreen")
+        if act is not None and act.isChecked() != self.w.isFullScreen():
+            act.blockSignals(True)
+            act.setChecked(self.w.isFullScreen())
+            act.blockSignals(False)
 
     def set_classic(self, on: bool, persist: bool = True) -> None:
         """Classic ribbon view (the original's layout) or the task shell."""
@@ -492,9 +547,16 @@ class Shell:
         self._update_title()
 
     def _update_title(self) -> None:
+        """The document title, the platform's way: the file name with the modified marker
+        (``[*]``: the dot in the close button on macOS, "*" elsewhere), the represented file
+        (macOS proxy icon, ⌘-click path menu), and Qt appends " — mlaser" on Windows/Linux."""
         path = self.w.docs.path
         name = os.path.basename(path) if path else self.tr.tr("shell.untitled")
-        self.w.setWindowTitle(f"{name}{' ●' if self.dirty else ''} - Mlaser")
+        self.w.setWindowTitle(f"{name}[*]")
+        self.w.setWindowModified(self.dirty)
+        self.w.setWindowFilePath(path or "")
+        if path and self.native is not None:
+            self.native.document_path(path)
         if self.topbar is not None:
             self.topbar.set_file(path, self.dirty)
 
@@ -508,10 +570,27 @@ class Shell:
         alarms = list(ctl.active_alarms or [])
         if self.topbar is not None and self.topbar.isVisible():
             self.topbar.refresh_chips(st, alarms)
+        if self.native is not None:
+            from .. import safety_ui
+            running = safety_ui.job_running(self.w)
+            prog = 0.0
+            if running:
+                try:
+                    prog = float(ctl.state().progress or 0.0)
+                except Exception:  # noqa: BLE001 - a controller without a state snapshot
+                    prog = 0.0
+            self.native.job_feedback(running, prog, bool(alarms) or getattr(st, "banner", "") == "FAULT")
 
     # ------------------------------------------------------------------ layout
     def _first_show(self) -> None:
         w = self.w
+        # the canvas starts with the keyboard focus (its one-key tools, Space = Hold while a job
+        # runs), not the first widget of the chain: the command search field
+        from PySide6.QtWidgets import QApplication
+        fw = QApplication.focusWidget()
+        canvas = getattr(w, "canvas", None)
+        if canvas is not None and canvas.isVisible() and (fw is None or fw is getattr(self.topbar, "search", None)):
+            canvas.setFocus(Qt.OtherFocusReason)
         if self._default_state is None:
             self.fit_docks()
             self._default_state = w.saveState(LAYOUT_VERSION)
@@ -581,6 +660,8 @@ class Shell:
                 self.config.set("shell.layout", bytes(self.w.saveState(LAYOUT_VERSION).toBase64()).decode("ascii"))
             except Exception:  # noqa: BLE001
                 pass
+        if self.native is not None:
+            self.native.close()
 
     # ------------------------------------------------------------------ welcome / docs / import
     def show_welcome(self):
@@ -617,37 +698,20 @@ class Shell:
         self.w.log(self.tr.format("shell.import_params.done", count=n, path=path))
         return n
 
-    # ------------------------------------------------------------------ menu
+    # ------------------------------------------------------------------ menu bar
+    @property
+    def _plat(self) -> str:
+        from ..native import platform_id
+        return platform_id()
+
     def _build_menu(self) -> None:
-        a = self.action
-        m = QMenu(self.topbar)
-        tr = self.tr
-
-        def sub(title_key: str, ids: list[str]) -> QMenu:
-            s = m.addMenu("")
-            tr.bind(s, title_key, s.setTitle)
-            for cid in ids:
-                if cid == "-":
-                    s.addSeparator()
-                elif a(cid) is not None:
-                    s.addAction(a(cid))
-            return s
-
-        sub("shell.menu.file", ["file.new", "file.open", "file.import", "file.save", "file.save_as", "-",
-                                "file.open_project", "file.save_project", "file.export_chf", "-",
-                                "file.bitmap", "file.task_import", "file.task_save", "-", "app.exit"])
-        sub("shell.menu.workspaces", [f"workspace.{s}" for s in SLOTS])
-        st = sub("shell.menu.settings", ["shell.classic_ribbon", "-", "shell.user_mode", "shell.set_pins", "-",
-                                          "app.options", "hw.options", "-", "shell.import_params",
-                                          "app.import_language", "-", "shell.reset_layout"])
-        th = st.addMenu("")
-        tr.bind(th, "shell.theme", th.setTitle)
-        for t in theme.THEME_IDS:
-            th.addAction(a(f"shell.theme_{t}"))
-        sub("shell.menu.help", ["shell.palette", "shell.shortcuts", "-", "shell.welcome", "shell.docs",
-                                "app.help", "app.about"])
-        self.menu = m
-        self.topbar.menu_btn.setMenu(m)
+        """The native menu bar (menubar.py), above the top bar; on macOS the global one."""
+        from .menubar import MenuBar
+        self.menu_ctl = MenuBar(self)
+        self.menubar = self.menu_ctl.bar
+        self._chrome_layout.insertWidget(0, self.menubar)
+        self.topbar.menu_btn.hide()            # the in-window "Mlaser ⌄" menu is replaced
+        self.w.commands.on_register.append(self.menu_ctl.schedule_rebuild)
 
 
 def install(window) -> Shell:
