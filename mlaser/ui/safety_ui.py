@@ -352,7 +352,7 @@ class RunBar(QToolBar):
                 # box that silently changed what Start did)
                 more = QToolButton()
                 more.setObjectName("run_start_menu")
-                more.setPopupMode(QToolButton.InstantPopup)      # the menu arrow only
+                more.setArrowType(Qt.DownArrow)
                 more.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
                 more.setToolTip("More ways to start")
                 more.setAccessibleName("Start options")
@@ -360,7 +360,8 @@ class RunBar(QToolBar):
                 act = menu.addAction("Start selection only")
                 act.setObjectName("run_start_selection")
                 act.triggered.connect(lambda _=False: ui.start_selection())
-                more.setMenu(menu)
+                more.menu_ = menu
+                more.clicked.connect(lambda _=False, m=menu, b=more: m.popup(b.mapToGlobal(b.rect().bottomLeft())))
                 keep_min_size(more, QSize(MIN_TARGET // 3, MIN_TARGET))
                 box = QWidget()                   # Start and its menu arrow side by side
                 box.setObjectName("run_start_box")
