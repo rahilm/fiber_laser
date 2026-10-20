@@ -202,6 +202,5 @@ docs/dev/NATIVE.md has the full platform matrix and the CI check
 
 * Installers: Inno Setup or MSIX on Windows, a dmg on macOS, an AppImage on Linux. They should
   wrap this folder unchanged.
-* An app icon (`packaging/icons/mlaser.ico` / `.icns`; the spec uses it when present).
 * Help topics in a frozen build (see "What is in the bundle").
 * Automatic updates (tufup, or WinSparkle/Sparkle).
