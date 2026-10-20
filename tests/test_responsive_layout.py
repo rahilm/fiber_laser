@@ -152,7 +152,7 @@ def _fit(win, app, size) -> QSize:
         _pump(app, settle, rounds=8)
         if win.size() == want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize()):
             stable += 1
-            if stable >= (2 if settle else 1):
+            if stable >= 2:
                 break
     return win.size()
 

@@ -61,13 +61,15 @@ or "two columns of the widest section no longer fit".
 
   | Workspace | Minimum (logical px) |
   |---|---|
-  | Design | 907 × 570 |
-  | Process | 864 × 570 |
-  | Nest | 1236 × 664 |
-  | Run | 864 × 590 |
-  | Report | 970 × 699 |
-  | Machine | 864 × 570 |
+  | Design | 939 × 404 |
+  | Process | 886 × 730 |
+  | Nest | 881 × 765 |
+  | Run | 881 × 658 |
+  | Report | 968 × 716 |
+  | Machine | 881 × 564 |
 
+  A minimum height can grow when the window gets narrower, because rows that wrap need more
+  height. The page wrapper reports this and the window follows.
   The run bar sets the floor of the width: every button shows its full text and nothing goes to
   an overflow menu. The rail sets the floor of the height: it switches to icon-only buttons
   before any workspace can disappear. A larger font raises these minimums. The harness
@@ -89,15 +91,24 @@ each tab of a tabbed workspace, each dock of a tabbed dock group, and each Machi
 * a sweep of the side docks from their minimum width to wide;
 * live resizing: shrink from 2560 px to the minimum and grow back. The layout must end up as it
   started;
-* a 125 % font, and 2× scale on a 1512 × 982 point screen (a MacBook Pro 14"), which also checks
-  the first-start and saved geometry;
+* a 125 % font, imperial display units (longer values), and 2× scale on a 1512 × 982 point screen
+  (a MacBook Pro 14"), which also checks the first-start and saved geometry;
+* on a window server (`QT_QPA_PLATFORM=cocoa`, `windows` or `xcb`), `test_fits_this_screen`:
+  Design, Run and Machine fit the real screen with the page wrapper's real screen cap. The CI
+  runners have 1024 × 768 screens;
 * STOP, Hold and Arm inside the window at 56 px in every workspace, size and theme
   (`tests/safety/test_touch_targets_mode_switch.py` repeats this across user-mode switches).
+
+The audit (`tests/layout_audit.py`) reports four kinds of violation: `hscroll`, `vscroll` (on
+a form or control panel), `clipped` (smaller than its minimum, text cut, or cut by a parent),
+and `overlap` (siblings drawn over each other).
 
 `MLASER_LAYOUT_SHOTS=<dir>` writes the reports (`*.json`, `*.md`) and screenshots of every view
 at every sample size. `MLASER_LAYOUT_STYLE=<style>` runs under a Qt style: `macos`,
 `windows11`, `windowsvista` or `fusion`. The platform's native styles are only available on
-that platform, so CI runs the harness on macOS and Windows runners too.
+that platform, so `.github/workflows/native-check.yml` runs the harness on the macOS (`macOS`
+style, cocoa), Windows (`windows11`, windows) and Linux (Fusion, X11 under Xvfb) runners. The
+reports and screenshots are in the `native-<os>` artifacts, under `shots/layout/<os>`.
 
 Violations in panels that another track owns are listed in `PENDING` with their owner. They
 are reported but do not fail the test. `test_pending_still_needed` removes an entry once its
