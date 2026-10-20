@@ -260,6 +260,8 @@ def test_events_poll_and_websocket(server):
     assert ev["type"] == "state"
     s.sendall(WS.encode(WS.OP_CLOSE, WS.close_payload(1000), mask=True))
     op, _ = ws_read(f)
+    while op == WS.OP_PING:               # a ping sent (every 0.3 s) before our close arrived
+        op, _ = ws_read(f)
     assert op == WS.OP_CLOSE
     s.close()
     # an unmasked client frame closes the stream
