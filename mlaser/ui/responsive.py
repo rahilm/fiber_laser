@@ -1116,10 +1116,10 @@ class ColumnsPanel(QWidget):
             if bool(self.property("compact")):
                 set_compact(self, False)
                 W, H = self.width() - 2 * self.margins(), self.height() - 2 * self.margins()
-            hint = self._hint_now()           # comfortable: what sizeHint reports while compact
-            if hint != self._comfortable_hint:
-                self._comfortable_hint = hint
-                self.updateGeometry()
+            # comfortable: what sizeHint reports while compact (the same value it reports now,
+            # so no geometry update: an extra relayout pass here moved the canvas under a test's
+            # mouse clicks)
+            self._comfortable_hint = self._hint_now()
             if not self._fits(W, H, exp):
                 set_compact(self, True)
                 compact = True
