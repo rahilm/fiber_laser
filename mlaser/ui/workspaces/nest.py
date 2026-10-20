@@ -37,7 +37,7 @@ from mlaser.services import units as U
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
-from .. import homes
+from .. import homes, style
 from ..responsive import ColumnFitter, FlowLayout
 from . import TOUCH_MIN, show_workspace, tr
 
@@ -140,16 +140,19 @@ def paint_layout(p: QPainter, rect: QRectF, job: NestJob, layout: Any, palette: 
     p.drawPath(sheet)
     if layout.remnant:
         x0, y0, x1, y1 = layout.remnant
-        pen = QPen(QColor("#2e7d32"), 0)
+        pen = QPen(style.color("success"), 0)
         pen.setStyle(Qt.DashLine)
         p.setPen(pen)
         p.setBrush(Qt.NoBrush)
         p.drawRect(QRectF(x0, y0, x1 - x0, y1 - y0))
-    p.setPen(QPen(QColor("#1565c0"), 0))
-    p.setBrush(QColor(21, 101, 192, 70))
+    part = style.color("info")
+    p.setPen(QPen(part, 0))
+    fill = QColor(part)
+    fill.setAlpha(70)
+    p.setBrush(fill)
     p.drawPath(_part_path(layout_parts(job, layout), tol))
     for a, b, kind in lines:            # cutting strategy: separation cut, skeleton cut-up
-        pen = QPen(QColor("#2e7d32") if kind == "remnant_cut" else QColor("#ef6c00"), 0)
+        pen = QPen(style.color("success") if kind == "remnant_cut" else style.color("warning"), 0)
         pen.setCosmetic(True)
         pen.setWidthF(2.0 if kind == "remnant_cut" else 1.2)
         p.setPen(pen)
@@ -241,7 +244,7 @@ class NestWorkspace(QWidget):
         self.run: Optional[NestRun] = None
         self._sync = False
         root = QHBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
+        style.margins(root, "dense")
         split = QSplitter(Qt.Horizontal)
         root.addWidget(split)
 
@@ -315,10 +318,7 @@ class NestWorkspace(QWidget):
         mv.setContentsMargins(0, 0, 0, 0)
         self.sheet_title = QLabel()
         self.sheet_title.setObjectName("nestws_sheet_title")
-        f = self.sheet_title.font()
-        f.setBold(True)
-        f.setPointSizeF(13)
-        self.sheet_title.setFont(f)
+        style.set_font(self.sheet_title, "title")
         mv.addWidget(self.sheet_title)
         self.view = SheetView()
         mv.addWidget(self.view, 1)
@@ -371,12 +371,9 @@ class NestWorkspace(QWidget):
         run = FlowLayout(justify=True)
         self.nest_btn = self._button("nestws.btn.nest", "Nest ▶", self.start, TOUCH_MIN + 8)
         self.nest_btn.setObjectName("nestws_nest")
-        f = self.nest_btn.font()
-        f.setBold(True)
-        f.setPointSizeF(14)
-        self.nest_btn.setFont(f)
+        style.set_font(self.nest_btn, "title")
         self.cancel_btn = self._button("nestws.btn.cancel", "Cancel", self.service.cancel, TOUCH_MIN + 8)
-        self.cancel_btn.setEnabled(False)
+        style.set_enabled(self.cancel_btn, False, tr(self.window_, "nestws.why.not_running", "No nest is running"))
         self.progress = QProgressBar()
         self.progress.setObjectName("nestws_progress")
         self.progress.setRange(0, 1000)
@@ -400,7 +397,7 @@ class NestWorkspace(QWidget):
         self.results.setObjectName("nestws_results")
         self.results.setViewMode(QListView.ListMode)
         self.results.setIconSize(QSize(120, 72))
-        self.results.setSpacing(4)
+        self.results.setSpacing(style.SP1)
         self.results.currentRowChanged.connect(self._result_selected)
         rv.addWidget(self.results, 3)
         self.total = QLabel()
@@ -490,7 +487,7 @@ class NestWorkspace(QWidget):
         box.setDocumentMode(True)
         nb = QWidget()
         ng = FlowLayout(nb, justify=False)
-        ng.setContentsMargins(4, 4, 4, 4)
+        style.margins(ng, "tight")
         self.common_line = self._check("nestws.opt.common_line", "Common line", "nestws_common_line")
         self.share_min = self._qspin("length", 0.1, 10000, 20.0)
         self.share_min.setToolTip(tr(w, "nestws.opt.share_min", "shortest shared edge"))
@@ -526,7 +523,7 @@ class NestWorkspace(QWidget):
         box.addTab(nb, tr(w, "nestws.opt.nesting", "Nesting"))
         sb = QWidget()
         sg = FlowLayout(sb, justify=False)
-        sg.setContentsMargins(4, 4, 4, 4)
+        style.margins(sg, "tight")
         self.scrap = self._combo(((SCRAP_OFF, "nestws.scrap.off", "off"),
                                   (SCRAP_GRID, "nestws.scrap.grid", "grid"),
                                   (SCRAP_GAPS, "nestws.scrap.gaps", "in the gaps")), "nestws_scrap")
@@ -1144,12 +1141,18 @@ class NestWorkspace(QWidget):
                                     util=100 * lay.utilisation))
 
     def _update_buttons(self) -> None:
+        """The buttons follow the nest; a disabled one says why (DESIGN.md §3)."""
+        w = self.window_
         busy = self.service.running
-        self.nest_btn.setEnabled(not busy)
-        self.cancel_btn.setEnabled(busy)
+        running = tr(w, "nestws.why.running", "The nest is running")
+        style.set_enabled(self.nest_btn, not busy, running)
+        style.set_enabled(self.cancel_btn, busy, tr(w, "nestws.why.not_running", "No nest is running"))
         has = self.run is not None and bool(self.run.result.layouts)
-        self.queue_btn.setEnabled(has and not busy and self.queue is not None)
-        self.main_btn.setEnabled(has and not busy)
+        no_result = tr(w, "nestws.why.no_result", "Run the nest first")
+        why = running if busy else no_result if not has else ""
+        style.set_enabled(self.queue_btn, not why and self.queue is not None,
+                          why or tr(w, "nestws.why.no_queue", "The job queue is not available"))
+        style.set_enabled(self.main_btn, not why, why)
 
     def send_to_queue(self) -> list:
         w = self.window_

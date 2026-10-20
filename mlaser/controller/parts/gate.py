@@ -86,7 +86,7 @@ class StartGatePart:
         if self._jog_active or self._jogging is not None:
             return self._gate_refuse(action, "a jog is in progress (release it first)")
         if self._homing:
-            return self._gate_refuse(action, "Go Origin is in progress")
+            return self._gate_refuse(action, "Homing is in progress")
         if self.breakpoint is not None and not resume and job_like:
             return self._gate_refuse(action, "a job is paused at a breakpoint: Resume or Stop it first")
         try:

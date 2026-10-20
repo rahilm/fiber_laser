@@ -1,4 +1,4 @@
-"""Qt tests for mlaser.engrave.dialog.BitmapDialog (headless)."""
+"""Qt tests for mlaser.ui.engrave_dialog.BitmapDialog (headless)."""
 import os
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -8,7 +8,8 @@ import pytest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QFileDialog  # noqa: E402
 
 from mlaser.engrave import RasterParams, generate_gcode, read_status_ini  # noqa: E402
-from mlaser.engrave.dialog import TEXTS, BitmapDialog  # noqa: E402
+from mlaser.ui.engrave_dialog import ENGLISH, TEXTS, BitmapDialog  # noqa: E402
+from mlaser.ui.style import Dialog  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -25,10 +26,10 @@ def test_construct_resets_status(app, tmp_path):
     (tmp_path / "status.ini").write_bytes(b"1")
     d = BitmapDialog(out_dir=tmp_path)
     assert read_status_ini(tmp_path) == 0
-    assert d.windowTitle() == "PicConvert(1.06)"
+    assert isinstance(d, Dialog) and d.windowTitle() == "Bitmap engraving"
     p = d.params
     assert (p.rho, p.power, p.width_mm, p.height_mm, p.mode) == (6, 20, 50, 50, "none")
-    assert d.open_button.text() == TEXTS[0][0]
+    assert d.open_button.text() == ENGLISH[0]          # no translator: the application's English
     d.deleteLater()
 
 
@@ -36,10 +37,17 @@ def test_language_from_translator(app):
     class Tr:
         language = "en"
     d = BitmapDialog(tr=Tr())
-    assert d.open_button.text() == "Open Image"
-    assert d.mode_combo.itemText(1) == "1bit dithering"
-    d.lang_combo.setCurrentIndex(0)
-    assert d.generate_button.text() == "生成GCode"
+    assert d.open_button.text() == "Open image…"
+    assert d.mode_combo.itemText(1) == "1-bit dithering"
+    assert not hasattr(d, "lang_combo")                # the application's language, no own combo
+
+    class Zh:
+        language = "zh"
+    z = BitmapDialog(tr=Zh())
+    assert z.generate_button.text() == TEXTS[16][0] == "生成GCode"
+    z.set_language(1)
+    assert z.generate_button.text() == "Generate G-code"
+    z.deleteLater()
     d.deleteLater()
 
 
@@ -107,7 +115,7 @@ def test_generate_without_image_does_nothing(app, tmp_path):
     d = BitmapDialog(out_dir=tmp_path)
     assert d.generate() is None
     assert d.gcode_path is None and read_status_ini(tmp_path) == 0
-    assert d.status.text() == TEXTS[17][0]
+    assert d.status.text() == ENGLISH[17]
     d.invert_button.click()  # no crash without image
     d.deleteLater()
 

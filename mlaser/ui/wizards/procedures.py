@@ -109,7 +109,7 @@ class EdgeSeekWizard(WizardDialog):
         if step.id in ("p1", "p2"):
             w = QWidget()
             lay = QVBoxLayout(w)
-            self.jog = JogPad(self.w, self.machine, z=False)
+            self.jog = JogPad(self.w, self.machine, z=False, hint=True)
             lay.addWidget(self.jog)
             lbl = QLabel()
             lbl.setObjectName("pointLabel")

@@ -25,7 +25,7 @@ from dataclasses import replace
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
                                QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
@@ -38,6 +38,7 @@ from mlaser.ui.responsive import FlowLayout, ResponsiveForm
 from mlaser.ui.techform import TechForm
 
 from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label, thickness_label  # noqa: F401
+from .. import style
 
 
 # --------------------------------------------------------------------------- editor
@@ -328,23 +329,19 @@ def change_rows(changes: list[T.Change], tr: Any) -> list[tuple[str, str, str, s
 
 
 # --------------------------------------------------------------------------- compare
-class TechCompareDialog(QDialog):
+class TechCompareDialog(style.Dialog):
     """Two technologies side by side: every parameter by section (the editor's sections and
     labels), the differing ones in bold; *Only differences* (on by default) and a search."""
 
     def __init__(self, tr: Any, store: T.TechnologyStore, a: Optional[T.Technology] = None,
                  b: Optional[T.Technology] = None, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        # the one dialog frame (style.Dialog): title, the explanation, Close in the platform's place
+        super().__init__(parent, tr.tr("tech.compare.title"), explanation=tr.tr("tech.compare.intro"),
+                         buttons=QDialogButtonBox.Close)
         self.tr_ = tr
         self.store = store
         t = tr.tr
-        self.setWindowTitle(t("tech.compare.title"))
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(16, 16, 16, 16)
-        lay.setSpacing(8)
-        intro = QLabel(t("tech.compare.intro"))
-        intro.setWordWrap(True)
-        lay.addWidget(intro)
+        lay = self.body
         self._all = store.all()
         pick = ResponsiveForm()
         self.a = QComboBox()
@@ -385,13 +382,9 @@ class TechCompareDialog(QDialog):
         lay.addWidget(self.tree, 1)
         self.summary = QLabel()
         lay.addWidget(self.summary)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        bb.accepted.connect(self.accept)
-        bb.button(QDialogButtonBox.Close).clicked.connect(self.accept)
-        lay.addWidget(bb)
-        self._form = TechForm(tr)          # labels, sections and formatting of every parameter
-        self._form.hide()
+        self.buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        self._techform = TechForm(tr)          # labels, sections and formatting of every parameter
+        self._techform.hide()
         self.resize(self.sizeHint().expandedTo(self.minimumSizeHint()))
         self.refresh()
 
@@ -409,8 +402,8 @@ class TechCompareDialog(QDialog):
         fa, fb = ta.full_params(), tb.full_params()
         q = self.search.text().strip().lower()
         out = []
-        sec_title = {sid: sec.header.text() for sid, sec in self._form.sections.items()}
-        for k, f in self._form.fields.items():
+        sec_title = {sid: sec.header.text() for sid, sec in self._techform.sections.items()}
+        for k, f in self._techform.fields.items():
             va, vb = fa.get(k), fb.get(k)
             differs = not T._same(va, vb)
             if self.only_diff.isChecked() and not differs:
@@ -507,7 +500,7 @@ class LibraryPage(QWidget):
         self.tree.currentItemChanged.connect(lambda cur, _prev: self._tree_picked(cur))
         lv.addWidget(self.tree, 1)
         brow = QWidget()
-        bfl = FlowLayout(brow, justify=False, hspacing=6, vspacing=6)
+        bfl = FlowLayout(brow, justify=False, hspacing=style.SP1, vspacing=style.SP1)
         for key, fn in (("tech.import", self.import_file), ("tech.export", self.export_file),
                         ("tech.compare", self.compare)):
             b = QPushButton(t(key))
@@ -528,7 +521,7 @@ class LibraryPage(QWidget):
         self.editor.changed.connect(self._editor_changed)
         ed = QWidget()
         el = QVBoxLayout(ed)
-        el.setContentsMargins(0, 4, 0, 0)
+        el.setContentsMargins(0, style.SP1, 0, 0)
         el.addWidget(self.editor, 1)
         self.comment = QLineEdit()
         self.comment.setPlaceholderText(t("tech.comment"))
@@ -538,7 +531,7 @@ class LibraryPage(QWidget):
         bind_transient(self.comment, "library.comment")
         # the version comment and the save actions: one row when it fits, wrapped when not
         arow = QWidget()
-        afl = FlowLayout(arow, justify=True, hspacing=6, vspacing=6)
+        afl = FlowLayout(arow, justify=True, hspacing=style.SP1, vspacing=style.SP1)
         afl.addWidget(self.comment)
         self.save_btn = QPushButton(t("tech.save"))
         self.save_btn.setDefault(True)
@@ -554,7 +547,7 @@ class LibraryPage(QWidget):
         tabs.addTab(ed, t("library.tab.values"))
         dw = QWidget()
         dl = QVBoxLayout(dw)
-        dl.setContentsMargins(0, 4, 0, 0)
+        dl.setContentsMargins(0, style.SP1, 0, 0)
         df = ResponsiveForm()
         self.diff_mode = QComboBox()
         self.diff_mode.addItem(t("process.diff.factory"), "factory")
@@ -581,7 +574,7 @@ class LibraryPage(QWidget):
         tabs.addTab(dw, t("process.tab.changes"))
         hw = QWidget()
         hl = QVBoxLayout(hw)
-        hl.setContentsMargins(0, 4, 0, 0)
+        hl.setContentsMargins(0, style.SP1, 0, 0)
         self.history = QTreeWidget()
         self.history.setColumnCount(3)
         self.history.setHeaderLabels([t("tech.version"), t("tech.date"), t("tech.comment")])
@@ -869,8 +862,8 @@ class ProcessWorkspace(QWidget):
         self.setObjectName("process_workspace")
         t = self.tr_.tr
         root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(6)
+        root.setContentsMargins(style.SP2, style.SP2, style.SP2, style.SP2)
+        root.setSpacing(style.SP1)
         # ---- Drawing | Library
         sw = QHBoxLayout()
         sw.setSpacing(0)
@@ -911,7 +904,7 @@ class ProcessWorkspace(QWidget):
         lw = QWidget()
         ll = QVBoxLayout(lw)
         ll.setContentsMargins(0, 0, 0, 0)
-        ll.setSpacing(4)
+        ll.setSpacing(style.SP1)
         lt = QLabel(t("process.layers"))
         f = lt.font()
         f.setBold(True)

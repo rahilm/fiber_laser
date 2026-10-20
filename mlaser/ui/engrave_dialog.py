@@ -1,5 +1,6 @@
-"""PySide6 version of the PicConvert form (``next_cut.MyFrom``, 1062 x 701, title
-"PicConvert(1.06)"), see docs/re/engrave.md.
+"""The raster-engraving dialog: the rebuild of the PicConvert form (``next_cut.MyFrom``,
+1062 x 701, title "PicConvert(1.06)"), see docs/re/engrave.md, on the application's one dialog
+frame (:class:`mlaser.ui.style.Dialog`).  The engraving itself is :mod:`mlaser.engrave`.
 
 Controls follow MyFrom.InitializeComponent (0x06000039) and the tool's own two-language table
 (next_cut.Luaguage..ctor 0x06000073, rows 0..27, column 0 = 中文, 1 = English).  Differences
@@ -13,7 +14,11 @@ from the original, all deliberate:
   original compares the combo text with the Chinese item strings, so in English no processing
   mode is ever applied);
 * the crop rectangle is entered with spin boxes (image pixels) instead of the KJNova_Clipper
-  window with its 8 resize handles.
+  window with its 8 resize handles;
+* no language combo of its own: the texts follow the application's language (Chinese from the
+  tool's own table when the application is in Chinese, plain English otherwise: :data:`ENGLISH`
+  replaces the tool's literal English, "sure", "contrast ratio", "Set laser power size (>0)");
+  sections, a form, and Generate G-code / Cancel in the platform's button order.
 """
 from __future__ import annotations
 
@@ -25,15 +30,18 @@ import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QPushButton, QSizePolicy, QSlider, QSpinBox, QVBoxLayout, QWidget,
+    QCheckBox, QComboBox, QDialogButtonBox, QFileDialog, QGridLayout, QLabel, QPushButton, QSizePolicy,
+    QSlider, QSpinBox, QWidget,
 )
 
-from . import image_ops as ops
-from .raster import (
+from mlaser.engrave import image_ops as ops
+from mlaser.engrave.raster import (
     GCODE_NAME, MODES, EditSession, RasterParams, aspect_height, aspect_width,
     gcode_from_bitmap, raster_from_bitmap, write_gcode, write_status_ini,
 )
+
+from . import style as S
+from .style import Dialog
 
 #: next_cut.Luaguage.LanguaLibrary[28, 2] (O, 0x06000073).
 TEXTS = [
@@ -66,15 +74,26 @@ TEXTS = [
     ("半调网屏", "half-tone screen"),
     ("位   图   处   理 :", "bitmap processing:"),
 ]
+#: the dialog's English (index = row of :data:`TEXTS`): sentence case, the glossary's words
+ENGLISH = [
+    "Open image…", "Image size", "Brightness", "Contrast", "Black and white", "Blur", "Invert",
+    "Flip horizontally", "Crop", "Undo edits", "Flip vertically", "Halftone screen", "Language",
+    "Engraving size", "Line density", "Laser power", "Generate G-code", "Open an image first", "OK",
+    "Cancel", "Enter a height greater than 0", "Enter a width greater than 0", "G-code generated",
+    "Generating G-code…", "None", "1-bit dithering", "Halftone screen", "Processing",
+]
+#: the window title and the section headings (adjust, edit, output) per language
+TITLE = ("位图处理", "Bitmap engraving")
+SECTIONS = (("调整", "编辑", "输出"), ("Adjust", "Edit", "Output"))
 #: OpenFileDialog filter "png|*.png|jpg|*.jpg|all|*.*" (O, OpenImage IL_0007) + bmp.
 FILE_FILTER = "Images (*.png *.jpg *.jpeg *.bmp);;png (*.png);;jpg (*.jpg *.jpeg);;bmp (*.bmp);;all (*.*)"
 
 
 def _language_index(tr) -> int:
     """0 = 中文, 1 = English, from a rebuild translator (``.language`` code / ``.current`` index)
-    or a plain string/int."""
+    or a plain string/int; English without one (the application's default)."""
     if tr is None:
-        return 0
+        return 1
     if isinstance(tr, int):
         return 0 if tr == 0 else 1
     if isinstance(tr, str):
@@ -85,7 +104,7 @@ def _language_index(tr) -> int:
             cur = getattr(tr, "current", None)
             if isinstance(cur, int):
                 return 0 if cur == 0 else 1
-            return 0
+            return 1
     code = str(code).lower()
     return 0 if code in ("zh", "cn", "zh_cn", "chinese", "中文", "简体中文") else 1
 
@@ -97,8 +116,8 @@ def _to_pixmap(img: np.ndarray) -> QPixmap:
     return QPixmap.fromImage(qimg)
 
 
-class BitmapDialog(QDialog):
-    """Raster-engraving dialog.  After "Generate GCode", ``gcode_path`` holds the written
+class BitmapDialog(Dialog):
+    """Raster-engraving dialog.  After "Generate G-code", ``gcode_path`` holds the written
     ``newGcode.nc`` and the dialog is accepted.
 
     The engraving itself is also handed over as one object: ``raster`` (a
@@ -115,9 +134,9 @@ class BitmapDialog(QDialog):
     """
 
     def __init__(self, tr=None, parent: Optional[QWidget] = None, out_dir=None):
-        super().__init__(parent)
-        self.tr_ = tr
         self.lang = _language_index(tr)
+        super().__init__(parent, TITLE[self.lang], buttons=QDialogButtonBox.Cancel)
+        self.tr_ = tr
         self.out_dir: Optional[Path] = Path(out_dir) if out_dir else None
         self.gcode_path: Optional[Path] = None
         self.gcode_text: Optional[str] = None
@@ -127,8 +146,6 @@ class BitmapDialog(QDialog):
         self.session = EditSession()
         self.image_path: Optional[str] = None
         self._sync = False
-        self.setWindowTitle("PicConvert(1.06)")
-        self.resize(1062, 701)
         self._build()
         self._retranslate()
         if self.out_dir is not None:
@@ -139,60 +156,56 @@ class BitmapDialog(QDialog):
 
     # ------------------------------------------------------------------ UI
     def _t(self, i: int) -> str:
-        return TEXTS[i][self.lang]
+        return TEXTS[i][0] if self.lang == 0 else ENGLISH[i]
 
     def _build(self) -> None:
-        root = QHBoxLayout(self)
-        left = QVBoxLayout()
+        cols = QWidget()
+        root = S.hbox(cols, sp=S.SP3)
+        self.body.addWidget(cols, 1)
+        # the picture: the image as it will be engraved, on the base colour
+        left = S.vbox()
         self.open_button = QPushButton()
         self.open_button.clicked.connect(self.open_image)
         left.addWidget(self.open_button, 0, Qt.AlignLeft)
         self.preview = QLabel()
+        self.preview.setObjectName("bitmap_preview")
         self.preview.setAlignment(Qt.AlignCenter)
-        self.preview.setMinimumSize(560, 560)
+        self.preview.setMinimumSize(16 * S.SP3, 16 * S.SP3)
         self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.preview.setStyleSheet("background: #ffffff; border: 1px solid #a0a0a0;")
+        S.styled(self.preview, lambda: f"background:{S.css('base')}; border:1px solid {S.css('border')};")
         left.addWidget(self.preview, 1)
-        root.addLayout(left, 3)
-
-        right = QVBoxLayout()
-        root.addLayout(right, 2)
-        lang_row = QHBoxLayout()
-        self.lang_label = QLabel()
-        self.lang_combo = QComboBox()
-        self.lang_combo.addItems(["中文", "English"])
-        self.lang_combo.setCurrentIndex(self.lang)
-        self.lang_combo.currentIndexChanged.connect(self._on_language)
-        lang_row.addWidget(self.lang_label)
-        lang_row.addWidget(self.lang_combo)
-        lang_row.addStretch(1)
-        right.addLayout(lang_row)
-
-        size_row = QHBoxLayout()
         self.size_title = QLabel()
         self.size_value = QLabel("")
+        size_row = S.hbox()
         size_row.addWidget(self.size_title)
         size_row.addWidget(self.size_value)
         size_row.addStretch(1)
-        right.addLayout(size_row)
+        left.addLayout(size_row)
+        root.addLayout(left, 3)
 
-        sliders = QFormLayout()
+        right = S.vbox(sp=S.SP3)
+        root.addLayout(right, 2)
+        # adjust: brightness and contrast
+        self.adjust_section, adj = S.section("")
+        adj_host = QWidget()
+        sliders = S.form(adj_host)
+        adj.addWidget(adj_host)
         self.brightness_label = QLabel()
         self.brightness = QSlider(Qt.Horizontal)
         self.contrast_label = QLabel()
         self.contrast = QSlider(Qt.Horizontal)
-        for s in (self.brightness, self.contrast):
-            s.setRange(0, 200)
-            s.setValue(100)
-            s.setTickInterval(5)
-            s.setTickPosition(QSlider.TicksBelow)
-            s.valueChanged.connect(self._on_bc)
-        sliders.addRow(self.brightness_label, self.brightness)
-        sliders.addRow(self.contrast_label, self.contrast)
-        right.addLayout(sliders)
+        for sl in (self.brightness, self.contrast):
+            sl.setRange(0, 200)
+            sl.setValue(100)
+            sl.setTickInterval(5)
+            sl.setTickPosition(QSlider.TicksBelow)
+            sl.valueChanged.connect(self._on_bc)
+        S.form_row(sliders, self.brightness_label, self.brightness)
+        S.form_row(sliders, self.contrast_label, self.contrast)
+        right.addWidget(self.adjust_section)
 
-        edit_box = QGroupBox()
-        grid = QGridLayout(edit_box)
+        # edit: the image operations, then the crop rectangle (image pixels)
+        self.edit_section, ed = S.section("")
         self.crop_button = QPushButton()
         self.binarize_button = QPushButton()
         self.blur_button = QPushButton()
@@ -207,30 +220,34 @@ class BitmapDialog(QDialog):
         self.flip_v_button.clicked.connect(lambda: self.apply_edit("flip_v"))
         self.cancel_button.clicked.connect(self.cancel_editing)
         self.crop_button.clicked.connect(self.apply_crop)
+        gridw = QWidget()
+        grid = QGridLayout(gridw)
+        S.margins(grid, "none")
         for i, b in enumerate((self.binarize_button, self.blur_button, self.invert_button,
                                self.flip_h_button, self.flip_v_button, self.cancel_button)):
             grid.addWidget(b, i // 3, i % 3)
-        crop_row = QHBoxLayout()
+        ed.addWidget(gridw)
+        crop_row = S.hbox()
         self.crop_x, self.crop_y, self.crop_w, self.crop_h = (QSpinBox() for _ in range(4))
         for sb, lab in zip((self.crop_x, self.crop_y, self.crop_w, self.crop_h), "XYWH"):
             sb.setRange(0, 100000)
-            crop_row.addWidget(QLabel(lab))
-            crop_row.addWidget(sb)
+            sb.setSuffix(" px")
+            sb.setPrefix(f"{lab} ")
+            sb.setAccessibleName(lab)
+            crop_row.addWidget(sb, 1)
         crop_row.addWidget(self.crop_button)
-        grid.addLayout(crop_row, 2, 0, 1, 3)
-        right.addWidget(edit_box)
+        ed.addLayout(crop_row)
+        right.addWidget(self.edit_section)
 
-        mode_row = QHBoxLayout()
+        # output: processing mode, size (mm, the tool's integer millimetres), density, power
+        self.size_box, out = S.section("")
+        out_host = QWidget()
+        sform = S.form(out_host)
+        out.addWidget(out_host)
         self.mode_label = QLabel()
         self.mode_combo = QComboBox()
         self.mode_combo.addItems(["", "", ""])
-        mode_row.addWidget(self.mode_label)
-        mode_row.addWidget(self.mode_combo, 1)
-        right.addLayout(mode_row)
-
-        size_box = QGroupBox()
-        self.size_box = size_box
-        sform = QFormLayout(size_box)
+        S.form_row(sform, self.mode_label, self.mode_combo)
         self.width_mm = QSpinBox()
         self.height_mm = QSpinBox()
         for sb in (self.width_mm, self.height_mm):
@@ -242,38 +259,38 @@ class BitmapDialog(QDialog):
         self.height_mm.valueChanged.connect(self._on_height)
         self.lock_aspect = QCheckBox("W:H")
         self.lock_aspect.setChecked(True)
-        sform.addRow("W:", self.width_mm)
-        sform.addRow("H:", self.height_mm)
-        sform.addRow("", self.lock_aspect)
-        right.addWidget(size_box)
-
-        laser_form = QFormLayout()
+        self.width_label, self.height_label = QLabel("W"), QLabel("H")
+        S.form_row(sform, self.width_label, self.width_mm)
+        S.form_row(sform, self.height_label, self.height_mm)
+        S.form_row(sform, "", self.lock_aspect)
         self.rho_label = QLabel()
         self.power_label = QLabel()
         self.rho = QSpinBox()
         self.rho.setRange(1, 1000)
         self.rho.setValue(6)
+        self.rho.setSuffix(" /mm")
         self.power = QSpinBox()
         self.power.setRange(0, 100000)
         self.power.setValue(20)
-        laser_form.addRow(self.rho_label, self.rho)
-        laser_form.addRow(self.power_label, self.power)
-        right.addLayout(laser_form)
-
-        self.generate_button = QPushButton()
-        self.generate_button.clicked.connect(self.generate)
-        right.addWidget(self.generate_button)
-        self.status = QLabel("")
-        self.status.setWordWrap(True)
+        S.form_row(sform, self.rho_label, self.rho)
+        S.form_row(sform, self.power_label, self.power)
+        right.addWidget(self.size_box)
+        self.status = S.caption("")
+        self.status.setObjectName("bitmap_status")
         right.addWidget(self.status)
         right.addStretch(1)
+        # Generate G-code: the dialog's one action (it writes, then accepts), Cancel beside it
+        self.generate_button = self.buttons.addButton("", QDialogButtonBox.AcceptRole)
+        self.generate_button.setDefault(True)
+        self.buttons.accepted.disconnect()
+        self.generate_button.clicked.connect(self.generate)
 
     def _retranslate(self) -> None:
         t = self._t
         self.open_button.setText(t(0))
-        self.size_title.setText(t(1))
-        self.brightness_label.setText(t(2))
-        self.contrast_label.setText(t(3))
+        self.size_title.setText(S.label_text(t(1)))
+        self.brightness_label.setText(S.label_text(t(2)))
+        self.contrast_label.setText(S.label_text(t(3)))
         self.binarize_button.setText(t(4))
         self.blur_button.setText(t(5))
         self.invert_button.setText(t(6))
@@ -281,17 +298,20 @@ class BitmapDialog(QDialog):
         self.crop_button.setText(t(8))
         self.cancel_button.setText(t(9))
         self.flip_v_button.setText(t(10))
-        self.lang_label.setText(t(12))
-        self.size_box.setTitle(t(13))
-        self.rho_label.setText(t(14))
-        self.power_label.setText(t(15))
+        heads = SECTIONS[self.lang]
+        for sec, text in zip((self.adjust_section, self.edit_section, self.size_box), heads):
+            sec.findChild(QLabel, "section_header").setText(text)
+        self.setWindowTitle(TITLE[self.lang])
+        self.rho_label.setText(S.label_text(t(14)))
+        self.power_label.setText(S.label_text(t(15)))
         self.generate_button.setText(t(16))
         for i in range(3):
             self.mode_combo.setItemText(i, t(24 + i))
-        self.mode_label.setText(t(27))
+        self.mode_label.setText(S.label_text(t(27)))
 
-    def _on_language(self, idx: int) -> None:
-        self.lang = 0 if idx == 0 else 1
+    def set_language(self, lang: int) -> None:
+        """0 = 中文, 1 = English (follows the application's language)."""
+        self.lang = 0 if lang == 0 else 1
         self._retranslate()
 
     def _message(self, i_or_text) -> None:

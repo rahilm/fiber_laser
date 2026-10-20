@@ -300,10 +300,10 @@ def test_param_table():
     by = {(d.table, d.key): d for d in defs}
     cs = by[("layer", "GP.CutSpeed")]
     assert (cs.default, cs.unit, cs.min, cs.max, cs.type_name) == ("100", "mm/s", 0.01, 1200.0, "double")
-    assert cs.label_en == "Cut Basic.Cut Speed"     # from mlaser/i18n/en.json, not the data file
+    assert cs.label_en == "Cut basic.Cut speed"     # from mlaser/i18n/en.json, not the data file
     assert len(layer_defs()) == 164 and len(layer_defs(True)) == 22
     gas = by[("layer", "GP.CutGasType")]
-    assert [o[1] for o in gas.options] == ["Air(CO2)", "O2(Fiber)", "N2/Air(Fiber)"]
+    assert [o[1] for o in gas.options] == ["Air (CO2)", "O2 (fiber)", "N2 / air (fiber)"]
     assert all(o[0] for o in gas.options)                          # label keys kept as facts
 
 

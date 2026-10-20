@@ -18,8 +18,10 @@ New alarms are appended to the log dock's alarm tab (``LogPanel.add_alarm``).
 """
 from __future__ import annotations
 
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QLabel, QTableWidget, QTableWidgetItem,
-                               QVBoxLayout)
+from PySide6.QtWidgets import (QDialogButtonBox, QTableWidgetItem)
+
+from . import style as S
+from .style import Dialog
 
 
 def _tr(window, key: str, default: str) -> str:
@@ -35,28 +37,23 @@ def _tr(window, key: str, default: str) -> str:
 
 
 
-class AlarmListDialog(QDialog):
-    """Active card alarms (code, text) with a Clear Alarm button."""
+class AlarmListDialog(Dialog):
+    """Active card alarms (code, text) with a Clear alarms button."""
 
     def __init__(self, window, alarms: list):
-        super().__init__(window)
-        self.setWindowTitle(_tr(window, "mf123", "Alarm"))
-        lay = QVBoxLayout(self)
-        t = QTableWidget(len(alarms), 2)
-        t.setHorizontalHeaderLabels(["code", _tr(window, "gp85", "Description")])
+        super().__init__(window, _tr(window, "mf123", "Alarm"), buttons=QDialogButtonBox.Close,
+                         explanation="" if alarms else "No active alarms.")
+        t = S.table([S.Col("Code", priority=1), S.Col(_tr(window, "gp85", "Description"), stretch=True)])
+        t.setRowCount(len(alarms))
         tr = getattr(window, "tr_", None)
         for i, a in enumerate(alarms):
             t.setItem(i, 0, QTableWidgetItem(str(a.code)))
             t.setItem(i, 1, QTableWidgetItem(a.text(tr)))
-        t.horizontalHeader().setStretchLastSection(True)
-        lay.addWidget(t)
-        if not alarms:
-            lay.addWidget(QLabel("no active alarms"))
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        clr = bb.addButton(_tr(window, "gp90", "Clear Alarm"), QDialogButtonBox.ActionRole)
+        self.table = t
+        self.body.addWidget(t, 1)
+        clr = self.buttons.addButton(_tr(window, "gp90", "Clear Alarm"), QDialogButtonBox.ActionRole)
+        S.set_enabled(clr, bool(alarms), "" if alarms else "No alarm to clear")
         clr.clicked.connect(lambda: (window.ctl.clear_alarms(), self.accept()))
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
 
 
 class CardExtension:

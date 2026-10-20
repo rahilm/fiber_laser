@@ -438,7 +438,7 @@ def test_compare_two_technologies(win, app):
     rows = d.rows()
     assert rows and all(r[4] for r in rows)
     fa, fb = a.full_params(), b.full_params()
-    keys = {k for k in fa if k in d._form.fields and fa[k] != fb.get(k)}
+    keys = {k for k in fa if k in d._techform.fields and fa[k] != fb.get(k)}
     assert len(rows) >= len(keys) > 0
     assert d.tree.topLevelItemCount() > 0
     d.only_diff.setChecked(False)

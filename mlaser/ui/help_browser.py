@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (QDialog, QHBoxLayout, QLabel, QLineEdit, QListWid
                                QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.diag import helpdocs as H
-from mlaser.ui import icons
+from mlaser.ui import icons, style
 
 ROLE_REL = Qt.UserRole
 ABOUT = "::about"
@@ -122,7 +122,7 @@ class HelpBrowser(QDialog):
         self.results = QListWidget()
         self.results.setAccessibleName(self.t("help.results", "Search results"))
         self.results.setWordWrap(True)
-        self.results.setSpacing(3)
+        self.results.setSpacing(style.SP1)
         self.results.setAlternatingRowColors(True)
         self.results.itemActivated.connect(self._open_hit)
         self.results.itemClicked.connect(self._open_hit)

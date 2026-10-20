@@ -48,6 +48,7 @@ from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
 from mlaser.services import units as U
 
+from .. import style
 from ..icons import icon
 from ..responsive import CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout, keep_min_size
 from ..safety_texts import remedy
@@ -56,15 +57,10 @@ from . import TOUCH, TOUCH_MIN, show_workspace, tr
 
 log = logging.getLogger("mlaser.ui.run")
 
-STATE_COLORS = {            # background, text (colour is never the only cue: text + icon too)
-    "offline": ("#616161", "#ffffff"),
-    "ready": ("#1565c0", "#ffffff"),
-    "running": ("#2e7d32", "#ffffff"),
-    "hold": ("#ff8f00", "#000000"),
-    "fault": ("#7f0000", "#ffffff"),
-    "alarm": ("#b71c1c", "#ffffff"),
-    "armed": ("#d50000", "#ffffff"),          # = safety_ui.COLORS["ARMED"]
-}
+#: background, text of each run state: the safety colour table (safety_ui.COLORS), the same as
+#: the run bar's pill and the banner (colour is never the only cue: text + icon too)
+STATE_COLORS = {k: style.state_colors(k.upper()) for k in
+                ("offline", "ready", "running", "hold", "fault", "alarm", "armed")}
 STATE_TEXT = {"offline": ("run.state.offline", "OFFLINE"), "ready": ("run.state.ready", "READY"),
               "running": ("run.state.running", "RUNNING"), "hold": ("run.state.hold", "HOLD"),
               "fault": ("run.state.fault", "FAULT"), "alarm": ("run.state.alarm", "ALARM")}
@@ -94,14 +90,12 @@ QUEUE_MSGS = {
 }
 
 
-def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, pt: float = 15.0, bold: bool = True) -> QPushButton:
-    # the touch size is kept against style sheets (an Operator-mode min-height rule used to
-    # drop it to 22 px after leaving Operator mode: responsive.keep_min_size)
+def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, role: str = "label_strong") -> QPushButton:
+    """A touch button: at least ``h`` px tall (kept against style sheets: an Operator-mode
+    min-height rule used to drop it to 22 px after leaving Operator mode,
+    responsive.keep_min_size), the type-scale ``role`` font."""
     keep_min_size(btn, QSize(w, h))
-    f = btn.font()
-    f.setPointSizeF(pt)
-    f.setBold(bold)
-    btn.setFont(f)
+    style.set_font(btn, role)
     btn.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
     return btn
 
@@ -165,9 +159,9 @@ class LoadSheetCard(QFrame):
         self.window_ = window
         self.setObjectName("run_load_card")
         self.setFrameShape(QFrame.StyledPanel)
-        self.setStyleSheet("#run_load_card{border:2px solid #1565c0;border-radius:8px;}")
-        lay = QHBoxLayout(self)
-        lay.setContentsMargins(8, 6, 8, 6)
+        style.styled(self, lambda: (f"#run_load_card{{border:2px solid {style.css('info')};"
+                                    f"border-radius:{style.SP2}px;}}"))
+        lay = style.hbox(self, "dense")
         self.picture = QLabel()
         self.picture.setObjectName("run_load_picture")
         self.picture.setFixedSize(220, 140)
@@ -175,25 +169,16 @@ class LoadSheetCard(QFrame):
         lay.addWidget(self.picture)
         col = QVBoxLayout()
         self.title = QLabel(tr(window, "run.load.title", "Load this sheet"))
-        f = self.title.font()
-        f.setBold(True)
-        f.setPointSizeF(12)
-        self.title.setFont(f)
+        style.set_font(self.title, "label_strong")
         col.addWidget(self.title)
         self.material = QLabel()
         self.material.setObjectName("run_load_material")
-        f = self.material.font()
-        f.setBold(True)
-        f.setPointSizeF(20)
-        self.material.setFont(f)
+        style.set_font(self.material, "display")
         self.material.setWordWrap(True)
         col.addWidget(self.material)
         self.sheet = QLabel()
         self.sheet.setObjectName("run_load_sheet")
-        f = self.sheet.font()
-        f.setBold(True)
-        f.setPointSizeF(15)
-        self.sheet.setFont(f)
+        style.set_font(self.sheet, "title")
         self.sheet.setWordWrap(True)
         col.addWidget(self.sheet)
         self.details = QLabel()
@@ -203,7 +188,8 @@ class LoadSheetCard(QFrame):
         self.warning = QLabel()
         self.warning.setObjectName("run_load_warning")
         self.warning.setWordWrap(True)
-        self.warning.setStyleSheet("background:#b71c1c;color:#ffffff;padding:4px 8px;border-radius:4px;")
+        style.styled(self.warning, lambda: (f"background:{style.css('danger_fill')};color:{style.css('on_danger')};"
+                                            f"padding:{style.SP1}px {style.SP2}px;border-radius:{style.SP1}px;"))
         self.warning.setVisible(False)
         col.addWidget(self.warning)
         col.addStretch(1)
@@ -334,7 +320,7 @@ class RunCanvas(QWidget):
                 p.drawRect(QRectF(x0, y0, x1 - x0, y1 - y0))
             p.setBrush(Qt.NoBrush)
             done_pen = QPen(pal.color(QPalette.Mid), 0)
-            cur_col = QColor(CANVAS_COLORS.get("track", "#d62828"))
+            cur_col = QColor(CANVAS_COLORS["track"])
             for i, layer, path in self._paths:
                 if i in self.done:
                     p.setPen(done_pen)
@@ -351,7 +337,7 @@ class RunCanvas(QWidget):
             if self.head is not None:
                 r = 6.0 / s
                 p.setPen(QPen(pal.color(QPalette.Base), 1.5 / s))
-                p.setBrush(QColor(CANVAS_COLORS.get("head", "#d62828")))
+                p.setBrush(QColor(CANVAS_COLORS["head"]))
                 p.drawEllipse(QPointF(*self.head), r, r)
         finally:
             p.end()
@@ -400,7 +386,7 @@ class QueuePanel(QWidget):
                  ("reset", "queue.btn.reset", "Run again", self.reset),
                  ("clear", "queue.btn.clear", "Clear finished", self.clear_finished))
         for n, (key, tid, text, fn) in enumerate(specs):
-            b = _big(QPushButton(tr(w, tid, text)), TOUCH_MIN, pt=11.0, bold=False)
+            b = _big(QPushButton(tr(w, tid, text)), TOUCH_MIN, role="body")
             b.setObjectName(f"queue_{key}")
             b.clicked.connect(lambda _=False, f=fn: f())
             g.addWidget(b)
@@ -545,9 +531,7 @@ class OperatorScreen(QWidget):
         self.ws = ws
         w = ws.window
         self.setObjectName("run_workspace")
-        root = QVBoxLayout(self)
-        root.setContentsMargins(8, 8, 8, 8)
-        root.setSpacing(8)
+        root = style.vbox(self, "dense")
 
         # --- header: state, reason, counters, progress, times
         head = QFrame()
@@ -558,33 +542,25 @@ class OperatorScreen(QWidget):
         self.state.setObjectName("run_state_big")
         self.state.setAlignment(Qt.AlignCenter)
         self.state.setMinimumSize(220, 72)
-        f = self.state.font()
-        f.setPointSizeF(24)
-        f.setBold(True)
-        self.state.setFont(f)
+        style.set_font(self.state, "display_run")
         hl.addWidget(self.state, 0, 0, 2, 1)
         self.reason = QLabel()
         self.reason.setObjectName("run_reason")
         self.reason.setWordWrap(True)
-        f = self.reason.font()
-        f.setPointSizeF(13)
-        self.reason.setFont(f)
+        style.set_font(self.reason, "title")
         hl.addWidget(self.reason, 0, 1, 1, 2)
         self.counters = QLabel()
         self.counters.setObjectName("run_counters")
-        f = self.counters.font()
-        f.setPointSizeF(13)
-        f.setBold(True)
-        self.counters.setFont(f)
+        style.set_font(self.counters, "title")
         hl.addWidget(self.counters, 1, 1)
         self.monitor_chip = QLabel()
         self.monitor_chip.setObjectName("run_monitor_chip")
-        self.monitor_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        style.chip(self.monitor_chip, "warning")
         self.monitor_chip.setVisible(False)
         # the automation API (mlaser.ui.ext_automation): read-only, queue intake needs approval
         self.api_chip = QLabel()
         self.api_chip.setObjectName("run_api_chip")
-        self.api_chip.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        style.chip(self.api_chip, "warning")
         self.api_chip.setVisible(False)
         chips = QHBoxLayout()
         chips.addStretch(1)
@@ -594,15 +570,12 @@ class OperatorScreen(QWidget):
         self.progress = QProgressBar()
         self.progress.setObjectName("run_progress")
         self.progress.setRange(0, 1000)
-        self.progress.setMinimumHeight(32)
+        self.progress.setMinimumHeight(style.TARGET)
         self.progress.setTextVisible(True)
         hl.addWidget(self.progress, 2, 0, 1, 2)
         self.times = QLabel()
         self.times.setObjectName("run_times")
-        f = self.times.font()
-        f.setPointSizeF(14)
-        f.setBold(True)
-        self.times.setFont(f)
+        style.set_font(self.times, "label_strong")
         hl.addWidget(self.times, 2, 2)
         hl.setColumnStretch(1, 1)
         root.addWidget(head)
@@ -610,12 +583,11 @@ class OperatorScreen(QWidget):
         self.safety_notice = QLabel()
         self.safety_notice.setObjectName("run_safety_notice")
         self.safety_notice.setWordWrap(True)
-        self.safety_notice.setStyleSheet("background:#ff8f00;color:#000;padding:4px 8px;border-radius:4px;")
+        style.chip(self.safety_notice, "warning")
         self.safety_notice.setVisible(False)
         root.addWidget(self.safety_notice)
 
-        body = QHBoxLayout()
-        body.setSpacing(8)
+        body = style.hbox()
         root.addLayout(body, 1)
 
         # --- left: live view / queue tabs, process values, alarms
@@ -623,7 +595,9 @@ class OperatorScreen(QWidget):
         self.tabs = QTabWidget()
         self.tabs.setObjectName("run_tabs")
         self.tabs.tabBar().setMinimumHeight(TOUCH_MIN)
-        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - 8}px;min-width:120px;padding:4px 12px;}}")
+        # touch-sized tabs on the operator screen (a domain screen: the only tab-bar style sheet)
+        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP2}px;min-width:{style.SP5 * 4}px;"
+                                f"padding:{style.SP1}px {style.SP3}px;}}")
         self.canvas = RunCanvas()
         self.tabs.addTab(self.canvas, tr(w, "run.tab.live", "Live view"))
         self.queue_panel = QueuePanel(ws)
@@ -635,9 +609,7 @@ class OperatorScreen(QWidget):
         self.values = QLabel()
         self.values.setObjectName("run_values")
         self.values.setTextFormat(Qt.PlainText)
-        f = self.values.font()
-        f.setPointSizeF(13)
-        self.values.setFont(f)
+        style.set_font(self.values, "title")
         self.values.setWordWrap(True)
         left.addWidget(self.values)
         self.alarm_box = QFrame()
@@ -646,11 +618,8 @@ class OperatorScreen(QWidget):
         ab = QVBoxLayout(self.alarm_box)
         self.alarm_title = QLabel()
         self.alarm_title.setObjectName("run_alarm_title")
-        f = self.alarm_title.font()
-        f.setBold(True)
-        f.setPointSizeF(13)
-        self.alarm_title.setFont(f)
-        self.alarm_title.setStyleSheet("color:#c62828;")
+        style.set_font(self.alarm_title, "title")
+        style.styled(self.alarm_title, lambda: f"color:{style.css('danger')};")
         ab.addWidget(self.alarm_title)
         self.alarm_list = QListWidget()
         self.alarm_list.setObjectName("run_alarm_list")
@@ -658,10 +627,10 @@ class OperatorScreen(QWidget):
         self.alarm_list.setMaximumHeight(150)
         ab.addWidget(self.alarm_list)
         arow = QHBoxLayout()
-        self.reset_btn = _big(QPushButton(tr(w, "run.btn.reset", "Reset alarm")), TOUCH_MIN, pt=12)
+        self.reset_btn = _big(QPushButton(tr(w, "run.btn.reset", "Reset alarm")), TOUCH_MIN)
         self.reset_btn.setObjectName("run_reset")
         self.reset_btn.clicked.connect(lambda: self._ui("reset_fault"))
-        self.details_btn = _big(QPushButton(tr(w, "run.btn.details", "Details")), TOUCH_MIN, pt=12, bold=False)
+        self.details_btn = _big(QPushButton(tr(w, "run.btn.details", "Details")), TOUCH_MIN, role="body")
         self.details_btn.setObjectName("run_details")
         self.details_btn.clicked.connect(lambda: self._ui("alarm_details"))
         arow.addWidget(self.reset_btn)
@@ -680,45 +649,42 @@ class OperatorScreen(QWidget):
         self.controls.setObjectName("run_controls_column")
         self.buttons: dict[str, QPushButton] = {}
 
-        def add(key: str, tid: str, text: str, fn, h: int = TOUCH, pt: float = 16.0, ico: str = "",
-                color: str = "") -> QPushButton:
-            b = _big(QPushButton(tr(w, tid, text)), h, pt=pt)
+        def add(key: str, tid: str, text: str, fn, h: int = TOUCH, role: str = "label_strong",
+                ico: str = "") -> QPushButton:
+            b = _big(QPushButton(tr(w, tid, text)), h, role=role)
             b.setObjectName(f"run_{key}")
             if ico:
-                b.setIcon(icon(ico, color or None))
-                b.setIconSize(QSize(28, 28))
+                b.setIcon(icon(ico))
+                b.setIconSize(QSize(style.ICON_L, style.ICON_L))
             b.clicked.connect(lambda _=False, f=fn: f())
             self.buttons[key] = b
             return b
 
+        def run(kind: str, h: int, role: str) -> QPushButton:
+            """A run control from the one factory (style.run_button: the run bar's words, icons
+            and colours), touch-sized for this screen."""
+            b = style.run_button(kind, getattr(w, "tr_", None), lambda k=kind: self._ui(
+                {"arm": "toggle_arm"}.get(k, k)), height=h)
+            style.set_font(b, role)
+            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+            self.buttons[kind] = b
+            return b
+
         def row(*widgets: QWidget) -> QWidget:
             box = QWidget()
-            lay = QHBoxLayout(box)
-            lay.setContentsMargins(0, 0, 0, 0)
-            lay.setSpacing(8)
+            lay = style.hbox(box)
             for x in widgets:
                 lay.addWidget(x)
             return box
 
-        stop = add("stop", "run.btn.stop", "STOP", lambda: self._ui("stop"), int(TOUCH * 1.4), 22, "player-stop", "#ffffff")
-        stop.setToolTip(tr(w, "run.tip.stop", "Stop the job (Esc or F12)"))
-        stop.setStyleSheet("QPushButton{background:#c62828;color:#ffffff;border-radius:6px;}"
-                           "QPushButton:pressed{background:#8e0000;}")
-        self.controls.add_pinned(stop)
-        self.controls.add_pinned(row(
-            add("hold", "run.btn.hold", "HOLD", lambda: self._ui("hold"), int(TOUCH * 1.2), 18, "player-pause", "#ff8f00"),
-            add("start", "run.btn.start", "START", lambda: self._ui("start"), int(TOUCH * 1.2), 18, "player-play",
-                "#2e7d32")))
-        self.buttons["hold"].setToolTip(tr(w, "run.tip.hold", "Hold / continue (Space)"))
-        self.buttons["start"].setToolTip(tr(w, "run.tip.start", "Start or continue (F5): pre-flight check first"))
-        self.controls.add_pinned(row(
-            add("frame", "run.btn.frame", "Frame", lambda: self._ui("frame"), pt=13, ico="frame"),
-            add("dry_run", "run.btn.dry_run", "Dry run", lambda: self._ui("dry_run"), pt=13, ico="route")))
-        self.controls.add_pinned(add("arm", "run.btn.arm", "Arm laser", lambda: self._ui("toggle_arm"), pt=13, ico="bolt"))
-        resume = row(add("resume_here", "run.btn.resume_here", "Here", lambda: self.resume("exact"), TOUCH_MIN, 12,
-                         "player-skip-forward"),
+        self.controls.add_pinned(run("stop", int(TOUCH * 1.4), "display"))
+        self.controls.add_pinned(row(run("hold", int(TOUCH * 1.2), "title"), run("start", int(TOUCH * 1.2), "title")))
+        self.controls.add_pinned(row(run("frame", TOUCH, "label_strong"), run("dry_run", TOUCH, "label_strong")))
+        self.controls.add_pinned(run("arm", TOUCH, "label_strong"))
+        resume = row(add("resume_here", "run.btn.resume_here", "Here", lambda: self.resume("exact"), TOUCH_MIN,
+                         ico="player-skip-forward"),
                      add("resume_contour", "run.btn.resume_contour", "Contour start",
-                         lambda: self.resume("contour"), TOUCH_MIN, 12, "restore"))
+                         lambda: self.resume("contour"), TOUCH_MIN, ico="restore"))
         self.resume_section = CollapsibleSection(tr(w, "run.resume", "Resume from the breakpoint"), resume,
                                                  priority=0)
         self.resume_section.setObjectName("run_resume_section")
@@ -726,16 +692,15 @@ class OperatorScreen(QWidget):
         # queue card
         card = QWidget()
         card.setObjectName("run_queue_card")
-        cv = QVBoxLayout(card)
-        cv.setContentsMargins(0, 0, 0, 0)
+        cv = style.vbox(card)
         self.queue_msg = QLabel()
         self.queue_msg.setObjectName("run_queue_msg")
         self.queue_msg.setWordWrap(True)
         cv.addWidget(self.queue_msg)
         cv.addWidget(add("confirm_sheet", "run.btn.confirm_sheet", "Sheet loaded: start",
-                         self.confirm_sheet, TOUCH, 14, "truck-loading"))
-        cv.addWidget(add("queue_mode", "run.btn.queue_run", "Run queue", self.toggle_queue, TOUCH_MIN, 12,
-                         "list-numbers"))
+                         self.confirm_sheet, TOUCH, "title", "truck-loading"))
+        cv.addWidget(add("queue_mode", "run.btn.queue_run", "Run queue", self.toggle_queue, TOUCH_MIN,
+                         ico="list-numbers"))
         self.queue_section = CollapsibleSection("", card, priority=1)
         self.queue_section.setObjectName("run_queue_section")
         self.controls.add_section(self.queue_section)
@@ -816,7 +781,8 @@ class OperatorScreen(QWidget):
         look = "armed" if s.kind == "ready" and s.armed else s.kind
         if look != self._kind:
             bg, fg = STATE_COLORS[look]
-            self.state.setStyleSheet(f"background:{bg};color:{fg};border-radius:8px;padding:6px 14px;")
+            self.state.setStyleSheet(f"background:{bg};color:{fg};border-radius:{style.SP2}px;"
+                                     f"padding:{style.SP1}px {style.SP3}px;")
             self._kind = look
         self.reason.setText(self.ws.reason_text(s))
         b = getattr(w, "safety_io", None)
@@ -863,19 +829,25 @@ class OperatorScreen(QWidget):
         job = self.ws.job_running()
         paused = ms is not None and ms.mode == "pause"
         b = self.buttons
-        b["start"].setEnabled(connected and not fault and (not job or paused))
-        b["start"].setText(tr(w, "run.btn.continue", "CONTINUE") if paused or self.ws.window.ctl.breakpoint is not None
-                           else tr(w, "run.btn.start", "START"))
-        b["hold"].setEnabled(connected and job and not paused)
-        b["stop"].setEnabled(True)
-        b["frame"].setEnabled(connected and not fault and not job)
-        b["dry_run"].setEnabled(connected and not fault and not job)
-        armed = s.armed
-        b["arm"].setText(tr(w, "run.btn.disarm", "Disarm laser") if armed else tr(w, "run.btn.arm", "Arm laser"))
-        b["arm"].setEnabled(connected and not fault and not s.dry_run)
+        # the run bar's rules and reasons (safety_ui.run_enabled); on this screen Start is the
+        # Continue of a held job, so Hold is off while held
+        from ..safety_ui import run_enabled
+        st = w.ctl.safety()
+        for k, on, why in run_enabled(w, st, ms, job):
+            if k == "hold" and on and paused:
+                on, why = False, tr(w, "run.why.held", "Held: Start continues the job")
+            style.set_enabled(b[k], on, why)
+        trn = getattr(w, "tr_", None)
+        cont = paused or self.ws.window.ctl.breakpoint is not None
+        for k, text in (("start", style.run_text("start", trn, alt=cont)), ("arm", style.run_text("arm", trn, alt=s.armed))):
+            if b[k].text() != text:
+                b[k].setText(text)
+                b[k].setAccessibleName(text)
         bp = self.ws.window.ctl.breakpoint is not None
-        b["resume_here"].setEnabled(bp and not fault and not s.alarms)
-        b["resume_contour"].setEnabled(bp and not fault and not s.alarms)
+        why_bp = (tr(w, "run.why.no_breakpoint", "No job is held at a breakpoint") if not bp else
+                  tr(w, "run.why.fault", "Reset the fault first") if fault or s.alarms else "")
+        style.set_enabled(b["resume_here"], not why_bp, why_bp)
+        style.set_enabled(b["resume_contour"], not why_bp, why_bp)
         # queue card
         r = self.ws.runner
         title = tr(w, "run.queue.title", "Queue: {n} jobs, {left} sheets left",
@@ -910,10 +882,12 @@ class OperatorScreen(QWidget):
             if asking:
                 self.queue_section.user_choice = None
             self.controls.schedule()
-        b["confirm_sheet"].setEnabled(r.state == "confirm" and connected and not fault and not job)
+        style.set_enabled(b["confirm_sheet"], r.state == "confirm" and connected and not fault and not job,
+                          tr(w, "run.why.no_sheet_wait", "The queue is not waiting for a sheet"))
         b["queue_mode"].setText(tr(w, "run.btn.queue_leave", "Leave queue") if r.state != "idle"
                                 else tr(w, "run.btn.queue_run", "Run queue"))
-        b["queue_mode"].setEnabled(r.state != "idle" or self.ws.queue.next_entry() is not None)
+        style.set_enabled(b["queue_mode"], r.state != "idle" or self.ws.queue.next_entry() is not None,
+                          tr(w, "run.why.queue_empty", "The queue has no job left to run"))
         # monitor chip
         mon = self.ws.monitor
         self.monitor_chip.setVisible(mon is not None and mon.running)

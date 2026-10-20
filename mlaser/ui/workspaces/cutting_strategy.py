@@ -38,6 +38,7 @@ from mlaser.services import units as U
 from mlaser.ui.units_qt import on_units_changed
 
 from . import tr
+from .. import style
 
 #: the recipe rules of the cutting strategy and their defaults (Technology.rules): the start
 #: placement (``lead_place``: mlaser.cam.leadplace.LeadRules), the lead check's clearance
@@ -125,7 +126,7 @@ class CuttingStrategyPanel(QWidget):
         w = self.window_ = ctx.window
         self.setObjectName("cutting_strategy")
         outer = QVBoxLayout(self)
-        outer.setContentsMargins(4, 4, 4, 4)
+        outer.setContentsMargins(style.SP1, style.SP1, style.SP1, style.SP1)
         panel = ColumnsPanel(max_columns=2)
         outer.addWidget(panel)
         # ---- leads: the recipe's rules (read-only) and the actions

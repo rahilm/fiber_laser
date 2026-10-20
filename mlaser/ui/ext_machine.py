@@ -20,13 +20,16 @@ from pathlib import Path
 from typing import Callable, Optional
 
 from PySide6.QtCore import QObject, Signal
-from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLineEdit,
+                               QMessageBox, QWidget)
 
 from mlaser.controller import coords as C
 from mlaser.controller import edgeseek as E
 from mlaser.controller.machine_ops import CO2, FIBER, MachineOps
 from mlaser.services.config import NamespaceView
+
+from . import style as S
+from .style import Dialog
 
 UPGRADE_WORD = "UPGRADE"
 
@@ -46,28 +49,24 @@ class _Bridge(QObject):
     call = Signal(object)          # callable to run in the GUI thread
 
 
-class UpgradeConfirmDialog(QDialog):
+class UpgradeConfirmDialog(Dialog):
     """Strong confirmation: the user must type UPGRADE (an interrupted or wrong image can brick
     the board)."""
 
     def __init__(self, window, what: str, fw):
-        super().__init__(window)
-        self.setWindowTitle(_tr(window, "mf132", "Upgrade"))
-        lay = QVBoxLayout(self)
-        lay.addWidget(QLabel(
-            f"<b>Firmware upgrade of the {what}</b><br>File: {fw.path.name} ({len(fw.data)} bytes)<br><br>"
-            "A wrong file or an interrupted transfer can make the board unusable.<br>"
-            "Do not switch off the machine or disconnect the network until it has finished.<br><br>"
-            f"Type <b>{UPGRADE_WORD}</b> to continue:"))
+        super().__init__(window, _tr(window, "mf132", "Upgrade"),
+                         heading_text=f"Firmware upgrade of the {what}",
+                         explanation=f"File: {fw.path.name} ({len(fw.data)} bytes). A wrong file or an "
+                                     "interrupted transfer can make the board unusable. Do not switch off "
+                                     "the machine or disconnect the network until it has finished.")
         self.edit = QLineEdit()
-        lay.addWidget(self.edit)
-        self.bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        lab = S.form_row(self.form(), f"Type {UPGRADE_WORD} to continue", self.edit)
+        lab.setWordWrap(True)
+        self.bb = self.buttons
         ok = self.bb.button(QDialogButtonBox.Ok)
-        ok.setEnabled(False)
-        self.edit.textChanged.connect(lambda t: ok.setEnabled(t.strip() == UPGRADE_WORD))
-        self.bb.accepted.connect(self.accept)
-        self.bb.rejected.connect(self.reject)
-        lay.addWidget(self.bb)
+        S.set_enabled(ok, False, f"Type {UPGRADE_WORD} first")
+        self.edit.textChanged.connect(lambda t: S.set_enabled(ok, t.strip() == UPGRADE_WORD,
+                                                              f"Type {UPGRADE_WORD} first"))
 
 
 class RegistryValues(NamespaceView):
@@ -594,7 +593,7 @@ class MachineExtension:
         self.normal_exit = sec.get("NormalExit", "1") != "0"
         if sec.get("NormalExit", "1") == "0":
             # a real dialog, not a log line (docs/review/ux.md P0-7)
-            self.log("mp18: the last run ended abnormally")
+            self.log("The last run ended abnormally")
             try:
                 from PySide6.QtCore import QTimer
 

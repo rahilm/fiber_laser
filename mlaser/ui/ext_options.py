@@ -27,19 +27,19 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QDialog,
     QDialogButtonBox,
     QHeaderView,
     QLabel,
     QMessageBox,
     QPlainTextEdit,
-    QPushButton,
     QTableWidget,
     QTableWidgetItem,
-    QVBoxLayout,
 )
 
 from mlaser.services.config import Setting
+
+from . import style as S
+from .style import Dialog
 
 
 def profiles() -> dict:
@@ -55,25 +55,21 @@ def profiles() -> dict:
     return dict(PROFILES)
 
 
-class ProfileDialog(QDialog):
+class ProfileDialog(Dialog):
     def __init__(self, current: str, parent=None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("Parity profile")
-        lay = QVBoxLayout(self)
+        super().__init__(parent, "Parity profile",
+                         explanation="How the toolpath and the motion are computed. The original "
+                                     "profile is bit-exact with the original program.")
         self.profs = profiles()
         self.combo = QComboBox()
         for name in self.profs:
             self.combo.addItem(name, name)
         self.combo.setCurrentIndex(max(0, self.combo.findData(current)))
-        lay.addWidget(self.combo)
+        S.form_row(self.form(), "Profile", self.combo)
         self.info = QLabel()
         self.info.setWordWrap(True)
-        lay.addWidget(self.info)
+        self.body.addWidget(self.info)
         self.combo.currentIndexChanged.connect(self._show)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.accepted.connect(self.accept)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
         self._show()
 
     def name(self) -> str:
@@ -85,30 +81,26 @@ class ProfileDialog(QDialog):
             return
         txt = p.description
         if p.warning:
-            txt += f"\n\nWARNING: {p.warning}"
+            txt += f"\n\nWarning: {p.warning}"
         if p.name == "original":
-            txt += "\n\n(bit-exact with the original; the goldens and the Wine parity run use it)"
+            txt += "\n\n(Bit-exact with the original; the goldens and the Wine parity run use it.)"
         self.info.setText(txt)
 
 
-class NetCheckDialog(QDialog):
+class NetCheckDialog(Dialog):
     def __init__(self, parent=None) -> None:
-        super().__init__(parent)
         from mlaser import netcheck
 
-        self.setWindowTitle("Network self-test")
-        lay = QVBoxLayout(self)
+        super().__init__(parent, "Network self-test", buttons=QDialogButtonBox.Close,
+                         explanation="Checks this computer's network for the motion card. "
+                                     "No packet is sent to the card.")
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         last = netcheck.last_result()
-        self.text.setPlainText(last.text() if last is not None else "no self-test result yet")
-        lay.addWidget(self.text)
-        run = QPushButton("Run now (no packet is sent to the card)")
-        run.clicked.connect(self.run)
-        lay.addWidget(run)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.text.setPlainText(last.text() if last is not None else "No self-test result yet.")
+        self.body.addWidget(self.text, 1)
+        self.run_button = self.buttons.addButton("Run now", QDialogButtonBox.ActionRole)
+        self.run_button.clicked.connect(self.run)
 
     def run(self) -> None:
         from mlaser import netcheck
@@ -128,23 +120,22 @@ PLUGIN_WARNING = (
     "you trust, from a source you trust. Changes take effect at the next start.")
 
 
-class PluginsDialog(QDialog):
+class PluginsDialog(Dialog):
     """The installed third-party plugins and the allowlist (see the module docstring)."""
 
     COLUMNS = ("enabled", "authority", "name", "target", "package", "status")
 
     def __init__(self, window, catalog: list, allowlist: dict, editable: bool = True,
                  authority: Optional[list] = None) -> None:
-        super().__init__(window)
+        super().__init__(window, _t(window, "plugins.title", "Plugins"),
+                         buttons=QDialogButtonBox.Save | QDialogButtonBox.Cancel if editable else QDialogButtonBox.Close,
+                         explanation=_t(window, "plugins.warning", PLUGIN_WARNING))
         self.w = window
         self.setObjectName("plugins_dialog")
-        self.setWindowTitle(_t(window, "plugins.title", "Plugins"))
-        self.resize(760, 380)
-        lay = QVBoxLayout(self)
-        warn = QLabel(_t(window, "plugins.warning", PLUGIN_WARNING))
+        warn = self.explanation
         warn.setObjectName("plugins_warning")
-        warn.setWordWrap(True)
-        lay.addWidget(warn)
+        S.chip(warn, "warning")
+        lay = self.body
         self.catalog = [(info, st) for info, st in catalog]
         self.allow = dict(allowlist or {})
         self.authority0 = set(authority or ())
@@ -152,6 +143,8 @@ class PluginsDialog(QDialog):
         self.table.setObjectName("plugins_table")
         self.table.setHorizontalHeaderLabels([_t(window, f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
+        self.table.verticalHeader().hide()
         for r, (info, st) in enumerate(self.catalog):
             chk = QTableWidgetItem()
             flags = Qt.ItemIsUserCheckable | Qt.ItemIsSelectable
@@ -173,10 +166,8 @@ class PluginsDialog(QDialog):
         lay.addWidget(self.table, 1)
         if not self.catalog:
             lay.addWidget(QLabel(_t(window, "plugins.none", "No third-party plugin is installed.")))
-        bb = QDialogButtonBox(QDialogButtonBox.Save | QDialogButtonBox.Cancel if editable else QDialogButtonBox.Close)
-        bb.accepted.connect(self._save)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._save)
 
     def checked(self) -> dict:
         """{name: target} of the rows checked now."""

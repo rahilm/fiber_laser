@@ -147,13 +147,13 @@ def test_one_jog_step_for_every_jog_pad(win, app):
     ten.click()
     _pump(app)
     assert win.config.get("MC.IsStepMove") is True and win.config.get("MC.StepLength") == 10.0
-    assert panel.mode_step.isChecked() and panel._step_mm() == 10.0      # Run Control shows it
-    panel.mode_fast.setChecked(True)
+    assert panel.jog.stepping() and panel.jog.step_mm() == 10.0      # Run Control shows it
+    panel.jog.fast.setChecked(True)
     _pump(app)
     assert win.config.get("MC.IsFastMode") is True and pad.fast.isChecked()
     pad.step_buttons[0].click()                          # continuous
     _pump(app)
-    assert win.config.get("MC.IsStepMove") is False and not panel.mode_step.isChecked()
+    assert win.config.get("MC.IsStepMove") is False and not panel.jog.stepping()
     # one editor (the Machine pad); the others are quick switches on the same key
     eds = [w for w in homes.editors(win) if w.property(homes.PROP_VALUE) == "cfg:MC.StepLength"]
     assert eds and all(ws.isAncestorOf(w) for w in eds)

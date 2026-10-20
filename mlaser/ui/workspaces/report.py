@@ -24,7 +24,7 @@ import time
 from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPalette, QPen
+from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
@@ -37,6 +37,7 @@ from mlaser.services.operator import fmt_duration
 from mlaser.ui.units_qt import on_units_changed
 
 from ..safety_texts import remedy
+from .. import style
 from . import TOUCH_MIN, show_workspace, tr
 
 PERIODS = (("today", "report.period.today", "Today"), ("week", "report.period.week", "Last 7 days"),
@@ -184,9 +185,9 @@ class DayChart(QWidget):
             for i, d in enumerate(self.days):
                 x = m + i * bw
                 h = (bottom - top) * d["run_s"] / mx
-                p.fillRect(QRectF(x + 2, bottom - h, bw - 4, h), QColor("#2e7d32"))
+                p.fillRect(QRectF(x + 2, bottom - h, bw - 4, h), style.color("success"))
                 if d["stopped"]:
-                    p.setPen(QPen(QColor("#c62828"), 2))
+                    p.setPen(QPen(style.color("danger"), 2))
                     p.drawLine(int(x + 2), int(bottom + 2), int(x + bw - 2), int(bottom + 2))
                 p.setPen(pal.color(QPalette.Text))
                 if n <= 14 or i % max(1, n // 10) == 0:
@@ -239,7 +240,7 @@ class ReportWorkspace(QWidget):
         self.ledger = ledger
         self.setObjectName("report_workspace")
         v = QVBoxLayout(self)
-        v.setContentsMargins(8, 8, 8, 8)
+        style.margins(v, "dense")
         top = QHBoxLayout()
         self.period = QComboBox()
         self.period.setObjectName("report_period")
@@ -286,10 +287,7 @@ class ReportWorkspace(QWidget):
             cap = QLabel(tr(w, tid, text))
             val = QLabel("-")
             val.setObjectName(f"report_tile_{key}")
-            f = val.font()
-            f.setPointSizeF(17)
-            f.setBold(True)
-            val.setFont(f)
+            style.set_font(val, "display")
             box = QVBoxLayout()
             box.addWidget(cap)
             box.addWidget(val)
@@ -300,7 +298,8 @@ class ReportWorkspace(QWidget):
         v.addWidget(self.chart)
         self.tabs = QTabWidget()
         self.tabs.setObjectName("report_tabs")
-        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - 12}px;padding:4px 12px;}}")
+        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP3}px;"
+                                f"padding:{style.SP1}px {style.SP3}px;}}")
         self.days = _table([tr(w, "report.col.day", "Day"), tr(w, "report.col.jobs", "Jobs"),
                             tr(w, "report.col.ok", "Done"), tr(w, "report.col.stopped", "Stopped"),
                             tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut"),

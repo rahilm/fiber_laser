@@ -41,6 +41,7 @@ from mlaser.ui.techform import Section, beside_width, shrinkable
 
 from ..units_qt import QuantitySpinBox, on_units_changed
 from .lead_diagram import LeadDiagram
+from .. import style
 
 MAX_PREVIEW_CONTOURS = 400     # live CAM preview only for selections up to this size
 LEAD_KINDS = ("props.lead.none", "props.lead.line", "props.lead.arc", "props.lead.line_arc")
@@ -88,7 +89,7 @@ def _swatch(color: QColor) -> QIcon:
 
 def _buttons(*buttons: QPushButton) -> QWidget:
     w = QWidget()
-    row = FlowLayout(w, justify=False, hspacing=6, vspacing=6)
+    row = FlowLayout(w, justify=False, hspacing=style.SP1, vspacing=style.SP1)
     for b in buttons:
         row.addWidget(b)
     return w

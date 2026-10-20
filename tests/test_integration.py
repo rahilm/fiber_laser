@@ -118,7 +118,7 @@ def test_ui_runs_job_on_simulator(dxf_path):
         assert ctl.stop().wait(10)                      # the stop is asynchronous
         assert not ctl._busy()
         log = win.log_panel.text.toPlainText()
-        assert "homing is not supported" in log or "Go Origin" in log
+        assert "homing is not supported" in log or "Homing" in log or "Home" in log
         # simulate via mlaser.motion with a time estimate
         win.simulate()
         assert win.estimate["total"] > 0 and win.canvas.simulation_running()

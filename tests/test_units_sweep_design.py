@@ -99,9 +99,9 @@ def test_canvas_rulers_and_status_follow_the_units(win, app):
     c.grab()                                              # paints the rulers (no exception)
     # coordinate readout in the status bar
     c.mouseMoved.emit(25.4, 50.8)
-    assert win.st_da.text() == "X: 1.000 Y: 2.000 in"
+    assert win.st_da.text() == "Cursor X: 1.000  Y: 2.000 in"
     win.config.set("units.system", "metric")
-    assert win.st_da.text() == "X: 25.40 Y: 50.80 mm"
+    assert win.st_da.text() == "Cursor X: 25.40  Y: 50.80 mm"
 
 
 # --------------------------------------------------------------------------- properties
@@ -251,15 +251,18 @@ def test_layer_table_and_part_list_in_imperial(win, app):
     assert win.part_list.topLevelItem(win.part_list.topLevelItemCount() - 1).text(4) == "4.000×2.000"
 
 
-def test_jog_steps_in_inches_never_longer_than_metric(win, app):
+def test_jog_steps_follow_units_in_the_run_control_pad(win, app):
+    """The Run Control dock's pad is the one jog pad: the same steps as the Machine pad
+    (mlaser/ui/jogpad.py JOG_STEPS_MM: round inch values of the same order as 0.1 / 1 / 10 mm)."""
     ctl = win.control
-    metric = ctl.step_values()
+    pad = ctl.jog                                          # the one jog pad (mlaser/ui/jogpad.py)
+    metric = [float(b.property("step_mm")) for b in pad.step_buttons[1:]]
     win.config.set("units.system", "imperial")
-    imperial = ctl.step_values()
-    assert len(metric) == len(imperial) == ctl.step.count()
-    assert all(i <= m + 1e-9 for i, m in zip(imperial, metric))
-    assert ctl.step.itemText(5) == "1 in"
-    assert ctl.step.currentData() == pytest.approx(imperial[ctl.step.currentIndex()])
+    app.processEvents()
+    imperial = [float(b.property("step_mm")) for b in pad.step_buttons[1:]]
+    assert len(metric) == len(imperial) == 3
+    assert all(0.5 * m <= i <= 1.5 * m for i, m in zip(imperial, metric))
+    assert [b.text() for b in pad.step_buttons[1:]] == ["0.005 in", "0.05 in", "0.5 in"]
     assert isinstance(ctl.bf_len, QuantitySpinBox) and ctl.bf_len.value() == 10.0
 
 

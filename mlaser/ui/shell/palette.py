@@ -19,6 +19,8 @@ from PySide6.QtWidgets import (QApplication, QFrame, QLabel, QLineEdit, QListWid
 
 from mlaser.services.command_search import Entry, search
 
+from ..style import SP1, margins
+
 RIGHT_ROLE = Qt.UserRole + 1          # "Workspace   Ctrl+K" shown right-aligned
 
 
@@ -61,8 +63,8 @@ class CommandPalette(QFrame):
         self.setFrameShape(QFrame.StyledPanel)
         self.setAutoFillBackground(True)
         v = QVBoxLayout(self)
-        v.setContentsMargins(6, 6, 6, 6)
-        v.setSpacing(4)
+        margins(v, "dense")
+        v.setSpacing(SP1)
         self.edit = QLineEdit()
         self.edit.setObjectName("shell_palette_query")
         tr.bind(self.edit, "shell.palette.placeholder", self.edit.setPlaceholderText)
@@ -136,7 +138,8 @@ class CommandPalette(QFrame):
             if m.recent:
                 tip.append(recent_lbl)
             if not e.enabled:
-                tip.append(self.tr.tr("shell.palette.disabled"))
+                from ..command_feedback import disabled_reason
+                tip.append(disabled_reason(self.w, e.id) or self.tr.tr("shell.palette.disabled"))
                 it.setForeground(QColor(self.palette().color(self.palette().ColorGroup.Disabled,
                                                              self.palette().ColorRole.Text)))
             it.setToolTip(" · ".join(tip))

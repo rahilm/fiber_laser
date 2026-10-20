@@ -39,7 +39,7 @@ from .workspaces import tr
 #: (low peak power and duty, no pierce stage, air), to be verified on the machine
 FALLBACK_MARKING = {"GP.CutSpeed": 150.0, "GP.CutPeakCurrent": 20, "GP.CutPower": 30, "GP.CutFreq": 5000,
                     "GP.CutGasType": 0, "GP.CutAirPressure": 0.5, "GP.CutHeight": 1.0, "GP.ManuType": 0}
-MARK_COLOR = "#ff00ff"
+from mlaser.labels.marking import MARK_LAYER_COLOR as MARK_COLOR  # noqa: E402 - the layer's colour (data)
 
 
 def _data_dir(window: Any) -> str:

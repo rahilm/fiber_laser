@@ -223,7 +223,7 @@ def test_open_recent_and_window_menu(win, app, tmp_path):
     recent = sh.menubar.findChild(QMenu, "menu_recent")
     recent.aboutToShow.emit()
     texts = [a.text() for a in recent.actions() if not a.isSeparator()]
-    assert texts[0] == "a.dxf" and "gone.dxf" not in texts and texts[-1] == "Clear Menu"
+    assert texts[0] == "a.dxf" and "gone.dxf" not in texts and texts[-1] == "Clear menu"
     docks = sh.menubar.findChild(QMenu, "menu_docks")
     docks.aboutToShow.emit()
     assert len(docks.actions()) >= 2

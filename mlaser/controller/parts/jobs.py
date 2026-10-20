@@ -733,7 +733,7 @@ class JobRunnerPart:
         gen = self.start_generation()
         bp = self.breakpoint
         if bp is None:
-            self._log("mp61/mp62: Backward/Forward only while a job is paused")
+            self._log("Backward / forward only while a job is held")
             return
         if self._busy() or not self._motion_ok("Backward/Forward"):
             return

@@ -36,11 +36,11 @@ ORIG_LANG = os.path.join(os.path.dirname(__file__), "data", "lang_fixture")   # 
 def test_lang_catalogue(tmp_path):
     tr = i18n.Translator(language="en", import_dir=str(tmp_path))
     # original keys and readable ids resolve to the same English text
-    assert tr.tr("mf15") == tr.tr("cmd.machine.home") == "Go Origin"
+    assert tr.tr("mf15") == tr.tr("cmd.machine.home") == "Home X/Y"
     assert tr.tr("mp54") == "Start"
-    assert tr.tr_param("pd125") == ("Cut Basic", "Cut Speed")
-    assert tr.tr("nset_UI_Result2MainView") == "Copy to Main Drawing"     # ux.md mistranslations fixed
-    assert tr.tr("newLang1") == "Burn-in Test"
+    assert tr.tr_param("pd125") == ("Cut basic", "Cut speed")
+    assert tr.tr("nset_UI_Result2MainView") == "Copy to main drawing"     # ux.md mistranslations fixed
+    assert tr.tr("newLang1") == "Burn-in test"
     # named placeholders, positional values in the original's order
     msg = tr.format("mp83", 1, 2.25, 3.0, 4.0, 5)
     assert msg.startswith("Estimated time: 1 min 2.2 s") and "pierces: 5" in msg
@@ -48,7 +48,7 @@ def test_lang_catalogue(tmp_path):
     assert tr.format("mv17", dx="1.000 mm", dy="2.000 mm", length="3.000 mm").endswith("length 3.000 mm")
     assert [li.code for li in tr.available()] == ["en"]     # nothing imported
     tr.set_language("zh")
-    assert tr.tr("mf15") == "Go Origin"                       # no Chinese yet: English
+    assert tr.tr("mf15") == "Home X/Y"                         # no Chinese yet: English
     assert tr.tr("no_such_key", "x") == "x"
     # import from an original install (here: the synthetic Lang folder)
     assert sorted(tr.import_from(ORIG_LANG)) == ["fr", "zh"]

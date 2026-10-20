@@ -169,7 +169,7 @@ class DemoController(_api.ControllerFacade):
         return self._s
 
     def home(self, axes: str = "XY") -> None:
-        if not self._motion_ok("Go Origin"):
+        if not self._motion_ok("Homing"):
             return
         self._advance()
         self._run([(0.0 if "X" in axes else self._s.x, 0.0 if "Y" in axes else self._s.y)], self.RAPID, "origin")

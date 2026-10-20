@@ -479,7 +479,7 @@ class EdgeSeeker:
             self.move_rel(d if sp.axis == 0 else 0.0, d if sp.axis == 1 else 0.0, self.p.out_speed)
             q = self.capture(pos0, sp)
             res.points.append(q)
-            self.log(f"mp88_3: Edge Seek Step {i + 1} Pos, ({q[0]:.3f}, {q[1]:.3f})")
+            self.log(f"Edge seek step {i + 1} at ({q[0]:.3f}, {q[1]:.3f})")
             self.wait_idle()
         self.mc.write_reg(F.REG_MAILBOX, CMD_CANCEL)
         res.corner = corner_point(res.points, n)
@@ -487,7 +487,7 @@ class EdgeSeeker:
             raise EdgeSeekError("edge seek: the edges are parallel, no corner")
         res.origin = origin_from_corner(res.corner, self.p)
         res.angle = edge_angle(res.points, n)
-        self.log(f"mp88_4: Edge Seek Cross Point Pos, ({res.corner[0]:.3f}, {res.corner[1]:.3f})")
+        self.log(f"Edge seek corner at ({res.corner[0]:.3f}, {res.corner[1]:.3f})")
         if go_to_origin:
             self.move_to(*res.origin)
             time.sleep(FINAL_DELAY_S)
@@ -519,7 +519,7 @@ class EdgeSeeker:
         if res.centre is None:
             raise EdgeSeekError("disc search: the three points are collinear")
         res.corner = res.origin = res.centre
-        self.log(f"mp88_4: Edge Seek Cross Point Pos, ({res.centre[0]:.3f}, {res.centre[1]:.3f})")
+        self.log(f"Edge seek corner at ({res.centre[0]:.3f}, {res.centre[1]:.3f})")
         if go_to_centre:
             self.move_to(*res.centre)
             time.sleep(FINAL_DELAY_S)

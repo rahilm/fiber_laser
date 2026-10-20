@@ -2,8 +2,8 @@
 "PicConvert(1.06) (BitmapRaster)").  See docs/re/engrave.md.
 
 ``image_ops`` holds the pixel operations, ``raster`` the parameters, the pipeline, the
-G-code writer and the ``status.ini`` protocol; ``dialog`` (imported lazily, needs PySide6) the
-form.
+G-code writer and the ``status.ini`` protocol.  The dialog is the UI's
+(``mlaser/ui/engrave_dialog.py``: Qt widgets live in the UI layer).
 """
 from .image_ops import (
     binarize, brightness_contrast, crop, flip_h, flip_v, floyd_steinberg, gaussian_blur, halftone,
@@ -29,9 +29,3 @@ __all__ = [
     "raster_segments", "read_status_ini", "segment_gcode", "write_gcode", "write_status_ini",
 ]
 
-
-def __getattr__(name):
-    if name == "BitmapDialog":
-        from .dialog import BitmapDialog
-        return BitmapDialog
-    raise AttributeError(name)
