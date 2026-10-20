@@ -479,3 +479,30 @@ def test_api_off_by_default_and_on_localhost(app, tmp_path, monkeypatch):
         assert plug.server is None
     finally:
         w.close()
+
+
+def test_a_refused_request_with_a_body_still_gets_its_answer(server):
+    """A refusal closes the connection; the request's unread body made the OS reset it, and the
+    client lost the 403 / 405 and its reason (Windows CI: ConnectionAbortedError, WinError
+    10053).  The server reads a body up to its cap before answering."""
+    import socket as _s
+    srv = server()
+    h, p = srv.address
+    body = b"{" + b" " * 60000 + b"}"
+    for path, code in (("/api/v1/arm", 403), ("/api/v1/status", 405), ("/api/v1/start", 403)):
+        for method in ("POST", "PUT"):
+            c = _s.create_connection((h, p), timeout=10)
+            try:
+                c.sendall(f"{method} {path} HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {TOKEN}\r\n"
+                          f"Content-Type: application/json\r\nContent-Length: {len(body)}\r\n\r\n".encode() + body)
+                got = b""
+                while True:
+                    chunk = c.recv(65536)
+                    if not chunk:
+                        break
+                    got += chunk
+            finally:
+                c.close()
+            assert got.startswith(f"HTTP/1.0 {code}".encode()) or got.startswith(f"HTTP/1.1 {code}".encode()), \
+                (method, path, got[:80])
+            assert b'"error"' in got
