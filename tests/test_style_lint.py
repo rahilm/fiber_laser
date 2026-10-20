@@ -34,8 +34,6 @@ ALLOWLIST: dict[str, dict[str, int]] = {
     # Process workspace, cutting strategy) and the canvas (the original's layer / drawing
     # colours are data; the HUD belongs to that track).  Everything else is migrated.
     "mlaser/ui/canvas.py": {"colour": 14, "font": 1, "margin": 3},
-    "mlaser/ui/dialogs.py": {"margin": 2},
-    "mlaser/ui/ext_craft.py": {"colour": 1},
     "mlaser/ui/ext_diag.py": {"colour": 2},
     "mlaser/ui/ext_labels.py": {"colour": 1},
     "mlaser/ui/ext_practice.py": {"colour": 2, "font": 1, "margin": 1},

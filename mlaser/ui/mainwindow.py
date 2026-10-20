@@ -1168,17 +1168,18 @@ class MainWindow(QMainWindow):
         self.log_panel.log(f"mf103: {n} micro-joints")
 
     def rotate_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf185", "pd339", 30.0, -360, 360, self)
+        d = dialogs.ValueDialog(self.tr_, "mf185", "pd339", 30.0, -360, 360, self, suffix=" °")
         if d.exec():
             self._edit(ops.rotate, d.value.value(), label="rotate")
 
     def scale_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf60", "pd348", 100.0, 0.1, 10000, self)
+        d = dialogs.ValueDialog(self.tr_, "mf60", "pd348", 100.0, 0.1, 10000, self, suffix=" %")
         if d.exec():
             self._edit(ops.scale, d.value.value() / 100.0, label="scale")
 
     def sim_speed_dialog(self) -> None:
-        d = dialogs.ValueDialog(self.tr_, "mf121", "mf121", self.canvas.sim_speed, 0.1, 100, self)
+        d = dialogs.ValueDialog(self.tr_, "mf121", "mf121", self.canvas.sim_speed, 0.1, 100, self,
+                                  suffix=" ×")
         if d.exec():
             self.canvas.sim_speed = d.value.value()
 

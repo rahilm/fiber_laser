@@ -14,8 +14,7 @@ from __future__ import annotations
 
 from typing import Any, Callable, Optional
 
-from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QSpinBox, QVBoxLayout, QWidget)
+from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QSpinBox, QWidget)
 
 from mlaser.model import Document
 from mlaser.ops import cam as OC
@@ -23,6 +22,9 @@ from mlaser.services import units
 from mlaser.ops.cam import (AlphaParams, CircularArrayParams, CoolParams, FilletParams,  # noqa: F401
                             RectShareParams, SheetFillParams, UnloadParams)
 from mlaser.ops.document import targets as _targets  # noqa: F401 - old helper name
+from mlaser.ui import style as S
+from mlaser.ui.dialogs import QUANTITY_UNIT, split_unit, suffix_for
+from mlaser.ui.style import Dialog
 from mlaser.ui.units_qt import QuantitySpinBox
 
 # --------------------------------------------------------------------------- field-driven dialog
@@ -41,27 +43,31 @@ CAM_TOOLS = {"array": "array", "circular_array": "circ", "sheet_fill": "sheet", 
              "cool": "cool_p", "rect_share": "rect_p", "circle_fly": "circle_fly_p", "line_fly": "line_fly_p"}
 
 
-class FieldDialog(QDialog):
-    """Form editing the attributes of a dataclass instance (labels from lang keys)."""
+class FieldDialog(Dialog):
+    """Form editing the attributes of a dataclass instance (labels from lang keys), on the one
+    dialog frame (:class:`mlaser.ui.style.Dialog`): units in the fields' suffixes (lengths in
+    the display units), check boxes with their label as text, OK / Cancel in the platform's
+    order."""
 
     def __init__(self, tr, title_key: str, obj: Any, fields: list[Field], parent=None,
-                 extra_widgets: Optional[list[tuple[str, QWidget]]] = None):
-        super().__init__(parent)
+                 extra_widgets: Optional[list[tuple[str, QWidget]]] = None, explanation: str = ""):
         self.tr_ = tr
+        super().__init__(parent, self._label(title_key, full=True), explanation=explanation)
         self.obj = obj
-        self.setWindowTitle(self._label(title_key, full=True))
-        lay = QVBoxLayout(self)
-        form = QFormLayout()
-        lay.addLayout(form)
+        form = self.form()
         self.editors: dict[str, QWidget] = {}
         for attr, key, kind, extra in fields:
             v = getattr(obj, attr)
+            label, unit = split_unit(self._label(key))
+            w: QWidget
             if kind == "int":
                 w = QSpinBox()
                 w.setRange(int(extra[0]), int(extra[1]))
                 w.setValue(int(v))
-            elif kind in ("len", "slen"):
-                w = QuantitySpinBox("length" if kind == "len" else "small_length",
+                if unit and unit not in QUANTITY_UNIT:
+                    w.setSuffix(suffix_for(unit))
+            elif kind in ("len", "slen") or (kind == "float" and unit == "mm"):
+                w = QuantitySpinBox("length" if kind != "slen" else "small_length",
                                     minimum=float(extra[0]), maximum=float(extra[1]),
                                     decimals=extra[2] if len(extra) > 2 else 3, value=float(v))
             elif kind == "float":
@@ -69,23 +75,27 @@ class FieldDialog(QDialog):
                 w.setDecimals(extra[2] if len(extra) > 2 else 3)
                 w.setRange(float(extra[0]), float(extra[1]))
                 w.setValue(float(v))
+                if unit:
+                    w.setSuffix(suffix_for(unit))
             elif kind == "bool":
-                w = QCheckBox()
+                w = QCheckBox(label)
                 w.setChecked(bool(v))
+                S.form_row(form, "", w)
+                self.editors[attr] = w
+                continue
             else:
                 w = QComboBox()
                 w.addItems([self._label(k) for k in extra])
                 w.setCurrentIndex(int(v))
-            form.addRow(self._label(key), w)
+            S.form_row(form, label, w)
             self.editors[attr] = w
         for label, w in extra_widgets or []:
-            form.addRow(label, w)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
-        bb.button(QDialogButtonBox.Ok).setText(tr.tr("ap1", "OK"))
-        bb.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0", "Cancel"))
-        bb.accepted.connect(self._ok)
-        bb.rejected.connect(self.reject)
-        lay.addWidget(bb)
+            S.form_row(form, label, w)
+        self.buttons.button(QDialogButtonBox.Ok).setText(tr.tr("ap1", "OK"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(tr.tr("ap0", "Cancel"))
+        self.buttons.accepted.disconnect()
+        self.buttons.accepted.connect(self._ok)
+        self.adjustSize()
 
     def _label(self, key: str, full: bool = False) -> str:
         if not self.tr_.has(key):
