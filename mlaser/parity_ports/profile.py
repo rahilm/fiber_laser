@@ -215,9 +215,12 @@ ORIGINAL = ParityProfile(
         seg_interp_time=f"{_PP}.cadmodule.interp:seg_interp_time",
         arc_interp=f"{_PP}.cadmodule.interp:arc_interp",
     ),
+    # CContoutSmooth: the curve tables, crtmath and the per-sample lookup on the C kernel when
+    # the default selection chose it (profiles/native_smooth.py), else the Python port;
+    # bit-identical either way ("original-python" below always runs the port)
     smoother=Implementation(
         "smoother",
-        smooth_path_points=f"{_PP}.cadmodule.smooth:smooth_path_points",
+        smooth_path_points=f"{_PP}.profiles.native_smooth:smooth_path_points",
         ContourSmoother=f"{_PP}.cadmodule.smooth:ContourSmoother",
         CurveTable=f"{_PP}.cadmodule.curvetable:CurveTable",
     ),
@@ -247,7 +250,8 @@ ORIGINAL = ParityProfile(
         import_sort=f"{_PP}.cadmodule.ordering_fast:import_sort",
         local_optimal_elems=f"{_PP}.cadmodule.ordering_fast:local_optimal_elems",
         containers_last_faithful=f"{_PP}.cadmodule.ordering_fast:containers_last_faithful",
-        ring_sort=f"{_PP}.cadmodule.ordering:ring_sort",
+        # the same scan on the C kernel when the default selection chose it (ordering_fast)
+        ring_sort=f"{_PP}.cadmodule.ordering_fast:ring_sort",
         choose_start=f"{_PP}.cadmodule.ordering:choose_start",
     ),
     arcfit=Implementation(
@@ -280,10 +284,20 @@ PYTHON_SAMPLING = Implementation(
     sample_speeds=f"{_PP}.mainapp.sampling:sample_speeds",
 )
 
-#: ORIGINAL with the emitter loop always on the Python port (whatever MLASER_NATIVE says)
+#: the Python port of CContoutSmooth (curve tables, crtmath, sampling): the reference of the
+#: C pieces of profiles/native_smooth.py
+PYTHON_SMOOTHER = Implementation(
+    "smoother",
+    smooth_path_points=f"{_PP}.cadmodule.smooth:smooth_path_points",
+    ContourSmoother=f"{_PP}.cadmodule.smooth:ContourSmoother",
+    CurveTable=f"{_PP}.cadmodule.curvetable:CurveTable",
+)
+
+#: ORIGINAL with the emitter loop and the smoother always on the Python port (whatever
+#: MLASER_NATIVE says)
 ORIGINAL_PYTHON = ORIGINAL.derive(
-    "original-python", "original, with the emitter loop on the Python port (the reference)",
-    sampling=PYTHON_SAMPLING)
+    "original-python", "original, with the emitter loop and the smoother on the Python port (the reference)",
+    sampling=PYTHON_SAMPLING, smoother=PYTHON_SMOOTHER)
 
 PROFILES: dict[str, ParityProfile] = {ORIGINAL.name: ORIGINAL, ORIGINAL_PYTHON.name: ORIGINAL_PYTHON}
 DEFAULT = ORIGINAL.name

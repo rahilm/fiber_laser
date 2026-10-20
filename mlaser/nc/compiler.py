@@ -49,9 +49,11 @@ from ..cam.toolpath import CamParams, build_toolpath
 from ..protocol import frames as F
 from . import process as P
 from ..model import Document, LayerParams
-from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_time,
-                             lead_in_index, plan_path)
-from ..parity_ports import active_profile, dispatch
+from ..motion.interp import (_PathGeom, _move_len, _move_point, _rapid_profile, estimate_chains,
+                             estimate_time, lead_in_index, plan_path)
+from ..motion import interp as _interp
+from ..parity_ports.cadmodule.smooth import table_memo
+from ..parity_ports import active_profile, dispatch, get_profile
 from .machine import Machine
 from .packed import PackedWire, SharedWireHandle, WireBuilder
 
@@ -330,6 +332,207 @@ def _slow_moves(moves: list, up, down) -> list:
     return moves
 
 
+def path_inputs(obj: list, cur_layer: int, doc: Optional[Document], proc: bool,
+                views: Optional[dict] = None):
+    """Planning inputs of one cut chain of :func:`compile_items` (a pure function of the
+    toolpath, the layer table and the process switch; the emitter state plays no part):
+    ``(moves, lead_index, layer view, slow start, slow end)``.  ``moves`` is ``obj`` split for
+    the slow start / end (``obj`` itself when there is none).  ``views``: a per-compile cache
+    layer -> (layer view, slow start, slow end), the same values for every chain of a layer."""
+    moves = obj
+    layer = int(getattr(moves[0], "layer", cur_layer))
+    got = views.get(layer) if views is not None else None
+    if got is None:
+        lv = P.LayerView(_layer(doc, layer)) if proc else None
+        got = (lv, *(P.slow_start_end(lv) if proc else (None, None)))  # type: ignore[arg-type]
+        if views is not None:
+            views[layer] = got
+    lv, up, down = got
+    # line lead-in joint (moves tagged .lead == "in" by build_toolpath): the original
+    # blends it with lead_tol (type-4 marker, parity JC-08); the slow-start split below
+    # may cut the lead into several moves, so the joint is found again by its length
+    li = lead_in_index(moves)
+    lead_len = sum(_move_len(mv) for mv in moves[:li]) if li else None
+    if proc:
+        moves = _slow_moves(moves, up, down)
+    if li:
+        li = lead_in_index(moves, 1, lead_len)
+    return moves, li, lv, up, down
+
+
+def plan_cut_chain(moves: list, cfg, lead_index: Optional[int], period: float):
+    """Velocity plan and samples of one cut chain: ``(plan, ss, pts, total, gaps)`` with the
+    cumulative arc length ``ss`` of every servo period, the sampled points ``pts`` (a
+    sequence of (x, y), or a flat ``array('d')`` x0, y0, x1, ... from a native geometry),
+    the path length ``total`` and the micro-joint gap intervals.  A pure function of its
+    arguments (the per-chain unit of the parallel compile)."""
+    plan, geom = plan_path(moves, cfg, return_geom=True, lead_index=lead_index)
+    total = geom.cum[-1]
+    # a native geometry (profiles/native_smooth.py) samples the plan and the path in C:
+    # array('d') of the same values
+    sample = getattr(geom, "sample_plan", None)
+    ss = sample(plan, period) if sample is not None else plan.sample(period)
+    batch = getattr(geom, "points", None)
+    pts = batch(ss) if batch is not None else [geom.at(s)[0] for s in ss]
+    return plan, ss, pts, total, gap_intervals(moves, geom)
+
+
+class _ChainPlans:
+    """The plans of a compile's cut chains, and ``Job.estimate`` without planning every chain a
+    second time from scratch.
+
+    :func:`~mlaser.motion.interp.estimate_time` plans the chains of
+    :func:`~mlaser.motion.interp.estimate_chains` with ``plan_path(chain, cfg)``: no lead-in
+    joint, no slow start / end split.  Every one of them is a run of whole compile chains (it
+    only breaks at rapids, dwells and pierces, which break a compile chain too), so the chains
+    are planned in groups, one per estimate chain: its compile chains, then the estimate chain
+    itself.  When that is exactly one compile chain planned with the same inputs (same move
+    objects, no lead-in joint), the compile plan's duration and length are reused; otherwise it
+    is planned inside the same blend-table memo (smooth.table_memo), so only the tables that
+    differ (the lead-in joint's blend) are built again.  The values are those of
+    ``plan_path(chain, cfg)`` by construction, summed by ``estimate_time(chain_plans=...)`` in
+    its own order: bit for bit the old estimate.
+
+    Serially a group is planned chain by chain as the compile reaches it; with a pool
+    (mlaser.nc.parallel, P2-5) the groups are planned ahead in worker processes and consumed in
+    order.  A chain the pool could not plan is planned here (so a planning error is raised
+    exactly where the serial compile raises it)."""
+
+    def __init__(self, items: list, cfg, doc: Optional[Document], proc: bool, period: float,
+                 workers: Optional[int] = None) -> None:
+        self.cfg, self.period = cfg, period
+        self.groups: Optional[list] = self._groups(items, doc, proc)
+        self.gi = self.ci = 0               # current group / chain in it
+        self.vals: Optional[list] = []      # (duration, length) per estimate chain, None: failed
+        self.memo: Any = None
+        self.last: Any = None               # (moves, li, plan) of the last compile chain
+        self.pool: Any = None
+        self.res: Any = None                # the current group's pool results
+        self.local = False
+        if self.groups is not None and self.groups:
+            from . import parallel
+            n = parallel.workers_for(sum(len(g[0]) for g in self.groups)) if workers is None else workers
+            prof = active_profile()
+            if n > 1 and prof is get_profile(prof.name):
+                from ..parity_ports.profiles import native
+                mode = "on" if native.native_selected() else "off"
+                tasks = [(prof.name, mode, cfg, period, [(c[1], c[2]) for c in chains], est)
+                         for chains, est in self.groups]
+                self.pool = parallel.PoolPlans(tasks, n)
+
+    @staticmethod
+    def _groups(items: list, doc: Optional[Document], proc: bool) -> Optional[list]:
+        """[(chains, estimate chain)] with chains = [(obj, moves, li, lv, up, down)] in compile
+        order; None if the compile chains do not partition the estimate chains (then every
+        chain is planned on its own and the estimate from scratch, as before)."""
+        est = estimate_chains(items)
+        groups: list = []
+        k = used = 0
+        cur: list = []
+        cur_layer = 1
+        views: dict = {}
+        for kind, obj in _chains(items):
+            if kind == "item":
+                if isinstance(obj, (I.LayerChange, I.LaserOn)):
+                    cur_layer = int(obj.layer)
+                continue
+            if k >= len(est) or any(a is not b for a, b in zip(obj, est[k][used:used + len(obj)])):
+                return None
+            cur.append((obj, *path_inputs(obj, cur_layer, doc, proc, views)))
+            used += len(obj)
+            if used > len(est[k]):
+                return None
+            if used == len(est[k]):
+                groups.append((cur, est[k]))
+                cur, k, used = [], k + 1, 0
+        if cur or k != len(est):
+            return None
+        return groups
+
+    def next(self, obj: list, cur_layer: int, doc: Optional[Document], proc: bool) -> tuple:
+        """(moves, li, lv, up, down, ss, pts, total, gaps) of compile chain ``obj``."""
+        if self.groups is None:
+            moves, li, lv, up, down = path_inputs(obj, cur_layer, doc, proc)
+            _plan, ss, pts, total, gaps = plan_cut_chain(moves, self.cfg, li, self.period)
+            return moves, li, lv, up, down, ss, pts, total, gaps
+        chains, est = self.groups[self.gi]
+        c_obj, moves, li, lv, up, down = chains[self.ci]
+        if len(c_obj) != len(obj) or any(a is not b for a, b in zip(c_obj, obj)):
+            # cannot happen: the same _chains(items) in the same order
+            raise RuntimeError("compile chains out of step with their plans")
+        first, last = self.ci == 0, self.ci == len(chains) - 1
+        r = None
+        if first:
+            self.local = False                  # a chain of this group planned here
+        if self.pool is not None:
+            if first:
+                self.res = self.pool.get(self.gi)
+            if self.res is not None and self.ci < len(self.res[0]):
+                r = self.res[0][self.ci]
+        plan = None
+        if r is not None:
+            ss, pts, total, gaps = r
+        else:
+            self.local = True
+            if first and self.memo is None:
+                self.memo = table_memo()
+                self.memo.__enter__()
+            plan, ss, pts, total, gaps = plan_cut_chain(moves, self.cfg, li, self.period)
+        if last:
+            ev = self.res[1] if self.res is not None and not self.local else None
+            if ev is not None:
+                self._value(None if ev == "error" else ev)
+            else:
+                self._estimate(chains, est, moves, li, plan)
+        self.ci += 1
+        if last:
+            self.close_memo()
+            self.groups[self.gi] = None         # done: free its moves and plans
+            self.gi, self.ci, self.res = self.gi + 1, 0, None
+        return moves, li, lv, up, down, ss, pts, total, gaps
+
+    def _estimate(self, chains: list, est: list, moves: list, li, plan) -> None:
+        try:
+            if (plan is not None and len(chains) == 1 and li is None and len(moves) == len(est)
+                    and all(a is b for a, b in zip(moves, est))):
+                ev = (plan.duration, plan.length)
+            else:
+                p = _interp.plan_path(est, self.cfg)    # as estimate_time plans it
+                ev = (p.duration, p.length)
+        except Exception:   # noqa: BLE001 - as estimate_time raising: no estimate
+            ev = None
+        self._value(ev)
+
+    def _value(self, ev) -> None:
+        if self.vals is not None:
+            if ev is None:
+                self.vals = None
+            else:
+                self.vals.append(ev)
+
+    def close_memo(self) -> None:
+        if self.memo is not None:
+            self.memo.__exit__(None, None, None)
+            self.memo = None
+
+    def close(self) -> None:
+        self.close_memo()
+        if self.pool is not None:
+            self.pool.close()
+
+    def result(self, items: list) -> dict:
+        self.close()
+        try:
+            if self.groups is not None:
+                if self.vals is None:
+                    return {}
+                if self.gi == len(self.groups):
+                    return estimate_time(items, self.cfg, chain_plans=self.vals)
+            return estimate_time(items, self.cfg)
+        except Exception:   # noqa: BLE001 - the estimate is informative only
+            return {}
+
+
 def laser_on_sequence(seq: "P.ProcessSequencer", layer: int, laser: bool = True) -> list:
     """ManuItems of a LaserOn (cut element start) as the job loop leaves them: it pushes laser
     sync on (FUN_004590a0(1), 0x0045a101) into the vector [ebp-0x194] and then calls the start
@@ -341,7 +544,8 @@ def laser_on_sequence(seq: "P.ProcessSequencer", layer: int, laser: bool = True)
 def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Point = (0.0, 0.0),
                   doc: Optional[Document] = None, dry_run: bool = False,
                   carry: Sequence[float] = (0.0, 0.0),
-                  progress: Optional[Callable[[float], None]] = None) -> Job:
+                  progress: Optional[Callable[[float], None]] = None,
+                  workers: Optional[int] = None) -> Job:
     """Compile a MotionItem stream (mm, mm/s, s) into a :class:`Job`.
 
     With ``machine.process.enabled`` (default) LaserOn/LaserOff/Pierce/Rapid produce the
@@ -350,7 +554,9 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     initial pulse remainder (FUN_00473bd0's never-reset globals; (0, 0) = fresh program start,
     pass a previous ``Job.pulse_carry`` to chain jobs as one session would).  ``progress`` is
     called with the fraction of items done after each chain (cut run or item); it may raise to
-    cancel (``mlaser.services.jobs``).  It does not change the result.
+    cancel (``mlaser.services.jobs``).  It does not change the result.  ``workers``: worker
+    processes that plan the cut chains ahead (:mod:`mlaser.nc.parallel`; 0 = serial, None = the
+    ``MLASER_COMPILE_WORKERS`` setting); the result is bit for bit the serial one.
     """
     m = machine or Machine()
     cfg = m.motion_config()
@@ -358,11 +564,18 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     prof = active_profile()
     em = prof.sampling.Emitter(m, start, dry_run, carry)
     builder = None
-    # the port's emitter appends through the list interface: collect straight into packed
-    # arrays; another emitter (e.g. the native kernel, which needs real lists) is packed after
-    if PACK_WIRE and type(em) is Emitter and isinstance(getattr(em, "wire", None), list) and not em.wire:
-        builder = WireBuilder()              # packed numpy storage, same items (nc/packed.py)
-        em.wire, em.starts = builder, builder.starts()  # type: ignore[assignment]
+    # collect straight into packed arrays (nc/packed.py, the same items): the port's emitter
+    # appends through the list interface, the native kernel's writes its steps into the C sink
+    # of the builder; any other emitter is packed after
+    if PACK_WIRE and isinstance(getattr(em, "wire", None), list) and not em.wire:
+        if type(em) is Emitter:
+            builder = WireBuilder()
+        elif getattr(em, "PACKED_SINK", False):
+            builder = WireBuilder(native=True)
+            if builder.native_sink is None:          # an old kernel without the sink: lists
+                builder = None
+        if builder is not None:
+            em.wire, em.starts = builder, builder.starts()
     job = Job(toolpath=items, machine=m, start_mm=start, dry_run=dry_run,
               layers=dict(doc.layers) if doc is not None else {})
     period = m.period_ms
@@ -397,120 +610,136 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
         L = math.dist(a, p)
         if L <= 1e-9:
             return
-        pr = _rapid_profile(I.Rapid(a, p), cfg)
-        us = pr.sample(period) if pr is not None else [1.0]
-        if not all(math.isfinite(u) for u in us):
-            # sub-micrometre rapid (about 0.5-1.3 um): the S-curve is degenerate (a phase of
-            # ~1e-19 s) and the port's normalisation divides by a zero first sample, giving
-            # NaN, which used to abort the compile.  Guard outside the bit-exact port: jump in
-            # one step (the move is below one pulse).  Only jobs that crashed before change.
-            us = [1.0]
-        for u in us[1:] if len(us) > 1 else us:
-            em.to(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u, False)
+        # the profile and its samples depend on L only (and cfg, period): equal rapids, the
+        # common case on a nested sheet, reuse them (performance only)
+        got = rapid_memo.get(L)
+        if got is None:
+            pr = _rapid_profile(I.Rapid(a, p), cfg)
+            us = None
+            if native_rapid is not None and pr is not None:
+                us = native_rapid.profile_samples(pr, period)    # C, None: the port's
+            if us is None:
+                us = pr.sample(period) if pr is not None else [1.0]
+                if not all(math.isfinite(u) for u in us):
+                    # sub-micrometre rapid (about 0.5-1.3 um): the S-curve is degenerate (a
+                    # phase of ~1e-19 s) and the port's normalisation divides by a zero first
+                    # sample, giving NaN, which used to abort the compile.  Guard outside the
+                    # bit-exact port: jump in one step (the move is below one pulse).  Only
+                    # jobs that crashed before change.
+                    us = [1.0]
+                us = us[1:] if len(us) > 1 else us
+            if len(rapid_memo) > 4096:
+                rapid_memo.clear()
+            rapid_memo[L] = got = us
+        pts = native_rapid.rapid_points(got, a, p) if native_rapid is not None else None
+        if pts is not None:
+            em.to_path(pts, False)          # the native kernel: the whole rapid in one call
+        else:
+            pts = [(a[0] + (p[0] - a[0]) * u, a[1] + (p[1] - a[1]) * u) for u in got]
+            to_path = getattr(em, "to_path", None)
+            if to_path is not None:
+                to_path(pts, False)
+            else:
+                for x, y in pts:
+                    em.to(x, y, False)
         em.pos = (float(p[0]), float(p[1]))
         rapid_len += L
         em.dwell(m.jump_add_time_ms * 1e-3, False)
 
+    rapid_memo: dict = {}
+    native_rapid: Any = None
+    if getattr(em, "PACKED_SINK", False):     # the native emitter: rapid samples in C too
+        from ..parity_ports.profiles import native_smooth
+        if native_smooth._K is not None:
+            native_rapid = native_smooth
     n_items, n_done = max(1, len(items)), 0
-    for kind, obj in _chains(items):
-        if progress is not None:
-            n_done += len(obj) if kind == "path" else 1
-            progress(min(1.0, n_done / n_items))
-        if kind == "path":
-            moves = obj
-            if math.dist(em.pos, moves[0].start) > 1e-6:
-                rapid_to(moves[0].start)     # cut run not preceded by a rapid: reposition
-            layer = int(getattr(moves[0], "layer", cur_layer))
-            lv = P.LayerView(_layer(doc, layer)) if proc else None
-            up = down = None
-            # line lead-in joint (moves tagged .lead == "in" by build_toolpath): the original
-            # blends it with lead_tol (type-4 marker, parity JC-08); the slow-start split below
-            # may cut the lead into several moves, so the joint is found again by its length
-            li = lead_in_index(moves)
-            lead_len = sum(_move_len(m) for m in moves[:li]) if li else None
-            if proc:
-                up, down = P.slow_start_end(lv)  # type: ignore[arg-type]
-                moves = _slow_moves(moves, up, down)
-            if li:
-                li = lead_in_index(moves, 1, lead_len)
-            plan, geom = plan_path(moves, cfg, return_geom=True, lead_index=li)
-            total = geom.cum[-1]
-            ss = plan.sample(period)
-            pts = [geom.at(s)[0] for s in ss]
-            gaps = gap_intervals(moves, geom)
-            if proc:
-                dcurve, fcurve = P.layer_curves(lv)  # type: ignore[arg-type]
-                micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0
-                emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve,
-                             up=up, down=down, micro_pct=micro)
-            else:
-                emit_samples(em, pts, ss, total=total, gaps=gaps)
-            # no step to the exact end (the last sample is the last tick t <= T, docs/re/motion.md
-            # §4): the next element is measured from the run's nominal end, as the job loop
-            # starts the next jump at the element end point (FUN_0045f5b0 local_a0 = start * 1e4)
-            end = moves[-1].end
-            em.pos = (float(end[0]), float(end[1]))
-            continue
-        it = obj
-        if isinstance(it, I.Marker):
-            if it.kind == "contour":
-                job.markers.append((len(em.wire), it.part, it.contour))
-        elif isinstance(it, I.Rapid):
-            if proc:
-                nx = ahead.get(id(it))
-                if nx is not None:
-                    manu(seq.pre_jump(nx[0]))
-            rapid_to(tuple(it.end))  # type: ignore[arg-type]
-        elif isinstance(it, I.LayerChange):
-            cur_layer = int(it.layer)
-            lp = _layer(doc, it.layer)
-            em.duty = max(1, min(100, int(round(lp.duty_pct))))
-            em.freq = max(1, min(0xFFFF, int(round(lp.frequency_hz))))
-            if m.emit_layer_commands and not dry_run:
-                da = max(0, min(0xFFFF, int(round(lp.power_pct * m.power_scale))))
-                em.raw(F.sys_item(F.SYS_DA, 0, max(50, min(10000, da))))
-                em.raw(F.sys_item(F.SYS_PWM, int(lp.frequency_hz), int(round(lp.duty_pct))))
-        elif isinstance(it, I.LaserOn):
-            cur_layer = int(it.layer)
-            if proc:
-                manu(laser_on_sequence(seq, cur_layer))
-            block = [len(em.wire), cur_layer]     # the cut block starts after the start cut
-            em.laser = True
-        elif isinstance(it, I.LaserOff):
-            if proc:
-                nx = ahead.get(id(it))
-                hop = math.dist(em.pos, nx[1]) if nx is not None and nx[1] is not None else math.inf
-                manu(seq.laser_sync(False) + seq.end_cut(cur_layer, nx[0] if nx else None, hop))
-            em.laser = False
-            if block:
-                job.cut_blocks.append((block[0], len(em.wire), block[1]))
-                block = []
-        elif isinstance(it, I.Pierce):
-            pierces += 1
-            staged = seq.pierce(int(it.layer)) if proc else []
-            if staged:
-                manu(staged)
+    plans = _ChainPlans(items, cfg, doc, proc, period, workers)
+    try:
+        for kind, obj in _chains(items):
+            if progress is not None:
+                n_done += len(obj) if kind == "path" else 1
+                progress(min(1.0, n_done / n_items))
+            if kind == "path":
+                if math.dist(em.pos, obj[0].start) > 1e-6:
+                    rapid_to(obj[0].start)     # cut run not preceded by a rapid: reposition
+                moves, li, lv, up, down, ss, pts, total, gaps = plans.next(obj, cur_layer, doc, proc)
+                if type(pts) is not list and not getattr(em, "PACKED_SINK", False):
+                    pts = list(zip(pts[0::2], pts[1::2]))     # flat samples, a Python emitter
+                if proc:
+                    dcurve, fcurve = P.layer_curves(lv)
+                    micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0
+                    emit_samples(em, pts, ss, total=total, gaps=gaps, dcurve=dcurve, fcurve=fcurve,
+                                 up=up, down=down, micro_pct=micro)
+                else:
+                    emit_samples(em, pts, ss, total=total, gaps=gaps)
+                # no step to the exact end (the last sample is the last tick t <= T, docs/re/motion.md
+                # §4): the next element is measured from the run's nominal end, as the job loop
+                # starts the next jump at the element end point (FUN_0045f5b0 local_a0 = start * 1e4)
+                end = moves[-1].end
+                em.pos = (float(end[0]), float(end[1]))
                 continue
-            t = float(it.time_s or 0.0)
-            if t <= 0 and it.stages:
-                t = sum(float(s.get("time_s", 0.0) or 0.0) for s in it.stages if isinstance(s, dict))
-            if proc:
-                if t > 0 and not dry_run:      # timed pierce without stages: gas, then beam-on dwell
-                    lv = P.LayerView(_layer(doc, it.layer))
-                    manu(seq.gas_select(lv.i("CutGasType"), lv.f("CutAirPressure", 5.0))
-                         + seq.gas_delay(lv.i("CutGasType")))
-            elif m.gas_output is not None and not dry_run:
-                em.raw(_io_item(m.gas_output, True))
-            em.dwell(t, True)          # beam on while piercing (rebuild choice, I)
-        elif isinstance(it, I.Delay):
-            em.dwell(float(it.seconds), em.laser)
-        elif isinstance(it, I.IO):
-            em.raw(_io_item(int(it.port), bool(it.value)))
-        elif isinstance(it, I.Follow):
-            if not proc and not it.enable and m.gas_output is not None and not dry_run:
-                em.raw(_io_item(m.gas_output, False))
-        elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
-            em.raw(it)
+            it = obj
+            if isinstance(it, I.Marker):
+                if it.kind == "contour":
+                    job.markers.append((len(em.wire), it.part, it.contour))
+            elif isinstance(it, I.Rapid):
+                if proc:
+                    nx = ahead.get(id(it))
+                    if nx is not None:
+                        manu(seq.pre_jump(nx[0]))
+                rapid_to(tuple(it.end))  # type: ignore[arg-type]
+            elif isinstance(it, I.LayerChange):
+                cur_layer = int(it.layer)
+                lp = _layer(doc, it.layer)
+                em.duty = max(1, min(100, int(round(lp.duty_pct))))
+                em.freq = max(1, min(0xFFFF, int(round(lp.frequency_hz))))
+                if m.emit_layer_commands and not dry_run:
+                    da = max(0, min(0xFFFF, int(round(lp.power_pct * m.power_scale))))
+                    em.raw(F.sys_item(F.SYS_DA, 0, max(50, min(10000, da))))
+                    em.raw(F.sys_item(F.SYS_PWM, int(lp.frequency_hz), int(round(lp.duty_pct))))
+            elif isinstance(it, I.LaserOn):
+                cur_layer = int(it.layer)
+                if proc:
+                    manu(laser_on_sequence(seq, cur_layer))
+                block = [len(em.wire), cur_layer]     # the cut block starts after the start cut
+                em.laser = True
+            elif isinstance(it, I.LaserOff):
+                if proc:
+                    nx = ahead.get(id(it))
+                    hop = math.dist(em.pos, nx[1]) if nx is not None and nx[1] is not None else math.inf
+                    manu(seq.laser_sync(False) + seq.end_cut(cur_layer, nx[0] if nx else None, hop))
+                em.laser = False
+                if block:
+                    job.cut_blocks.append((block[0], len(em.wire), block[1]))
+                    block = []
+            elif isinstance(it, I.Pierce):
+                pierces += 1
+                staged = seq.pierce(int(it.layer)) if proc else []
+                if staged:
+                    manu(staged)
+                    continue
+                t = float(it.time_s or 0.0)
+                if t <= 0 and it.stages:
+                    t = sum(float(s.get("time_s", 0.0) or 0.0) for s in it.stages if isinstance(s, dict))
+                if proc:
+                    if t > 0 and not dry_run:      # timed pierce without stages: gas, then beam-on dwell
+                        lv = P.LayerView(_layer(doc, it.layer))
+                        manu(seq.gas_select(lv.i("CutGasType"), lv.f("CutAirPressure", 5.0))
+                             + seq.gas_delay(lv.i("CutGasType")))
+                elif m.gas_output is not None and not dry_run:
+                    em.raw(_io_item(m.gas_output, True))
+                em.dwell(t, True)          # beam on while piercing (rebuild choice, I)
+            elif isinstance(it, I.Delay):
+                em.dwell(float(it.seconds), em.laser)
+            elif isinstance(it, I.IO):
+                em.raw(_io_item(int(it.port), bool(it.value)))
+            elif isinstance(it, I.Follow):
+                if not proc and not it.enable and m.gas_output is not None and not dry_run:
+                    em.raw(_io_item(m.gas_output, False))
+            elif isinstance(it, (list, tuple)) and it and isinstance(it[0], int):
+                em.raw(it)
+    finally:
+        plans.close()   # the blend-table memo ends with the compile (also on cancel); the pool tasks
     if block:
         job.cut_blocks.append((block[0], len(em.wire), block[1]))
 
@@ -538,10 +767,7 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
     job.end_pulses = (em.cur[0], em.cur[1])
     job.end_mm = em.pos
     job.pulse_carry = (em.carry[0], em.carry[1])
-    try:
-        job.estimate = estimate_time(items, cfg)
-    except Exception:   # noqa: BLE001 - the estimate is informative only
-        job.estimate = {}
+    job.estimate = plans.result(items)
     return job
 
 
@@ -554,7 +780,8 @@ def _io_item(port: int, on: bool) -> list[int]:
 
 
 def compile_job(doc: Document, cam_params=None, machine: Optional[Machine] = None,
-                start: Optional[Point] = None, dry_run: bool = False, layers=None) -> Job:
+                start: Optional[Point] = None, dry_run: bool = False, layers=None,
+                workers: Optional[int] = None) -> Job:
     """Toolpath -> planning -> 1 ms sampling -> pulses -> wire items -> :class:`Job`.
 
     ``cam_params`` is a :class:`mlaser.cam.toolpath.CamParams` (or dict / None).  ``start`` is the
@@ -562,9 +789,10 @@ def compile_job(doc: Document, cam_params=None, machine: Optional[Machine] = Non
     sort origin.  ``dry_run`` clears the laser byte of every step and skips laser/gas items.
     ``layers`` (a ``mlaser.formats.params.MachineParams`` or ``dict[int, LayerParams]``) supplies
     the speed/power of layers the document does not define (LayerPara.xml, docs/re/formats.md).
+    ``workers``: see :func:`compile_items` (the result is the same either way).
     """
     doc, prm, items = plan_toolpath(doc, cam_params, start, layers)
-    return compile_items(items, machine, prm.origin, doc, dry_run)
+    return compile_items(items, machine, prm.origin, doc, dry_run, workers=workers)
 
 
 def plan_toolpath(doc: Document, cam_params=None, start: Optional[Point] = None,

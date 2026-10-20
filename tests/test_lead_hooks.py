@@ -180,12 +180,18 @@ def test_smoothed_compile_is_not_quadratic():
     def counting(self, s):
         calls["n"] += 1
         return orig(self, s)
+    from mlaser.parity_ports import use_profile
     ContourSmoother._locate = counting
     try:
         t = time.perf_counter()
-        job = compile_job(doc, None, Machine(smooth=True))
+        with use_profile("original-python"):         # the port: _locate once per sample
+            job = compile_job(doc, None, Machine(smooth=True))
         dt = time.perf_counter() - t
     finally:
         ContourSmoother._locate = orig
     assert job.steps > 10000 and calls["n"] > 1000
     assert dt / calls["n"] < 2e-4                   # per-sample cost stays O(log pieces)
+    # the default profile (the C kernel samples the path when it is built): per step as well
+    t = time.perf_counter()
+    job = compile_job(doc, None, Machine(smooth=True))
+    assert (time.perf_counter() - t) / job.steps < 2e-4

@@ -102,7 +102,7 @@ during the install whenever a C compiler is available (Linux: gcc, `build-essent
 the Xcode command line tools; Windows: Visual Studio Build Tools, "Desktop development with
 C++"). Its output is bit-identical to the Python port, which stays the reference: at first use
 a built-in self-check compares the two, and without a compiler, or if the check fails, the
-Python port runs (about 2x slower to compile a job) with a warning in the log.
+Python port runs (about 16x slower to compile a job: 47.6 s against 2.9 s for 1,000 parts) with a warning in the log.
 `MLASER_NATIVE=0` forces the Python port, `MLASER_NATIVE=1` requires the kernel (error if it
 cannot be used); the About dialog and `python -m mlaser --selftest` show which one is active.
 The wheels and the one-folder bundles from CI include it. Details:

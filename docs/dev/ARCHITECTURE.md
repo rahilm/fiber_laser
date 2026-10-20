@@ -196,6 +196,12 @@ at first use, else the port's `Emitter` (`MLASER_NATIVE=0/1` forces one; `kernel
 reports it); `"original-python"` (`ORIGINAL_PYTHON`, in `profile.py`) always runs the port.
 The compiled module `mlaser._native._emitter` imports nothing from mlaser
 ([NATIVE_KERNEL.md](NATIVE_KERNEL.md)).
+`profiles/native_smooth.py` does the same for `ORIGINAL.smoother.smooth_path_points` and
+`ORIGINAL.ordering.ring_sort`: native drop-ins (crtmath, CurveTable, path sampling, the ring
+scan in `_geom.c`) under the same kernel selection, falling back to the ports for anything they
+do not cover; `ORIGINAL_PYTHON` and `original-reference` keep the ports.  Cut chains can be
+planned in worker processes (`mlaser/nc/parallel.py`, `MLASER_COMPILE_WORKERS`), bit for bit
+the serial result.
 
 The active profile is a process-wide global (worker threads see it); `use_profile` switches it
 for a block. The goldens and the parity run always use `"original"`.

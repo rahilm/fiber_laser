@@ -7,10 +7,14 @@ name it does not know, so ``use_profile("<name>")`` works without an explicit im
 a profile module must stay cheap (optional libraries are imported on first use).
 
 =================  ==========================================================================
-``native``         ``"native-sampling"``: the sample -> quantise -> encode loop always in the C
-                   kernel ``mlaser._native``, bit-identical to the port; also the DEFAULT
-                   profile's emitter selection (kernel after a self-check, else the port;
-                   ``MLASER_NATIVE``, ``kernel_status``)
+``native``         ``"native-sampling"``: the sample -> quantise -> encode loop (and the
+                   smoother's arithmetic) always in the C kernel ``mlaser._native``,
+                   bit-identical to the ports; also the DEFAULT profile's kernel selection
+                   (kernel after a self-check, else the ports; ``MLASER_NATIVE``,
+                   ``kernel_status``)
+``native_smooth``  the smoother's arithmetic on the kernel (crtmath, curve tables, path / plan
+                   sampling): the DEFAULT profile's ``smooth_path_points`` (no profile of its
+                   own)
 ``reference``      ``"original-reference"``: the statement-level reference implementations of
                    the kernels ``ORIGINAL`` runs as fast drop-ins (same output, bit for bit)
 ``modern_dxf``     ``"modern-dxf"``: the ``dxf`` slot on ``mlaser.io.dxf_modern`` (ezdxf

@@ -73,8 +73,11 @@ from __future__ import annotations
 
 import bisect
 import math
+import struct
+import threading
+from contextlib import contextmanager
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
+from typing import Any, Iterable, Optional, Sequence
 
 from ...model import Arc, Line, Point
 from .. import crtmath as _crt
@@ -287,11 +290,14 @@ class _TableG(_Geom):
         return self.tab.tangent_f(f)
 
 
-def glyph_table(curve) -> Optional[CurveTable]:
+def glyph_table(curve, table_cls: type = CurveTable) -> Optional[CurveTable]:
     """Sample table of a spline glyph (``cam.geometry.SplineCurve``) in travel order, cached on
     the curve.  A backwards glyph is reversed first as FUN_10036cd0 does it: control points in
-    reverse order, knots k'[i] = k[last] - k[n-1-i] (O)."""
-    tab = getattr(curve, "_smooth_table", None)
+    reverse order, knots k'[i] = k[last] - k[n-1-i] (O).  ``table_cls``: the CurveTable
+    implementation (the port, or the C-backed one of profiles/native_smooth.py, which keeps
+    its own cache attribute)."""
+    attr = getattr(table_cls, "CACHE_ATTR", "_smooth_table")
+    tab = getattr(curve, attr, None)
     if tab is not None:
         return tab
     ctrl, knots = list(curve.ctrl), list(curve.knots)
@@ -301,9 +307,9 @@ def glyph_table(curve) -> Optional[CurveTable]:
         ctrl = ctrl[::-1]
         kl = knots[-1]
         knots = [kl - knots[len(knots) - 1 - i] for i in range(len(knots))]
-    tab = CurveTable(ctrl, knots, 0.0, 1.0, ref=float(curve.length))
+    tab = table_cls(ctrl, knots, 0.0, 1.0, ref=float(curve.length))
     try:
-        curve._smooth_table = tab
+        setattr(curve, attr, tab)
     except Exception:  # pragma: no cover
         pass
     return tab
@@ -498,6 +504,10 @@ class ContourSmoother:
     (CADModule vt[5]) and ``point_at`` (CADModule vt[8]).
     """
 
+    #: the curve-table implementation of blend and spline pieces (a C-backed subclass in the
+    #: native smoother, mlaser/parity_ports/profiles/native_smooth.py)
+    table_cls: type = CurveTable
+
     def __init__(self, params: Optional[SmoothParams] = None):
         self.params = (params or SmoothParams())
         self._input: list = []
@@ -595,7 +605,7 @@ class ContourSmoother:
                     q.g = _TableG(q._tab.windowed(*q._f), (q._f[1] - q._f[0]) * ref.curve.length)
                     q.laser = q.laser and laser
                     continue
-                tab = glyph_table(ref.curve)
+                tab = glyph_table(ref.curve, self.table_cls)
                 if tab is not None:
                     p = _Prim(_TableG(tab.windowed(*fr), (fr[1] - fr[0]) * ref.curve.length), i, laser, feed)
                     p._curve, p._tab, p._f = ref.curve, tab, fr
@@ -816,7 +826,7 @@ class ContourSmoother:
             if i + 1 < n:
                 q = prims[i + 1]
                 if p.d_e >= MIN_BLEND_D or q.d_s >= MIN_BLEND_D:
-                    g = _blend(p, q)  # type: ignore[assignment]
+                    g = _blend(p, q, self.table_cls)  # type: ignore[assignment]
                     if g is not None and g.length >= MIN_PIECE_LEN:
                         floor = 0.0
                         if p.kind == "arc" and q.kind == "arc" and _dot(p.t1(), q.t0()) > ARC_ARC_COS:
@@ -957,7 +967,7 @@ def _continues(a: _Prim, b: _Prim) -> bool:
     return (math.dist(a.g.c, b.g.c) <= 1e-6 and abs(a.g.r - b.g.r) <= 1e-6 and a.g.sw * b.g.sw > 0)  # type: ignore[attr-defined]
 
 
-def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
+def _blend(a: _Prim, b: _Prim, table_cls: type = CurveTable) -> Optional[_SplineG]:
     """FUN_10007590: control polygon A-side + [vertex] + B-side, clamped uniform cubic."""
     V = b.p0()
     tab_a = isinstance(a.g, _TableG)
@@ -1021,7 +1031,44 @@ def _blend(a: _Prim, b: _Prim) -> Optional[_SplineG]:
     if max(math.dist(ctrl[0], q) for q in ctrl) < 1e-12:
         return None
     # the blend piece is the analyser's sample table (CADModule FUN_100f83c0, curvetable.py)
-    return CurveTable(ctrl, _clamped_uniform(len(ctrl), 3))  # type: ignore[return-value]
+    return blend_table(table_cls, ctrl, _clamped_uniform(len(ctrl), 3))
+
+
+# ---------------------------------------------------------------------------
+# value memo of blend tables (performance only): a CurveTable is a pure function of its
+# control polygon and knots, and is never changed after it is built.  The compiler plans every
+# cut chain twice, once for the job and once more, without the lead-in joint and the slow
+# start / end split, for ``Job.estimate`` (mlaser.motion.interp.estimate_time); all blends but
+# the lead-in joint's are the same tables.  Inside ``table_memo()`` (per thread) a table
+# whose class and inputs are bit for bit equal to one built before is that same object.
+_MEMO = threading.local()
+
+
+@contextmanager
+def table_memo():
+    """Memoise blend tables by value (exact bits) for the ``with`` block, in this thread."""
+    prev = getattr(_MEMO, "d", None)
+    _MEMO.d = {}
+    try:
+        yield _MEMO.d
+    finally:
+        _MEMO.d = prev
+
+
+def blend_table(table_cls: type, ctrl: list, knots: list) -> Any:
+    """``table_cls(ctrl, knots)``, or the equal table built before inside :func:`table_memo`."""
+    memo = getattr(_MEMO, "d", None)
+    if memo is None:
+        return table_cls(ctrl, knots)
+    flat = [v for p in ctrl for v in p]
+    flat += knots
+    if not all(type(v) is float for v in flat):   # an int computes differently: no memo
+        return table_cls(ctrl, knots)
+    key = (table_cls, len(ctrl), struct.pack(f"<{len(flat)}d", *flat))
+    tab = memo.get(key)
+    if tab is None:
+        tab = memo[key] = table_cls(ctrl, knots)
+    return tab
 
 
 def _arc_handles(p: _Prim, b_side: bool) -> list[Point]:
@@ -1248,12 +1295,19 @@ def smooth_path_points(moves, cfg=None, params: Optional[SmoothParams] = None,
     ``lead_index``: first contour move after a line lead-in (the original's type-4 marker);
     the joint before it is blended with ``SmoothParams.lead_tol``.
     """
+    return run_smoother(ContourSmoother, SmoothedPath, moves, cfg, params, lead_index)
+
+
+def run_smoother(smoother_cls: type, path_cls: type, moves, cfg=None, params: Optional[SmoothParams] = None,
+                 lead_index: Optional[int] = None):
+    """:func:`smooth_path_points` with the given smoother and path classes (the port's, or the
+    C-backed subclasses of mlaser/parity_ports/profiles/native_smooth.py)."""
     from .planner import PathPoint   # local import: planner is not modified
     tol = getattr(cfg, "corner_tol", 0.05) if cfg is not None else 0.05
     kx, ky = getattr(cfg, "arc2seg_k", (1.0, 1.0)) if cfg is not None else (1.0, 1.0)
     params = params or (getattr(cfg, "smooth_params", None) if cfg is not None else None)
     flag = bool(getattr(cfg, "smooth", True)) if cfg is not None else True
-    sm = ContourSmoother(params).load(moves, tol, flag, kx, ky, lead_index).run()
+    sm = smoother_cls(params).load(moves, tol, flag, kx, ky, lead_index).run()
     pts = []
     for nd in sm.nodes():
         feed = sm.feed_at(min(nd.s, sm.length)) or (moves[0].feed if moves else 1e9)
@@ -1266,4 +1320,4 @@ def smooth_path_points(moves, cfg=None, params: Optional[SmoothParams] = None,
             out[-1].factor = min(out[-1].factor, p.factor)
             continue
         out.append(p)
-    return out, SmoothedPath(sm)
+    return out, path_cls(sm)
