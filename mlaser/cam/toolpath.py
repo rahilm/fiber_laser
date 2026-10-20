@@ -452,6 +452,40 @@ def _as_params(mp) -> CamParams:
     raise TypeError(mp)
 
 
+def _strategy_order(doc: Document, order: list) -> tuple[list, set]:
+    """Rebuild extension driven by the document (docs/user/cutting-strategy.md), a no-op for a
+    document without the tags: ``Part.extra['cut_phase']`` moves a part's contours after the
+    lower phases (0 parts, 1 tip-risk parts cut last, 2 remnant separation cut, 3 skeleton
+    cut-up lines), a stable partition by the phase of each contour's outermost ancestor so
+    inner contours still come before their container; ``Part.extra['tip_risk']`` /
+    ``Contour.extra['tip_risk']`` (with ``Part.extra['tip_risk_holes']``; cam.tipping) mark
+    closed contours the rapids must go around once they are cut.  Returns (order, ids of the tip-risk nodes)."""
+    parts = doc.parts
+    if not any(p.extra.get("cut_phase") or p.extra.get("tip_risk") or p.extra.get("tip_risk_holes")
+               for p in parts):
+        return order, set()
+
+    def root(n):
+        while n.parent is not None:
+            n = n.parent
+        return n
+
+    def phase(n) -> int:
+        try:
+            return int(parts[root(n).key[0]].extra.get("cut_phase", 0) or 0)
+        except (TypeError, ValueError):
+            return 0
+    if any(phase(n) for n in order):
+        order = sorted(order, key=phase)            # sorted() is stable
+    risk = set()
+    for n in order:
+        pi, _ci = n.key
+        if n.contour.closed and ((n.depth % 2 == 1 and parts[pi].extra.get("tip_risk"))
+                                 or (isinstance(n.contour.extra, dict) and n.contour.extra.get("tip_risk"))):
+            risk.add(id(n))
+    return order, risk
+
+
 def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     """Turn a Document into an ordered MotionItem stream (see module doc).
 
@@ -518,9 +552,14 @@ def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
         order = order_nodes([n for n in nodes], prm.sort_mode, prm.small_first, prm.origin)
     order = [n for n in order if id(n) in prepared]
     rapid_paths = None
-    if prm.avoid_cut and order:
+    order, tip_risk = _strategy_order(doc, order)
+    if (prm.avoid_cut or tip_risk) and order:
         from .ordering import plan_rapids
-        rapid_paths = plan_rapids(order, prm.origin, prm.avoid_clearance)
+        if tip_risk:
+            rapid_paths = plan_rapids(order, prm.origin, prm.avoid_clearance, holes=prm.avoid_cut,
+                                      avoid=lambda n: id(n) in tip_risk)
+        else:
+            rapid_paths = plan_rapids(order, prm.origin, prm.avoid_clearance)
 
     items: list[MotionItem] = []
     pos = prm.origin

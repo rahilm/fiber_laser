@@ -50,7 +50,7 @@ import math
 import random
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Sequence
+from typing import Callable, Optional, Sequence
 
 import numpy as np
 
@@ -682,11 +682,13 @@ def route_rapid(p0: Point, p1: Point, obstacles, clearance: float = 1.0):
 
 
 def plan_rapids(order: Sequence[Node], start: Point = (0.0, 0.0), clearance: float = 2.0,
-                avoid_parts: bool = False, min_size: float = 0.0):
+                avoid_parts: bool = False, min_size: float = 0.0, holes: bool = True,
+                avoid: Optional[Callable[[Node], bool]] = None):
     """Rebuild extension: rapid paths for a cutting order that avoid the openings already
-    cut (closed even-depth contours = holes whose slug may drop or tilt) and, with
-    ``avoid_parts``, finished parts (closed odd-depth contours). Returns a list of polylines,
-    one per node (from the previous exit to the node's entry)."""
+    cut (closed even-depth contours = holes whose slug may drop or tilt; ``holes``) and, with
+    ``avoid_parts``, finished parts (closed odd-depth contours); ``avoid(node)`` adds any other
+    closed contour once it is cut (the tip-risk pieces of :mod:`mlaser.cam.tipping`). Returns a
+    list of polylines, one per node (from the previous exit to the node's entry)."""
     from shapely.geometry import Polygon
     cut = []
     out = []
@@ -695,7 +697,7 @@ def plan_rapids(order: Sequence[Node], start: Point = (0.0, 0.0), clearance: flo
         out.append(route_rapid(pos, x.entry, cut, clearance) if cut else [pos, x.entry])
         if x.contour.closed and x.contour.segments:
             hole = x.depth % 2 == 0
-            if hole or avoid_parts:
+            if (hole and holes) or (avoid_parts and not hole) or (avoid is not None and avoid(x)):
                 sz = max(x.size)
                 if sz >= min_size:
                     try:

@@ -126,6 +126,8 @@ class ProcessExtension:
         self.timeline: Optional[Timeline] = None
         self.exec_dialogs = True
         self.workspace = ProcessWorkspace(ctx, self.store)
+        from mlaser.ui.workspaces.cutting_strategy import install as install_strategy
+        self.strategy = install_strategy(ctx, self.workspace.tabs)     # the Cutting strategy tab
         # the Process slot of the shell: the canvas with this panel at its right
         ctx.add_workspace("process", self.workspace, t("process.title"), canvas=True,
                           docks=["plugin.ext_process.properties", "plugin.ext_process.preview", "mf124"])

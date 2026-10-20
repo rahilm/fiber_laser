@@ -145,7 +145,7 @@ class SpyrrowNester:
                 grown = grown.convex_hull
             grown = orient(Polygon(grown.exterior), 1.0)
             coords = [(float(x), float(y)) for x, y in grown.exterior.coords[:-1]]
-            angles = np_.angles if np_.angles else self.p.angles()
+            angles = self.p.part_angles(np_)
             angles = sorted({round(float(a) % 360.0, 6) for a in angles}) or [0.0]
             out[np_.id] = _Shape(np_.id, g, grown, coords, (c.x, c.y), angles, grown.area, g.area)
         return out

@@ -27,6 +27,11 @@ GRAVITY_AUTO = "auto"      # AutoNest direction 3 "自动(根据排样效果)": 
 ENGINE_RASTER = "raster"   # own FFT raster bottom-left fill (engine.Nester), no extra dependency
 ENGINE_SPYRROW = "spyrrow"  # sparrow strip packing via spyrrow (optional extra ``nest``), sparrow_engine
 
+# Sheet grain direction (NestParams.grain) for parts marked NestPart.extra['grain'].
+GRAIN_NONE, GRAIN_X, GRAIN_Y = "", "x", "y"
+# Skeleton cut-up (NestParams.scrap_cut, nest.skeleton).
+SCRAP_OFF, SCRAP_GRID, SCRAP_GAPS = "off", "grid", "gaps"
+
 
 @dataclass
 class NestPart:
@@ -82,6 +87,18 @@ class NestParams:
     compact: bool = True                  # exact slide after raster placement
     fill_sheets: bool = True              # use max_quantity to fill leftover space
     engine: str = ENGINE_RASTER           # ENGINE_RASTER | ENGINE_SPYRROW (rebuild option)
+    # ---- rebuild options (docs/user/cutting-strategy.md); every default is "off"
+    grain: str = GRAIN_NONE               # sheet grain: parts with NestPart.extra['grain'] keep their
+                                          # local X axis along it (angles 0/180 or 90/270)
+    scrap_cut: str = SCRAP_OFF            # skeleton cut-up after the parts: off | grid | gaps
+    scrap_pitch: float = 500.0            # largest scrap piece (mm): the cut-up line pitch
+    scrap_clearance: float = 0.0          # extra distance kept from the parts' kerf (0 = end in it)
+    scrap_min_length: float = 1.0         # shorter cut-up lines are dropped (mm)
+    remnant_cut: bool = False             # straight separation cut that frees the leftover strip
+    remnant_min_width: float = 100.0      # only when the strip is at least this wide (mm)
+    strategy_kerf: float = 0.2            # beam width assumed by the cut-up / separation lines (mm)
+    lead_fix: bool = False                # sheets sent to the queue: lead collision check and fix
+    tip_check: bool = False               # sheets sent to the queue: tip-avoiding cut order
 
     def angles(self) -> list[float]:
         step = self.rotation_step
@@ -89,6 +106,15 @@ class NestParams:
             return [0.0]
         n = max(1, int(round(360.0 / step)))
         return [round(i * step, 6) for i in range(n) if i * step < 360 - 1e-9]
+
+    def part_angles(self, np_: "NestPart") -> list[float]:
+        """Allowed rotations of one part: its own list, else 0/180 (grain X) or 90/270 (grain Y)
+        for a part marked ``extra['grain']``, else :meth:`angles`."""
+        if np_.angles:
+            return list(np_.angles)
+        if np_.extra.get("grain") and self.grain in (GRAIN_X, GRAIN_Y):
+            return [0.0, 180.0] if self.grain == GRAIN_X else [90.0, 270.0]
+        return self.angles()
 
     def effective_spacing(self) -> float:
         return max(self.kerf, 0.0) if self.common_line else max(self.spacing, 0.0)

@@ -47,6 +47,15 @@ class NestRun:
     engine: str
     elapsed_s: float
     started: float = field(default_factory=time.time)
+    figures: dict = field(default_factory=dict)   # run_figures: cut length, pierces
+
+    @property
+    def cut_length_mm(self) -> float:
+        return float(self.figures.get("cut_length_mm", 0.0))
+
+    @property
+    def pierces(self) -> int:
+        return int(self.figures.get("pierces", 0))
 
     @property
     def sheets(self) -> int:
@@ -69,7 +78,9 @@ class NestRun:
         return {"run": self.number, "engine": self.engine, "sheets": self.sheets,
                 "utilisation": self.utilisation, "placed": self.placed, "unplaced": self.unplaced,
                 "elapsed_s": self.elapsed_s, "spacing": p.spacing, "margin": p.margin,
-                "rotation_step": p.rotation_step}
+                "rotation_step": p.rotation_step, "cut_length_mm": self.cut_length_mm,
+                "pierces": self.pierces, "common_line": p.common_line, "part_in_part": p.part_in_part,
+                "scrap_cut": p.scrap_cut, "remnant_cut": p.remnant_cut}
 
 
 def _inline(fn: Callable[[], None]) -> None:
@@ -119,6 +130,10 @@ class NestService:
                 work.result = res
                 self._n += 1
                 run = NestRun(self._n, work, res, stats(work, res), res.engine, time.perf_counter() - t0)
+                try:
+                    run.figures = run_figures(work, res)
+                except Exception as fexc:  # noqa: BLE001 - figures are informative only
+                    res.notes.append(f"figures: {fexc}")
             except BaseException as exc:  # noqa: BLE001 - reported through on_failed
                 err = exc
 
@@ -163,10 +178,69 @@ class NestService:
 
 
 # ============================================================================== to the queue
-def sheet_documents(job: NestJob, result: Optional[NestResult] = None, layers: Optional[dict] = None
-                    ) -> list[tuple[int, Document, dict]]:
-    """One Document per used sheet layout: ``(layout index, document, info)`` where ``info``
-    has the sheet name, bounds, outline rings, remnant id, utilisation and part count."""
+def _first_layer(doc: Document) -> int:
+    for p in doc.parts:
+        if p.contours:
+            return int(p.craft.layer)
+    return 1
+
+
+def sheet_document(job: NestJob, layout: Any, layers: Optional[dict] = None, cam_checks: bool = True,
+                   bed: Any = None, lead_params: Any = None, tip_strategy: str = "joint",
+                   cam_params: Any = None) -> tuple[Document, dict]:
+    """One sheet of a result as it is cut (docs/user/cutting-strategy.md): the placed parts, with
+    common-line cutting when ``NestParams.common_line`` (``cam.commonedge.share_edge``), the
+    skeleton cut-up and remnant separation lines (:mod:`mlaser.nest.skeleton`), and with
+    ``cam_checks`` the lead collision fix (``lead_fix``, :func:`mlaser.cam.collision.fix`) and the
+    tip-avoiding order (``tip_check``, :func:`mlaser.cam.tipping.apply` on ``bed``).  Returns the
+    document and what the strategy did (``remnant`` polygon, line counts, fix counts, notes)."""
+    from mlaser.nest.shapes import parts_geometry, sheet_geometry
+    from mlaser.nest.skeleton import strategy_lines
+    p = job.params
+    sh = job.sheet(layout.sheet_id)
+    doc = Document(parts=layout_parts(job, layout), layers=copy.deepcopy(layers or {}))
+    if p.common_line and doc.parts:
+        try:
+            from mlaser.cam.commonedge import share_edge
+            doc.parts = share_edge(doc.parts, min_len=max(p.share_edge_min_len, 0.1))
+        except ImportError:
+            pass
+    full, _ = sheet_geometry(sh, 0.0)
+    out: dict = {"remnant": None, "scrap_lines": 0, "remnant_cut": False, "leads_fixed": 0,
+                 "leads_flagged": 0, "tip_risk": 0, "notes": []}
+    if p.scrap_cut != "off" or p.remnant_cut:
+        used = parts_geometry([q for q in doc.parts if q.contours])
+        sr = strategy_lines(full, used, layout.remnant, getattr(job.result, "gravity", "") or p.gravity, p,
+                            layer=_first_layer(doc))
+        doc.parts += sr.lines
+        out.update(remnant=sr.remnant, scrap_lines=sr.scrap_lines, remnant_cut=sr.remnant is not None)
+        out["notes"] += sr.notes
+    doc.extra["sheet_bounds"] = [float(v) for v in full.bounds]
+    if cam_checks and p.lead_fix:
+        from mlaser.cam import collision
+        rep = collision.fix(doc, cam_params, sheet=full, params=lead_params)
+        out["leads_fixed"] = rep.count("moved") + rep.count("shortened")
+        out["leads_flagged"] = rep.count("flagged")
+    if cam_checks and p.tip_check:
+        from mlaser.cam import tipping
+        trep = tipping.apply(doc, bed, tip_strategy)
+        out["tip_risk"] = len(trep.at_risk)
+    return doc, out
+
+
+def has_strategy(doc: Document) -> bool:
+    """The document carries cutting-strategy tags a .chf file cannot hold (cut phases, tip-risk
+    marks); such sheets are queued as .mlz projects."""
+    return any(q.extra.get("strategy") or q.extra.get("cut_phase") or q.extra.get("tip_risk")
+               or q.extra.get("tip_risk_holes") for q in doc.parts)
+
+
+def sheet_documents(job: NestJob, result: Optional[NestResult] = None, layers: Optional[dict] = None,
+                    cam_checks: bool = True, **kw: Any) -> list[tuple[int, Document, dict]]:
+    """One Document per used sheet layout (:func:`sheet_document`): ``(layout index, document,
+    info)`` where ``info`` has the sheet name, bounds, outline rings, remnant id, utilisation,
+    part count and the separated remnant's rings (``remnant_rings``, when a separation cut
+    frees it)."""
     from mlaser.nest.shapes import sheet_geometry
     from mlaser.services.remnants import polygons, rings_of
     result = result or job.result
@@ -174,11 +248,13 @@ def sheet_documents(job: NestJob, result: Optional[NestResult] = None, layers: O
         return []
     st = stats(job, result)
     out = []
+    work = job if job.result is result else copy.copy(job)
+    work.result = result
     for k, lay in enumerate(result.layouts):
         if not lay.placements:
             continue
         sh = job.sheet(lay.sheet_id)
-        doc = Document(parts=layout_parts(job, lay), layers=copy.deepcopy(layers or {}))
+        doc, strat = sheet_document(work, lay, layers, cam_checks, **kw)
         full, _ = sheet_geometry(sh, 0.0)
         polys = polygons(full)
         rings = rings_of(polys[0], origin=(0.0, 0.0)) if polys else []
@@ -187,9 +263,25 @@ def sheet_documents(job: NestJob, result: Optional[NestResult] = None, layers: O
                 "utilisation": float(st["sheets"][k]["utilisation"]) if k < len(st["sheets"]) else 0.0,
                 "parts": len(lay.placements), "gravity": result.gravity or job.params.gravity,
                 "spacing": job.params.effective_spacing(),
-                "size": f"{full.bounds[2] - full.bounds[0]:.0f} x {full.bounds[3] - full.bounds[1]:.0f} mm"}
+                "size": f"{full.bounds[2] - full.bounds[0]:.0f} x {full.bounds[3] - full.bounds[1]:.0f} mm",
+                "strategy": {kk: v for kk, v in strat.items() if kk != "remnant"}}
+        if strat.get("remnant") is not None:
+            info["remnant_rings"] = rings_of(strat["remnant"], origin=(0.0, 0.0))
         out.append((k, doc, info))
     return out
+
+
+def run_figures(job: NestJob, result: NestResult, layers: Optional[dict] = None) -> dict:
+    """Comparison figures of a result: total cut length (mm) and pierces of its sheets as cut
+    (common line, cut-up and separation lines included; :func:`sheet_documents` without the
+    lead / tip fixes; :func:`mlaser.nest.skeleton.sheet_stats`)."""
+    from mlaser.nest.skeleton import sheet_stats
+    tot = {"cut_length_mm": 0.0, "pierces": 0}
+    for _k, doc, _info in sheet_documents(job, result, layers, cam_checks=False):
+        f = sheet_stats(doc)
+        tot["cut_length_mm"] += f["cut_length_mm"]
+        tot["pierces"] += f["pierces"]
+    return tot
 
 
 def _layout_key(doc: Document) -> str:
@@ -205,21 +297,30 @@ def _layout_key(doc: Document) -> str:
 def send_to_queue(job: NestJob, queue: Any, directory: str, name: str = "nest", layers: Optional[dict] = None,
                   material: str = "", thickness_mm: float = 0.0, remnants: Any = None,
                   estimate: Optional[Callable[[Document], float]] = None,
-                  save: Optional[Callable[[Document, str], None]] = None) -> list:
+                  save: Optional[Callable[[Document, str], None]] = None,
+                  strategy: Optional[dict] = None) -> list:
     """Write every used sheet as ``<directory>/<name>_sheet<k>.chf`` and queue it; identical
-    sheets (same layout on the same stock) become one entry with their count.  Returns the
-    queue entries."""
+    sheets (same layout on the same stock) become one entry with their count.  A sheet with
+    cutting-strategy tags (cut-up lines, tip-risk order; :func:`has_strategy`) is written as
+    ``.mlz`` (the .chf format cannot hold them).  ``strategy``: keyword arguments of
+    :func:`sheet_document` (``bed``, ``lead_params``, ``tip_strategy``, ``cam_params``).
+    Returns the queue entries."""
+    custom_save = save is not None
     if save is None:
         from mlaser.cam.raster_engraving import expand_document
         from mlaser.formats.chf import save_chf
 
         def save(doc: Document, path: str) -> None:
-            save_chf(expand_document(doc), path)
+            if path.endswith(".mlz"):
+                from mlaser.project.format import save_project
+                save_project(path, doc)
+            else:
+                save_chf(expand_document(doc), path)
     os.makedirs(directory, exist_ok=True)
     stamp = time.strftime("%Y%m%d-%H%M%S")
     groups: dict[tuple, list] = {}
     order: list[tuple] = []
-    for k, doc, info in sheet_documents(job, layers=layers):
+    for k, doc, info in sheet_documents(job, layers=layers, **(strategy or {})):
         key: tuple = (_layout_key(doc), info["sheet"], info["remnant_id"])
         if key not in groups or info["remnant_id"]:
             if key in groups:                       # a remnant is one physical sheet
@@ -231,10 +332,13 @@ def send_to_queue(job: NestJob, queue: Any, directory: str, name: str = "nest", 
     safe = "".join(ch if ch.isalnum() or ch in "-_" else "_" for ch in name) or "nest"
     for n, key in enumerate(order, 1):
         k, doc, info, count = groups[key]
-        path = os.path.join(directory, f"{safe}_{stamp}_sheet{n}.chf")
+        ext = ".mlz" if (has_strategy(doc) and not custom_save) else ".chf"
+        path = os.path.join(directory, f"{safe}_{stamp}_sheet{n}{ext}")
         save(doc, path)
         est = float(estimate(doc)) if estimate is not None else 0.0
         extra = {kk: info[kk] for kk in ("sheet_bounds", "sheet_rings", "utilisation", "parts", "gravity", "spacing")}
+        if info.get("remnant_rings"):
+            extra["remnant_rings"] = info["remnant_rings"]      # the separated remnant (exact)
         extra["layers"] = {str(li): asdict(lp) for li, lp in (layers or {}).items()
                            if not getattr(lp, "extra", {}).get("placeholder")}
         e = queue.add(path, count, name=f"{name} #{n}", material=material, thickness_mm=thickness_mm,
@@ -250,4 +354,4 @@ def send_to_queue(job: NestJob, queue: Any, directory: str, name: str = "nest", 
 
 
 __all__ = ["NestService", "NestRun", "NestCancelled", "NestEngineUnavailable", "sheet_documents",
-           "send_to_queue"]
+           "sheet_document", "has_strategy", "run_figures", "send_to_queue"]

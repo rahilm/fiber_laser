@@ -14,6 +14,8 @@ Checks:
   power at 5000 Hz; it is an **error** for a cut and a warning for laser-off runs;
 * ``open_contour`` (warning), ``zero_length`` (warning), ``bad_geometry`` (NaN / infinite
   coordinates, error);
+* ``lead_collision`` / ``tip_risk`` (warnings, :func:`cutting_issues`, added by the UI when the
+  ``cam.preflight_*`` settings ask for them);
 * ``out_of_travel``: the extent of the compiled job (exact: every step item from the start
   position, including leads, kerf and rapids) or the frame / move target must lie inside the
   travel limits.  Limits come from the card's soft limits read back at connect (axis
@@ -281,6 +283,43 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
     return rep
 
 
+MAX_CUT_ISSUES = 12        # per kind; the rest is summarised in one more warning
+
+
+def cutting_issues(document, cam_params=None, *, leads: bool = True, bed=None, sheet=None,
+                   selected_only: bool = False) -> list[Issue]:
+    """Cutting-strategy warnings (docs/user/cutting-strategy.md): ``lead_collision`` for every
+    lead-in that reaches another contour, its own contour or the sheet edge
+    (:func:`mlaser.cam.collision.analyse`), and with a ``bed``
+    (:class:`mlaser.cam.tipping.BedModel`) ``tip_risk`` for every freed piece that can tip on the
+    slats.  Warnings only: the operator decides (the Process workspace fixes them)."""
+    out: list[Issue] = []
+    if document is None or not getattr(document, "parts", None):
+        return out
+    doc = document
+    if selected_only:
+        from ..model import Document
+        doc = Document(parts=[p for p in document.parts if p.selected], layers=document.layers,
+                       extra=document.extra)
+    if leads:
+        from ..cam.collision import analyse
+        seen: set = set()
+        found = [i for i in analyse(doc, cam_params, sheet) if not (i.key in seen or seen.add(i.key))]
+        for i in found[:MAX_CUT_ISSUES]:
+            out.append(Issue("lead_collision", WARNING, i.message, i.key))
+        if len(found) > MAX_CUT_ISSUES:
+            out.append(Issue("lead_collision", WARNING,
+                             f"{len(found) - MAX_CUT_ISSUES} more lead-ins collide (Process: Check leads)"))
+    if bed is not None:
+        from ..cam.tipping import analyse as tip_analyse
+        risk = [t for t in tip_analyse(doc, bed) if t.at_risk]
+        for t in risk[:MAX_CUT_ISSUES]:
+            out.append(Issue("tip_risk", WARNING, t.message, t.key))
+        if len(risk) > MAX_CUT_ISSUES:
+            out.append(Issue("tip_risk", WARNING, f"{len(risk) - MAX_CUT_ISSUES} more pieces can tip"))
+    return out
+
+
 def merge(reports: Iterable[PreflightReport]) -> PreflightReport:
     reports = list(reports)
     out = PreflightReport(reports[0].action if reports else "start")
@@ -293,4 +332,4 @@ def merge(reports: Iterable[PreflightReport]) -> PreflightReport:
 
 __all__ = ["ERROR", "WARNING", "Issue", "TravelLimits", "PreflightReport", "PreflightError",
            "check", "travel_from_machine", "travel_from_card", "job_extent_mm", "used_layers",
-           "layer_is_defined", "check_geometry", "merge"]
+           "layer_is_defined", "check_geometry", "cutting_issues", "merge"]

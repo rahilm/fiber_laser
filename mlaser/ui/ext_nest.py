@@ -502,6 +502,9 @@ def _load_doc(path: str) -> Optional[Document]:
         if ext == ".svg":
             from ..io.svg_import import import_svg
             return import_svg(path)
+        if ext == ".mlz":           # queued nest sheets with a cutting strategy (services.nesting)
+            from ..project.format import load_project
+            return load_project(path).document
     except Exception:  # noqa: BLE001
         return None
     return None
