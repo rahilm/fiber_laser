@@ -315,6 +315,24 @@ def test_responsive_sweep_never_scrolls_sideways(win, page):
     d.close()
 
 
+def test_a_page_shown_wide_reflows_when_the_window_shrinks(win):
+    """A page laid out wide (side by side) could not shrink below that layout's minimum: its
+    rows reflowed from the page's own width, which the scroll area never made narrower than
+    that minimum, so after Import was shown wide and the window shrank to its minimum the page
+    scrolled sideways (Windows CI: 484 > 454; here by switching pages)."""
+    d = dialog(win)
+    for first in ("cam", "general", "run"):
+        d.show_page(first)
+        d.resize(1400, 700)
+        pump(3)
+        d.show_page("import")
+        pump(3)
+        d.resize(d.minimumWidth(), 700)
+        pump(3)
+        _no_horizontal_overflow(d)
+    d.close()
+
+
 def test_larger_font_still_fits(win):
     """A larger system font: the thresholds come from the font, not from pixel constants."""
     from PySide6.QtGui import QFont

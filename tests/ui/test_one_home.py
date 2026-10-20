@@ -20,6 +20,10 @@ from PySide6.QtWidgets import QDialog, QDockWidget, QWidget
 
 from mlaser import ops
 
+#: under xdist the module's tests stay together on one worker: the walk (every workspace, dock
+#: and dialog: 10-19 s on CI) is built once, not once per test on four workers
+pytestmark = pytest.mark.xdist_group("one_home")
+
 #: surfaces whose every input must be bound (editor / mirror / transient)
 BOUND_SURFACES = {"dock:plugin.ext_process.properties"}
 
