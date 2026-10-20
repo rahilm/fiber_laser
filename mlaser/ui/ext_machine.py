@@ -142,9 +142,7 @@ class MachineExtension:
         rebuilt at once, no restart."""
         if key in COORD_KEYS:
             self.ops.coords = C.CoordSystems.from_values(self.values)
-            ctl = getattr(self.w, "ctl", None)
-            if ctl is not None and (self.ops.coords.kind != C.FLOAT or getattr(ctl, "coords", None) is not None):
-                ctl.coords = self.ops.coords
+            self.w.ctl.coords = self.ops.coords          # as select_coord does
         if key in EDGE_KEYS:
             self.ops.edge = E.EdgeSeekParams.from_values(self.values)
 
