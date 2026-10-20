@@ -77,6 +77,23 @@ jobs:
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
         run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
+      # the project's own plugins (plugins/<name>/, published by package.yml): each one installed
+      # editable without dependencies (the app environment provides them, as the plugin manager
+      # requires), then its own tests; plugins/conftest.py makes tests/ importable and isolates
+      # the mlaser directories
+      - name: Plugin tests (plugins/*/tests)
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for d in plugins/*/; do
+            [ -f "$d/pyproject.toml" ] || continue
+            echo "::group::$d"
+            uv pip install --no-deps -e "$d"
+            if [ -d "$d/tests" ]; then uv run --locked --no-sync pytest -q -p no:cacheprovider "$d/tests"; fi
+            echo "::endgroup::"
+          done
+
       - name: Crash diagnostics (macOS)
         if: failure() && runner.os == 'macOS'
         run: |

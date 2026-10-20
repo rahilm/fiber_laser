@@ -11,6 +11,7 @@
 ``plugin enable ID --yes``              enable (allowlist) with the permissions shown; never grants
                                         machine authority
 ``plugin disable ID``                   disable
+``plugin hosts ID [--add H --yes]``     network hosts granted besides the manifest (``--remove H``)
 ``plugin repo add|remove|list``         the repositories (an index URL or ``github:owner/repo``)
 =====================================  ==========================================================
 
@@ -74,6 +75,11 @@ def add_parser(sub: Any, common: Callable[[argparse.ArgumentParser], None], pars
     x.add_argument("--yes", action="store_true", help="confirm the permissions printed")
     x = p("disable", "disable a plugin")
     x.add_argument("id")
+    x = p("hosts", "network hosts granted to a plugin besides its manifest")
+    x.add_argument("id")
+    x.add_argument("--add", action="append", default=[], metavar="HOST", help="grant an exact host (needs --yes)")
+    x.add_argument("--remove", action="append", default=[], metavar="HOST")
+    x.add_argument("--yes", action="store_true")
     r = qs.add_parser("repo", help="plugin repositories")
     rs = r.add_subparsers(dest="repo_command", parser_class=parser_class)
     for name, help_ in (("add", "add an index URL or github:OWNER/REPO"), ("remove", "remove a repository"),
@@ -205,8 +211,14 @@ def cmd_plugin(args: Any) -> Result:
         res = _wrap(pm.disable, args.id)
         return EXIT_OK, {"disabled": res, "restart_required": True}, lambda d: (
             f"disabled {d['disabled']['id']}" + ("" if d["disabled"]["was_enabled"] else " (was not enabled)"))
+    if sub == "hosts":
+        if args.add and not args.yes:
+            raise CliError(f"granting {', '.join(args.add)} to {args.id} widens its network permission; "
+                           "repeat with --yes", EXIT_REFUSED, "confirm")
+        res = _wrap(pm.grant_hosts, args.id, add=args.add, remove=args.remove)
+        return EXIT_OK, {"hosts": res}, lambda d: f"{d['hosts']['id']}: " + (", ".join(d["hosts"]["hosts"]) or "none")
     raise CliError("plugin: a command is required (list, search, info, install, uninstall, update, enable, "
-                   "disable, repo add|remove|list)", EXIT_USAGE, "usage")
+                   "disable, hosts, repo add|remove|list)", EXIT_USAGE, "usage")
 
 
 def _repo(args: Any) -> Result:

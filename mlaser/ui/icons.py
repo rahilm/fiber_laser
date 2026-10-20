@@ -131,9 +131,23 @@ COMMAND_COLORS: dict[str, str] = {
 }
 
 
+#: an icon file of a plugin (the manifest's ``icon``, ``ctx.icon``) is read up to this size
+MAX_ICON_FILE = 512 * 1024
+
+
+def _is_file_icon(name: str) -> bool:
+    return os.path.isabs(name) and name.lower().endswith((".svg", ".png"))
+
+
 @lru_cache(maxsize=None)
 def _svg_source(name: str) -> Optional[bytes]:
-    path = os.path.join(ICON_DIR, f"{name}.svg")
+    path = name if _is_file_icon(name) else os.path.join(ICON_DIR, f"{name}.svg")
+    if _is_file_icon(name):
+        try:
+            if os.path.getsize(path) > MAX_ICON_FILE:
+                return None
+        except OSError:
+            return None
     try:
         with open(path, "rb") as fh:
             return fh.read()
@@ -204,7 +218,14 @@ class SvgIconEngine(QIconEngine):
 
 
 def icon(name: Optional[str], color: Optional[str] = None) -> QIcon:
-    """A crisp, palette-aware QIcon for the Tabler icon ``name`` (empty icon if unknown)."""
+    """A crisp, palette-aware QIcon for the Tabler icon ``name`` (empty icon if unknown), or for an
+    absolute ``.svg`` / ``.png`` file path (a plugin's icon; SVG ``currentColor`` is tinted)."""
+    if name and _is_file_icon(name) and name.lower().endswith(".png"):
+        try:
+            ok = os.path.isfile(name) and os.path.getsize(name) <= MAX_ICON_FILE
+        except OSError:
+            ok = False
+        return QIcon(name) if ok else QIcon()
     if not name or not has_icon(name):
         return QIcon()
     return QIcon(SvgIconEngine(name, color))

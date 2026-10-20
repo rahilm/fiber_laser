@@ -191,3 +191,64 @@ def test_background_work_comes_back_on_the_gui_thread(app, env):
         d.deleteLater()
     finally:
         w.close()
+
+
+def test_network_hosts_and_icons(app, env):
+    from mlaser.ui.icons import icon
+    svg = env / "i.svg"
+    svg.write_bytes(b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path stroke="currentColor" '
+                    b'd="M2 2h20"/></svg>')
+    assert not icon(str(svg)).isNull() and icon(str(env / "none.svg")).isNull()
+    w = real_window()
+    try:
+        d = _dialog(w)
+        d.install_file(str(build_wheel(env)))
+        assert d.select("demo") and d.btn_hosts.isEnabled()
+        assert d.set_hosts("acme.onshape.com, other.example.org")
+        assert w.config.get(P.NETWORK_KEY) == {"demo": ["acme.onshape.com", "other.example.org"]}
+        assert "granted hosts: acme.onshape.com" in d.installed_detail.text()
+        assert d.set_hosts("acme.onshape.com")
+        assert w.config.get(P.NETWORK_KEY) == {"demo": ["acme.onshape.com"]}
+        assert not d.set_hosts("*.bad.org") and w.config.get(P.NETWORK_KEY) == {"demo": ["acme.onshape.com"]}
+        d.deleteLater()
+        ctx = P.PluginContext(w, "iconplug", "entry-point", {"plugin": {}, "permissions": {}})
+        ctx.register_command("iconplug.x", lambda: None, label="X", icon=str(svg))
+        from mlaser.ui.icons import COMMAND_ICONS
+        assert COMMAND_ICONS["iconplug.x"] == str(svg)
+    finally:
+        w.close()
+
+
+def _bundled_plugins():
+    import os
+    root = Path(os.environ.get("MLASER_TEST_PLUGINS_DIR") or Path(__file__).resolve().parent.parent / "plugins")
+    return sorted(p for p in root.glob("*/pyproject.toml")) if root.is_dir() else []
+
+
+@pytest.mark.parametrize("pyproject", _bundled_plugins() or [None], ids=lambda p: p.parent.name if p else "none")
+def test_project_plugins_install_and_load(app, env, pyproject):
+    """Every plugin of plugins/*/ (what package.yml publishes) passes the manager's checks,
+    installs, and loads through the real start-up path once enabled."""
+    if pyproject is None:
+        pytest.skip("no plugin in plugins/")
+    from plugin_fixtures import wheel_from_project
+
+    from mlaser.services.plugin_manager import PluginManager
+    whl = wheel_from_project(pyproject.parent, env / "dist")
+    w = real_window()
+    try:
+        pm = PluginManager(w.config)
+        rec = pm.install(str(whl))
+        pm.enable(rec["id"], rec["entry"], rec["permissions"])
+        w.config.save()
+    finally:
+        w.close()
+    w2 = real_window(entry_points=True)
+    try:
+        status = {i.name: s for i, s in w2.plugin_catalog}
+        assert status.get(rec["id"]) == "loaded", (status, [m for m in w2.log_panel.findChildren(object)][:0])
+        assert w2.plugin_contexts[rec["id"]].manifest["plugin"]["id"] == rec["id"]
+    finally:
+        w2.close()
+        for m in [m for m in sys.modules if m.split(".")[0] in rec["top_level"]]:
+            del sys.modules[m]

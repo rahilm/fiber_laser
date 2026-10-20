@@ -74,7 +74,8 @@ from typing import Any, Callable, Iterable, Optional, Protocol
 
 from .commands import CommandRegistry, CommandSpec, DuplicateCommandError
 from .config import Setting
-from .plugin_manifest import Permissions, check_identity, compatibility_errors, manifest_for_dist, normalize_permissions
+from .plugin_manifest import (Permissions, check_identity, compatibility_errors, icon_for_dist, manifest_for_dist,
+                              normalize_permissions)
 
 log = logging.getLogger("mlaser.plugins")
 
@@ -100,6 +101,9 @@ ALLOWLIST_KEY = "plugins.allowlist"
 AUTHORITY_KEY = "plugins.authority"
 #: {name: normalised manifest permissions} accepted when the plugin was enabled
 ACCEPTED_KEY = "plugins.accepted"
+#: {name: [host, ...]}: network hosts granted to a plugin in the Plugin manager (Service mode,
+#: audited ``plugin_network_grant``), in addition to its manifest's ``permissions.network``
+NETWORK_KEY = "plugins.network"
 
 
 class DuplicateProviderError(KeyError):
@@ -258,6 +262,7 @@ class PluginContext:
         self._http: Any = None
         self._secrets: Any = None
         self._services: Any = None
+        self._icon = ""
 
     # ------------------------------------------------------------------ services
     @property
@@ -318,12 +323,14 @@ class PluginContext:
         checkable: bool = False,
         min_mode: str = "",
         workspace: str = "",
+        icon: str = "",
     ) -> CommandSpec:
         """Bind ``cmd_id`` (a ribbon command, or a new one with ``label`` as its lang key or
         text) to ``handler``.  A checkable command's handler receives the checked state.
         ``min_mode`` (``"operator"`` / ``"engineer"`` / ``"service"``) is the lowest user mode
         that may run it (default: :func:`mlaser.services.usermodes.default_min_mode`);
-        ``workspace`` the workspace it belongs to (palette, shortcut sheet).
+        ``workspace`` the workspace it belongs to (palette, shortcut sheet); ``icon`` a Tabler icon
+        name or an icon file (``ctx.icon``).
         Raises :class:`DuplicateCommandError` when the id is already bound, and
         :class:`ReservedCommandError` for an id of the core's namespaces (``run.*``, ``shell.*``,
         ``workspace.*``) from a plugin that is not built in."""
@@ -336,6 +343,10 @@ class PluginContext:
             cmd_id, handler, self.name, label or cmd_id, checkable, min_mode=min_mode, workspace=workspace
         )
         self.commands_registered.append(cmd_id)
+        if icon:
+            fn = getattr(self.host, "host_command_icon", None)
+            if callable(fn):
+                fn(cmd_id, icon)
         return spec
 
     def register_commands(self, table: dict[str, Callable[..., Any]]) -> None:
@@ -455,6 +466,13 @@ class PluginContext:
         return self._manifest
 
     @property
+    def icon(self) -> str:
+        """The absolute path of the manifest's ``icon`` (SVG / PNG inside the package; "" when there
+        is none), for ``add_workspace(icon=ctx.icon)`` and ``register_command(icon=ctx.icon)``.
+        Found from the distribution's file list without importing."""
+        return self._icon
+
+    @property
     def permissions(self) -> Permissions:
         """The declared permissions, frozen (built-ins: everything)."""
         return self._permissions
@@ -475,9 +493,24 @@ class PluginContext:
         self._api2("ctx.http")
         if self._http is None:
             from .plugin_http import HttpClient
-            self._http = HttpClient(self._permissions.allows_host,
-                                    owner="" if self._permissions.all else self.name)
+            self._http = HttpClient(self.allows_host, owner="" if self._permissions.all else self.name)
         return self._http
+
+    def granted_hosts(self) -> list[str]:
+        """Hosts a service engineer granted this plugin in the Plugin manager (``plugins.network``),
+        in addition to the manifest's ``network`` list (e.g. a company's own server)."""
+        cfg = getattr(self.host, "config", None)
+        grants = (cfg.get(NETWORK_KEY, {}) or {}) if cfg is not None else {}
+        hosts = grants.get(self.name, []) if isinstance(grants, dict) else []
+        return [h for h in hosts if isinstance(h, str)]
+
+    def allows_host(self, host: str) -> bool:
+        """``permissions.network`` or a granted host (read at every request: a grant applies
+        at once)."""
+        if self._permissions.allows_host(host):
+            return True
+        from .plugin_manifest import host_matches
+        return any(host_matches(host, h) for h in self.granted_hosts())
 
     @property
     def secrets(self) -> "PluginSecrets":
@@ -490,11 +523,17 @@ class PluginContext:
                                           else _builtin_data_dir(self.name))
         return self._secrets
 
-    def run_in_background(self, fn: Callable[[], Any], *, on_done: Optional[Callable[[Any], Any]] = None,
-                          on_error: Optional[Callable[[BaseException], Any]] = None) -> "BackgroundTask":
-        """Run ``fn()`` on a worker thread; ``on_done(result)`` / ``on_error(exc)`` run on the GUI
-        thread.  ``handle.cancel()`` sets ``handle.cancelled`` (``fn`` checks it)."""
-        task = BackgroundTask(self, fn, on_done, on_error)
+    def run_in_background(self, fn: Callable[..., Any], *, on_done: Optional[Callable[[Any], Any]] = None,
+                          on_error: Optional[Callable[[BaseException], Any]] = None,
+                          on_progress: Optional[Callable[[Any], Any]] = None) -> "BackgroundTask":
+        """Run ``fn`` on a worker thread; ``on_done(result)`` / ``on_error(exc)`` run on the GUI
+        thread.  ``handle.cancel()`` sets ``handle.cancelled`` (``fn`` checks it).
+
+        Progress: when ``fn`` has a parameter named ``progress`` (or ``**kwargs``) it is called as
+        ``fn(progress=report)``, else as ``fn()``; ``report(value)`` (a fraction 0..1, a text, or
+        anything) may be called as often as ``fn`` likes: ``on_progress(value)`` runs on the GUI
+        thread with the latest value only (coalesced: at most one delivery pending)."""
+        task = BackgroundTask(self, fn, on_done, on_error, on_progress)
         task.start()
         return task
 
@@ -598,9 +637,14 @@ def _under_test() -> bool:
 class BackgroundTask:
     """The handle of ``ctx.run_in_background``."""
 
-    def __init__(self, ctx: PluginContext, fn: Callable[[], Any], on_done: Optional[Callable[[Any], Any]],
-                 on_error: Optional[Callable[[BaseException], Any]]) -> None:
+    def __init__(self, ctx: PluginContext, fn: Callable[..., Any], on_done: Optional[Callable[[Any], Any]],
+                 on_error: Optional[Callable[[BaseException], Any]],
+                 on_progress: Optional[Callable[[Any], Any]] = None) -> None:
         self.ctx, self.fn, self.on_done, self.on_error = ctx, fn, on_done, on_error
+        self.on_progress = on_progress
+        self._progress_lock = threading.Lock()
+        self._progress_value: Any = None
+        self._progress_pending = False
         self.cancelled = False
         self.done = threading.Event()
         self.result: Any = None
@@ -630,9 +674,40 @@ class BackgroundTask:
 
         self.ctx._post(call)
 
+    def progress(self, value: Any) -> None:
+        """Called by ``fn`` on the worker thread; delivered coalesced on the GUI thread."""
+        if self.on_progress is None:
+            return
+        with self._progress_lock:
+            self._progress_value = value
+            if self._progress_pending:
+                return
+            self._progress_pending = True
+
+        def deliver() -> None:
+            with self._progress_lock:
+                v = self._progress_value
+                self._progress_pending = False
+            try:
+                assert self.on_progress is not None
+                self.on_progress(v)
+            except Exception:  # noqa: BLE001
+                log.error("plugin %s: progress callback failed\n%s", self.ctx.name, traceback.format_exc())
+
+        self.ctx._post(deliver)
+
+    def _wants_progress(self) -> bool:
+        import inspect
+        try:
+            params = inspect.signature(self.fn).parameters.values()
+        except (TypeError, ValueError):
+            return False
+        return any(p.name == "progress" and p.kind != p.POSITIONAL_ONLY or p.kind == p.VAR_KEYWORD
+                   for p in params)
+
     def _run(self) -> None:
         try:
-            self.result = self.fn()
+            self.result = self.fn(progress=self.progress) if self._wants_progress() else self.fn()
         except BaseException as exc:  # noqa: BLE001 - delivered to on_error
             self.error = exc
             if self.on_error is None:
@@ -675,6 +750,15 @@ class PluginServices:
         return self._provider("intake")
 
     @property
+    def orders_load_group(self) -> Any:
+        """``fn(key, replace=None)``: load one material x thickness group of the order book into
+        Nest (the Orders plugin's ``orders.load_group`` provider); None when absent."""
+        self._ctx._need("orders")
+        hooks = getattr(self._ctx.host, "hooks", None)
+        fn = hooks.provider("orders.load_group") if hooks is not None else None
+        return fn if callable(fn) else None
+
+    @property
     def technology(self) -> Any:
         tech = self._provider("technology")
         if tech is not None:
@@ -700,6 +784,7 @@ class PluginInfo:
     dist_name: str = ""
     version: str = ""
     location: str = ""                        # "site" (plugin manager) or "environment"
+    icon: str = ""                            # absolute path of the manifest's icon ("" none)
 
     @property
     def legacy(self) -> bool:
@@ -739,7 +824,7 @@ def discover(
             out.append(PluginInfo(ep.name, ep.value, "entry-point", label, manifest, err,
                                   str(getattr(dist, "name", "") or "") if dist else "",
                                   str(getattr(dist, "version", "") or "") if dist else "",
-                                  _location(dist)))
+                                  _location(dist), icon_for_dist(dist, ep.value, manifest)))
     return out
 
 
@@ -824,6 +909,7 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         host.log(msg)
         return None, RuntimeError(msg)
     ctx = PluginContext(host, info.name, info.origin, info.manifest if info.origin != "builtin" else None)
+    ctx._icon = info.icon
     try:
         result = reg(ctx)
         if info.origin != "builtin":

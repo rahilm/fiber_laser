@@ -2144,6 +2144,7 @@
   "plugin_manager.check_updates": "Check for updates",
   "plugin_manager.confirm_authority": "{name} asks for the machine controller. Grant it machine authority (it may then arm, reset faults and change the safety configuration through the controller's audited interface)?",
   "plugin_manager.confirm_enable": "Enable {name}?\n\nIt declares:\n{permissions}\n\n{warning}",
+  "plugin_manager.confirm_hosts": "Allow {name} to contact {hosts}?",
   "plugin_manager.confirm_install": "Install {name} {version}?\n\nIt declares:\n{permissions}\n\nsha256 {sha256}\n\nInstalling does not enable it.",
   "plugin_manager.confirm_uninstall": "Uninstall {name}? Its settings and data folder are kept.",
   "plugin_manager.confirm_update_perms": "{name} {version} declares different permissions:\n{permissions}\n\nUpdate? It will be disabled until you enable it again.",
@@ -2152,6 +2153,9 @@
   "plugin_manager.enable": "Enable...",
   "plugin_manager.enabled": "{name} enabled (at the next start).",
   "plugin_manager.homepage": "Homepage",
+  "plugin_manager.hosts": "Network hosts...",
+  "plugin_manager.hosts_prompt": "Extra hosts {name} may contact besides its manifest (comma-separated exact host names, e.g. a company server):",
+  "plugin_manager.hosts_saved": "Network hosts of {name} saved.",
   "plugin_manager.install": "Install...",
   "plugin_manager.install_file": "Install from file...",
   "plugin_manager.install_url": "Install from URL...",
@@ -2194,6 +2198,7 @@
   "plugins.col_status": "Status",
   "plugins.col_target": "Entry point",
   "plugins.confirm": "Enable {names}?\n\n{warning}",
+  "plugins.network": "Network hosts granted to plugins",
   "plugins.none": "No third-party plugin is installed.",
   "plugins.repositories": "Plugin repositories",
   "plugins.title": "Plugins",
@@ -4290,6 +4295,16 @@
   "plugin_manager.installed": [
    "name",
    "version"
+  ],
+  "plugin_manager.hosts_prompt": [
+   "name"
+  ],
+  "plugin_manager.hosts_saved": [
+   "name"
+  ],
+  "plugin_manager.confirm_hosts": [
+   "hosts",
+   "name"
   ]
  },
  "legacy": {

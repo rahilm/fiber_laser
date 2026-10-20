@@ -194,8 +194,10 @@ class PluginManagerDialog(QDialog):
         self.btn_update = self._button(_tr(self.w, "plugin_manager.update", "Update"), self.update_selected, True)
         self.btn_uninstall = self._button(_tr(self.w, "plugin_manager.uninstall", "Uninstall..."),
                                           self.uninstall_selected, True)
+        self.btn_hosts = self._button(_tr(self.w, "plugin_manager.hosts", "Network hosts..."), self.edit_hosts, True)
         self.btn_home = self._button(_tr(self.w, "plugin_manager.homepage", "Homepage"), self.open_homepage)
-        for b in (self.btn_enable, self.btn_disable, self.btn_update, self.btn_uninstall, self.btn_home):
+        for b in (self.btn_enable, self.btn_disable, self.btn_update, self.btn_uninstall, self.btn_hosts,
+                  self.btn_home):
             row.addWidget(b)
         row.addStretch(1)
         lay.addLayout(row)
@@ -379,6 +381,8 @@ class PluginManagerDialog(QDialog):
             lines = [f"{r['name']} {r['version']}", r.get("summary") or "",
                      f"entry point: {r['entry']}" + (f"  ({r['dist']})" if r.get("dist") else ""),
                      "permissions:"] + [f"  - {x}" for x in _perm_lines(r["permissions"])]
+            if r.get("granted_hosts"):
+                lines.append("granted hosts: " + ", ".join(r["granted_hosts"]))
             if r.get("authority"):
                 lines.append("machine authority: granted")
             if r.get("manifest_error"):
@@ -389,6 +393,7 @@ class PluginManagerDialog(QDialog):
                       (self.btn_disable, on and (enabled or (r or {}).get("status") == "changed")),
                       (self.btn_update, on and bool((r or {}).get("update"))),
                       (self.btn_uninstall, on and bool((r or {}).get("installed_by_manager"))),
+                      (self.btn_hosts, on and bool((r or {}).get("manifest"))),
                       (self.btn_home, on and str((r or {}).get("homepage", "")).startswith("https://"))):
             b.setEnabled(bool(ok) and (self.service or not b.property("mutating")))
 
@@ -474,6 +479,42 @@ class PluginManagerDialog(QDialog):
             self._say(msg)
             self._changed()
         self.run(lambda: self.pm.update(r["id"]), done)
+        return True
+
+    def edit_hosts(self) -> None:
+        r = self.selected()
+        if r is None or not self.service:
+            return
+        text, ok = QInputDialog.getText(
+            self, _tr(self.w, "plugin_manager.hosts", "Network hosts..."),
+            _tr(self.w, "plugin_manager.hosts_prompt",
+                "Extra hosts {name} may contact besides its manifest (comma-separated exact host names, "
+                "e.g. a company server):", name=r["name"]),
+            QLineEdit.EchoMode.Normal, ", ".join(r.get("granted_hosts") or []))
+        if ok:
+            self.set_hosts(text)
+
+    def set_hosts(self, text: str) -> bool:
+        """Grant exactly these hosts (comma or space separated) to the selected plugin."""
+        r = self.selected()
+        if r is None or not self.service:
+            return False
+        want = [h for h in text.replace(",", " ").split() if h]
+        have = list(r.get("granted_hosts") or [])
+        add = [h for h in want if h.lower() not in have]
+        if add and not self._ask(self.windowTitle(), _tr(
+                self.w, "plugin_manager.confirm_hosts", "Allow {name} to contact {hosts}?", name=r["name"],
+                hosts=", ".join(add))):
+            return False
+        try:
+            self.pm.grant_hosts(r["id"], add=add, remove=[h for h in have if h not in [x.lower() for x in want]])
+        except Exception as exc:  # noqa: BLE001
+            self._error(exc)
+            return False
+        self._say(_tr(self.w, "plugin_manager.hosts_saved", "Network hosts of {name} saved.", name=r["name"]))
+        pid = r["id"]
+        self.refresh_installed()
+        self.select(pid)
         return True
 
     def open_homepage(self) -> bool:

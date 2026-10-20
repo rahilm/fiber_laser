@@ -295,6 +295,14 @@ class MainWindow(QMainWindow):
             shell.host.watch_docks()
         return d
 
+    def host_command_icon(self, cmd: str, icon_name: str) -> None:
+        """A plugin's command icon (a Tabler name or an icon file of the plugin)."""
+        from .icons import COMMAND_ICONS, command_icon
+        COMMAND_ICONS.setdefault(cmd, icon_name)
+        act = self.ribbon.actions.get(cmd)
+        if act is not None and act.icon().isNull():
+            act.setIcon(command_icon(cmd))
+
     def host_add_ribbon_tab(self, title: str, commands: list[str]):
         return self.ribbon.add_command_tab(title, commands)
 

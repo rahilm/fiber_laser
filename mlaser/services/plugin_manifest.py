@@ -32,7 +32,10 @@ PERMISSION_KEYS = ("network",) + BOOL_PERMISSIONS
 #: [plugin] keys: required ones, then optional ones with their type
 REQUIRED_KEYS = ("id", "name", "version", "entry", "api", "mlaser")
 STRING_KEYS = ("id", "name", "version", "entry", "api", "mlaser", "summary", "description", "license",
-               "homepage", "source", "min_mode")
+               "homepage", "source", "min_mode", "icon")
+#: ``icon``: a file inside the plugin's top-level package (SVG drawn with ``currentColor`` like
+#: the app's own icons, or PNG), relative to the package directory
+ICON_RE = re.compile(r"^(?:[A-Za-z0-9_.-]+/){0,4}[A-Za-z0-9_-][A-Za-z0-9_.-]{0,80}\.(?:svg|png)$")
 MAX_TEXT = {"summary": 200, "description": 20000, "name": 80}
 _HOST_RE = re.compile(r"^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$")
 
@@ -191,6 +194,9 @@ def validate_manifest(data: Any) -> list[str]:
                 SpecifierSet(plugin[k])
             except InvalidSpecifier:
                 errs.append(f"plugin.{k} {plugin[k]!r} is not a PEP 440 version specifier")
+    icon = plugin.get("icon")
+    if isinstance(icon, str) and (not ICON_RE.match(icon) or ".." in icon.split("/")):
+        errs.append(f"plugin.icon {icon!r} must be a relative .svg or .png path inside the package")
     mm = plugin.get("min_mode")
     if isinstance(mm, str) and mm not in MIN_MODES:
         errs.append(f"plugin.min_mode must be one of {', '.join(MIN_MODES)}")
@@ -264,6 +270,20 @@ def manifest_for_dist(dist: Any, entry: str) -> tuple[Optional[dict], str]:
         return parse_manifest(raw), ""
     except ManifestError as exc:
         return None, f"{want}: {exc}"
+
+
+def icon_for_dist(dist: Any, entry: str, manifest: Optional[dict]) -> str:
+    """The absolute path of the manifest's ``icon`` in the installed distribution ("" when there
+    is none or it is not in the distribution's file list); nothing is imported."""
+    icon = (manifest or {}).get("plugin", {}).get("icon")
+    if not icon or dist is None:
+        return ""
+    want = manifest_path_for(entry).rsplit("/", 1)[0] + "/" + icon
+    try:
+        hit = next((f for f in (dist.files or ()) if str(f).replace("\\", "/") == want), None)
+        return str(dist.locate_file(hit)) if hit is not None else ""
+    except Exception:  # noqa: BLE001
+        return ""
 
 
 def check_identity(manifest: dict, name: str, entry: str, version: str = "") -> list[str]:

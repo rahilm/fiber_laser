@@ -579,6 +579,9 @@ def inspect_wheel(data: bytes, filename: str) -> WheelInfo:
         bad = check_identity(manifest, ep_name, ep_value, version)
         if bad:
             raise RefusedError(f"{filename}: manifest mismatch: {'; '.join(bad)}", "manifest_mismatch")
+        icon = manifest.get("plugin", {}).get("icon")
+        if icon and f"{mpath.rsplit('/', 1)[0]}/{icon}" not in names:
+            raise RefusedError(f"{filename}: the manifest icon {icon!r} is not in the package", "manifest")
     return WheelInfo(filename, name, version, sha256_hex(data), len(data), ep_name, ep_value, manifest, requires,
                      requires_python, sorted(tops), names, di)
 
@@ -1052,7 +1055,8 @@ class PluginManager:
                          "permissions": rec.get("permissions"), "manifest": True, "summary": rec.get("summary", ""),
                          "homepage": rec.get("homepage", ""), "source": rec.get("source", {}),
                          "status": self.status(pid, rec.get("entry", ""), rec.get("permissions")),
-                         "authority": pid in granted, "installed_by_manager": True}
+                         "authority": pid in granted, "installed_by_manager": True,
+                         "granted_hosts": self.granted_hosts(pid)}
         try:
             infos = discover((), entry_points=True)
         except Exception:  # noqa: BLE001
@@ -1071,7 +1075,8 @@ class PluginManager:
                                "summary": p.get("summary", ""), "homepage": p.get("homepage", ""), "source": {},
                                "status": self.status(info.name, info.target,
                                                      normalize_permissions(perms) if perms is not None else None),
-                               "authority": info.name in granted, "installed_by_manager": False}
+                               "authority": info.name in granted, "installed_by_manager": False,
+                               "granted_hosts": self.granted_hosts(info.name)}
         return sorted(rows.values(), key=lambda r: r["id"])
 
     # ------------------------------------------------------------------ install
@@ -1367,6 +1372,8 @@ class PluginManager:
             del inst[plugin_id]
             self._write_installed(inst)
         self.disable(plugin_id, audit_event=False)
+        if self.granted_hosts(plugin_id):
+            self.grant_hosts(plugin_id, remove=self.granted_hosts(plugin_id))
         if purge_data:
             shutil.rmtree(self.data_dir(plugin_id), ignore_errors=True)
         self.changed = True
@@ -1472,6 +1479,40 @@ class PluginManager:
             self.changed = True
             _audit("plugin_allowlist", enabled=sorted(allow), before=before, authority=auth)
         return {"id": plugin_id, "enabled": False, "was_enabled": was}
+
+    def grant_hosts(self, plugin_id: str, add: Iterable[str] = (), remove: Iterable[str] = ()) -> dict:
+        """Network hosts granted to a plugin in addition to its manifest (``plugins.network``):
+        exact host names only (no wildcard), https still required; the caller has the Service
+        authority.  Audited (``plugin_network_grant``); applies at once."""
+        from .plugin_manifest import valid_host_pattern
+        from .plugins import NETWORK_KEY
+        if not ID_RE.match(plugin_id or ""):
+            raise PluginError(f"invalid plugin id {plugin_id!r}", "usage")
+        grants = {k: list(v) for k, v in (self.config.get(NETWORK_KEY, {}) or {}).items() if isinstance(v, list)}
+        hosts = list(grants.get(plugin_id, []))
+        for h in add:
+            h = str(h).strip().lower().rstrip(".")
+            if not valid_host_pattern(h) or "*" in h:
+                raise PluginError(f"{h!r} is not a host name (an exact host, e.g. acme.onshape.com)", "usage")
+            if h not in hosts:
+                hosts.append(h)
+        rm = {str(h).strip().lower() for h in remove}
+        hosts = [h for h in hosts if h not in rm]
+        before = grants.get(plugin_id, [])
+        if hosts:
+            grants[plugin_id] = sorted(hosts)
+        else:
+            grants.pop(plugin_id, None)
+        self.config.set(NETWORK_KEY, grants)
+        self._save_all()
+        if sorted(before) != sorted(hosts):
+            _audit("plugin_network_grant", id=plugin_id, hosts=sorted(hosts), before=sorted(before))
+        return {"id": plugin_id, "hosts": sorted(hosts)}
+
+    def granted_hosts(self, plugin_id: str) -> list[str]:
+        from .plugins import NETWORK_KEY
+        v = (self.config.get(NETWORK_KEY, {}) or {}).get(plugin_id, [])
+        return [h for h in v if isinstance(h, str)] if isinstance(v, list) else []
 
     def _save_all(self) -> None:
         try:

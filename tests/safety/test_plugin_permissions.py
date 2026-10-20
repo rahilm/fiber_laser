@@ -262,3 +262,59 @@ def test_run_in_background_delivers_on_the_gui_thread(host):
     assert h3.cancelled
     ctx.show_message("hello", "warning")
     assert host.logs[-1] == "a: WARNING: hello"
+
+
+def test_granted_hosts_widen_the_manifest_list(host, repo):
+    """A host granted in the Plugin manager (plugins.network) is allowed besides the manifest's
+    list; wildcards stay allowed; a grant is an exact host and is audited."""
+    from mlaser.services.plugin_manager import PluginError, PluginManager
+    repo.routes["/ok"] = b"ok"
+    port = repo.httpd.server_address[1]
+    ctx = P.PluginContext(host, "gr", "entry-point", manifest("gr", network=["*.onshape.com", "127.0.0.1"]))
+    assert ctx.allows_host("acme.onshape.com") and not ctx.allows_host("onshape.com")
+    with pytest.raises(HostNotAllowedError):
+        ctx.http.get(f"http://localhost:{port}/ok")
+    pm = PluginManager(host.config, root=Path(os.environ["MLASER_DATA_DIR"]) / "plugins")
+    with pytest.raises(PluginError):
+        pm.grant_hosts("gr", add=["*.evil.org"])                       # no wildcard grants
+    pm.grant_hosts("gr", add=["localhost"])
+    assert ctx.http.get(f"http://localhost:{port}/ok").text == "ok"    # applies at once
+    assert ConfigService(host.config.path).get(P.NETWORK_KEY) == {"gr": ["localhost"]}
+    pm.grant_hosts("gr", remove=["localhost"])
+    with pytest.raises(HostNotAllowedError):
+        ctx.http.get(f"http://localhost:{port}/ok")
+
+
+def test_http_params_lists_repeat_the_key(repo):
+    repo.routes["/q"] = b"{}"
+    HttpClient(lambda h: True).get(repo.url("/q"), params={"edgeId": ["a", "b"], "x": 1})
+    assert repo.hits[-1] == "/q?edgeId=a&edgeId=b&x=1"
+
+
+def test_progress_is_coalesced_on_the_gui_thread(host):
+    ctx = P.PluginContext(host, "a", "entry-point", manifest("a"))
+    seen = []
+
+    def work(progress):
+        for i in range(100):
+            progress(i / 100)
+        progress("done")
+        return 1
+    h = ctx.run_in_background(work, on_progress=seen.append)
+    assert h.wait(5)
+    progress_calls = [f for f in host.posted]
+    assert 1 <= len(progress_calls) <= 3                              # coalesced, not 101 posts
+    for f in list(host.posted):
+        f()
+    assert seen[-1] == "done"
+    # fn without a progress parameter is called without arguments
+    h2 = ctx.run_in_background(lambda: 5, on_progress=seen.append)
+    assert h2.wait(5) and h2.result == 5
+
+
+def test_orders_load_group_provider(host):
+    host.hooks.provide("orders.load_group", lambda key, replace=None: ("loaded", key), "orders")
+    ok = P.PluginContext(host, "b", "entry-point", manifest("b", orders=True))
+    assert ok.services.orders_load_group("S235|3") == ("loaded", "S235|3")
+    with pytest.raises(PermissionError):
+        P.PluginContext(host, "c", "entry-point", manifest("c")).services.orders_load_group

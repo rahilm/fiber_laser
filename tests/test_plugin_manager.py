@@ -492,3 +492,31 @@ def test_cli_plugin_commands(isolated, repo):
     assert code == 0 and isinstance(text, str)
     code, res, _ = cli("plugin", *common)
     assert code == 2
+
+
+def test_plugin_icon_from_the_manifest(isolated, tmp_path):
+    svg = b'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path stroke="currentColor" d="M2 2h20"/></svg>'
+    pm = manager(isolated)
+    missing = build_wheel(isolated, plugin={"icon": "icons/demo.svg"})
+    _refused(pm, str(missing), "manifest")
+    with pytest.raises(ManifestError):
+        parse_manifest(b'[plugin]\nid="ab"\nname="x"\nversion="1"\nentry="m"\napi=""\nmlaser=""\nicon="../x.svg"\n')
+    whl = build_wheel(isolated, plugin={"icon": "icons/demo.svg"}, extra_files={"mlaser_demo/icons/demo.svg": svg})
+    pm.install(str(whl))
+    PM.activate_site()
+    info = next(i for i in P.discover((), entry_points=True) if i.name == "demo")
+    assert info.icon.endswith("mlaser_demo/icons/demo.svg") and Path(info.icon).is_file()
+    host = FakeHost(pm.config)
+    ctx, _ = P.register_plugin(host, info)
+    assert ctx.icon == info.icon
+
+
+def test_cli_hosts(isolated):
+    cfg = str(isolated / "cli-config.json")
+    code, res, _ = cli("plugin", "hosts", "onshape", "--add", "acme.onshape.com", "--json", "--config", cfg)
+    assert code == 6 and res["error"]["code"] == "confirm"
+    code, res, _ = cli("plugin", "hosts", "onshape", "--add", "acme.onshape.com", "--yes", "--json", "--config", cfg)
+    assert code == 0 and res["hosts"]["hosts"] == ["acme.onshape.com"]
+    assert ConfigService(cfg).get(P.NETWORK_KEY) == {"onshape": ["acme.onshape.com"]}
+    code, res, _ = cli("plugin", "hosts", "onshape", "--add", "*.x.com", "--yes", "--json", "--config", cfg)
+    assert code == 2

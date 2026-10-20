@@ -238,6 +238,8 @@ APP_SETTINGS: tuple[Setting, ...] = (
     # the manifest permissions the service engineer accepted when enabling ({id: permissions});
     # a plugin whose declared permissions changed since needs enabling again (PLUGIN_STANDARD.md §7)
     Setting("plugins.accepted", "json", {}, label="plugins.accepted", section="plugins", source="app"),
+    # network hosts granted to a plugin in addition to its manifest ({id: [host, ...]})
+    Setting("plugins.network", "json", {}, label="plugins.network", section="plugins", source="app"),
     # plugin repositories of the plugin manager (mlaser.services.plugin_manager): [{"url", "name"}]
     Setting("plugins.repositories", "json", [{"url": DEFAULT_PLUGIN_REPOSITORY, "name": "mlaser"}],
             label="plugins.repositories", section="plugins", source="app"),
