@@ -155,6 +155,8 @@ class LayerInspector(QWidget):
         t = self.tr_
         li = self.layer
         doc = self.document
+        # no layer (no drawing): no values to show, the form takes no room
+        self.form.setVisible(li is not None)
         if li is None:
             self.title.setText(t.tr("layer.none"))
             self.setEnabled(False)

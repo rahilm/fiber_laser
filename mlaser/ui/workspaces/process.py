@@ -124,8 +124,10 @@ class TechnologyEditor(QWidget):
         self.min_feature = quantity("length", 0.0, 1000.0, 1)
         self.clearance = quantity("small_length", 0.0, 50.0, 2)
         self.tip_strategy = QComboBox()
-        for data, key, _text in TIP:
-            self.tip_strategy.addItem(t(key), data)
+        for data, key, _text in TIP:          # the short names (Nest's), the long ones in the tooltip
+            self.tip_strategy.addItem(t({"joint": "nestws.tip.joint", "last": "nestws.tip.last",
+                                         "avoid": "nestws.tip.avoid"}[data]), data)
+            self.tip_strategy.setItemData(self.tip_strategy.count() - 1, t(key), Qt.ToolTipRole)
         self.form.add_section("strategy", t("techform.sec.strategy"), [
             (t("cutstrat.prefer"), self.prefer, t("tech.h.prefer"), False),
             (t("cutstrat.min_feature"), self.min_feature, t("tech.h.min_feature"), False),
@@ -531,16 +533,21 @@ class LibraryPage(QWidget):
         self.comment = QLineEdit()
         self.comment.setPlaceholderText(t("tech.comment"))
         self.comment.setAccessibleName(t("tech.comment"))
+        fm = self.comment.fontMetrics()
+        self.comment.setMinimumWidth(fm.horizontalAdvance(t("tech.comment")) + 2 * fm.height())
         bind_transient(self.comment, "library.comment")
-        el.addWidget(self.comment)
+        # the version comment and the save actions: one row when it fits, wrapped when not
         arow = QWidget()
-        afl = FlowLayout(arow, justify=False, hspacing=6, vspacing=6)
+        afl = FlowLayout(arow, justify=True, hspacing=6, vspacing=6)
+        afl.addWidget(self.comment)
         self.save_btn = QPushButton(t("tech.save"))
         self.save_btn.setDefault(True)
+        self.save_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.save_btn.clicked.connect(self.save_version)
         afl.addWidget(self.save_btn)
         for key, fn in (("tech.save_new", self.save_as_new), ("tech.revert", self.revert_factory)):
             b = QPushButton(t(key))
+            b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             b.clicked.connect(lambda _c=False, f=fn: f())
             afl.addWidget(b)
         el.addWidget(arow)

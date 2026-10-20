@@ -130,8 +130,16 @@ class FormScroll(QScrollArea):
             return base
         fw = 2 * self.frameWidth()
         m = w.minimumSizeHint()
-        h = base.height() if self.is_list() else m.height() + fw
+        h = m.height()
+        if isinstance(w, ColumnsPanel) and self.width() > 0:
+            h = w.folded_height(self.viewport().width())      # headers side by side when wide
+        h = base.height() if self.is_list() else h + fw
         return QSize(m.width() + fw, h)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        if ev.size().width() != ev.oldSize().width():
+            self.updateGeometry()          # the folded minimum depends on the columns
 
 
 # --------------------------------------------------------------------------- the parameters

@@ -827,6 +827,8 @@ class ColumnsPanel(QWidget):
         self.scroll_overflow = scroll_overflow
         #: ``fold`` off: no automatic folding (a searchable list of every field, say)
         self.fold = True
+        #: ``refill``: after folding, reopen the folded sections that still fit
+        self.refill = scroll_overflow
         #: the width a column needs before a second one is used (default: the narrowest
         #: workable one, :meth:`_col_min`); a form passes the width its labels beside the
         #: fields need, so two cramped columns never replace one comfortable one
@@ -910,6 +912,9 @@ class ColumnsPanel(QWidget):
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         m = 2 * self.margins()
         w = self._col_min()
+        if self.scroll_overflow and self.width() > 0:
+            # in a scroll area: the least height at the width it has (headers side by side)
+            return QSize(w + m, self.folded_height(self.width()))
         h = self._pinned_h(w)
         for s in self.sections:
             if s.isHidden():
@@ -1034,6 +1039,14 @@ class ColumnsPanel(QWidget):
                 if self._fits(W, H, exp):
                     break
                 exp[id(s)] = False
+            if self.refill:
+                # the room left: open again the folded automatic sections that fit, highest
+                # priority first (a small section need not stay folded for a big one)
+                for s in reversed(order):
+                    if s.user_choice is None and not exp[id(s)]:
+                        exp[id(s)] = True
+                        if not self._fits(W, H, exp):
+                            exp[id(s)] = False
         for s in secs:
             s.set_expanded(exp[id(s)])
         n, cols, _ = self._plan(W, H, exp, self._cols(W, H, exp))
@@ -1056,6 +1069,15 @@ class ColumnsPanel(QWidget):
                 self.setMinimumHeight(need)
         elif self.minimumHeight():
             self.setMinimumHeight(0)
+
+    def folded_height(self, width: int) -> int:
+        """The least height at ``width``: every collapsible section folded, in as many columns
+        as the width allows (a wide panel's headers sit side by side)."""
+        secs = [s for s in self.sections if not s.isHidden()]
+        exp = {id(s): not s.collapsible for s in secs}
+        W = max(1, width - 2 * self.margins())
+        n = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
+        return self._plan(W, 1 << 20, exp, n)[2] - self.spacing() + 2 * self.margins()
 
     def needed_height(self, width: int) -> int:
         """The height every visible section needs open at ``width`` (a list that may scroll)."""
@@ -1259,7 +1281,7 @@ class FitArea(QScrollArea):
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
         if obj is self.widget() and ev.type() == QEvent.LayoutRequest:
-            QTimer.singleShot(0, self.sync)
+            QTimer.singleShot(0, self, self.sync)      # cancelled if the area goes first
         return False
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
