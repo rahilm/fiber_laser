@@ -637,7 +637,7 @@ class CollapsibleSection(QWidget):
         self.frame.setObjectName("section_body")
         self.frame.setFrameShape(QFrame.StyledPanel)
         fl = QVBoxLayout(self.frame)
-        fl.setContentsMargins(SP2, SP2, SP2, SP2)
+        fl.setContentsMargins(SP1 + SP1 // 2, SP1 + SP1 // 2, SP1 + SP1 // 2, SP1 + SP1 // 2)   # 6 px: the narrowest dock still fits
         v.addWidget(self.frame)
         self.body = body
         if body is not None:

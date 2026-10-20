@@ -25,7 +25,7 @@ from dataclasses import replace
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
+from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
                                QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
@@ -329,23 +329,19 @@ def change_rows(changes: list[T.Change], tr: Any) -> list[tuple[str, str, str, s
 
 
 # --------------------------------------------------------------------------- compare
-class TechCompareDialog(QDialog):
+class TechCompareDialog(style.Dialog):
     """Two technologies side by side: every parameter by section (the editor's sections and
     labels), the differing ones in bold; *Only differences* (on by default) and a search."""
 
     def __init__(self, tr: Any, store: T.TechnologyStore, a: Optional[T.Technology] = None,
                  b: Optional[T.Technology] = None, parent: Optional[QWidget] = None) -> None:
-        super().__init__(parent)
+        # the one dialog frame (style.Dialog): title, the explanation, Close in the platform's place
+        super().__init__(parent, tr.tr("tech.compare.title"), explanation=tr.tr("tech.compare.intro"),
+                         buttons=QDialogButtonBox.Close)
         self.tr_ = tr
         self.store = store
         t = tr.tr
-        self.setWindowTitle(t("tech.compare.title"))
-        lay = QVBoxLayout(self)
-        lay.setContentsMargins(style.SP3, style.SP3, style.SP3, style.SP3)
-        lay.setSpacing(style.SP2)
-        intro = QLabel(t("tech.compare.intro"))
-        intro.setWordWrap(True)
-        lay.addWidget(intro)
+        lay = self.body
         self._all = store.all()
         pick = ResponsiveForm()
         self.a = QComboBox()
@@ -386,13 +382,9 @@ class TechCompareDialog(QDialog):
         lay.addWidget(self.tree, 1)
         self.summary = QLabel()
         lay.addWidget(self.summary)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
-        bb.rejected.connect(self.reject)
-        bb.accepted.connect(self.accept)
-        bb.button(QDialogButtonBox.Close).clicked.connect(self.accept)
-        lay.addWidget(bb)
-        self._form = TechForm(tr)          # labels, sections and formatting of every parameter
-        self._form.hide()
+        self.buttons.button(QDialogButtonBox.Close).clicked.connect(self.accept)
+        self._techform = TechForm(tr)          # labels, sections and formatting of every parameter
+        self._techform.hide()
         self.resize(self.sizeHint().expandedTo(self.minimumSizeHint()))
         self.refresh()
 
@@ -410,8 +402,8 @@ class TechCompareDialog(QDialog):
         fa, fb = ta.full_params(), tb.full_params()
         q = self.search.text().strip().lower()
         out = []
-        sec_title = {sid: sec.header.text() for sid, sec in self._form.sections.items()}
-        for k, f in self._form.fields.items():
+        sec_title = {sid: sec.header.text() for sid, sec in self._techform.sections.items()}
+        for k, f in self._techform.fields.items():
             va, vb = fa.get(k), fb.get(k)
             differs = not T._same(va, vb)
             if self.only_diff.isChecked() and not differs:
