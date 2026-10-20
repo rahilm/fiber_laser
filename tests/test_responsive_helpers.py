@@ -456,3 +456,21 @@ def test_comfortable_width_ignores_folded_summaries(app):
     assert not secs[1].expanded()
     assert p.comfortable_width() == cw0
     p.close()
+
+
+def test_responsive_form_size_hint_is_the_beside_one(app):
+    """A form's preferred size is its labels beside the fields, whatever arrangement it has
+    now (stacked in a narrow dock it asked for less and the dock stayed narrow)."""
+    from PySide6.QtWidgets import QSpinBox
+    form = R.ResponsiveForm()
+    for i in range(3):
+        form.addRow(f"A rather long label {i}", QSpinBox())
+    form.resize(form.needed_beside() + 40, 200)
+    form.show()
+    _pump(app)
+    assert form.beside()
+    sh = form.sizeHint()
+    form.resize(form.needed_beside() - 20, 300)
+    _pump(app)
+    assert not form.beside() and form.sizeHint() == sh
+    form.close()

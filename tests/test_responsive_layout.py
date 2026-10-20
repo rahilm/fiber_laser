@@ -711,10 +711,25 @@ def test_live_resize_recovers(win, app):
         after = _geometry(win)
         diff = {k: (before.get(k), after.get(k)) for k in set(before) | set(after)
                 if not _same(before.get(k), after.get(k))}
-        assert not diff, (ws, diff)
+        assert not diff, (ws, diff, _dock_report(win))
     rep.write("live_resize")
     text = _fail_text(rep.rows)
     assert not text, text
+
+
+def _dock_report(win) -> dict:
+    """Why a dock has its width (a failed recovery's message): natural and minimum widths,
+    the user's remembered width, the panel's hint."""
+    pol = getattr(win.shell, "dock_policy", None) or getattr(win, "dock_policy", None)
+    out = {}
+    for d in win.shell.host.docks():
+        if d.isVisible() and not d.isFloating():
+            inner = d.widget()
+            out[d.objectName()] = {
+                "w": d.width(), "min": d.minimumSizeHint().width(),
+                "hint": inner.sizeHint().width() if inner is not None else None,
+                "pref": pol.prefs.get(d.objectName()) if pol is not None else None}
+    return out
 
 
 def _same(a, b, tol: int = 4) -> bool:

@@ -419,6 +419,21 @@ class ResponsiveForm(QWidget):
         w = max(self._label_w(), self._field_min(), self._span_min()) + m.left() + m.right()
         return QSize(w, super().minimumSizeHint().height())
 
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        """What it wants: labels beside the fields, whatever arrangement it has now.  The grid's
+        own hint is the current arrangement's, so a form stacked in a narrow dock asked for
+        less, the dock stayed narrow and the form stacked (live resizing ended with the
+        Properties dock 63 px wider than it started, macOS CI)."""
+        m = self._grid.contentsMargins()
+        hs = self._grid.horizontalSpacing()
+        hs = hs if hs >= 0 else _spacing(self)
+        fields = [max(f.sizeHint().width(), f.minimumSizeHint().width(), f.minimumWidth())
+                  for lab, f in self._rows if not _hidden(f) and lab is not None]
+        spans = [max(f.sizeHint().width(), f.minimumSizeHint().width(), f.minimumWidth())
+                 for lab, f in self._rows if not _hidden(f) and lab is None]
+        w = max(self._label_w() + hs + max(fields, default=0), max(spans, default=0)) + m.left() + m.right()
+        return QSize(w, self._height(w, True))
+
     def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
         return True
 
