@@ -145,6 +145,11 @@ class PluginsDialog(Dialog):
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.verticalHeader().hide()
+        from .responsive import ColumnFitter      # no sideways scrolling: later columns hide first
+        n = len(self.COLUMNS)
+        # the "enabled" check box stays longest (it is the column one edits), then status,
+        # authority, target, package
+        self.table.column_fitter = ColumnFitter(self.table, {0: 10, 1: 4, 2: None, 3: 2, 4: 1, 5: 3}, stretch=2)
         for r, (info, st) in enumerate(self.catalog):
             chk = QTableWidgetItem()
             flags = Qt.ItemIsUserCheckable | Qt.ItemIsSelectable

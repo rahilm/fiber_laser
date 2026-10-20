@@ -141,6 +141,12 @@ def _table(headers: list[str], stretch: Optional[int] = None) -> QTableWidget:
         t.setTextElideMode(Qt.ElideRight)
     t.verticalHeader().hide()
     t.setEditTriggers(QAbstractItemView.NoEditTriggers)
+    # no sideways scrolling (rule R2): with a wider font the columns' contents outgrew the
+    # dialog's own size (Windows CI); the later columns hide first, the key column never does
+    from .responsive import ColumnFitter
+    key = stretch if stretch is not None else 0
+    t.column_fitter = ColumnFitter(t, {i: (None if i == key else len(headers) - i) for i in range(len(headers))},
+                                   stretch=stretch)
     return t
 
 

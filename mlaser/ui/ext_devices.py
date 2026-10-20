@@ -17,7 +17,7 @@ from PySide6.QtGui import QPainter, QPen, QPolygonF
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox,
                                QFileDialog, QLabel,
                                QLineEdit, QPlainTextEdit, QSpinBox, QTableWidget,
-                               QTableWidgetItem, QWidget, QHeaderView)
+                               QTableWidgetItem, QWidget, QHeaderView, QStyle)
 
 from mlaser.devices import pendant as P
 from mlaser.devices.follower import STATUS_FIELDS, CalibrationTable, FollowerStatus, OnBoardFollower
@@ -121,6 +121,12 @@ class FollowerDialog(Dialog):
         self.grid.setHorizontalHeaderLabels(["Height", "Raw"])
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.grid.verticalHeader().hide()
+        # both columns stretch: at least as wide as their headers (font-based), so the table
+        # never scrolls sideways at the dialog's own size (Windows CI)
+        hh = self.grid.horizontalHeader()
+        self.grid.setMinimumWidth(sum(hh.sectionSizeHint(i) for i in range(self.grid.columnCount()))
+                                  + 2 * self.grid.frameWidth()
+                                  + self.grid.style().pixelMetric(QStyle.PM_ScrollBarExtent, None, self.grid))
         self.grid.itemChanged.connect(self._grid_changed)
         cal.addWidget(self.grid, 1)
         self.plot = CurvePlot()
