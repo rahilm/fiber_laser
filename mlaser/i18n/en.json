@@ -594,6 +594,9 @@
   "io.stop": "Stop",
   "io.system_reset": "System Reset",
   "io.the_machine_is_moving_this_command_is": "The machine is moving; this command is not available now.",
+  "jog.centre": "Origin",
+  "jog.centre_tip": "Go to origin: move to the program zero",
+  "jog.stopped": "Jog stopped",
   "labels.cmd.etch_part_ids": "Etch part IDs",
   "labels.cmd.job_tickets": "Job tickets (PDF)...",
   "labels.cmd.part_labels": "Part labels (PDF)...",
@@ -1235,6 +1238,8 @@
   "panel.home": "Go to zero",
   "panel.home_z": "Home Z",
   "panel.laser": "Laser",
+  "panel.laser_fires": "Fires the laser while held",
+  "panel.laser_needs_arm": "Arm the laser to fire it",
   "panel.laser_offline": "Laser <Offline>",
   "panel.laser_power_pct": "Laser Power (%)",
   "panel.laser_ready": "Laser <Ready>",
@@ -2810,6 +2815,10 @@
   "run.set.remnant_auto": "Save the leftover of a nested sheet as a remnant",
   "run.set.remnant_min_area": "Smallest remnant area",
   "run.set.remnant_min_width": "Smallest remnant width",
+  "run.start_more": "More ways to start",
+  "run.start_options": "Start options",
+  "run.start_selection": "Start selection only",
+  "run.start_selection_none": "Start selection: select the parts to cut first",
   "run.state.alarm": "ALARM",
   "run.state.fault": "FAULT",
   "run.state.hold": "HOLD",
@@ -2819,6 +2828,9 @@
   "run.tab.live": "Live view",
   "run.tab.queue": "Queue",
   "run.times": "elapsed {elapsed}   ETA {eta}",
+  "run.tip.arm": "Arm or disarm laser emission",
+  "run.tip.dry_run": "Run the job with the laser off",
+  "run.tip.frame": "Trace the job outline, laser off (F6)",
   "run.tip.hold": "Hold / continue (Space)",
   "run.tip.start": "Start or continue (F5): pre-flight check first",
   "run.tip.stop": "Stop the job (Esc or F12)",
@@ -2828,6 +2840,30 @@
   "run.val.position": "X {x}  Y {y}  Z {z} {unit}",
   "run.val.power": "Power {v} %",
   "run.val.speed": "Speed {v}",
+  "run.why.fault": "Reset the fault first",
+  "run.why.held": "Held: Start continues the job",
+  "run.why.laser_off": "Laser output is disabled (dry-run mode)",
+  "run.why.no_breakpoint": "No job is held at a breakpoint",
+  "run.why.no_job": "No job is running",
+  "run.why.offline": "Connect the machine or the simulator first",
+  "run.why.running": "Not while a job runs",
+  "safety.alarm.fault": "FAULT: {fault}",
+  "safety.alarm.more": "(+{n} more)",
+  "safety.alarm.remedy": "Remedy: {text}",
+  "safety.alarm.since": "since {time}",
+  "safety.alarm.title": "ALARM {code}: {text}",
+  "safety.banner.arm": "Arm laser…",
+  "safety.banner.armed": "ARMED: laser emission enabled",
+  "safety.banner.disarmed": "DISARMED: the laser cannot fire",
+  "safety.banner.dry_run": "DRY-RUN: laser output disabled",
+  "safety.banner.fault": "FAULT",
+  "safety.banner.fault_latched": "FAULT (latched): {fault}",
+  "safety.banner.offline": "OFFLINE",
+  "safety.banner.on_simulator": "simulator",
+  "safety.banner.reset": "Reset",
+  "safety.banner.simulator": "SIMULATOR: no machine",
+  "safety.banner.simulator_disarmed": "SIMULATOR: disarmed",
+  "safety.dont_ask": "Don't ask again",
   "safety.io.active": "Alarm when",
   "safety.io.button": "Safety I/O...",
   "safety.io.door": "Door / guard interlock",
@@ -2852,11 +2888,24 @@
   "safety.io.refused": "The controller refused the new safety I/O configuration; the previous one stays active.",
   "safety.io.title": "Safety I/O",
   "safety.io.unwired": "not wired",
+  "safety.locked.breakpoint": "{what}: not available while a job is paused at a breakpoint (resume it, or stop it to discard the breakpoint first)",
+  "safety.locked.running": "{what}: not available while a job is running (stop or finish it first)",
+  "safety.locked.this": "This action",
+  "safety.locked.title": "Job running",
   "safety.notice.not_configured": "{name} not configured",
   "safety.notice.not_fitted": "{name} not fitted (declared)",
   "safety.notice.pending": "change pending: applies when the machine is disarmed and idle",
   "safety.notice.prefix": "Safety I/O:",
   "safety.notice.refused": "the last change was refused by the controller",
+  "safety.preflight.continue": "Continue",
+  "safety.preflight.errors": "{n} problem(s) block this action.",
+  "safety.preflight.title": "Pre-flight check: {action}",
+  "safety.preflight.warnings": "{n} warning(s): continue anyway?",
+  "safety.recovery.not_now": "Not now",
+  "safety.recovery.question": "Recover the last document and the breakpoint of the interrupted job?",
+  "safety.recovery.recover": "Recover",
+  "safety.recovery.text": "The last session ended abnormally (crash, power loss or forced exit).",
+  "safety.recovery.title": "Previous run interrupted",
   "safety.set.door_input": "Door interlock: card input",
   "safety.set.door_open_active": "Door interlock: alarm when the input is on",
   "safety.set.follower": "Follower alarm interlock",
@@ -3348,6 +3397,8 @@
   "shell.ws.report.desc": "Production, job statistics, costs and the alarm history",
   "shell.ws.run": "Run",
   "shell.ws.run.desc": "The operator screen: load a job, home, frame, cut, alarms and breakpoint resume",
+  "status.motion_alarm": "Motion card: ALARM {code}",
+  "status.motion_fault": "Motion card: FAULT",
   "status.speed": "Speed{unit}: {speed:.1f}",
   "tech.base.defaults": "the default values",
   "tech.base.factory": "the factory version",
@@ -3934,6 +3985,7 @@
   "ws.machine.mon_follower": "Follower (FTC)",
   "ws.machine.not_homed": "NOT homed",
   "ws.machine.offline": "offline",
+  "ws.machine.open_procedure": "Open…",
   "ws.machine.origins": "Tool origins ({unit}): {tools}",
   "ws.machine.p_comm": "First-connection checklist: network, scaling, soft limits, homing, watchdog, jog directions.",
   "ws.machine.p_edge_cap": "Find the sheet corner and angle with the capacitive follower; check the outline, then rotate the drawing (undoable).",
@@ -4204,6 +4256,43 @@
   ],
   "run.load.tech": [
    "tech"
+  ],
+  "safety.alarm.fault": [
+   "fault"
+  ],
+  "safety.alarm.more": [
+   "n"
+  ],
+  "safety.alarm.remedy": [
+   "text"
+  ],
+  "safety.alarm.since": [
+   "time"
+  ],
+  "safety.alarm.title": [
+   "code",
+   "text"
+  ],
+  "safety.banner.fault_latched": [
+   "fault"
+  ],
+  "safety.locked.breakpoint": [
+   "what"
+  ],
+  "safety.locked.running": [
+   "what"
+  ],
+  "safety.preflight.errors": [
+   "n"
+  ],
+  "safety.preflight.title": [
+   "action"
+  ],
+  "safety.preflight.warnings": [
+   "n"
+  ],
+  "status.motion_alarm": [
+   "code"
   ],
   "status.speed": [
    "unit",

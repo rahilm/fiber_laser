@@ -67,6 +67,11 @@ TYPE_SCALE: dict[str, tuple[float, QFont.Weight]] = {
     "display_run": (2.0, QFont.Bold),      # the Run screen's machine state and STOP
 }
 
+#: fixed icon tints for state icons (Start, Hold, STOP, alarms): mid tones that read on a light and
+#: a dark background alike (an icon is never the only cue: it has its text)
+ICON_TINTS = {"success": "#2f9e44", "warning": "#e67700", "danger": "#e03131", "info": "#1c7ed6",
+              "neutral": "#333333"}
+
 #: the semantic colour roles every theme defines (shell/theme.py THEMES)
 ROLES = ("danger", "on_danger", "danger_fill", "warning", "warning_fill", "on_warning", "info",
          "info_fill", "on_info", "success", "success_fill", "on_success", "muted", "text", "window",
@@ -646,7 +651,7 @@ def walk_disabled_without_reason(root: QWidget, types: Iterable[type] = (QAbstra
 
 
 __all__ = ["SP0", "SP1", "SP2", "SP3", "SP4", "SP5", "ICON_S", "ICON_M", "ICON_L", "TARGET", "TARGET_TOUCH",
-           "TARGET_RUN", "STOP_EXTRA", "MARGINS", "TYPE_SCALE", "ROLES", "margins", "spacing", "vbox", "hbox",
+           "TARGET_RUN", "STOP_EXTRA", "MARGINS", "TYPE_SCALE", "ROLES", "ICON_TINTS", "margins", "spacing", "vbox", "hbox",
            "font", "set_font", "caption", "heading", "menu_text", "shortcut_text", "color", "css",
            "state_colors", "styled", "chip", "button", "primary_button", "danger_button", "tool_button",
            "RUN_KINDS", "run_text", "run_button", "button_row", "set_enabled", "set_tooltip", "form",
