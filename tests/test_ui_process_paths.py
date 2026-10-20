@@ -446,6 +446,17 @@ def test_compare_two_technologies(win, app):
 
 
 # --------------------------------------------------------------------------- reflow
+def _table_geometry(tb) -> str:
+    """What decides a table's sideways scroll range (the failure message: the platform styles
+    differ in frames, header metrics and scroll bars)."""
+    hh = tb.horizontalHeader()
+    shown = {c: hh.sectionSize(c) for c in range(tb.columnCount()) if not tb.isColumnHidden(c)}
+    return (f"style {tb.style().name()} table {tb.width()} viewport {tb.viewport().width()} "
+            f"header {hh.width()} length {hh.length()} min section {hh.minimumSectionSize()} "
+            f"sections {shown} vbar {tb.verticalScrollBar().isVisible()} "
+            f"({tb.verticalScrollBar().width()}) frame {tb.frameWidth()} mode {tb.horizontalScrollMode()}")
+
+
 @pytest.mark.parametrize("width", [220, 260, 340, 520, 900])
 def test_panels_never_scroll_sideways(app, width):
     from mlaser.ui.i18n import Translator
@@ -465,7 +476,7 @@ def test_panels_never_scroll_sideways(app, width):
     lp.resize(width, 300)
     lp.show()
     pump(app, 0.02)
-    assert lp.table.horizontalScrollBar().maximum() == 0
+    assert lp.table.horizontalScrollBar().maximum() == 0, _table_geometry(lp.table)
     assert not lp.table.isColumnHidden(0)
     f.close()
     lp.close()
