@@ -81,10 +81,17 @@ class OnshapeWorkspace(QWidget):
         self.b_cancel = QPushButton("Cancel")
         self.b_cancel.setEnabled(False)
         self.b_cancel.clicked.connect(self.cancel)
-        for b in (self.b_sel, self.b_face, self.b_go, self.b_orders, self.b_cancel):
-            bar.addWidget(b)
+        # two rows, so the panel fits a 1280 px window next to the tabs
+        bar.addWidget(self.b_sel)
+        bar.addWidget(self.b_face)
         bar.addStretch(1)
+        bar.addWidget(self.b_cancel)
         rl.addLayout(bar)
+        bar2 = QHBoxLayout()
+        bar2.addWidget(self.b_go)
+        bar2.addWidget(self.b_orders)
+        bar2.addStretch(1)
+        rl.addLayout(bar2)
         pl = QHBoxLayout()
         self.progress = QProgressBar()
         self.progress.setRange(0, 1)
@@ -121,7 +128,9 @@ class OnshapeWorkspace(QWidget):
         sc.setMinimumHeight(150)
         rl.addWidget(sc, 1)
         split.addWidget(right)
+        split.setStretchFactor(0, 2)
         split.setStretchFactor(1, 3)
+        split.setSizes([420, 900])
 
     def _browse_tab(self) -> QWidget:
         w = QWidget()

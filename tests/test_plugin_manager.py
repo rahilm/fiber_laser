@@ -543,3 +543,20 @@ def test_bundle_self_check(isolated, tmp_path):
     path = list(sys.path)
     assert "discovered and imported" in PM.self_check(tmp_path / "check")
     assert sys.path == path and "mlaser_selfcheck_plugin" not in sys.modules
+
+
+
+def test_install_and_update_read_the_index_fresh(isolated, repo):
+    """A version published after the index was cached is what an explicit install / update /
+    update check gets; the cache is for browsing and for offline use."""
+    tmp = isolated
+    w1 = build_wheel(tmp)
+    pm = manager(tmp, [serve(repo, tmp, [w1])])
+    assert [p.id for p in pm.search("")] == ["demo"]           # caches the index (0.1.0)
+    w2 = build_wheel(tmp, version="0.2.0")
+    serve(repo, tmp, [w1, w2])
+    assert pm.install("demo")["version"] == "0.2.0"
+    w3 = build_wheel(tmp, version="0.3.0")
+    serve(repo, tmp, [w1, w2, w3])
+    assert [u["available"] for u in pm.check_updates()] == ["0.3.0"]
+    assert pm.update("demo")["updated"] and pm.installed()["demo"]["version"] == "0.3.0"

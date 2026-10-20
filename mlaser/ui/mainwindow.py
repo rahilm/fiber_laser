@@ -322,6 +322,8 @@ class MainWindow(QMainWindow):
         extra = dict(opts.pop("extra", {}) or {})
         extra["canvas_given"] = "canvas" in opts
         extra["min_mode_given"] = "min_mode" in opts
+        if opts.pop("exclusive", False):
+            extra["exclusive_docks"] = True   # every docked panel hidden while it is active
         if "toolbar" in opts:
             opts["toolbar"] = tuple(opts["toolbar"] or ())
         if opts.get("docks") is not None:

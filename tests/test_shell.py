@@ -89,6 +89,27 @@ def test_workspace_docks_follow(win, app):
     assert not win.right_dock.isHidden() and not win.left_dock.isHidden()
 
 
+def test_plugin_workspace_can_be_exclusive(win, app):
+    """``add_workspace(..., exclusive=True)``: no docked panel shares the window while it is
+    active; leaving it brings the docks back (and the run bar is not a dock)."""
+    from PySide6.QtWidgets import QDockWidget, QLabel as _L
+
+    from mlaser.services.plugins import PluginContext
+    ctx = PluginContext(win, "wide_test")
+    ctx.add_workspace("wide", _L("wide"), "Wide", exclusive=True)
+    win.show_workspace("design")
+    _pump(app)
+    assert not win.left_dock.isHidden()
+    win.show_workspace("wide_test.wide")
+    _pump(app)
+    docked = [d.objectName() for d in win.findChildren(QDockWidget)
+              if d.parent() is win and d.isVisible() and not d.isFloating()]
+    assert docked == [], docked
+    win.show_workspace("design")
+    _pump(app)
+    assert not win.left_dock.isHidden() and not win.right_dock.isHidden()
+
+
 def test_window_keeps_its_size_with_every_workspace(win, app):
     for ws in win.shell.host.visible_ids():
         win.show_workspace(ws)

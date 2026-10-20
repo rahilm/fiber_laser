@@ -158,6 +158,7 @@ Options (all optional; `mlaser.services.workspaces.WorkspaceSpec`):
 | `canvas` | `True`: the page shows the shared canvas; `widget` goes into a side panel |
 | `toolbar` | command ids of the slim workspace toolbar (`"-"` = separator), at most ~15 |
 | `docks` | dock object names shown while active (`lp0` layers/parts, `mf141` run control, `mf124` log, `mf460` nest; your own `ctx.add_dock(..., key=...)`); a dock that some workspace lists but the active one does not is hidden, docks no workspace lists are left alone; `()` = no docks |
+| `exclusive` | `True`: no docked panel shares the window while it is active (the docks come back on leaving), for a full-width workspace; the run bar (STOP / Hold / Start) is not a dock and stays |
 | `description` | one line for the rail tooltip and the placeholder |
 | `slot` | the slot to fill, when `name`/`title` do not say it |
 

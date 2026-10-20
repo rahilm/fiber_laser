@@ -35,6 +35,7 @@ class OnshapePlugin:
         from .ui import OnshapeWorkspace
         self.workspace = OnshapeWorkspace(self.service)
         ctx.add_workspace("onshape", self.workspace, "Onshape", icon="file-import", order=35, min_mode="engineer",
+                          exclusive=True,
                           description="Onshape parts to DXF order lines")
         ctx.register_command("onshape.refresh", self.workspace.reload_documents, label="Onshape: refresh documents",
                              min_mode="engineer")

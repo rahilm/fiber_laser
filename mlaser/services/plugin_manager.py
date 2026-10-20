@@ -1181,7 +1181,7 @@ class PluginManager:
         pid = pid.strip()
         if not ID_RE.match(pid):
             raise PluginError(f"{source!r}: not a plugin id, wheel, URL or github:<owner>/<repo>", "usage")
-        p = self.find(pid)
+        p = self.find(pid, refresh=True)   # an explicit install reads the index fresh (cache only offline)
         return self._from_entry(p, ver.strip() or version, pre, {"kind": "repository", "repository": p.repository,
                                                                   "id": pid})
 
@@ -1385,7 +1385,7 @@ class PluginManager:
         return {"id": plugin_id, "version": rec.get("version"), "files_removed": removed, "purged": purge_data}
 
     # ------------------------------------------------------------------ updates
-    def check_updates(self, refresh: bool = False, pre: bool = False) -> list[dict]:
+    def check_updates(self, refresh: bool = True, pre: bool = False) -> list[dict]:
         """Newer compatible versions in the repositories for the plugins the manager installed."""
         inst = self.installed()
         if not inst:
@@ -1421,7 +1421,7 @@ class PluginManager:
         old = inst.get(plugin_id)
         if old is None:
             raise NotFoundError(f"{plugin_id!r} was not installed by the plugin manager")
-        p = self.find(plugin_id)
+        p = self.find(plugin_id, refresh=True)
         best = p.best(self.plugin_api, version, pre)
         if best is None:
             raise RefusedError(f"{plugin_id}: no compatible version in the repositories", "incompatible")

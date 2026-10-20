@@ -88,7 +88,7 @@ HOOKS = ("controller_changed", "mode_changed", "document_changed", "plan", "clos
          "document_imported")         # fn(path, document) after File > Open / Import read a drawing
 #: the options of ``PluginContext.add_workspace`` (WorkspaceSpec fields a plugin may set)
 WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar", "docks",
-                     "description", "slot")
+                     "description", "slot", "exclusive")
 
 
 #: command namespaces of the core (safety controls, shell, workspaces): only built-in plugins
@@ -424,7 +424,8 @@ class PluginContext:
         rail button.  ``options`` are :class:`mlaser.services.workspaces.WorkspaceSpec` fields:
         ``icon`` (Tabler name), ``order``, ``shortcut``, ``min_mode``, ``canvas`` (show the
         shared canvas, ``widget`` as its side panel), ``toolbar`` (command ids), ``docks``
-        (dock object names shown in it), ``description``, ``slot``.  Returns ``widget``.
+        (dock object names shown in it), ``description``, ``slot``, ``exclusive`` (True: no
+        docked panel shares the window while it is active, like the Run screen).  Returns ``widget``.
         The id is ``"<plugin>.<name>"``; the three-argument form of Wave 2 still works."""
         unknown = set(options) - set(WORKSPACE_OPTIONS)
         if unknown:
