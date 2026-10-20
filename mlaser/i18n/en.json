@@ -3645,7 +3645,8 @@
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
-  "ws.run": "Run"
+  "ws.run": "Run",
+  "process.cmd.library": "Technology library"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [

@@ -176,6 +176,7 @@ class ProcessExtension:
         ctx.register_command("process.show", self.show_process, label="process.cmd.show")
         ctx.register_command("process.apply", self.workspace.apply_selected, label="process.cmd.apply")
         ctx.register_command("process.rates", self.rates_dialog, label="process.cmd.rates")
+        ctx.register_command("process.library", self.show_library, label="process.cmd.library")
         ctx.register_command("props.show", self.show_properties, label="props.cmd.show")
         ctx.register_command("preview.play", self.play, label="preview.cmd.play")
         ctx.register_command("preview.clear", self.scrubber.clear, label="preview.cmd.clear")
@@ -187,6 +188,11 @@ class ProcessExtension:
         """The Process workspace (the shell's rail); a host without the shell shows the panel."""
         if not self.ctx.show_workspace(f"{self.ctx.name}.process"):
             self.workspace.show()
+
+    def show_library(self) -> None:
+        """Process › Library (the technology records): the workspace on its Library page."""
+        self.show_process()
+        self.workspace.show_page(1)
 
     def show_properties(self) -> None:
         self.props_dock.show()
