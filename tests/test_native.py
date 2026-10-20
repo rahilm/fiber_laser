@@ -431,3 +431,11 @@ def test_macos_shell_integration(win, app):
     native.mac_badge("")
     if QGuiApplication.platformName() == "cocoa":
         assert native.mac_activate() and native.mac_activation_policy() == "regular"
+
+
+def test_linux_launcher_entry_signal():
+    cmd = native.LinuxLauncher.command("gdbus", 0.42, False)
+    assert cmd[:3] == ["gdbus", "emit", "--session"] and "com.canonical.Unity.LauncherEntry.Update" in cmd
+    assert cmd[-2] == "application://io.github.mlaser.desktop"
+    assert "'progress': <0.420>" in cmd[-1] and "'progress-visible': <true>" in cmd[-1]
+    assert "'progress-visible': <false>" in native.LinuxLauncher.command("gdbus", None, True)[-1]

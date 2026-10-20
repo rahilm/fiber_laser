@@ -79,10 +79,13 @@ def _mac_state() -> dict[str, Any]:
             item = oc.send(ctypes.c_void_p, main_menu, "itemAtIndex:", (ctypes.c_long, i))
             s = oc.send(ctypes.c_void_p, item, "title")
             titles.append(oc.send(ctypes.c_char_p, s, "UTF8String").decode("utf-8", "replace") if s else "")
+        hm = oc.send(ctypes.c_void_p, app, "helpMenu")
+        hm_title = oc.send(ctypes.c_void_p, hm, "title") if hm else None
+        help_menu = oc.send(ctypes.c_char_p, hm_title, "UTF8String").decode() if hm_title else None
         bundle = oc.send(ctypes.c_void_p, oc.cls("NSBundle"), "mainBundle")
         bid = oc.send(ctypes.c_void_p, bundle, "bundleIdentifier")
         return {"activation_policy": {0: "regular", 1: "accessory", 2: "prohibited"}.get(int(policy), policy),
-                "is_active": bool(active), "ns_main_menu": titles,
+                "is_active": bool(active), "ns_main_menu": titles, "help_menu": help_menu,
                 "bundle_id": oc.send(ctypes.c_char_p, bid, "UTF8String").decode() if bid else None}
     except Exception as exc:  # noqa: BLE001 - diagnostics only
         return {"error": repr(exc)}

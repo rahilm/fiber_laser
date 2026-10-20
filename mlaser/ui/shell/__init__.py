@@ -576,14 +576,21 @@ class Shell:
             prog = 0.0
             if running:
                 try:
-                    prog = float(getattr(ctl.state(), "progress", 0.0) or 0.0)
-                except Exception:  # noqa: BLE001
+                    prog = float(ctl.state().progress or 0.0)
+                except Exception:  # noqa: BLE001 - a controller without a state snapshot
                     prog = 0.0
             self.native.job_feedback(running, prog, bool(alarms) or getattr(st, "banner", "") == "FAULT")
 
     # ------------------------------------------------------------------ layout
     def _first_show(self) -> None:
         w = self.w
+        # the canvas starts with the keyboard focus (its one-key tools, Space = Hold while a job
+        # runs), not the first widget of the chain: the command search field
+        from PySide6.QtWidgets import QApplication
+        fw = QApplication.focusWidget()
+        canvas = getattr(w, "canvas", None)
+        if canvas is not None and canvas.isVisible() and (fw is None or fw is getattr(self.topbar, "search", None)):
+            canvas.setFocus(Qt.OtherFocusReason)
         if self._default_state is None:
             self.fit_docks()
             self._default_state = w.saveState(LAYOUT_VERSION)

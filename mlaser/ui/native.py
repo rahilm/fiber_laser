@@ -425,29 +425,37 @@ def linux_platform_theme(environ: Optional[dict] = None, plugin_dir: Optional[st
 
 
 class LinuxLauncher:
-    """Unity LauncherEntry (KDE Plasma, Ubuntu Dock, Dash to Dock): progress on the launcher icon."""
+    """Unity LauncherEntry (KDE Plasma, Ubuntu Dock, Dash to Dock): progress and urgency on the
+    launcher icon.  The D-Bus signal goes out through ``gdbus`` (GLib's tool, on every desktop
+    that shows launcher progress): the bundle does not ship QtDBus.  Sent only on a change."""
 
-    def __init__(self) -> None:
+    def __init__(self, gdbus: Optional[str] = None) -> None:
+        import shutil
         self._last: Optional[tuple] = None
+        self.gdbus = gdbus if gdbus is not None else (shutil.which("gdbus") or "")
+
+    @staticmethod
+    def command(gdbus: str, fraction: Optional[float], urgent: bool) -> list[str]:
+        props = (f"{{'progress': <{float(fraction or 0.0):.3f}>, "
+                 f"'progress-visible': <{'true' if fraction is not None else 'false'}>, "
+                 f"'urgent': <{'true' if urgent else 'false'}>}}")
+        return [gdbus, "emit", "--session", "--object-path", "/io/github/mlaser",
+                "--signal", "com.canonical.Unity.LauncherEntry.Update",
+                f"application://{APP_ID}.desktop", props]
 
     def progress(self, fraction: Optional[float], urgent: bool = False) -> bool:
-        if platform_id() != LINUX:
+        if platform_id() != LINUX or not self.gdbus or not os.environ.get("DBUS_SESSION_BUS_ADDRESS"):
             return False
         key = (None if fraction is None else round(fraction, 2), urgent)
         if key == self._last:
             return True
         self._last = key
         try:
-            from PySide6.QtDBus import QDBusConnection, QDBusMessage
-            bus = QDBusConnection.sessionBus()
-            if not bus.isConnected():
-                return False
-            msg = QDBusMessage.createSignal("/io/github/mlaser", "com.canonical.Unity.LauncherEntry", "Update")
-            props = {"progress-visible": fraction is not None, "progress": float(fraction or 0.0),
-                     "urgent": bool(urgent)}
-            msg.setArguments([f"application://{APP_ID}.desktop", props])
-            return bool(bus.send(msg))
-        except Exception as exc:  # noqa: BLE001
+            import subprocess
+            subprocess.Popen(self.command(self.gdbus, fraction, urgent), stdin=subprocess.DEVNULL,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            return True
+        except OSError as exc:
             log.info("launcher progress failed: %s", exc)
             return False
 
