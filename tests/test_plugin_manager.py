@@ -505,7 +505,7 @@ def test_plugin_icon_from_the_manifest(isolated, tmp_path):
     pm.install(str(whl))
     PM.activate_site()
     info = next(i for i in P.discover((), entry_points=True) if i.name == "demo")
-    assert info.icon.endswith("mlaser_demo/icons/demo.svg") and Path(info.icon).is_file()
+    assert Path(info.icon).as_posix().endswith("mlaser_demo/icons/demo.svg") and Path(info.icon).is_file()
     host = FakeHost(pm.config)
     ctx, _ = P.register_plugin(host, info)
     assert ctx.icon == info.icon

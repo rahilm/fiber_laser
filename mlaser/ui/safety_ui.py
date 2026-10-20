@@ -29,6 +29,8 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialo
                                QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTextEdit,
                                QToolBar, QVBoxLayout, QWidget)
 
+from .._power import keep_awake
+
 from ..machine import events as EV
 from . import qtbridge
 from .safety_texts import remedy
@@ -546,6 +548,7 @@ class SafetyUI(QObject):
             self.alarm_bar.setVisible(show)
         running = job_running(self.w)
         self._set_filter(running)
+        keep_awake(running)                 # no idle system sleep while a job runs (macOS, Windows)
         eta = ""
         if running and ms is not None and ms.progress > 0.02 and self._job_t0:
             el = time.monotonic() - self._job_t0

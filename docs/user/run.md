@@ -47,6 +47,15 @@ All targets are at least 56 px high (44 px for the secondary ones), for gloves a
   re-pierce). Arming is asked first when the job fires the laser; the controller checks the
   resumed job again (pre-flight).
 
+## The machine PC during a job
+
+While a job runs, mlaser keeps the computer from going to sleep on its own (macOS and
+Windows; the screen may still turn off).  On macOS it also opts out of App Nap for as long as
+it runs, so its safety display and timers keep their pace when the window is hidden or covered.
+On Linux, switch off automatic suspend in the desktop's power settings on the machine PC.
+None of this replaces the machine's own safety chain: the card halts by itself when the PC
+stops talking to it ([safety](safety.md)).
+
 ## Alarms
 
 When an alarm or a fault is active, the alarm list shows each one with its time and a **remedy**

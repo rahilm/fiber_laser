@@ -433,6 +433,11 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
         os.nice(-5)
     except Exception:  # noqa: BLE001
         pass
+    try:  # macOS: no App Nap for the streaming process (timer coalescing, lowered priority)
+        from mlaser._power import app_activity
+        app_activity("mlaser streams a laser job")
+    except Exception:  # noqa: BLE001
+        pass
     policy = dict(policy or {})
     flags = flags or _shared_flags(mp)
     ppid0 = int(policy.get("ppid", os.getppid()))

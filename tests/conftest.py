@@ -29,6 +29,12 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # interpreter start each).  tests/test_plan_process.py tests the process path explicitly.
 os.environ.setdefault("MLASER_PLAN_PROCESS", "0")
 
+# like the application (mlaser.ui.__main__): no macOS App Nap, which coalesces the timers of a
+# process without a front window (a CI runner) and starves the GUI-latency tests
+from mlaser._power import app_activity  # noqa: E402
+
+app_activity("mlaser test session")
+
 if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
     import faulthandler
     # one file per xdist worker (fault.log.gw0, ...): the workers would overwrite each other

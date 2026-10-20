@@ -90,6 +90,8 @@ def main(argv=None) -> int:
     from .mainwindow import EXTENSIONS, MainWindow
 
     app = QApplication.instance() or QApplication(sys.argv[:1])
+    from mlaser._power import app_activity
+    app_activity()                     # macOS: no App Nap (timers and priority kept)
     from . import i18n
     tr = i18n._default = Translator(lang_dir=args.lang_dir)
     if args.import_lang:
