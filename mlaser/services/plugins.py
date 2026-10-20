@@ -65,7 +65,8 @@ log = logging.getLogger("mlaser.plugins")
 PLUGIN_API = 1
 ENTRY_POINT_GROUP = "mlaser.plugins"
 HOOKS = ("controller_changed", "mode_changed", "document_changed", "plan", "close",
-         "workspace_changed", "user_mode_changed")
+         "workspace_changed", "user_mode_changed",
+         "document_imported")         # fn(path, document) after File > Open / Import read a drawing
 #: the options of ``PluginContext.add_workspace`` (WorkspaceSpec fields a plugin may set)
 WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar", "docks",
                      "description", "slot")

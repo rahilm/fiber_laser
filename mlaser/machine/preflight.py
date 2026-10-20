@@ -12,8 +12,8 @@ Checks:
 * ``layer_undefined``: every layer the parts use must have parameters (in the document, or
   from the machine's layer table).  An undefined layer used to default silently to 100 %
   power at 5000 Hz; it is an **error** for a cut and a warning for laser-off runs;
-* ``open_contour`` (warning), ``zero_length`` (warning), ``bad_geometry`` (NaN / infinite
-  coordinates, error);
+* ``open_contour`` (warning: one line with the count and the first one), ``zero_length``
+  (warning), ``bad_geometry`` (NaN / infinite coordinates, error);
 * ``lead_collision`` / ``tip_risk`` (warnings, :func:`cutting_issues`, added by the UI when the
   ``cam.preflight_*`` settings ask for them);
 * ``out_of_travel``: the extent of the compiled job (exact: every step item from the start
@@ -187,6 +187,7 @@ def _finite(p) -> bool:
 
 
 def check_geometry(document, rep: PreflightReport, selected_only: bool = False) -> None:
+    opened: list[tuple[int, int]] = []
     for pi, part in enumerate(getattr(document, "parts", [])):
         if selected_only and not getattr(part, "selected", False):
             continue
@@ -212,7 +213,18 @@ def check_geometry(document, rep: PreflightReport, selected_only: bool = False) 
             if segs and length <= 1e-9:
                 rep.add("zero_length", WARNING, f"part {pi + 1} contour {ci + 1}: zero length", (pi, ci))
             if segs and not getattr(c, "closed", True):
-                rep.add("open_contour", WARNING, f"part {pi + 1} contour {ci + 1} is open", (pi, ci))
+                opened.append((pi, ci))
+    if opened:
+        # one line, not one per nested copy (review 2: "44 warnings"); the import review
+        # (Design workspace, command import.review) closes the gaps
+        pi, ci = opened[0]
+        n_parts = len({p for p, _c in opened})
+        if len(opened) == 1:
+            msg = f"part {pi + 1} contour {ci + 1} is open"
+        else:
+            msg = (f"{len(opened)} open contours in {n_parts} part{'s' if n_parts != 1 else ''} "
+                   f"(first: part {pi + 1} contour {ci + 1})")
+        rep.add("open_contour", WARNING, msg + ": Repair... closes small gaps", (pi, ci))
 
 
 # ============================================================================ check

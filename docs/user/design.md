@@ -16,7 +16,9 @@ of the Wave 3 interface extends it.*
 | bitmap | raster engraving (**File → Bitmap**), see [Process](process.md) |
 
 The import can clean up the drawing: remove duplicates, join open ends, drop tiny objects and fit
-arcs (**Process → Optimize**).
+arcs (**Process → Optimize**). After a drawing is opened, the **Import review** lists open
+contours (with the gap), duplicates, tiny and zero-length geometry, self-intersections and text
+that was not converted, and fixes them as one undo step: see [Import](import.md).
 
 Files are read in the background: a large file shows a progress window with the number of
 entities read so far and a **Cancel** button, and the rest of the window (the run controls

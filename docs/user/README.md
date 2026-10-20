@@ -14,6 +14,7 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [Safety](safety.md) | arming, pre-flight checks, faults, the laser-off mode, what software cannot do |
 | [Importing your Mlaser setup](importing-mlaser-setup.md) | machine parameters, layer parameters, languages and drawings from an existing Mlaser install |
 | [Design](design.md) | importing DXF/SVG/G-code, drawing and editing, text |
+| [Import](import.md) | the import review (repair), part recognition, orders and parts lists (CSV) |
 | [Process](process.md) | layers, leads, kerf, micro-joints, cooling points, ordering |
 | [Nest](nest.md) | placing parts on sheets, remnants, the nest project |
 | [Cutting strategy](cutting-strategy.md) | lead-in collision check and placement, tipping on the slats, skeleton cut-up, remnant separation cut |

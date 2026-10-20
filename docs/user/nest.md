@@ -6,10 +6,21 @@ Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
   **rotation** of each part and **mirror** (mirrored copies allowed). Rotation: *sheet setting*
   (the Rotation parameter below), *fixed 0°*, *0° / 180°*, *90° steps*, or *with the grain* (the
   part keeps its X axis along the sheet grain: 0° / 180° for grain along X, 90° / 270° for grain
-  along Y). Add the selected parts of the drawing, or import a DXF / .chf / SVG file.
+  along Y).
+  **+ From drawing** adds the drawing's *recognised parts* (an outline with its holes and
+  features is one part, identical parts are counted; the selection, else everything) after a
+  review where parts can be merged or split. **Import file...** takes several DXF / .chf / SVG
+  files at once (each file's parts recognised) or a parts list (.csv, into the Orders tab);
+  files can also be dropped on the workspace. See [Import](import.md#part-recognition).
+* **Orders** (the tab next to Nest): parts lists with quantity, material, thickness, customer,
+  order, due date and priority; **Load into Nest** fills the part list with one material ×
+  thickness group ([Import](import.md#orders-several-files-and-parts-lists)).
 * **Sheets / remnants**: standard sheets (width × height × count) and the remnants in stock that
-  match the material and thickness typed above the list. Tick a remnant to nest on it (remnants
-  are filled first).
+  match the material and thickness above the list. The material and thickness follow the
+  technology on the drawing's layers (set in the Process workspace, or by an order) until you
+  type in them; the material field completes from the technology database, and **Technology**
+  applies the matching technology to the layers the parts use. Tick a remnant to nest on it
+  (remnants are filled first).
 * **Parameters**: spacing and edge distance (mm), rotation, the engine (*Raster*, built in; or
   *Sparrow*, when the optional package `spyrrow` is installed), the time limit.
 * **Options** opens two tabs (every option is off by default):
@@ -33,10 +44,12 @@ Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
   unplaced parts, then fewest sheets, then the best utilisation); click one to go back to it.
 * **Send to queue** writes every sheet as a `.chf` (`<data dir>/production/sheets/`) and adds it
   to the job queue (identical sheets become one entry with their count), with the material,
-  thickness, the sheet outline and the layer parameters. With common line on, the shared edges
-  are cut once. A sheet with a cutting strategy (cut-up or separation lines, tip-avoiding order)
-  is written as a `.mlz` project instead, which keeps the cut order. **Copy sheet to drawing**
-  replaces the drawing with the selected sheet as it is cut (undoable).
+  thickness, the sheet outline, the layer parameters and the customer / order references of the
+  parts on each sheet. With common line on, the shared edges are cut once. A sheet with a
+  cutting strategy (cut-up or separation lines, tip-avoiding order) is written as a `.mlz`
+  project instead, which keeps the cut order. **Copy sheet to drawing** replaces the drawing
+  with the selected sheet as it is cut (undoable) and remembers its material and thickness for
+  the material check at Start.
 
 ## Remnants
 

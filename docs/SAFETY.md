@@ -174,8 +174,10 @@ first on the document to show the dialog.
 | `layer_undefined` (no parameters in the document or the machine layer table; UI placeholders count as undefined) | error for a cut, warning laser-off |
 | `out_of_travel` (card soft limits read back at connect, else `MAC*.SoftLimitMaxLen`) | error |
 | `bad_geometry` (NaN/inf) | error |
-| `open_contour`, `zero_length`, `travel_unknown`, `homed_unknown` | warning |
+| `open_contour` (one line with the count), `zero_length`, `travel_unknown`, `homed_unknown` | warning |
 | `start_gate` (the start gate refused it, §5a) | error |
+| `material_mismatch` (the sheet's material/thickness, from the queue entry or the nest, differs from the technology on a used layer; added by the Orders plugin as a pre-flight contributor and enforced by its `JobService` start guard) | error for a cut; the operator may override it for that one sheet with a confirmation, audited as `material_override` in `audit.log` (`machine/audit.py`) |
+| `material_unverified` (a layer set by hand, a sheet without material), `technology_example` | warning |
 
 The extent of a compiled job is translated to the head: the wire is relative steps, so from a
 head away from the job's start it would run shifted by (head - start).
