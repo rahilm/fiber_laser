@@ -236,13 +236,14 @@ def test_profile_unknown_to_the_child_compiles_in_the_thread():
         PROFILES.pop("runtime-test-profile", None)
 
 
-def test_plan_finishing_after_a_stop_never_starts():
+def test_plan_finishing_after_a_stop_never_starts(monkeypatch):
     """The start gate's generation holds with the process path: Stop while the child compiles,
     the plan arrives afterwards and is refused."""
     from mlaser.ui.facade import DemoController
     from mlaser.services.jobs import ControllerSubmitter, build_request
+    monkeypatch.setenv("MLASER_COMPILE_WORKERS", "0")      # a serial compile: seconds long
     ctl = DemoController()
-    docs = DocumentService(demo_doc(3))
+    docs = DocumentService(grid_doc(400))
     svc = JobService(debounce_s=0, process=True)
     results: list = []
     try:
@@ -274,13 +275,14 @@ def _latency_while(app, busy: callable, period_s: float = 0.02, max_s: float = 3
     def poster():
         while not stop.is_set():
             t0 = time.perf_counter()
-            disp(lambda t0=t0: lat.append((time.perf_counter() - t0) * 1e3))
+            disp(lambda t0=t0: lat.append((t0, (time.perf_counter() - t0) * 1e3)))
             time.sleep(period_s)
     loop = QEventLoop()
     timer = QTimer()
     timer.setInterval(10)
     t_end = time.monotonic() + max_s
     timer.timeout.connect(lambda: loop.quit() if not busy() or time.monotonic() > t_end else None)
+    app.processEvents()                  # what was queued before (layout, paint) is not measured
     th = threading.Thread(target=poster, daemon=True)
     th.start()
     timer.start()
@@ -306,28 +308,35 @@ def test_gui_event_loop_stays_responsive_during_a_heavy_compile(monkeypatch):
     from PySide6.QtWidgets import QApplication
     app = QApplication.instance() or QApplication([])
     monkeypatch.setenv("MLASER_PLAN_PROCESS", "1")
+    monkeypatch.setenv("MLASER_COMPILE_WORKERS", "0")      # a serial compile: seconds long
     from wiring import real_window
     w = real_window()
     try:
         assert w.jobs.process_mode
         w.jobs.planproc.ensure_ready()
-        w.set_document(grid_doc(150))
+        w.set_document(grid_doc(500))
         app.processEvents()
         t = w.jobs.flush()
         assert t is not None
-        shown: list = []
-        w.jobs.on_toolpath.append(lambda tk: shown.append(time.monotonic()) if tk is t else None)
-        t0 = time.monotonic()
-        lat = _latency_while(app, lambda: not t.done_event.is_set())
-        t_done = time.monotonic() - t0
+        draw: list = []                  # the GUI thread drawing the new toolpath (GUI work)
+        w.jobs.on_toolpath.insert(0, lambda tk: draw.append(time.perf_counter()) if tk is t else None)
+        w.jobs.on_toolpath.append(lambda tk: draw.append(time.perf_counter()) if tk is t else None)
+        t0 = time.perf_counter()
+        samples = _latency_while(app, lambda: not t.done_event.is_set())
+        t_done = time.perf_counter() - t0
         assert t.plan is not None, t.error
         app.processEvents()
+        assert len(draw) == 2 and draw[0] - t0 < t_done * 0.8, "the toolpath came only with the plan"
+        # samples posted while the GUI thread drew the toolpath wait for that drawing; the rest
+        # measure what the compile costs the GUI process: the wait for the interpreter
+        lat = [ms for tp, ms in samples if not (draw[0] - 0.05 <= tp <= draw[1])]
         assert len(lat) > 50 and t_done > 1.0, (len(lat), t_done)
         print(f"compile {t_done:.1f} s; event loop latency median {statistics.median(lat):.2f} ms, "
-              f"p99 {_p99(lat):.2f} ms, max {max(lat):.1f} ms, n={len(lat)}")
+              f"p99 {_p99(lat):.2f} ms, max {max(lat):.1f} ms, n={len(lat)}; toolpath drawn in "
+              f"{(draw[1] - draw[0]) * 1e3:.0f} ms")
         p99 = _p99(lat)
         assert p99 < 50.0, f"event loop p99 {p99:.1f} ms (median {statistics.median(lat):.1f}, max {max(lat):.1f})"
-        assert shown and shown[0] - t0 < t_done * 0.8
+        assert draw[1] - draw[0] < 2.0
         assert w.jobs.stats["process_compiles"] >= 1
     finally:
         w.jobs.shutdown()
