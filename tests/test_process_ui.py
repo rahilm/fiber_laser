@@ -223,3 +223,19 @@ def test_large_plan_builds_its_timeline_on_play(win, app, monkeypatch):
     assert ext.timeline is not None and ext.scrubber.playing
     ext.scrubber.pause()
     assert ext.workspace.card.card is not None
+
+
+def test_scrubber_minimum_height_follows_its_wrapped_state_line(win, app):
+    """The scrubber's state line wraps, and its dock does not lay out by height for width: the
+    widget's minimum height is what its layout needs at its width (macOS runner: the wrapped
+    line got 30 of 32 px in the Process preview dock)."""
+    win.resize(1280, 800)
+    win.show()
+    win.shell.host.activate("process")
+    sc = _ext(win).scrubber
+    sc.state_label.setText("Settling · laser off · contour 1 / 8 · " * 4)
+    for _ in range(6):
+        app.processEvents()
+    assert sc.isVisible()
+    need = sc.layout().totalHeightForWidth(sc.width())
+    assert sc.minimumSizeHint().height() >= need
