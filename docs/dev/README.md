@@ -10,6 +10,7 @@
 | [Testing](TESTING.md) | test suites and markers, goldens, the contract checked on every commit |
 | [Parity](PARITY.md) | how behaviour is kept identical to the original, profiles, the Wine harness |
 | [Native project format](project-format.md) | the `.mlz` project file |
+| [Display units audit](units-audit.md) | every site that shows or takes a length, speed, area or pressure, its status in imperial, the allowlist |
 | [Translations and fonts](i18n.md) | the string catalogue, Qt Linguist, the i18n check, the cutting-text font |
 | [Release](RELEASE.md) | versioning, packaging, the release checklist |
 | [Safety architecture](../SAFETY.md) | state machine, command policy, pre-flight, streaming, watchdog |

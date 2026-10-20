@@ -132,6 +132,17 @@ def layer_info(doc: Any, layer: int, pressure_unit: int = 0) -> LayerInfo:
                      ref.get("density_g_cm3"), float(key.get("thickness_mm", 0.0) or 0.0), str(key.get("material", "")))
 
 
+def _units() -> Any:
+    from . import units
+    return units.current()
+
+
+def _sheet_size(w: float, h: float) -> str:
+    u = _units()
+    dec = 0 if u.unit("length") == "mm" else 2
+    return u.fmt_size(w, h, decimals=dec, trim=dec > 0)
+
+
 def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: int = 0,
               cut_bbox: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)) -> CostCard:
     """The card for one planned job (see the module docstring)."""
@@ -163,7 +174,8 @@ def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: i
             if d and info.pressure_bar > 0:
                 flow = orifice_flow_l_min(info.pressure_bar, d, info.gas, rates.nozzle_cd)
                 note = "cost.note.gas_orifice"
-                gas_args = (("nozzle", f"{d:g}"), ("cd", f"{rates.nozzle_cd:g}"))
+                # note arguments are display text (mlaser.services.units): never read back
+                gas_args = (("nozzle", _units().fmt(d, "length", trim=True)), ("cd", f"{rates.nozzle_cd:g}"))
             else:
                 gas_missing.append(ly)
                 continue
@@ -215,8 +227,8 @@ def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: i
         mass = w * h * i0.thickness_mm * 1e-3 * float(i0.density_g_cm3 or 0.0) * 1e-3  # mm³ -> cm³ -> kg
         L.append(Line("material.mass", mass, "kg", "estimate",
                       "cost.note.sheet" if rates.sheet_w_mm else "cost.note.sheet_bbox",
-                      (("w", f"{w:.0f}"), ("h", f"{h:.0f}"), ("t", f"{i0.thickness_mm:g}"),
-                       ("density", f"{i0.density_g_cm3:g}"))))
+                      (("size", _sheet_size(w, h)), ("t", _units().fmt(i0.thickness_mm, "length", trim=True)),
+                       ("density", _units().fmt(float(i0.density_g_cm3 or 0.0), "density", trim=True)))))
     else:
         L.append(Line("material.mass", None, "kg", "missing", "cost.note.material_missing"))
     # ---- cost

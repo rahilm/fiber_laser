@@ -135,9 +135,9 @@ QMainWindow[userMode="operator"] QToolBar#shell_rail QToolButton {{ min-width: 8
 """
     if hc:
         qss += f"""
-QPushButton, QToolButton, QComboBox, QLineEdit, QSpinBox, QDoubleSpinBox {{ border: 1px solid {t['border']}; }}
-QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus, QSpinBox:focus,
-QDoubleSpinBox:focus {{ border: 3px solid {t['focus']}; }}
+QPushButton, QToolButton, QComboBox, QLineEdit, QAbstractSpinBox {{ border: 1px solid {t['border']}; }}
+QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus,
+QAbstractSpinBox:focus {{ border: 3px solid {t['focus']}; }}
 QToolTip {{ color: #ffffff; background: #000000; border: 1px solid #ffffff; }}
 QCheckBox::indicator, QRadioButton::indicator {{ width: 14px; height: 14px; border: 2px solid #ffffff;
     background: #000000; }}
