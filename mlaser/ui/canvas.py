@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import math
+import time
 import os
 from dataclasses import dataclass
 from typing import Optional
@@ -210,6 +211,17 @@ def _make_contour_path(contour) -> tuple[QPainterPath, list[tuple[float, float]]
     return path, pts
 
 
+_LABEL_FONT: list = []
+
+
+def _label_font() -> QFont:
+    """The cut-order labels' font, made once (each ``QFont("Sans")`` is a font match; made per
+    label it was a large part of drawing a new toolpath on macOS)."""
+    if not _LABEL_FONT:
+        _LABEL_FONT.append(QFont("Sans", 8))
+    return _LABEL_FONT[0]
+
+
 def _arc_to(path: QPainterPath, start, end, center, ccw: bool) -> None:
     """Append the arc ``start`` -> ``end`` about ``center`` (``model.Arc`` semantics: a full
     circle when start == end) to ``path``, whose current point is ``start``.
@@ -265,6 +277,10 @@ def _mods(m) -> set:
 # bounding boxes) are not built, and contours are drawn by _LodPathItem, which paints a contour
 # smaller than LOD_TINY_PX screen pixels as a single point.
 LOD_CONTOURS = 3000
+#: the overlay is built for at most this long per event-loop turn (the rest follows)
+OVERLAY_SLICE_S = 0.012
+#: drawings with up to this many contours get their overlay at once
+OVERLAY_SYNC_CONTOURS = 300
 LOD_TINY_PX = 3.0
 
 
@@ -615,7 +631,9 @@ class CanvasView(QGraphicsView):
         self._raster_items: list[tuple[int, _RasterItem]] = []   # (part, item) of raster parts
         self._item_styles: list = []       # the pen key set on each of _items (refresh_styles)
         self._item_keys: list = []         # (its QPainterPath object, item class) per item
-        self._tp_paths: Optional[tuple] = None   # (toolpath item ids, (cut, gap, rapid) paths)
+        self._tp_paths: Optional[tuple] = None
+        self._overlay_gen = 0
+        self._overlay_job: Optional[tuple] = None        # (generation, steps) still to build   # (toolpath item ids, (cut, gap, rapid) paths)
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # part uid -> (segments, bbox)
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
@@ -844,6 +862,7 @@ class CanvasView(QGraphicsView):
         if doc is None:
             for _, _, it, _ in old_items:
                 self._scene.removeItem(it)
+            self._overlay_job = None
             return
         self._order = self.contour_order()
         many = sum(len(p.contours) for p in doc.parts) > LOD_CONTOURS
@@ -1121,6 +1140,42 @@ class CanvasView(QGraphicsView):
         self._overlay.append(item)
 
     def _build_overlay(self) -> None:
+        """Start (re)building the overlay: what fits in :data:`OVERLAY_SLICE_S` now, the rest in
+        later event-loop turns (:meth:`_overlay_run`), so a new toolpath or an edit of a large
+        drawing never holds the GUI thread for the whole overlay (several markers per contour;
+        review 2 P1-1: a Stop waits for the GUI thread).  The toolpath paths and
+        ``toolpath_marks`` are built at once; :meth:`finish_overlay` completes the rest now."""
+        self._overlay_gen += 1
+        self._overlay_job = (self._overlay_gen, self._overlay_steps())
+        if len(self._items) <= OVERLAY_SYNC_CONTOURS:
+            self.finish_overlay()        # a small drawing: complete at once (deterministic)
+            return
+        self._overlay_run(self._overlay_gen)
+
+    def _overlay_run(self, gen: int) -> None:
+        job = self._overlay_job
+        if job is None or job[0] != gen:
+            return                       # superseded by a later rebuild
+        t_end = time.perf_counter() + OVERLAY_SLICE_S
+        for _ in job[1]:
+            if time.perf_counter() > t_end:
+                QTimer.singleShot(0, self, lambda g=gen: self._overlay_run(g))
+                return
+        self._overlay_job = None
+
+    def finish_overlay(self) -> None:
+        """Complete a pending overlay build now (screenshots, tests)."""
+        job, self._overlay_job = self._overlay_job, None
+        if job is not None:
+            for _ in job[1]:
+                pass
+
+    @property
+    def overlay_pending(self) -> bool:
+        return self._overlay_job is not None
+
+    def _overlay_steps(self):
+        """The overlay, a generator: it yields between contours (see :meth:`_build_overlay`)."""
         doc = self.document
         o = self.options
         prev_end = None
@@ -1130,10 +1185,11 @@ class CanvasView(QGraphicsView):
         if len(self._items) > LOD_CONTOURS:
             return          # level of detail: no per-contour markers / labels / arrows / boxes
         if self.toolpath and o.show_toolpath:
-            self._toolpath_markers()
+            yield from self._toolpath_markers()
         else:
             lookup = {(pi, ci): pts for pi, ci, _, pts in self._items}
             for n, (pi, ci) in enumerate(self._order, start=1):
+                yield
                 pts = lookup.get((pi, ci))
                 if not pts:
                     continue
@@ -1158,6 +1214,7 @@ class CanvasView(QGraphicsView):
                 prev_end = pts[-1] if not doc.parts[pi].contours[ci].closed else pts[0]
         if o.show_bbox:
             for part in doc.parts:
+                yield
                 if part.contours:
                     x0, y0, x1, y1 = part.bbox()
                     r = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
@@ -1166,12 +1223,13 @@ class CanvasView(QGraphicsView):
                     r.setPen(pen)
                     self._add_overlay(r)
 
-    def _toolpath_markers(self) -> None:
+    def _toolpath_markers(self):
         """Per-contour markers of the plan: pierce ring, contour start, cut order number,
         direction arrow and the minimum-size lead glyph (tiny leads stay visible)."""
         o = self.options
         lead_c = _cc("lead_in")
         for n, mk in enumerate(self.toolpath_marks, start=1):
+            yield
             sx, sy = mk.start
             if mk.lead_length > 0:
                 self._add_overlay(_Ring(mk.pierce[0], mk.pierce[1], 3.5, _cc("pierce")))
@@ -1187,7 +1245,7 @@ class CanvasView(QGraphicsView):
     def _index_label(n: int, x: float, y: float) -> QGraphicsSimpleTextItem:
         t = QGraphicsSimpleTextItem(str(n))
         t.setBrush(QBrush(_cc("index")))
-        t.setFont(QFont("Sans", 8))
+        t.setFont(_label_font())
         t.setFlag(QGraphicsItem.ItemIgnoresTransformations)
         t.setPos(x, y)
         t.setZValue(6)

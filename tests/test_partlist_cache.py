@@ -191,3 +191,36 @@ def test_toolpath_arcs_follow_their_direction():
                 assert math.hypot(q.x() - x, q.y() - y) < 0.6, (ccw, start, end, k)
             e = p.currentPosition()
             assert math.hypot(e.x() - end[0], e.y() - end[1]) < 1e-6
+
+
+def test_canvas_overlay_is_built_in_slices_and_completes():
+    """A large overlay (markers, labels, arrows of 1,200 contours plus the toolpath) is built a
+    slice at a time in later event-loop turns, never all on one; it completes to the same items,
+    and a rebuild abandons a stale build."""
+    import time
+
+    from mlaser.cam.toolpath import CamParams, build_toolpath
+    from mlaser.ui import canvas as C
+    app = QApplication.instance() or QApplication([])
+    doc = _grid_doc(1200)
+    tp = build_toolpath(doc, CamParams())
+    cv = C.CanvasView()
+    cv.set_document(doc)
+    cv.finish_overlay()
+    t = time.perf_counter()
+    cv.set_toolpath(tp)
+    first = time.perf_counter() - t
+    assert cv.overlay_pending, "the overlay was built in one go"
+    deadline = time.monotonic() + 30
+    while cv.overlay_pending and time.monotonic() < deadline:
+        app.processEvents()
+    assert not cv.overlay_pending
+    n_sliced = len(cv._overlay)
+    cv.set_toolpath(tp)
+    cv.finish_overlay()
+    assert len(cv._overlay) == n_sliced > 2 * 1200            # start dot and label per contour, the paths
+    cv.set_toolpath(tp)                                        # a build in progress ...
+    cv.rebuild()                                               # ... is superseded, not doubled
+    cv.finish_overlay()
+    assert len(cv._overlay) == n_sliced
+    assert first < 5.0

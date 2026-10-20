@@ -45,10 +45,11 @@ from mlaser.model import Document
 
 log = logging.getLogger("mlaser.jobs")
 
-#: items per pickled chunk of a result list (about 3-6 ms to unpickle on a loaded host)
-CHUNK_ITEMS = 4000
+#: items per pickled chunk of a result list: the parent unpickles one per GIL hold (under 1 ms
+#: here; a slow CI runner is several times slower)
+CHUNK_ITEMS = 1000
 #: parts per pickled chunk of a placed document that differs from the request's
-CHUNK_PARTS = 200
+CHUNK_PARTS = 50
 #: requests a cached part encoding survives without being used
 KEEP_REQUESTS = 8
 

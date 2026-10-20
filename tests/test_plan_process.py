@@ -276,6 +276,8 @@ def _latency_while(app, busy: callable, period_s: float = 0.02, max_s: float = 3
     stop = threading.Event()
 
     def poster():
+        disp(lambda: None)                   # warm-up: the dispatcher's first cross-thread post
+        time.sleep(period_s)
         while not stop.is_set():
             t0 = time.perf_counter()
             disp(lambda t0=t0: lat.append((t0, (time.perf_counter() - t0) * 1e3)))
@@ -287,12 +289,13 @@ def _latency_while(app, busy: callable, period_s: float = 0.02, max_s: float = 3
     timer.timeout.connect(lambda: loop.quit() if not busy() or time.monotonic() > t_end else None)
     app.processEvents()                  # what was queued before (layout, paint) is not measured
     th = threading.Thread(target=poster, daemon=True)
-    th.start()
+    QTimer.singleShot(0, th.start)       # posting starts once the event loop runs
     timer.start()
     loop.exec()
     timer.stop()
     stop.set()
-    th.join(2)
+    if th.ident is not None:
+        th.join(2)
     app.processEvents()
     return lat
 
@@ -333,12 +336,14 @@ def test_gui_event_loop_stays_responsive_during_a_heavy_compile(monkeypatch):
         # samples posted while the GUI thread drew the toolpath wait for that drawing; the rest
         # measure what the compile costs the GUI process: the wait for the interpreter
         lat = [ms for tp, ms in samples if not (draw[0] - 0.05 <= tp <= draw[1])]
-        assert len(lat) > 50 and t_done > 1.0, (len(lat), t_done)
+        info = (f"{len(lat)} of {len(samples)} samples kept, compile {t_done:.2f} s, toolpath drawn "
+                f"in {(draw[1] - draw[0]) * 1e3:.0f} ms, max {max(ms for _, ms in samples):.1f} ms")
+        assert len(lat) > 50 and t_done > 1.0, info
         print(f"compile {t_done:.1f} s; event loop latency median {statistics.median(lat):.2f} ms, "
               f"p99 {_p99(lat):.2f} ms, max {max(lat):.1f} ms, n={len(lat)}; toolpath drawn in "
               f"{(draw[1] - draw[0]) * 1e3:.0f} ms")
         p99 = _p99(lat)
-        assert p99 < 50.0, f"event loop p99 {p99:.1f} ms (median {statistics.median(lat):.1f}, max {max(lat):.1f})"
+        assert p99 < 50.0, f"event loop p99 {p99:.1f} ms (median {statistics.median(lat):.1f}); {info}"
         assert draw[1] - draw[0] < 2.0
         assert w.jobs.stats["process_compiles"] >= 1
     finally:

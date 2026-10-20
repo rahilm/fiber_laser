@@ -83,3 +83,44 @@ def thread_stacks() -> str:
     return "\n".join(f"--- {names.get(tid, tid)}\n" + "".join(traceback.format_stack(f))
                      for tid, f in sys._current_frames().items())
 
+
+
+def _sim_server(conn, kw: dict) -> None:
+    """Spawned: a CardSimulator in a process of its own (port out, any message in = stop)."""
+    from mlaser.controller.simulator import CardSimulator
+    sim = CardSimulator(**kw).start()
+    conn.send(sim.port)
+    try:
+        conn.recv()
+    except EOFError:
+        pass
+    sim.stop()
+
+
+class SimProcess:
+    """The card simulator in its own process, for tests that load the test process on purpose
+    (CPU-bound threads): the card then answers on time however starved the parent is, as a real
+    card would.  ``with SimProcess() as port: ...``"""
+
+    def __init__(self, **kw) -> None:
+        self.kw = kw
+
+    def __enter__(self) -> int:
+        import multiprocessing as mp
+        ctx = mp.get_context("spawn")
+        self._conn, child = ctx.Pipe()
+        self._proc = ctx.Process(target=_sim_server, args=(child, self.kw), daemon=True)
+        self._proc.start()
+        if not self._conn.poll(60):
+            self._proc.kill()
+            raise RuntimeError("the simulator process did not start")
+        return self._conn.recv()
+
+    def __exit__(self, *exc) -> None:
+        try:
+            self._conn.send("stop")
+        except OSError:
+            pass
+        self._proc.join(5)
+        if self._proc.is_alive():
+            self._proc.kill()
