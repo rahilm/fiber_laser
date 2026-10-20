@@ -141,7 +141,15 @@ class MenuBar:
             if act is not None:
                 act.setMenuRole(_ROLE.get(roles.get(cid, ""), QAction.NoRole))
         if self.plat == native.MACOS:
-            QTimer.singleShot(0, lambda: native.mac_set_help_menu(self.menus["help"].title().replace("&", "")))
+            # once Qt has synced the native menu (it does so lazily, after the window shows)
+            for ms in (0, 1000, 3000):
+                QTimer.singleShot(ms, self._mac_help_menu)
+
+    def _mac_help_menu(self) -> None:
+        try:
+            native.mac_set_help_menu(self.menus["help"].title().replace("&", ""))
+        except (RuntimeError, KeyError):
+            pass
 
     def _set_title(self, i: int, text: str) -> None:
         """Titles with distinct access keys on Windows/Linux (Alt+F opens File)."""
