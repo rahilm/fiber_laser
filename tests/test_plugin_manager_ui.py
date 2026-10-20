@@ -235,6 +235,11 @@ def test_project_plugins_install_and_load(app, env, pyproject):
 
     from mlaser.services.plugin_manager import PluginManager
     whl = wheel_from_project(pyproject.parent, env / "dist")
+    import importlib.util
+    tops = {n.split("/", 1)[0] for n in __import__("zipfile").ZipFile(whl).namelist() if "dist-info" not in n}
+    if any(importlib.util.find_spec(t) is not None for t in tops):
+        pytest.skip(f"{pyproject.parent.name} is already importable here (an editable install): the manager "
+                    "would rightly refuse the collision")
     w = real_window()
     try:
         pm = PluginManager(w.config)
