@@ -72,7 +72,12 @@ def main(argv: list[str] | None = None) -> int:
     if own.smoke_test is not None:
         from PySide6.QtCore import QTimer
         from PySide6.QtWidgets import QApplication
-        app = QApplication.instance() or QApplication(sys.argv[:1])
+
+        from mlaser.ui import native
+        app = QApplication.instance()
+        if app is None:
+            native.before_qapplication()
+            app = native.create_application(sys.argv[:1])
         # the UI's main() reuses this QApplication; exit(0) ends its app.exec()
         QTimer.singleShot(int(own.smoke_test * 1000), lambda: app.exit(0))
 

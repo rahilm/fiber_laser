@@ -49,6 +49,33 @@ class Rates:
     sheet_h_mm: float = 0.0
 
 
+#: the ``costing.*`` keys of the cost card's rates (Settings › Costing)
+CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "¥": "JPY", "₹": "INR", "zł": "PLN", "₺": "TRY"}
+
+
+def iso_currency(text: Any) -> str:
+    """A currency as its ISO 4217 code ("€" -> "EUR"); unknown text is kept."""
+    t = str(text or "").strip()
+    return CURRENCY_SYMBOLS.get(t, t.upper() if len(t) == 3 and t.isalpha() else t)
+
+
+def rates_from_config(cfg: Any) -> Rates:
+    """The cost card's :class:`Rates` from the ConfigService (``costing.*``).  The sheet size
+    comes from the job (the cut bounding box) and the gas flow from the technology."""
+    def g(key: str, default: float = 0.0) -> float:
+        try:
+            return float(cfg.get(key, default))
+        except (TypeError, ValueError):
+            return default
+    return Rates(currency=iso_currency(cfg.get("costing.currency", "EUR")) or "EUR",
+                 machine_per_h=g("costing.machine_per_h"), power_per_kwh=g("costing.power_per_kwh"),
+                 gas_per_m3={"O2": g("costing.gas_o2_per_m3"), "N2": g("costing.gas_n2_per_m3"),
+                             "Air": g("costing.gas_air_per_m3")},
+                 material_per_kg=g("costing.material_per_kg"), laser_rated_w=g("costing.laser_rated_w"),
+                 wall_plug_eff=g("costing.wall_plug_pct", 35.0) / 100.0, machine_kw=g("costing.machine_kw"),
+                 nozzle_cd=g("costing.nozzle_cd", 0.8))
+
+
 @dataclass(frozen=True)
 class Line:
     """One line of the card.  ``key`` is the catalogue id suffix (``cost.line.<key>``).
@@ -132,6 +159,17 @@ def layer_info(doc: Any, layer: int, pressure_unit: int = 0) -> LayerInfo:
                      ref.get("density_g_cm3"), float(key.get("thickness_mm", 0.0) or 0.0), str(key.get("material", "")))
 
 
+def _units() -> Any:
+    from . import units
+    return units.current()
+
+
+def _sheet_size(w: float, h: float) -> str:
+    u = _units()
+    dec = 0 if u.unit("length") == "mm" else 2
+    return u.fmt_size(w, h, decimals=dec, trim=dec > 0)
+
+
 def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: int = 0,
               cut_bbox: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 0.0)) -> CostCard:
     """The card for one planned job (see the module docstring)."""
@@ -163,7 +201,8 @@ def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: i
             if d and info.pressure_bar > 0:
                 flow = orifice_flow_l_min(info.pressure_bar, d, info.gas, rates.nozzle_cd)
                 note = "cost.note.gas_orifice"
-                gas_args = (("nozzle", f"{d:g}"), ("cd", f"{rates.nozzle_cd:g}"))
+                # note arguments are display text (mlaser.services.units): never read back
+                gas_args = (("nozzle", _units().fmt(d, "length", trim=True)), ("cd", f"{rates.nozzle_cd:g}"))
             else:
                 gas_missing.append(ly)
                 continue
@@ -215,8 +254,8 @@ def cost_card(stats: Any, layers: dict[int, LayerInfo], rates: Rates, pierces: i
         mass = w * h * i0.thickness_mm * 1e-3 * float(i0.density_g_cm3 or 0.0) * 1e-3  # mm³ -> cm³ -> kg
         L.append(Line("material.mass", mass, "kg", "estimate",
                       "cost.note.sheet" if rates.sheet_w_mm else "cost.note.sheet_bbox",
-                      (("w", f"{w:.0f}"), ("h", f"{h:.0f}"), ("t", f"{i0.thickness_mm:g}"),
-                       ("density", f"{i0.density_g_cm3:g}"))))
+                      (("size", _sheet_size(w, h)), ("t", _units().fmt(i0.thickness_mm, "length", trim=True)),
+                       ("density", _units().fmt(float(i0.density_g_cm3 or 0.0), "density", trim=True)))))
     else:
         L.append(Line("material.mass", None, "kg", "missing", "cost.note.material_missing"))
     # ---- cost

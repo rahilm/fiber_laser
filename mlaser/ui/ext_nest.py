@@ -26,10 +26,12 @@ from PySide6.QtWidgets import (QAbstractItemView, QApplication, QCheckBox, QComb
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..model import Document
+from ..services import units
 from ..nest import (ENGINE_RASTER, ENGINE_SPYRROW, GRAVITY_AUTO, GRAVITY_BOTTOM, GRAVITY_LEFT, NestJob,
                     NestParams, NestPart, NestSheet, apply_result, nest, stats)
 from ..nest.engine import NestEngineUnavailable, available_engines
 from ..nest.apply import layout_parts
+from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 
 PROJECT_FILTER = "Nest project (*.nestproj);;All (*)"
 
@@ -48,6 +50,11 @@ def _label(window, key: str, default: str = "") -> str:
     """``pd_Nest_*`` keys read "Group.Name"; show the part after the dot."""
     t = _tr(window, key, default)
     return t.split(".", 1)[1] if "." in t else t
+
+
+def _len(lo, hi, val, dec=2, kind: str = "length") -> QuantitySpinBox:
+    """A length in the display units (``value()`` in mm); ``dec`` is the metric decimals."""
+    return QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, value=val)
 
 
 def _spin(lo, hi, val, dec=2) -> QDoubleSpinBox:
@@ -73,8 +80,8 @@ class NestParamsDialog(QDialog):
         lay = QVBoxLayout(self)
         f = QFormLayout()
         lay.addLayout(f)
-        self.spacing = _spin(0, 1000, params.spacing)
-        self.margin = _spin(0, 1000, params.margin)
+        self.spacing = _len(0, 1000, params.spacing)
+        self.margin = _len(0, 1000, params.margin)
         self.step = _spin(0, 360, params.rotation_step)
         self.direction = QComboBox()
         self.direction.addItem(_tr(window, "pd_Nest_NestDir_L2R", "Left to Right"), GRAVITY_LEFT)
@@ -87,10 +94,10 @@ class NestParamsDialog(QDialog):
         self.mirror.setChecked(params.allow_mirror)
         self.share = QCheckBox()
         self.share.setChecked(params.common_line)
-        self.share_min = _spin(0, 10000, params.share_edge_min_len)
-        self.kerf = _spin(0, 100, params.kerf, 3)
-        self.accuracy = _spin(0.1, 1.0, params.accuracy)
-        self.cell = _spin(0, 50, params.resolution or 0.0)
+        self.share_min = _len(0, 10000, params.share_edge_min_len)
+        self.kerf = _len(0, 100, params.kerf, 3, "small_length")
+        self.accuracy = _len(0.1, 1.0, params.accuracy, 2, "small_length")   # curve tolerance (mm)
+        self.cell = _len(0, 50, params.resolution or 0.0)
         self.cell.setSpecialValueText("auto")
         self.time_limit = _spin(1, 3600, params.time_limit_s, 0)
         self.engine = QComboBox()
@@ -113,7 +120,7 @@ class NestParamsDialog(QDialog):
                              ("pd_Nest_ShareEdgeMinLen", "Min length of share edge", self.share_min),
                              ("", "Kerf (share edge spacing)", self.kerf),
                              ("pd_Nest_NestAccuracy", "Nest Graph accuracy", self.accuracy),
-                             ("", "Raster cell (mm)", self.cell),
+                             ("", "Raster cell", self.cell),
                              ("", "Time limit (s)", self.time_limit),
                              ("", "Engine", self.engine)):
             f.addRow(_label(window, key, dflt) if key else dflt, w)
@@ -148,8 +155,8 @@ class SheetDialog(QDialog):
         f = QFormLayout()
         lay.addLayout(f)
         self.name = QLineEdit(sheet.name)
-        self.width = _spin(1, 100000, sheet.width)
-        self.height = _spin(1, 100000, sheet.height)
+        self.width = _len(1, 100000, sheet.width)
+        self.height = _len(1, 100000, sheet.height)
         self.count = QSpinBox()
         self.count.setRange(1, 9999)
         self.count.setValue(sheet.quantity)
@@ -187,8 +194,9 @@ class NestPanel(QWidget):
         v.addWidget(self.parts)
         v.addWidget(QLabel(_tr(w, "np_Sheet", "Sheet")))
         self.sheets = QTableWidget(0, 4)
-        self.sheets.setHorizontalHeaderLabels([_tr(w, "np_SheetName", "Sheet Name"), "W", "H",
-                                               _tr(w, "np_SheetNum", "Sheet Num")])
+        on_units_changed(self.sheets, lambda u: (self.sheets.setHorizontalHeaderLabels(
+            [_tr(w, "np_SheetName", "Sheet Name"), u.header("W", "length"), u.header("H", "length"),
+             _tr(w, "np_SheetNum", "Sheet Num")]), self.refresh() if hasattr(self, "_sync") else None))
         self.sheets.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.sheets.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.sheets.itemChanged.connect(self._sheet_edited)
@@ -222,9 +230,9 @@ class NestPanel(QWidget):
                 self.parts.setItem(r, c, QTableWidgetItem(val))
         self.sheets.setRowCount(len(job.sheets))
         for r, s in enumerate(job.sheets):
-            vals = [s.name, f"{s.width:g}", f"{s.height:g}", str(s.quantity)]
+            vals = [s.name, s.width, s.height, str(s.quantity)]
             for c, val in enumerate(vals):
-                it = QTableWidgetItem(val)
+                it = set_cell(QTableWidgetItem(), val, "length", trim=True) if c in (1, 2) else QTableWidgetItem(val)
                 if s.outline and c in (1, 2):
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 self.sheets.setItem(r, c, it)
@@ -270,10 +278,17 @@ class NestPanel(QWidget):
         try:
             if it.column() == 0:
                 s.name = txt
-            elif it.column() == 1:
-                s.width = float(txt)
-            elif it.column() == 2:
-                s.height = float(txt)
+            elif it.column() in (1, 2):
+                # typed in the display units (or with a unit); an unchanged display keeps the mm value
+                u = units.current()
+                v = u.parse(txt, "length")
+                old = cell_value(it)
+                if old is None or u.number(v, "length", trim=True) != u.number(old, "length", trim=True):
+                    if it.column() == 1:
+                        s.width = v
+                    else:
+                        s.height = v
+                    it.setData(VALUE_ROLE, v)
             elif it.column() == 3:
                 s.quantity = max(0, int(txt))
         except ValueError:
@@ -285,12 +300,29 @@ class NestPanel(QWidget):
         return rows[0] if rows else (0 if self.results.rowCount() else None)
 
 
+# ---------------------------------------------------------------------------- defaults
+def default_sheet(cfg) -> NestSheet:
+    """A sheet of the default size (Settings > Nest: ``nest.sheet_width`` / ``nest.sheet_height``)."""
+    if cfg is None:
+        return NestSheet()
+    return NestSheet(float(cfg.get("nest.sheet_width", 3000.0)), float(cfg.get("nest.sheet_height", 1500.0)))
+
+
+def new_job(cfg) -> NestJob:
+    """An empty nest with the default spacing and edge margin (``nest.spacing`` / ``nest.margin``)."""
+    job = NestJob()
+    if cfg is not None:
+        job.params.spacing = float(cfg.get("nest.spacing", job.params.spacing))
+        job.params.margin = float(cfg.get("nest.margin", job.params.margin))
+    return job
+
+
 # ---------------------------------------------------------------------------- extension
 class NestExtension:
     def __init__(self, ctx):
         self.ctx = ctx
         self.window = window = ctx.window
-        self.job = NestJob()
+        self.job = new_job(getattr(window, "config", None))
         self.path: Optional[str] = None
         self.dirty = False
         self.panel = NestPanel(self)
@@ -315,7 +347,7 @@ class NestExtension:
 
     # -------------------------------------------------- project
     def new_project(self) -> None:
-        self.job = NestJob()
+        self.job = new_job(getattr(self.window, "config", None))
         self.path = None
         self.dirty = False
         self.show()
@@ -414,7 +446,7 @@ class NestExtension:
         if not self.job.parts:
             self.add_part_from_selection()
         if not self.job.sheets:
-            self.job.add_sheet(NestSheet())
+            self.job.add_sheet(default_sheet(getattr(self.window, "config", None)))
         dlg = None
         if interactive:
             dlg = QProgressDialog(_tr(self.window, "mf464", "Advanced Nest"), _tr(self.window, "ap0", "Cancel"),

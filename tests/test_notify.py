@@ -23,6 +23,15 @@ from mlaser.notify.backends import SIGNATURE_HEADER
 
 
 # ============================================================================== fakes
+class _NoLookupHTTPServer(ThreadingHTTPServer):
+    """No ``socket.getfqdn`` in ``server_bind`` (a 35 s reverse lookup on macOS CI)."""
+
+    def server_bind(self) -> None:
+        import socketserver
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = "127.0.0.1", self.server_address[1]
+
+
 class FakeHTTP:
     """Records every POST; answers ``code``."""
 
@@ -46,7 +55,7 @@ class FakeHTTP:
             def log_message(self, *a):
                 pass
 
-        self.httpd = ThreadingHTTPServer(("127.0.0.1", 0), H)
+        self.httpd = _NoLookupHTTPServer(("127.0.0.1", 0), H)
         self.url = f"http://127.0.0.1:{self.httpd.server_address[1]}"
         self.t = threading.Thread(target=self.httpd.serve_forever, daemon=True)
         self.t.start()

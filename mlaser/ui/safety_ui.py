@@ -32,6 +32,7 @@ from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialo
 from .._power import keep_awake
 
 from ..machine import events as EV
+from ..services import units
 from . import qtbridge
 from .safety_texts import remedy
 
@@ -108,7 +109,7 @@ def ask(parent, key: str, text: str, title: str = "", dont_ask: bool = False,
     box = QMessageBox(parent)
     try:
         box.setIcon(QMessageBox.Question)
-        box.setWindowTitle(title or "Mlaser")
+        box.setWindowTitle(title)          # empty: the platform shows the app name (Native track)
         box.setText(text)
         box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
         box.setDefaultButton(QMessageBox.Ok if default_yes else QMessageBox.Cancel)
@@ -167,9 +168,15 @@ class PreflightDialog(QDialog):
         lines = [f"ERROR    {i.message}" for i in report.errors] + [f"warning  {i.message}" for i in report.warnings]
         if report.extent is not None:
             x0, y0, x1, y1 = report.extent
-            lines.append(f"\njob extent X {x0:.1f}..{x1:.1f}  Y {y0:.1f}..{y1:.1f} mm")
+            u = units.current()
+            n = lambda v: u.number(v, "length", 1 if u.unit("length") == "mm" else 2)  # noqa: E731
+            lines.append(f"\njob extent X {n(x0)}..{n(x1)}  Y {n(y0)}..{n(y1)} {u.suffix('length')}")
         if report.travel is not None:
-            lines.append(f"travel {report.travel.describe()}")
+            u = units.current()
+            tv = report.travel
+            g = lambda v: u.number(v, "length", trim=True)  # noqa: E731
+            lines.append(f"travel X {g(tv.x[0])}..{g(tv.x[1])} {u.suffix('length')}, "
+                         f"Y {g(tv.y[0])}..{g(tv.y[1])} {u.suffix('length')} ({tv.source})")
         txt.setPlainText("\n".join(lines))
         lay.addWidget(txt)
         bb = QDialogButtonBox()

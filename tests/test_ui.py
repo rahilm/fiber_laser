@@ -44,7 +44,8 @@ def test_lang_catalogue(tmp_path):
     # named placeholders, positional values in the original's order
     msg = tr.format("mp83", 1, 2.25, 3.0, 4.0, 5)
     assert msg.startswith("Estimated time: 1 min 2.2 s") and "pierces: 5" in msg
-    assert tr.format("mv17", dx=1, dy=2, length=3).endswith("length 3.000 mm")
+    # the measurement values arrive formatted in the display units (docs/user/units.md)
+    assert tr.format("mv17", dx="1.000 mm", dy="2.000 mm", length="3.000 mm").endswith("length 3.000 mm")
     assert [li.code for li in tr.available()] == ["en"]     # nothing imported
     tr.set_language("zh")
     assert tr.tr("mf15") == "Go Origin"                       # no Chinese yet: English
@@ -208,25 +209,13 @@ def test_main_window_screenshot(app, tmp_path):
 
 
 def test_dialogs_build(app):
-    from mlaser.model import LayerParams, LeadParams
     from mlaser.ui import dialogs
     from mlaser.ui.params import OPTION_SECTIONS, registry  # noqa: F401
 
     tr = i18n.Translator(language="en")
     assert len(registry()) > 500
-    lp = LayerParams(index=1)
-    d = dialogs.LayerParamDialog(tr, lp)
-    d.values["GP.CutSpeed"] = 55.0
-    d._store()
-    assert lp.speed == 55.0
-    li, lo = LeadParams(kind=1), LeadParams()
-    ld = dialogs.LeadDialog(tr, li, lo)
-    ld._w["in"][3].setValue(4.5)
-    ld._store()
-    assert li.length == 4.5
-    assert dialogs.KerfDialog(tr, 0, 0.2).result_values() == (0, 0.2)
     for which, secs in OPTION_SECTIONS.items():
         dialogs.ParamGridDialog(tr, "mf137", secs, {})
     assert dialogs.IPDialog(tr).result_values()["pd445"] == "10.1.1.168"
-    for cls in (dialogs.MicroJointDialog, dialogs.PasswordDialog, dialogs.AboutDialog):
+    for cls in (dialogs.PasswordDialog, dialogs.AboutDialog):
         cls(tr)

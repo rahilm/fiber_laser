@@ -16,6 +16,7 @@ FIFO prefill                           whole FIFO, 5.4 s of motion              
 """
 from __future__ import annotations
 
+import gc
 import os
 import signal
 import subprocess
@@ -265,6 +266,7 @@ def test_simulator_deadline_does_not_leak_to_a_real_card():
         ctl.disconnect()
 
 
+@pytest.mark.flaky(reruns=1)              # the real 150 ms deadline (docs/dev/TESTING.md)
 def test_host_preparation_does_not_count_as_link_silence(make_ctl, monkeypatch):
     """The streamer's host-side preparation (wire copy, timing, frames) is not link silence: it
     runs while the poller still talks to the card, before the 150 ms streaming deadline counts
@@ -283,6 +285,32 @@ def test_host_preparation_does_not_count_as_link_silence(make_ctl, monkeypatch):
     start_and_run(ctl, run_s=0.3)
     assert not ctl.fsm.faulted, ctl.safety().fault
     assert ctl.stop().wait(10)
+
+
+def test_host_preparation_lets_the_poller_run():
+    """The preparation is CPU-bound Python: it runs with the GIL switch interval lowered, as the
+    streaming does, so the status poller keeps its replies fresh meanwhile (else the streaming
+    deadline started from a stale reply: macOS CI, test_host_preparation_does_not_count_as_link_
+    silence, 224 ms)."""
+    from mlaser._sched import RESPONSIVE_SWITCH_S, responsive_holders
+    from mlaser.controller import stream as S
+    from safety_helpers import rect_doc as _doc
+    from mlaser.nc import Machine, compile_job
+    job = compile_job(_doc(), None, Machine(), start=(0, 0))
+    seen = []
+    real_of = S.WireJob.of.__func__
+
+    def of(cls, j):
+        seen.append((responsive_holders(), sys.getswitchinterval(), gc.get_threshold()[2]))
+        return real_of(cls, j)
+    st = S.JobStreamer.__new__(S.JobStreamer)
+    S.WireJob.of = classmethod(of)
+    try:
+        S.JobStreamer.prepare(st, job)
+    finally:
+        S.WireJob.of = classmethod(real_of)
+    assert seen and seen[0][0] >= 1 and seen[0][1] <= RESPONSIVE_SWITCH_S + 1e-9
+    assert seen[0][2] >= S.NO_FULL_GC_THRESHOLD                  # no full collection meanwhile
 
 
 def test_child_startup_is_not_link_silence(make_ctl):

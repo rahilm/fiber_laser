@@ -20,6 +20,12 @@ from mlaser.cam.leads import lead_in, lead_out, side_flag
 from mlaser.model import Arc, LeadParams
 
 
+def _fmt(v: float, kind: str) -> str:
+    """A length in the display units (Units track)."""
+    from mlaser.services import units
+    return units.current().fmt(float(v), kind, trim=True)
+
+
 def _seg_points(seg, n: int = 24):
     if isinstance(seg, Arc):
         return [seg.point_at(k / n) for k in range(n + 1)]
@@ -33,6 +39,7 @@ class LeadDiagram(QWidget):
         super().__init__(parent)
         self.lead_in_p = LeadParams(kind=1, length=3.0)
         self.lead_out_p = LeadParams(kind=0)
+        self.kerf_comp, self.kerf_width = -1, 0.0
         self.setMinimumSize(160, 110)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.setAccessibleName("lead diagram")
@@ -43,6 +50,19 @@ class LeadDiagram(QWidget):
     def set_leads(self, lin: LeadParams, lout: LeadParams) -> None:
         self.lead_in_p, self.lead_out_p = lin, lout
         self.update()
+
+    def set_kerf(self, comp: int, width: float) -> None:
+        """Kerf compensation shown as the beam's path: offset by ``width`` (the compensation
+        value is the offset, half the cut's width, :func:`mlaser.cam.kerf.compensate`) to the
+        scrap side (outside, 1) or into the hole side (inside, 0), as a band of the cut's width."""
+        self.kerf_comp, self.kerf_width = int(comp), float(width or 0.0)
+        self.update()
+
+    def kerf_offset_mm(self) -> float:
+        """Offset of the beam centre from the drawn edge (+ = into the part), 0 without kerf."""
+        if self.kerf_comp not in (0, 1) or self.kerf_width <= 0:
+            return 0.0
+        return self.kerf_width * (1.0 if self.kerf_comp == 0 else -1.0)
 
     def geometry_mm(self):
         """(contour polyline, lead-in polylines, lead-out polylines) in mm: a 20 mm wide edge of
@@ -86,6 +106,17 @@ class LeadDiagram(QWidget):
         p.drawPath(path(part))
         p.setPen(QPen(txt, 2.0))
         p.drawPath(path([(-12.0, 0.0), (12.0, 0.0)]))
+        off = self.kerf_offset_mm()
+        if off:
+            kc = QColor(pal.color(QPalette.Link))
+            band = QColor(kc)
+            band.setAlpha(70)
+            p.setPen(QPen(band, max(3.0, 2 * self.kerf_width * s), Qt.SolidLine, Qt.FlatCap))
+            p.drawPath(path([(-12.0, off), (12.0, off)]))
+            p.setPen(QPen(kc, 1.2, Qt.DashLine))
+            p.drawPath(path([(-12.0, off), (12.0, off)]))
+            p.drawText(QPointF(cx - 11.5 * s, cy - off * s + (14 if off < 0 else -6)),
+                       f"kerf {_fmt(self.kerf_width, 'small_length')}")
         hi = pal.color(QPalette.Highlight)
         p.setPen(QPen(hi, 2.2))
         for poly in lin:
@@ -106,10 +137,11 @@ class LeadDiagram(QWidget):
         p.setPen(QPen(txt, 1.0))
         bx, by = 10.0, self.height() - 10.0
         p.drawLine(QPointF(bx, by), QPointF(bx + s, by))
-        p.drawText(QPointF(bx + s + 4, by + 4), "1 mm")
+        p.drawText(QPointF(bx + s + 4, by + 4), _fmt(1.0, "length"))
         lp = self.lead_in_p
         if lp.kind:
-            info = f"{lp.length:g} mm · {lp.angle_deg:g}°" + (f" · r {lp.radius:g} mm" if lp.kind == 3 else "")
+            info = f"{_fmt(lp.length, 'length')} · {lp.angle_deg:g}°" + (
+                f" · r {_fmt(lp.radius, 'length')}" if lp.kind == 3 else "")
             p.drawText(QRectF(self.rect()).adjusted(0, 0, -8, -4), int(Qt.AlignRight | Qt.AlignBottom), info)
         p.end()
 

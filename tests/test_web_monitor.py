@@ -115,3 +115,26 @@ def test_sheet_svg_marks_parts():
     svg = sheet_svg(doc, done=[0], current=1, head=(25.0, 5.0), sheet=(0, 0, 100, 50))
     assert svg.count('class="done"') == 1 and svg.count('class="cur"') == 1 and svg.count('class="todo"') == 1
     assert 'class="head"' in svg and 'class="sheet"' in svg and "<script" not in svg
+
+
+def test_servers_start_without_a_reverse_dns_lookup(monkeypatch):
+    """HTTPServer.server_bind calls socket.getfqdn(host), a reverse lookup no timeout covers:
+    35 s on macOS CI for 127.0.0.1 (the first automation-API test and the notify fakes waited
+    that long; the window starting its monitor or API would too)."""
+    import socket
+
+    from mlaser.api.server import AutomationServer
+
+    calls: list = []
+    monkeypatch.setattr(socket, "getfqdn", lambda *a: calls.append(a) or "x")
+    for srv in (MonitorServer("127.0.0.1", 0, new_token()), AutomationServer("127.0.0.1", 0, "t" * 32)):
+        srv.start()
+        try:
+            h, p = srv.address
+            c = http.client.HTTPConnection(h, p, timeout=10)
+            c.request("GET", "/")
+            c.getresponse().read()
+            c.close()
+        finally:
+            srv.stop()
+    assert calls == []

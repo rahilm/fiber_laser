@@ -29,7 +29,7 @@ from typing import Any, Optional
 from PySide6.QtCore import QRectF, QSize, Qt
 from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen, QPixmap
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
-                               QDoubleSpinBox, QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
+                               QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox,
                                QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -37,7 +37,9 @@ from mlaser.services import material_check as MC
 from mlaser.services import orders as O
 from mlaser.services import repair as R
 from mlaser.services.config import Setting
+from mlaser.services import units as U
 from mlaser.services.parts import RecognitionRules, recognize
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed, set_cell
 
 from . import TOUCH_MIN, show_workspace, tr
 
@@ -124,14 +126,10 @@ class ImportReviewDialog(QDialog):
         self.list.currentRowChanged.connect(self._zoom)
         lay.addWidget(self.list, 1)
         form = QFormLayout()
-        self.join_tol = QDoubleSpinBox()
-        self.join_tol.setRange(0.0, 5.0)
-        self.join_tol.setDecimals(3)
-        self.join_tol.setSuffix(" mm")
-        self.close_gap = QDoubleSpinBox()
-        self.close_gap.setRange(0.0, 50.0)
-        self.close_gap.setDecimals(3)
-        self.close_gap.setSuffix(" mm")
+        self.join_tol = QuantitySpinBox("small_length", minimum=0.0, maximum=5.0, decimals=3)
+        self.join_tol.setObjectName("import_review_join_tol")
+        self.close_gap = QuantitySpinBox("small_length", minimum=0.0, maximum=50.0, decimals=3)
+        self.close_gap.setObjectName("import_review_close_gap")
         form.addRow(tr(w, "review.join_tol", "Join open ends closer than"), self.join_tol)
         form.addRow(tr(w, "review.close_gap", "Close gaps up to"), self.close_gap)
         lay.addLayout(form)
@@ -344,7 +342,7 @@ class OrdersWorkspace(QWidget):
         lay.addLayout(bar)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.setObjectName("orders_table")
-        self.table.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COLS])
+        self._headers()
         self.table.verticalHeader().setVisible(False)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         hh = self.table.horizontalHeader()
@@ -375,6 +373,14 @@ class OrdersWorkspace(QWidget):
         lay.addWidget(self.status)
         self._sync = False
         self.refresh()
+        on_units_changed(self, lambda _u: (self._headers(), self.refresh()), now=False)
+
+    def _headers(self) -> None:
+        """Column titles; the thickness column carries the display unit ("Thickness (in)")."""
+        w = self.plugin.window
+        self.table.setHorizontalHeaderLabels(
+            [U.current().header(tr(w, k, d), "length") if k == "orders.col.thickness" else tr(w, k, d)
+             for k, d in self.COLS])
 
     def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().showEvent(ev)
@@ -387,10 +393,12 @@ class OrdersWorkspace(QWidget):
         self.table.setRowCount(len(book.lines))
         for r, x in enumerate(book.lines):
             need = O.parts_needed(x)
-            vals = [os.path.basename(x.file), str(x.quantity), x.material, f"{x.thickness_mm:g}" if x.thickness_mm else "",
+            vals = [os.path.basename(x.file), str(x.quantity), x.material, "",
                     x.customer, x.order, x.due, str(x.priority), f"{prog.get(x.id, 0)}/{need}"]
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
+                if c == 3:          # thickness: display units, the mm value kept in the cell
+                    set_cell(it, x.thickness_mm or None, "length", trim=True)
                 if c not in self.EDIT:
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                 if c == 0:
@@ -403,8 +411,9 @@ class OrdersWorkspace(QWidget):
         self.group.clear()
         for key, lines in book.groups():
             first = lines[0]
-            label = tr(self.plugin.window, "orders.group_item", "{material} {t} mm · {n} lines",
-                       material=first.material or "?", t=f"{first.thickness_mm:g}", n=len(lines))
+            label = tr(self.plugin.window, "orders.group_item", "{material} {t} · {n} lines",
+                       material=first.material or "?", t=U.current().fmt(first.thickness_mm, "length", trim=True),
+                       n=len(lines))
             self.group.addItem(label, key)
         i = self.group.findData(cur)
         self.group.setCurrentIndex(i if i >= 0 else 0)
@@ -424,7 +433,15 @@ class OrdersWorkspace(QWidget):
                 if v < 1:
                     raise ValueError
             elif attr == "thickness_mm":
-                v = O._number(txt) if txt else 0.0
+                # typed in the display units (or with a unit: 3 mm, 1/8"); the text as shown
+                # is no edit: the stored mm value stays exact
+                shown = "" if not x.thickness_mm else U.current().fmt(x.thickness_mm, "length", trim=True, unit=False)
+                if txt == shown:
+                    v = x.thickness_mm
+                elif txt:
+                    v = U.current().parse(txt, "length")
+                else:
+                    v = 0.0
                 if not 0.0 <= v <= 100.0:
                     raise ValueError
             elif attr == "priority":
@@ -746,9 +763,9 @@ class OrdersPlugin:
         ws._mark_dirty()
         ws.refresh()
         self.use_technology(material, first.thickness_mm, parts)
-        msg = tr(w, "orders.msg.nest", "{n} parts from {k} order lines loaded into Nest ({material} {t} mm)",
+        msg = tr(w, "orders.msg.nest", "{n} parts from {k} order lines loaded into Nest ({material} {t})",
                  n=sum(p.quantity for p in parts), k=len(lines), material=material or "?",
-                 t=f"{first.thickness_mm:g}")
+                 t=U.current().fmt(first.thickness_mm, "length", trim=True))
         self.workspace.status.setText("\n".join([msg] + problems))
         self.ctx.log(msg)
         for p in problems:
@@ -763,15 +780,15 @@ class OrdersPlugin:
         layer values to the layers the nest parts use (one undo step) and select it in the
         Process workspace."""
         from mlaser.model import LayerParams
-        from mlaser.services import technology as T
         w = self.window
         store = self.store()
         if store is None or not material or not thickness:
             return None
         cands = [t for t in store.all() if MC.same_material(t.key.material, t.key.thickness_mm, material, thickness)]
         if not cands:
-            self.ctx.log(tr(w, "orders.msg.no_tech", "No technology for {material} {t} mm in the database: "
-                            "apply one in the Process workspace", material=material, t=f"{thickness:g}"))
+            self.ctx.log(tr(w, "orders.msg.no_tech", "No technology for {material} {t} in the database: "
+                            "apply one in the Process workspace", material=material,
+                            t=U.current().fmt(thickness, "length", trim=True)))
             return None
         proc = self.process_ext()
         pws = getattr(proc, "workspace", None)
@@ -786,8 +803,9 @@ class OrdersPlugin:
             else:
                 labels = [t.key.label() for t in cands]
                 lab, ok = QInputDialog.getItem(w, tr(w, "orders.tech", "Technology"),
-                                               tr(w, "orders.tech.pick", "Technology for {material} {t} mm:",
-                                                  material=material, t=f"{thickness:g}"), labels, 0, False)
+                                               tr(w, "orders.tech.pick", "Technology for {material} {t}:",
+                                                  material=material, t=U.current().fmt(thickness, "length", trim=True)),
+                                               labels, 0, False)
                 if not ok:
                     return None
                 tech = cands[labels.index(lab)]
@@ -795,11 +813,17 @@ class OrdersPlugin:
         layers = sorted({q.craft.layer for q in geo}) or sorted({p.craft.layer for p in w.document.parts}) or [0]
 
         def fn(d):
+            from mlaser.services import inheritance as I
+
             from ..canvas import layer_color
             for li in layers:
-                lp = d.layers.get(li) or LayerParams(index=li, color=layer_color(li).name())
-                d.layers[li] = T.apply_to_layer(lp, tech)
-        self.ctx.edit(fn, tr(w, "orders.undo.tech", "technology {name}", name=tech.key.label()), parts=())
+                if li not in d.layers:
+                    d.layers[li] = LayerParams(index=li, color=layer_color(li).name())
+            # one service for every "use this technology" (SETTINGS_MAP *Assign recipe*); the
+            # parts keep their leads and kerf as drawn (set on the parts)
+            I.pin_crafts([p for p in d.parts if p.craft.layer in layers])
+            I.assign_recipe(d, store, tech, layers)
+        self.ctx.edit(fn, tr(w, "orders.undo.tech", "technology {name}", name=tech.key.label()))
         # the layer values only: leads, kerf and micro-joints stay as the parts were drawn (a
         # lead added here could reach past the sheet edge the nest placed the part against)
         if pws is not None:

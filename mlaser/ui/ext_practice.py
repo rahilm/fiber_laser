@@ -17,15 +17,24 @@ from PySide6.QtWidgets import (QHBoxLayout, QLabel, QListWidget, QListWidgetItem
                                QProgressBar, QPushButton, QVBoxLayout, QWidget)
 
 from mlaser.services import practice as PR
+from mlaser.services import units as U
 from mlaser.services.config import Setting
 from mlaser.services.operator import fmt_duration
 from mlaser.services.procedures import engine as PE
 
+from mlaser.ui.units_qt import on_units_changed
+
 from .workspaces import TOUCH_MIN, tr
+
+#: the practice sheet (mlaser.services.practice.practice_document): 300 x 200 mm
+PRACTICE_SHEET_MM = (300.0, 200.0)
 
 
 def _t(window: Any, key: str, **kw: Any) -> str:
     """A lesson text (catalogue id with its English default from :data:`PR.TEXTS`)."""
+    # the sheet size in the display units (texts that have no {sheet} ignore it)
+    kw.setdefault("sheet", U.current().fmt_size(*PRACTICE_SHEET_MM, decimals=None if U.current().imperial else 0,
+                                                trim=True))
     return tr(window, key, PR.TEXTS.get(key, key), **kw)
 
 
@@ -111,6 +120,7 @@ class CoachWindow(QWidget):
         v.addLayout(row)
         v.addStretch(1)
         self.lessons.currentRowChanged.connect(lambda _r: self._buttons())
+        on_units_changed(self, lambda _u: self.refresh(), now=False)
 
     def _button(self, name: str, text: str, fn: Callable[[], Any]) -> QPushButton:
         b = QPushButton(text)

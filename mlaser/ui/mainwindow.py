@@ -15,18 +15,18 @@ from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
 from mlaser.ops.craft import MicroJointParams, default_lead_params  # noqa: F401 - re-exported
 from mlaser.services.commands import CommandRegistry, UnknownCommandError
+from mlaser.services import units as _units
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
-from . import dialogs
+from . import dialogs, homes, settings_apply
 from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
 from .i18n import Translator, translator
 from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
-from .params import OPTION_SECTIONS
 from .ribbon import Ribbon
 
 # ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/re/cam.md §8;
@@ -35,6 +35,18 @@ from .ribbon import Ribbon
 # out-in / run are gone.
 SORT_MODES = {"left_right": 1, "right_left": 2, "bottom_top": 3, "top_bottom": 4, "nearest": 5,
               "run": 5, "in_out": 6, "out_in": 7, "keep": 0, "shortest": 20, "grid": 21}
+#: Geometric transformations > Size presets: the largest side scaled to (metric mm, imperial mm);
+#: imperial uses round inch sizes (1/2, 2, 4, 8 in), the menu labels follow the display units
+SIZE_PRESETS = {"xform.size_10mm": (10.0, 12.7), "xform.size_50mm": (50.0, 50.8),
+                "xform.size_100mm": (100.0, 101.6), "xform.size_200mm": (200.0, 203.2)}
+
+
+def size_preset(cmd: str) -> float:
+    """The size (mm) of a size preset command in the current display units."""
+    metric, imperial = SIZE_PRESETS[cmd]
+    return imperial if _units.current().unit("length") in ("in", "ft") else metric
+
+
 SORT_LABELS = {"keep": "Keep current order", "shortest": "Shortest path", "grid": "Grid"}
 # Built-in plugins (mlaser.ui.<name>, each with register(ctx), docs/dev/PLUGINS.md); third-party
 # plugins come from the "mlaser.plugins" entry-point group.
@@ -112,6 +124,10 @@ class _CloseWatch(QObject):
         return False
 
 
+_LEAD_IDS = tuple(f"craft.lead_{n}.{f}" for n in ("in", "out") for f in ("kind", "angle_deg", "length", "radius"))
+_KERF_IDS = ("craft.kerf_comp", "craft.kerf_width")
+
+
 class MainWindow(QMainWindow):
     def __init__(self, controller: Optional[ControllerFacade] = None, tr: Optional[Translator] = None,
                  extensions: tuple = (), config: Optional[ConfigService] = None,
@@ -123,6 +139,7 @@ class MainWindow(QMainWindow):
         # with its undo history, the command registry and the plugin hooks
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
         self.docs = DocumentService()
         self.commands = CommandRegistry()
         self.hooks = Hooks()
@@ -136,16 +153,15 @@ class MainWindow(QMainWindow):
         self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule)
         self.jobs.on_toolpath.append(self._plan_toolpath_ready)
         self.jobs.on_planned.append(self._plan_ready)
-        self.jobs.on_failed.append(lambda t, exc: self.log_panel.log(f"toolpath: {exc}"))
+        self.jobs.on_failed.append(self._plan_failed)
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
-        self.lead_in, self.lead_out = default_lead_params()
-        self.lead_closed_only = True     # "只对封闭图形有效" (closed graphs only), on by default
-        self.lead_start_mode = 0         # "自动选择起点位置(长边优先)" (auto, long side first)
+        # leads, kerf and micro-joints are edited in one place, Process › Properties (and the
+        # layer / recipe defaults they inherit); the window keeps no lead template of its own
         from mlaser.cam.toolpath import CamParams
         self.cam_params = CamParams()            # sort mode etc.
         self.machine = self.config.machine()     # mlaser.nc.Machine from the machine profile
@@ -175,6 +191,7 @@ class MainWindow(QMainWindow):
 
         # left: layers + parts (tabbed dock)
         self.layer_panel = LayerPanel(self.tr_)
+        self.layer_panel.pressure_unit = lambda: int(self.config.get("UN.GasPressureUnit", 0) or 0)
         self.part_list = PartListPanel(self.tr_)
         left = QTabWidget()
         left.addTab(self.layer_panel, "")
@@ -225,6 +242,8 @@ class MainWindow(QMainWindow):
             self._load_entry_points()
         # ---
         self.shell.finish()       # commands, keys, palette, theme, user mode, layout
+        # --- the Settings window's preferences (ui/settings_apply.py): migrated, applied, live
+        settings_apply.install(self)
 
     # ------------------------------------------------------------------ plugins
     def _load_extensions(self, names, entry_points: bool = False) -> dict:
@@ -405,7 +424,12 @@ class MainWindow(QMainWindow):
         for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd):
             sb.addWidget(w)
         sb.addPermanentWidget(self.st_da)
-        self.st_da.setText("X: 0.000 Y: 0.000")
+        from .units_qt import on_units_changed
+        self._mouse_xy = (0.0, 0.0)
+        on_units_changed(self.st_da, lambda _u: self._show_mouse_xy(*self._mouse_xy))
+        self._last_status = None
+        on_units_changed(self.st_xy, lambda _u: self._status_position(self._last_status)
+                         if self._last_status is not None else None, now=False)
 
     def _wire(self) -> None:
         a = self.ribbon.actions
@@ -413,8 +437,8 @@ class MainWindow(QMainWindow):
             "file.new": self.file_new, "file.open": self.file_open, "file.import": self.file_import,
             "file.save": self.file_save, "file.save_as": lambda: self.file_save(True),
             "app.exit": self.close, "app.import_language": self.import_language, "app.about": lambda: dialogs.AboutDialog(self.tr_, self).exec(),
-            "app.options": lambda: self.options_dialog("app.options"),
-            "hw.options": lambda: self.options_dialog("hw.options"),
+            "app.options": self.settings_dialog, "app.settings": self.settings_dialog,
+            "hw.options": self.machine_setup,
             "hw.set_ip": self.ip_dialog, "hw.reconnect": self.reconnect,
             "machine.home": lambda: self.ctl.home("XY"), "machine.home_x": lambda: self.ctl.home("X"),
             "machine.home_y": lambda: self.ctl.home("Y"), "machine.home_xyz": lambda: self.ctl.home("XYZ"),
@@ -423,7 +447,7 @@ class MainWindow(QMainWindow):
             "view.pan_mode": lambda: self.set_mode(CanvasView.MODE_PAN),
             "view.node_edit": lambda: self.set_mode(CanvasView.MODE_NODE),
             "view.zoom_in": lambda: self.canvas.zoom(1.25), "view.zoom_out": lambda: self.canvas.zoom(0.8),
-            "view.zoom_fit": self.canvas.zoom_fit,
+            "view.zoom_fit": self.canvas.zoom_fit, "view.fit_table": self.canvas.zoom_fit_table,
             "edit.undo": self.undo, "edit.redo": self.redo,
             "select.all": lambda: self.canvas.select_parts(range(len(self.document.parts))),
             "select.invert": lambda: self._select(lambda p: not p.selected),
@@ -441,15 +465,21 @@ class MainWindow(QMainWindow):
             "xform.scale_30": lambda: self._edit(ops.scale, 0.3, label="scale"),
             "xform.scale_75": lambda: self._edit(ops.scale, 0.75, label="scale"),
             "xform.scale_500": lambda: self._edit(ops.scale, 5.0, label="scale"),
-            **{f"xform.size_{mm}mm": (lambda mm=mm: self._edit(ops.scale_to, float(mm), label="size")) for mm in (10, 50, 100, 200)},
-            "craft.lead": self.lead_dialog,
-            "craft.lead_clear": lambda: self._edit(ops.apply_lead, LeadParams(0), LeadParams(0), False, label="clear leads"),
-            "craft.kerf": self.kerf_dialog, "craft.kerf_set": self.kerf_dialog,
-            "craft.kerf_cancel": lambda: self._edit(ops.apply_kerf, -1, 0.0, label="kerf"),
-            "craft.inside": lambda: self._edit(ops.apply_kerf, 0, self._kerf_width(), label="kerf"),
-            "craft.outside": lambda: self._edit(ops.apply_kerf, 1, self._kerf_width(), label="kerf"),
+            **{cmd: (lambda c=cmd: self._edit(ops.scale_to, size_preset(c), label="size")) for cmd in SIZE_PRESETS},
+            # one home per value (SETTINGS_MAP 3.3): these commands open Process › Properties at
+            # the field; with nothing selected they say so and where the layer defaults are
+            "craft.lead": homes.nav_command(self, "craft.lead", "craft.lead_in.kind", need_selection=True),
+            "craft.lead_clear": lambda: self._craft_action(
+                lambda d: ops.apply_lead(d, LeadParams(0), LeadParams(0), False), _LEAD_IDS, "clear leads"),
+            "craft.kerf": homes.nav_command(self, "craft.kerf", "craft.kerf_width", need_selection=True),
+            "craft.kerf_set": homes.nav_command(self, "craft.kerf_set", "craft.kerf_width", need_selection=True),
+            "craft.kerf_cancel": lambda: self._craft_action(lambda d: ops.apply_kerf(d, -1, 0.0), _KERF_IDS, "kerf"),
+            "craft.inside": lambda: self._kerf_action(0),
+            "craft.outside": lambda: self._kerf_action(1),
             "craft.reverse": lambda: self._edit(ops.reverse, label="reverse"),
-            "craft.microjoint": self.microjoint_dialog, "craft.mj_params": self.microjoint_dialog,
+            "craft.microjoint": homes.nav_command(self, "craft.microjoint", "craft.micro_joint.count",
+                                                  need_selection=True),
+            "craft.mj_params": homes.nav_command(self, "craft.mj_params", "craft.micro_joint.count"),
             "sim.speed": self.sim_speed_dialog, "sim.stop": lambda: self.canvas.stop_simulation(True),
             "diag.log": lambda: self.log_dock.show(),
             "edit.copy": self.copy_selected, "edit.paste": self.paste,
@@ -464,10 +494,16 @@ class MainWindow(QMainWindow):
         handlers["craft.mj_clear"] = lambda: self._edit(ops.clear_joints, label="clear micro-joints")
         handlers["hw.connect_sim"] = self.connect_simulator
         show = {"show.bbox": "show_bbox", "show.unclosed_red": "unclosed_red", "show.index": "show_index",
-                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path"}
+                "show.start": "show_start", "show.direction": "show_direction", "show.move_path": "show_move_path",
+                "show.toolpath": "show_toolpath"}
         for cmd, attr in show.items():
             a[cmd].setChecked(getattr(self.canvas.options, attr))
-            handlers[cmd] = lambda on, at=attr: (setattr(self.canvas.options, at, bool(on)), self.canvas.rebuild())
+            # the view options are preferences (display.*, Settings › Canvas): settings_apply
+            # applies the stored value to the canvas and keeps the toggle in step
+            handlers[cmd] = lambda on, at=attr: self.config.set(f"display.{at}", bool(on))
+        # the canvas bar's Toolpath toggle and View > Show > Toolpath are one setting
+        handlers["show.toolpath"] = lambda on: self.canvas.set_show_toolpath(bool(on))
+        self.canvas.toolpathToggled.connect(lambda on: a["show.toolpath"].setChecked(bool(on)))
         # every QAction is connected once to the registry; plugins register handlers, not slots
         self.commands.on_register.append(self._command_registered)
         self.commands.on_error.append(lambda cmd, exc: self.log_panel.log(f"{cmd}: {type(exc).__name__}: {exc}"))
@@ -479,11 +515,21 @@ class MainWindow(QMainWindow):
         self.commands.register("edit.delete", self.delete_selected, "core", "cmd.edit.delete")
         for how, label in SORT_LABELS.items():
             self.ribbon.action(f"sort.{how}", label)
+        # size presets: labels in the display units (and again after a language change)
+        from .units_qt import on_units_changed
+        for cmd in SIZE_PRESETS:
+            act = a.get(cmd)
+            if act is not None:
+                relabel = (lambda _x=None, c=cmd, ac=act: (ac.setText(_units.current().fmt(size_preset(c), "length",
+                                                                                           trim=True)),
+                                                           ac.setToolTip(ac.text())))
+                self.tr_.bind(act, act.property("lang_key") or cmd, relabel)
+                on_units_changed(act, relabel)
         self.handlers = self.commands.handlers()
 
         self.canvas.setContextMenuPolicy(Qt.CustomContextMenu)
         self.canvas.customContextMenuRequested.connect(self._context_menu)
-        self.canvas.mouseMoved.connect(lambda x, y: self.st_da.setText(f"X: {x:.3f} Y: {y:.3f}"))
+        self.canvas.mouseMoved.connect(self._show_mouse_xy)
         self.canvas.selectionChanged.connect(self.part_list.sync_selection)
         self.part_list.selectionToCanvas.connect(lambda idx: self.canvas.select_parts(idx))
         self.layer_panel.assignLayer.connect(self.assign_layer)
@@ -569,8 +615,10 @@ class MainWindow(QMainWindow):
         self._fill_lang_combo()
         return codes
 
-    def set_language(self, code: str) -> None:
+    def set_language(self, code: str, persist: bool = True) -> None:
         self.tr_.set_language(code)
+        if persist and self.config.get("shell.language", "") != code:
+            self.config.set("shell.language", code)          # Settings > General > Language
         idx = self.lang_combo.findData(code)
         if idx >= 0 and idx != self.lang_combo.currentIndex():
             self.lang_combo.blockSignals(True)
@@ -611,6 +659,7 @@ class MainWindow(QMainWindow):
         doc = self.docs.document
         self._fill_layers(doc)
         if kind == "replace":
+            self._load_order(doc)                # the drawing's own cutting order
             self.canvas.set_document(doc)
         else:
             self.canvas.document = doc
@@ -631,6 +680,9 @@ class MainWindow(QMainWindow):
         """ConfigService listener: the machine profile feeds the job compiler (re-plan) and the
         controller's own manual moves."""
         if key.startswith("shell."):             # the shell's own settings (theme, layout...)
+            return
+        s = self.config.setting(key)
+        if s is not None and s.source != "registry":   # preferences: no machine parameter
             return
         m = self.config.machine()
         if m == self.machine:
@@ -655,6 +707,7 @@ class MainWindow(QMainWindow):
             self.jobs.preview = None
             self.plan = None
             self._set_toolpath([])
+            self.canvas.set_plan_state("idle")
             return None
         req = build_request("process", self.docs, self.ctl, self.machine, self.cam_params)
         self._plan_head = req.start
@@ -663,6 +716,13 @@ class MainWindow(QMainWindow):
     def _plan_toolpath_ready(self, ticket) -> None:
         if ticket is self.jobs.preview:
             self._set_toolpath(ticket.toolpath or [])
+            if not self.jobs.pending:
+                self.canvas.set_plan_state("ready")
+
+    def _plan_failed(self, ticket, exc) -> None:
+        self.log_panel.log(f"toolpath: {exc}")
+        if ticket is self.jobs.preview:
+            self.canvas.set_plan_state("failed")
 
     def _plan_ready(self, plan, ticket) -> None:
         if ticket is not self.jobs.preview:
@@ -679,8 +739,15 @@ class MainWindow(QMainWindow):
     def toolpath(self) -> list:
         """The toolpath of the current plan (waits for the toolpath stage of a pending plan;
         the compile itself keeps running in the worker)."""
-        if self.jobs.pending or (self.jobs.preview is not None and not self.jobs.preview.toolpath_event.is_set()):
+        for _ in range(5):        # a newer preview replaced (cancelled) the one waited for: its turn
+            tk = self.jobs.preview
+            # done is not enough: the worker may have finished while its delivery to this
+            # window still waits in the event queue (Sim then said "no toolpath": macOS CI)
+            if not self.jobs.pending and (tk is None or tk.cancelled or tk.toolpath_delivered):
+                break
             self.jobs.settle(toolpath_only=True)
+            if self.jobs.preview is tk and not self.jobs.pending:
+                break
         return self._toolpath
 
     @toolpath.setter
@@ -710,7 +777,10 @@ class MainWindow(QMainWindow):
         self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
 
     def _update_toolpath(self) -> None:
-        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller."""
+        """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller.
+        The canvas says "Computing toolpath…" until the new toolpath arrives."""
+        if self.document.parts:
+            self.canvas.set_plan_state("planning")
         self.jobs.schedule_preview(self._preview_request)
 
     def _refresh(self) -> None:
@@ -785,6 +855,21 @@ class MainWindow(QMainWindow):
     def copy_selected(self) -> None:
         self._clipboard = clone_parts(p for p in self.document.parts if p.selected)
 
+    def _status_position(self, st) -> None:
+        """Machine position and speed in the status bar, in the display units."""
+        self._last_status = st
+        u = _units.current()
+        self.st_xy.setText(f"X: {u.number(st.x, 'length')}  Y: {u.number(st.y, 'length')}  "
+                           f"Z: {u.number(st.z, 'length')} {u.suffix('length')}")
+        self.st_cv.setText(self.tr_.format("mp80", unit=f" ({u.suffix('speed')})",
+                                           speed=u.to_display(st.speed, "speed")))   # status.speed
+
+    def _show_mouse_xy(self, x: float, y: float) -> None:
+        """The cursor position in the status bar, in the display units."""
+        self._mouse_xy = (x, y)
+        u = _units.current()
+        self.st_da.setText(f"X: {u.number(x, 'length')} Y: {u.number(y, 'length')} {u.suffix('length')}")
+
     def paste(self) -> None:
         """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
         clip = getattr(self, "_clipboard", None)
@@ -795,7 +880,7 @@ class MainWindow(QMainWindow):
 
     def nudge(self, dx: float, dy: float) -> None:
         """mf445 keyboard fine-tuning (arrow keys): the ``nudge`` provider when a plugin sets one
-        (ext_draw: pd377 step / auto step), else move the selection by SP.KeyboardMoveStep."""
+        (ext_draw: pd377 step / auto step), else move the selection by ``design.nudge_step``."""
         if self._operator_blocked():
             return
         provider = self.hooks.provider("nudge")
@@ -804,7 +889,7 @@ class MainWindow(QMainWindow):
             return
         if not any(p.selected for p in self.document.parts):
             return
-        step = float(self.settings.get("SP.KeyboardMoveStep", 1.0))
+        step = float(self.config.get("design.nudge_step", 1.0))
         self._edit(lambda d: ops.translate(d, dx * step, dy * step, [p for p in d.parts if p.selected]),
                    label="nudge", scope="selection")
 
@@ -817,15 +902,23 @@ class MainWindow(QMainWindow):
     def edit_layer(self, layer: int) -> None:
         if self._operator_blocked():               # Operator mode: no parameter editing
             return
-        lp = self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
-                                                                extra={"placeholder": True}))
-        if dialogs.LayerParamDialog(self.tr_, lp, self).exec():
-            lp.extra.pop("placeholder", None)        # parameters confirmed: the layer is defined
-            self.layer_panel.refresh()
+        # one home per value: the layer's values are edited in Process › Layers (the layer
+        # inspector), not in a dialog of their own (SETTINGS_MAP H3)
+        self.document.layers.setdefault(layer, LayerParams(index=layer, color=layer_color(layer).name(),
+                                                           extra={"placeholder": True}))
+        from . import homes
+        homes.edit_in(self, "layer.GP.CutSpeed", layer)
 
     def _kerf_width(self) -> float:
+        """The kerf width a one-click inside / outside uses: the selection's effective width
+        (its own, its layer's or its recipe's), 0.1 mm when none is set anywhere."""
+        from mlaser.services import inheritance as I
+
         sel = [p for p in self.document.parts if p.selected] or self.document.parts
-        return sel[0].craft.kerf_width if sel and sel[0].craft.kerf_width else 0.1
+        if not sel:
+            return 0.1
+        w, _src = I.effective(self.document, self._tech_store(), "craft.kerf_width", part=sel[0])
+        return float(w) if w else 0.1
 
     # ------------------------------------------------------------------ files
     FILTER = ("Supported (*.mlz *.dxf *.chf *.nc *.txt *.cnc *.g *.plt *.svg);;mlaser project (*.mlz);;"
@@ -952,9 +1045,31 @@ class MainWindow(QMainWindow):
             self.shell.mark_saved()
 
     # ------------------------------------------------------------------ dialogs
-    def options_dialog(self, which: str) -> None:
-        dialogs.ParamGridDialog(self.tr_, "mf137" if which == "app.options" else "mf129",
-                                OPTION_SECTIONS[which], self.settings, self).exec()
+    def settings_dialog(self, key: Optional[str] = None):
+        """The Settings window (``app.options`` / ``app.settings``, Cmd+, / Ctrl+,): modeless,
+        one instance (ui/settings_dialog.py); ``key`` focuses that setting (``homes.edit_in``)."""
+        from .settings_dialog import SettingsDialog
+        d = getattr(self, "_settings_window", None)
+        if d is None:
+            d = self._settings_window = SettingsDialog(self)
+        d.refresh()
+        d.show()
+        d.raise_()
+        d.activateWindow()
+        if key:
+            d.focus_key(key)
+        return d
+
+    def machine_setup(self) -> bool:
+        """``hw.options`` (Hardware Parameters): the card parameters' one home is the Machine
+        workspace's setup page (Service mode edits; the original's grid dialog is gone)."""
+        if not self.show_workspace("machine"):
+            return False
+        ext = self.extension("ext_machine")
+        ws = getattr(ext, "workspace", None)
+        if ws is not None:
+            ws.show_section("settings")
+        return True
 
     def ip_dialog(self) -> None:
         d = dialogs.IPDialog(self.tr_, self.settings.get("ip"), self)
@@ -966,17 +1081,42 @@ class MainWindow(QMainWindow):
         ok = self.ctl.connect(host)
         self.log_panel.log("mf165" if ok else "mf166")
 
-    def lead_dialog(self) -> None:
-        d = dialogs.LeadDialog(self.tr_, self.lead_in, self.lead_out, self)
-        if d.exec():
-            self._edit(ops.apply_lead, self.lead_in, self.lead_out, self.lead_closed_only,
-                       self.lead_start_mode, label="lead")
-            self.log_panel.log("mf207")
+    def _report_scope(self, key: str, n: int, scope_all: bool) -> None:
+        """Log and status bar: how many parts a craft command changed, and whether it went to
+        the selection or (nothing selected) to every part."""
+        where = self.tr_.tr("craft.msg.scope_all" if scope_all else "craft.msg.scope_selection")
+        msg = self.tr_.format(key, n=n, where=where)
+        if n == 0:
+            msg += " " + self.tr_.tr("craft.msg.none_changed")
+        self.log_panel.log(msg)
+        self.statusBar().showMessage(msg, 6000)
 
-    def kerf_dialog(self) -> None:
-        d = dialogs.KerfDialog(self.tr_, 1, self._kerf_width(), self)
-        if d.exec():
-            self._edit(ops.apply_kerf, *d.result_values(), label="kerf")
+    def _tech_store(self):
+        ext = self.extension("ext_process") if hasattr(self, "extension") else None
+        return getattr(ext, "store", None)
+
+    def _craft_action(self, fn, vids, label: str):
+        """A one-click craft action on the selection (else every part): ``fn(doc)`` and the
+        values it sets marked as the parts' own (services.inheritance)."""
+        from mlaser.services import inheritance as I
+
+        store = self._tech_store()
+        scope_all = not any(p.selected for p in self.document.parts)
+
+        def run(d):
+            n = fn(d)
+            for p in ops.targets(d):
+                for vid in vids:
+                    I.set_override(d, store, "part", vid, I.craft_get(p.craft, vid), part=p)
+            return n
+        n = self._edit(run, label=label)
+        if vids is _KERF_IDS:
+            self._report_scope("craft.msg.kerf", n or 0, scope_all)
+        return n
+
+    def _kerf_action(self, side: int):
+        w = self._kerf_width()
+        return self._craft_action(lambda d: ops.apply_kerf(d, side, w), _KERF_IDS, "kerf")
 
     def sort(self, how: str, **flags) -> None:
         """Cutting order: every ordering mode is a ``CamParams.sort_mode`` of
@@ -988,26 +1128,40 @@ class MainWindow(QMainWindow):
             self.cam_params.sort_mode = SORT_MODES.get(how, 5)
         for k, v in flags.items():
             setattr(self.cam_params, k, v)
+        self._store_order()
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {self.cam_params.sort_mode}, small first {self.cam_params.small_first}")
+
+    #: the cutting-order values saved with the drawing (Document.extra['cam'], SETTINGS_MAP 3.4)
+    ORDER_KEYS = ("sort_mode", "small_first", "avoid_cut")
+
+    def _store_order(self) -> None:
+        """The cutting order belongs to the drawing: saved in its project (.mlz), not a window
+        setting that a new window forgets."""
+        doc = self.document
+        if isinstance(getattr(doc, "extra", None), dict):
+            doc.extra["cam"] = {k: getattr(self.cam_params, k) for k in self.ORDER_KEYS}
+            shell = getattr(self, "shell", None)
+            if shell is not None and hasattr(shell, "mark_modified"):
+                shell.mark_modified()
+
+    def _load_order(self, doc) -> None:
+        from mlaser.cam.toolpath import CamParams
+
+        saved = (doc.extra or {}).get("cam") if isinstance(getattr(doc, "extra", None), dict) else None
+        base = CamParams()
+        for k in self.ORDER_KEYS:
+            v = saved.get(k, getattr(base, k)) if isinstance(saved, dict) else getattr(base, k)
+            setattr(self.cam_params, k, type(getattr(base, k))(v))
 
     def set_sort_mode(self, mode: int, **flags) -> None:
         """Set ``CamParams.sort_mode`` (and flags such as ``avoid_cut``) directly."""
         self.cam_params.sort_mode = int(mode)
         for k, v in flags.items():
             setattr(self.cam_params, k, v)
+        self._store_order()
         self._update_toolpath()
         self.log_panel.log(f"sort: mode {mode}")
-
-    def microjoint_dialog(self) -> None:
-        d = dialogs.MicroJointDialog(self.tr_, self)
-        mp = self.mj_params
-        d.kind.setCurrentIndex(mp.kind); d.number.setValue(mp.count)
-        d.distance.setValue(mp.distance); d.length.setValue(mp.length); d.min_size.setValue(mp.min_size)
-        if d.exec():
-            mp.update(kind=d.kind.currentIndex(), count=d.number.value(), distance=d.distance.value(),
-                      length=d.length.value(), min_size=d.min_size.value())
-            self.microjoint_auto()
 
     def microjoint_auto(self) -> None:
         """mf103 auto micro-joints (:func:`mlaser.ops.auto_microjoints`)."""
@@ -1038,8 +1192,23 @@ class MainWindow(QMainWindow):
             return
         sim = _lazy("mlaser.motion.interp", "simulate")
         est = _lazy("mlaser.motion.interp", "estimate_time")
-        if not self.toolpath or sim is None or self.machine is None:
-            self.canvas.start_simulation()
+        tk = self.jobs.preview
+        if self.jobs.pending or tk is None or not tk.toolpath_event.is_set():
+            # the plan of the current drawing is still being computed: say so, then wait for it
+            # (the simulation runs the planned toolpath with its leads, kerf and gaps, never
+            # the raw drawing)
+            self.canvas.set_plan_state("simulating_wait")
+            self.statusBar().showMessage(self.tr_.tr("canvas.plan.sim_wait"), 5000)
+            from PySide6.QtCore import QEventLoop
+            from PySide6.QtWidgets import QApplication
+            QApplication.processEvents(QEventLoop.ExcludeUserInputEvents)
+        toolpath = self.toolpath
+        self.canvas.set_plan_state("ready" if toolpath else "failed")
+        if not toolpath:
+            self.log_panel.log(self.tr_.tr("canvas.plan.sim_none"))
+            return
+        if sim is None or self.machine is None:
+            self.canvas.start_simulation()      # the toolpath (canvas.simulation_path)
             return
         cfg = self.machine.motion_config()
         self.estimate = e = est(self.toolpath, cfg)
@@ -1089,8 +1258,7 @@ class MainWindow(QMainWindow):
         self.st_mc.setText(mc)
         self.st_zf.setText(t(self._ZF.get(st.ftc, "mp23")))
         self.st_lf.setText(t("mp25" if st.laser == "ready" else "mp24"))
-        self.st_xy.setText(f"X: {st.x:.3f}  Y: {st.y:.3f}  Z: {st.z:.3f}")
-        self.st_cv.setText(self.tr_.format("mp80", unit="", speed=st.speed))   # status.speed
+        self._status_position(st)
         if not self.canvas.simulation_running():
             self.canvas.set_head_position(st.x, st.y)
         if st.mode in ("process", "dry_run", "frame"):

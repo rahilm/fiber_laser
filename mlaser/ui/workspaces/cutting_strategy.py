@@ -21,18 +21,18 @@ from __future__ import annotations
 from dataclasses import replace
 from typing import Any, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
-    QDoubleSpinBox,
-    QFormLayout,
-    QGroupBox,
-    QHBoxLayout,
     QLabel,
     QListWidget,
     QPushButton,
     QVBoxLayout,
     QWidget,
 )
+
+from mlaser.services import units as U
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 from . import tr
 
@@ -92,12 +92,25 @@ class CuttingStrategyPanel(QWidget):
         self.ctx = ctx
         w = self.window_ = ctx.window
         self.setObjectName("cutting_strategy")
-        root = QVBoxLayout(self)
+        # the tab's one scroll area: the panel fits any height the Process column has
+        from PySide6.QtWidgets import QFrame, QScrollArea
+
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        sa = QScrollArea()
+        sa.setWidgetResizable(True)
+        sa.setFrameShape(QFrame.NoFrame)
+        sa.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        outer.addWidget(sa)
+        body = QWidget()
+        sa.setWidget(body)
+        root = QVBoxLayout(body)
         root.setContentsMargins(4, 4, 4, 4)
         # ---- leads
-        lg = QGroupBox(tr(w, "cutstrat.leads", "Lead-ins"))
-        lf = QFormLayout(lg)
-        lf.setRowWrapPolicy(QFormLayout.WrapAllRows)  # labels above: the Process column is narrow
+        from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section
+
+        lform = ResponsiveForm()   # label beside or above the field, from the width it has
+        lf = lform.form
         self.prefer = QComboBox()
         self.prefer.setObjectName("cutstrat_prefer")
         for data, key, text in (
@@ -114,19 +127,14 @@ class CuttingStrategyPanel(QWidget):
                 "automatic: a corner on parts with sharp corners, else the longest straight segment",
             )
         )
-        self.min_feature = QDoubleSpinBox()
-        self.min_feature.setRange(0.0, 1000.0)
-        self.min_feature.setDecimals(1)
-        self.min_feature.setValue(5.0)
-        self.min_feature.setSuffix(" mm")
+        self.min_feature = QuantitySpinBox("length", minimum=0.0, maximum=1000.0, decimals=1, value=5.0)
+        self.min_feature.setObjectName("cutstrat_min_feature")
         lf.addRow(tr(w, "cutstrat.min_feature", "Avoid features shorter than"), self.min_feature)
-        self.clearance = QDoubleSpinBox()
-        self.clearance.setRange(0.0, 50.0)
-        self.clearance.setDecimals(2)
-        self.clearance.setValue(0.5)
-        self.clearance.setSuffix(" mm")
+        self.clearance = QuantitySpinBox("small_length", minimum=0.0, maximum=50.0, decimals=2, value=0.5)
+        self.clearance.setObjectName("cutstrat_clearance")
         lf.addRow(tr(w, "cutstrat.clearance", "Clearance to other contours"), self.clearance)
-        row = QHBoxLayout()
+        rw = QWidget()
+        row = FlowLayout(rw, 6)
         for key, text, fn, name in (
             ("cutstrat.check_leads", "Check", self.check_leads, "cutstrat_check_leads"),
             ("cutstrat.fix_leads", "Fix", self.fix_leads, "cutstrat_fix_leads"),
@@ -135,32 +143,28 @@ class CuttingStrategyPanel(QWidget):
             b = QPushButton(tr(w, key, text))
             b.setObjectName(name)
             b.setMinimumHeight(32)
-            b.setMinimumWidth(40)
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
-        lf.addRow(row)
-        root.addWidget(lg)
+        lf.addRow(rw)
+        root.addWidget(Section("cutstrat_leads", tr(w, "cutstrat.leads", "Lead-ins"), lform))
         # ---- tipping
-        tg = QGroupBox(tr(w, "cutstrat.tipping", "Tipping on the slats"))
-        tf = QFormLayout(tg)
-        tf.setRowWrapPolicy(QFormLayout.WrapAllRows)
+        tform = ResponsiveForm()
+        tf = tform.form
         self.bed_label = QLabel()
         self.bed_label.setObjectName("cutstrat_bed")
         self.bed_label.setWordWrap(True)
         tf.addRow(self.bed_label)
         # the bed model lives in the machine settings (ConfigService bed.*): edited here
-        bed = QHBoxLayout()
+        bed_w = QWidget()
+        bed = FlowLayout(bed_w, 6)
         self.bed_fields: dict[str, Any] = {}
         for key, lo, hi, dec, tip_key, tip in (
             ("bed.slat_pitch", 5.0, 1000.0, 1, "bed.set.slat_pitch", "Slat pitch (centre to centre)"),
             ("bed.slat_width", 0.5, 50.0, 1, "bed.set.slat_width", "Slat width"),
             ("bed.slat_offset", -1.0, 1000.0, 1, "bed.set.slat_offset", "First slat position (-1 = unknown)"),
         ):
-            sp = QDoubleSpinBox()
+            sp = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec)
             sp.setObjectName("cutstrat_" + key.replace(".", "_"))
-            sp.setRange(lo, hi)
-            sp.setDecimals(dec)
-            sp.setSuffix(" mm")
             sp.setToolTip(tr(w, tip_key, tip))
             if key == "bed.slat_offset":
                 sp.setSpecialValueText(tr(w, "cutstrat.bed.offset_unknown", "unknown"))
@@ -175,7 +179,7 @@ class CuttingStrategyPanel(QWidget):
         self.bed_dir.setCurrentIndex(1 if int(_cfg(w, "bed.slat_direction", 0)) == 1 else 0)
         self.bed_dir.currentIndexChanged.connect(lambda i: self._set_bed("bed.slat_direction", int(i)))
         bed.addWidget(self.bed_dir)
-        tf.addRow(bed)
+        tf.addRow(bed_w)
         self.strategy = QComboBox()
         self.strategy.setObjectName("cutstrat_tip_strategy")
         for data, key, text in (
@@ -185,7 +189,8 @@ class CuttingStrategyPanel(QWidget):
         ):
             self.strategy.addItem(tr(w, key, text), data)
         tf.addRow(tr(w, "cutstrat.tip.strategy", "Strategy"), self.strategy)
-        row = QHBoxLayout()
+        rw = QWidget()
+        row = FlowLayout(rw, 6)
         for key, text, fn, name in (
             ("cutstrat.check_tip", "Check", self.check_tipping, "cutstrat_check_tip"),
             ("cutstrat.fix_tip", "Fix", self.fix_tipping, "cutstrat_fix_tip"),
@@ -195,8 +200,8 @@ class CuttingStrategyPanel(QWidget):
             b.setMinimumHeight(32)
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
-        tf.addRow(row)
-        root.addWidget(tg)
+        tf.addRow(rw)
+        root.addWidget(Section("cutstrat_tipping", tr(w, "cutstrat.tipping", "Tipping on the slats"), tform))
         # ---- results
         self.summary = QLabel()
         self.summary.setObjectName("cutstrat_summary")
@@ -204,8 +209,10 @@ class CuttingStrategyPanel(QWidget):
         root.addWidget(self.summary)
         self.issues = QListWidget()
         self.issues.setObjectName("cutstrat_issues")
+        self.issues.setMinimumHeight(self.issues.fontMetrics().height() * 4)
         root.addWidget(self.issues, 1)
         self.refresh_bed()
+        on_units_changed(self, lambda _u: self.refresh_bed(), now=False)
 
     # ------------------------------------------------------------------ helpers
     def _set_bed(self, key: str, value: Any) -> None:
@@ -223,16 +230,16 @@ class CuttingStrategyPanel(QWidget):
         where = (
             tr(self.window_, "cutstrat.bed.unknown", "position unknown (worst case)")
             if b.offset is None
-            else tr(self.window_, "cutstrat.bed.offset", "first slat at {o:g} mm", o=b.offset)
+            else tr(self.window_, "cutstrat.bed.offset", "first slat at {o}", o=U.current().fmt(b.offset, "length", trim=True))
         )
         self.bed_label.setText(
             tr(
                 self.window_,
                 "cutstrat.bed",
-                "Bed: slats along {d}, pitch {p:g} mm, width {w:g} mm, {where}",
+                "Bed: slats along {d}, pitch {p}, width {w}, {where}",
                 d=b.direction.upper(),
-                p=b.pitch,
-                w=b.width,
+                p=U.current().fmt(b.pitch, "length", trim=True),
+                w=U.current().fmt(b.width, "length", trim=True),
                 where=where,
             )
         )
@@ -314,16 +321,17 @@ class CuttingStrategyPanel(QWidget):
         self.ctx.edit(fn, tr(self.window_, "cutstrat.undo.place", "place lead-ins"))
         n = box[0] if box else 0
         rep = box[1] if len(box) > 1 else collision.FixReport()
-        self._show(
-            tr(
-                self.window_,
-                "cutstrat.msg.placed",
-                "{n} starts placed; {left} lead-ins still collide",
-                n=n,
-                left=len({i.key for i in rep.remaining}),
-            ),
-            [i.message for i in rep.remaining],
+        summary = tr(
+            self.window_,
+            "cutstrat.msg.placed",
+            "{n} starts placed; {left} lead-ins still collide",
+            n=n,
+            left=len({i.key for i in rep.remaining}),
         )
+        if n == 0 and not _has_lead_in(self._doc()):
+            # place_leads only moves the start of contours that have a lead-in
+            summary += " " + tr(self.window_, "craft.msg.no_leads", "No contour has a lead-in yet.")
+        self._show(summary, [i.message for i in rep.remaining])
         return n
 
     # ------------------------------------------------------------------ tipping
@@ -387,3 +395,11 @@ def install(ctx: Any, tabs: Any) -> CuttingStrategyPanel:
 
 
 __all__ = ["CuttingStrategyPanel", "augment_preflight", "bed_of", "install"]
+
+
+def _has_lead_in(doc: Any) -> bool:
+    for p in getattr(doc, "parts", None) or []:
+        crafts = [p.craft] + [c.craft for c in p.contours if c.craft is not None]
+        if any(getattr(cr.lead_in, "kind", 0) for cr in crafts):
+            return True
+    return False

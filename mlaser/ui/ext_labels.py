@@ -30,6 +30,7 @@ from typing import Any, Optional
 
 from mlaser.labels import labels as L
 from mlaser.labels import marking as MK
+from mlaser.services import units as U
 from mlaser.services.config import Setting
 
 from .workspaces import tr
@@ -133,7 +134,7 @@ class LabelsPlugin:
         path = self._save_path("labels.cmd.part_labels", "Part labels (PDF)...", f"labels-{base}.pdf", path)
         if not path:
             return None
-        L.render_part_labels(path, labs, self._size("label_size"))
+        L.render_part_labels(path, labs, self._size("label_size"), units=U.current())
         self.last_path = path
         self.ctx.log(tr(self.w, "labels.msg.written", "{n} label(s) written: {path}", n=len(labs), path=path))
         return path
@@ -166,7 +167,7 @@ class LabelsPlugin:
                                time.strftime("tickets-%Y%m%d-%H%M%S.pdf"), path)
         if not path:
             return None
-        L.render_tickets(path, tickets, ("A4", "A5")[int(self.settings["ticket_page"] or 0) % 2])
+        L.render_tickets(path, tickets, ("A4", "A5")[int(self.settings["ticket_page"] or 0) % 2], units=U.current())
         self.last_path = path
         self.ctx.log(tr(self.w, "labels.msg.tickets", "{n} job ticket(s) written: {path}", n=len(tickets), path=path))
         return path
@@ -182,7 +183,7 @@ class LabelsPlugin:
                                time.strftime("remnants-%Y%m%d-%H%M%S.pdf"), path)
         if not path:
             return None
-        L.render_remnant_labels(path, L.labels_of(items), self._size("remnant_size"))
+        L.render_remnant_labels(path, L.labels_of(items), self._size("remnant_size"), units=U.current())
         self.last_path = path
         self.ctx.log(tr(self.w, "labels.msg.written", "{n} label(s) written: {path}", n=len(items), path=path))
         return path
@@ -203,7 +204,7 @@ class LabelsPlugin:
             os.makedirs(d, exist_ok=True)
             for r in new:
                 p = os.path.join(d, f"remnant-{r.id}.pdf")
-                L.render_remnant_labels(p, [L.remnant_label(r)], self._size("remnant_size"))
+                L.render_remnant_labels(p, [L.remnant_label(r)], self._size("remnant_size"), units=U.current())
                 self.ctx.log(tr(self.w, "labels.msg.remnant_auto", "Remnant label written: {path}", path=p))
         except OSError as exc:  # a label must never disturb the queue
             self.ctx.log(f"labels: {exc}")

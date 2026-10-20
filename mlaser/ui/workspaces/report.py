@@ -13,7 +13,7 @@ Simulator, dry-run and practice jobs are recorded with their ``source``
 them (review 2 P1-7).
 
 Cost: the plan's estimate ``cost`` (the Process track's time-and-cost card) when present, else
-the rates of this plugin's settings (``plugin.report.*``: machine, gas and power per hour, per
+the application's rates (Settings › Costing, ``costing.*``: machine, gas and power per hour, per
 metre cut, per pierce, material per m²); ``Ledger.cost_hook`` is the hook for other providers.
 """
 from __future__ import annotations
@@ -32,8 +32,9 @@ from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame
 from mlaser.machine import events as EV
 from mlaser.report import ledger as LG
 from mlaser.services import runsource as RS
-from mlaser.services.config import Setting
+from mlaser.services import units as U
 from mlaser.services.operator import fmt_duration
+from mlaser.ui.units_qt import on_units_changed
 
 from ..safety_texts import remedy
 from . import TOUCH_MIN, show_workspace, tr
@@ -207,6 +208,19 @@ def _table(cols: list[str], name: str) -> QTableWidget:
     return t
 
 
+def _cut(cut_m: float) -> str:
+    """A cut length (the ledger keeps metres) as a number in the display units (m / ft)."""
+    return U.current().number(float(cut_m or 0.0) * 1000.0, "long_length", 2)
+
+
+def _thickness(t: float) -> str:
+    return U.current().fmt(t, "length", trim=True) if t else ""
+
+
+#: (table attribute, column) of the cut-length columns (their header carries the unit)
+CUT_COLUMNS = (("days", 5), ("jobs", 5), ("per_job", 4))
+
+
 def _fill(t: QTableWidget, rows: list[list]) -> None:
     t.setRowCount(len(rows))
     for r, row in enumerate(rows):
@@ -289,19 +303,19 @@ class ReportWorkspace(QWidget):
         self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - 12}px;padding:4px 12px;}}")
         self.days = _table([tr(w, "report.col.day", "Day"), tr(w, "report.col.jobs", "Jobs"),
                             tr(w, "report.col.ok", "Done"), tr(w, "report.col.stopped", "Stopped"),
-                            tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut (m)"),
+                            tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut"),
                             tr(w, "report.col.pierces", "Pierces"), tr(w, "report.col.util", "Util. %"),
                             tr(w, "report.col.cost", "Cost"), tr(w, "report.col.alarms", "Alarms"),
                             tr(w, "report.col.alarm_time", "Alarm time")], "report_days")
         self.jobs = _table([tr(w, "report.col.start", "Start"), tr(w, "report.col.name", "Job"),
                             tr(w, "report.col.result", "Result"), tr(w, "report.col.run", "Cutting time"),
-                            tr(w, "report.col.est", "Estimated"), tr(w, "report.col.cut", "Cut (m)"),
+                            tr(w, "report.col.est", "Estimated"), tr(w, "report.col.cut", "Cut"),
                             tr(w, "report.col.pierces", "Pierces"), tr(w, "report.col.material", "Material"),
                             tr(w, "report.col.util", "Util. %"), tr(w, "report.col.cost", "Cost"),
                             tr(w, "report.col.source", "Run")], "report_jobs")
         self.per_job = _table([tr(w, "report.col.name", "Job"), tr(w, "report.col.sheets", "Sheets"),
                                tr(w, "report.col.ok", "Done"), tr(w, "report.col.run", "Cutting time"),
-                               tr(w, "report.col.cut", "Cut (m)"), tr(w, "report.col.cost", "Cost")], "report_per_job")
+                               tr(w, "report.col.cut", "Cut"), tr(w, "report.col.cost", "Cost")], "report_per_job")
         self.alarms = _table([tr(w, "report.col.time", "Time"), tr(w, "report.col.code", "Code"),
                               tr(w, "report.col.text", "Alarm"), tr(w, "report.col.duration", "Duration"),
                               tr(w, "report.col.job", "Job"), tr(w, "report.col.remedy", "Remedy")], "report_alarms")
@@ -315,6 +329,21 @@ class ReportWorkspace(QWidget):
         v.addWidget(self.note)
         self.data: dict = {}
         ledger.listeners.append(self._ledger_changed)
+        self._cut_headers()
+        on_units_changed(self, self._units_changed, now=False)
+
+    def _cut_headers(self) -> None:
+        """The cut-length columns: "Cut (m)" / "Cut (ft)"."""
+        title = U.current().header(tr(self.w, "report.col.cut", "Cut"), "long_length")
+        for attr, col in CUT_COLUMNS:
+            item = getattr(self, attr).horizontalHeaderItem(col)
+            if item is not None:
+                item.setText(title)
+
+    def _units_changed(self, _u: Any = None) -> None:
+        self._cut_headers()
+        if self.data or self.isVisible():
+            self.refresh()
 
     def _ledger_changed(self) -> None:
         if self.isVisible():
@@ -349,24 +378,24 @@ class ReportWorkspace(QWidget):
         self.tiles["jobs"].setText(f"{s['ok']} / {s['jobs']}")
         self.tiles["run"].setText(fmt_duration(s["run_s"]))
         self.tiles["est"].setText(f"{100 * s['actual_of_est_s'] / s['est_s']:.0f} %" if s["est_s"] else "-")
-        self.tiles["cut"].setText(f"{s['cut_m']:.1f} m")
+        self.tiles["cut"].setText(U.current().fmt(s["cut_m"] * 1000.0, "long_length", decimals=1))
         self.tiles["pierces"].setText(str(s["pierces"]))
         self.tiles["util"].setText(f"{100 * s['utilisation']:.1f} %" if s["utilisation"] else "-")
         self.tiles["cost"].setText(f"{s['cost']:.2f} {cur}")
         self.tiles["alarms"].setText(f"{s['alarms']}  ({fmt_duration(s['alarm_s'])})")
         self.chart.set_days(days)
-        _fill(self.days, [[d["day"], d["jobs"], d["ok"], d["stopped"], fmt_duration(d["run_s"]), round(d["cut_m"], 2),
+        _fill(self.days, [[d["day"], d["jobs"], d["ok"], d["stopped"], fmt_duration(d["run_s"]), _cut(d["cut_m"]),
                            d["pierces"], round(100 * d["utilisation"], 1), f"{d['cost']:.2f}", d["alarms"],
                            fmt_duration(d["alarm_s"])] for d in days])
         ok, stopped = tr(w, "report.result.ok", "done"), tr(w, "report.result.stopped", "stopped")
         _fill(self.jobs, [[_dt.datetime.fromtimestamp(j.start).strftime("%Y-%m-%d %H:%M"), j.name,
                            ok if j.ok else f"{stopped} ({j.reason})", fmt_duration(j.duration_s),
-                           fmt_duration(j.est_s) if j.est_s else "-", round(j.cut_m, 2), j.pierces,
-                           " ".join(x for x in (j.material, f"{j.thickness_mm:g} mm" if j.thickness_mm else "") if x),
+                           fmt_duration(j.est_s) if j.est_s else "-", _cut(j.cut_m), j.pierces,
+                           " ".join(x for x in (j.material, _thickness(j.thickness_mm)) if x),
                            round(100 * j.utilisation, 1) if j.utilisation else "-",
                            f"{float(j.cost.get('total', 0) or 0):.2f}", self._source_text(j.source)]
                           for j in reversed(jobs)])
-        _fill(self.per_job, [[r["name"], r["jobs"], r["ok"], fmt_duration(r["run_s"]), round(r["cut_m"], 2),
+        _fill(self.per_job, [[r["name"], r["jobs"], r["ok"], fmt_duration(r["run_s"]), _cut(r["cut_m"]),
                               f"{r['cost']:.2f}"] for r in LG.by_job(jobs)])
         _fill(self.alarms, [[_dt.datetime.fromtimestamp(a.t).strftime("%Y-%m-%d %H:%M:%S"), a.code, a.text,
                              fmt_duration(a.duration_s(now)) + ("" if a.cleared else " …"), a.job, a.remedy]
@@ -415,7 +444,8 @@ class ReportWorkspace(QWidget):
         cur = s["currency"] or self.ledger.rates.currency
         summary_rows = [[tr(w, "report.tile.jobs", "Jobs"), f"{s['ok']} / {s['jobs']}"],
                         [tr(w, "report.tile.run", "Cutting time"), fmt_duration(s["run_s"])],
-                        [tr(w, "report.tile.cut", "Cut length"), f"{s['cut_m']:.1f} m"],
+                        [tr(w, "report.tile.cut", "Cut length"),
+                         U.current().fmt(s["cut_m"] * 1000.0, "long_length", decimals=1)],
                         [tr(w, "report.tile.pierces", "Pierces"), s["pierces"]],
                         [tr(w, "report.tile.util", "Utilisation"), f"{100 * s['utilisation']:.1f} %"],
                         [tr(w, "report.tile.cost", "Cost"), f"{s['cost']:.2f} {cur}"],
@@ -446,10 +476,6 @@ class ReportPlugin:
     def __init__(self, ctx: Any) -> None:
         self.ctx = ctx
         w = ctx.window
-        self.settings = ctx.settings_schema(
-            [Setting(k, "float", 0.0, unit=u, min=0.0, max=1e6, label=f"report.set.{k}")
-             for k, u in zip(RATE_KEYS, ("/h", "/h", "/h", "/m", "/pierce", "/m²"))]
-            + [Setting("currency", "str", "EUR", label="report.set.currency")])
         s = getattr(w, "settings", None)
         root = (s.get("data_dir") if s is not None else None)
         if not root:
@@ -457,7 +483,7 @@ class ReportPlugin:
             root = str(data_dir())
         self.ledger = LG.Ledger(os.path.join(root, "Report"))
         self.update_rates()
-        ctx.config.subscribe(lambda key: self.update_rates() if key.startswith("plugin.report.") else None)
+        ctx.config.subscribe(lambda key: self.update_rates() if key == "*" or key.startswith("costing.") else None)
         self.recorder = ProductionRecorder(w, self.ledger)
         self.recorder.attach(w.ctl.events)
         ctx.on_controller_changed(lambda c: self.recorder.attach(c.events))
@@ -469,8 +495,12 @@ class ReportPlugin:
                              label="ws.report")
 
     def update_rates(self) -> None:
-        kw: dict = {k: float(self.settings[k] or 0.0) for k in RATE_KEYS}
-        self.ledger.rates = LG.CostRates(currency=str(self.settings["currency"] or "EUR"), **kw)
+        """The ledger's rates: Settings › Costing (``costing.*``), the same rates and currency as
+        the cost card and quotes."""
+        cfg = self.ctx.config
+        kw: dict = {k: float(cfg.get(f"costing.{k}", 0.0) or 0.0) for k in RATE_KEYS}
+        from mlaser.services.costing import iso_currency
+        self.ledger.rates = LG.CostRates(currency=iso_currency(cfg.get("costing.currency", "EUR")) or "EUR", **kw)
 
 
 def register(ctx: Any) -> ReportPlugin:

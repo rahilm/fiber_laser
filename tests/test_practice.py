@@ -165,6 +165,29 @@ def test_alarm_lesson_injects_and_releases_the_estop(ctl):
     ctl.stop(wait=True)
 
 
+def test_alarm_lesson_trips_the_estop_only_once_the_card_cuts(ctl, monkeypatch):
+    """The lesson's e-stop comes mid-cut: with a slow host preparation (2 s, past the lesson's
+    1.5 s fallback) it used to come before the FIFO ever ran (macOS CI: the operator never saw
+    the job streaming)."""
+    from mlaser.controller import stream as S
+    real = S.JobStreamer.prepare
+
+    def slow_prepare(self, job):
+        time.sleep(2.0)
+        return real(self, job)
+    monkeypatch.setattr(S.JobStreamer, "prepare", slow_prepare)
+    svc, _ = service()
+    lesson = svc.begin("alarm", ctl, Host(PR.practice_document()), task_timeout_s=40)
+    ran = []
+
+    def cut(p):
+        start_cut(p)
+        ran.append(True)
+    drive(lesson, {"alarm_wait": cut, "alarm_read": lambda p: None, "reset": reset}, timeout=90)
+    assert ran and lesson.state == PE.DONE, lesson.history
+    ctl.stop(wait=True)
+
+
 def test_resume_lesson(ctl):
     svc, _ = service()
     lesson = svc.begin("resume", ctl, Host(PR.practice_document()), task_timeout_s=40)

@@ -29,9 +29,8 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF,
-                           QTransform)
-from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTransform)
+from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsSimpleTextItem, QGraphicsView,
                                QStyleOptionGraphicsItem, QWidget)
@@ -66,7 +65,8 @@ CANVAS_COLORS: dict[str, str] = {
     "cut": "#d0d0d0", "gap": "#ff8000", "rapid": "#8080ff", "track": "#ff6060",
     "unclosed": "#ff0000", "selected": "#ffffff", "start": "#ffffff", "index": "#ffd700",
     "bbox": "#707070", "arrow": "#ffffff", "head": "#ff4040", "marker": "#00ffff",
-    "sim": "#ffffff",
+    "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#b28cff", "kerf": "#ffc53d",
+    "pierce": "#ff4fa0",
 }
 _DISPLAY_LAYER_COLORS: Optional[list[str]] = None
 
@@ -85,8 +85,6 @@ def display_layer_color(index: int) -> QColor:
 def _cc(role: str) -> QColor:
     return QColor(CANVAS_COLORS[role])
 
-
-@dataclass
 
 class SelectionBand(QWidget):
     """The selection rectangle, painted by the canvas itself.  ``QRubberBand`` is drawn by the
@@ -139,15 +137,44 @@ class SelectionBand(QWidget):
         p.drawRect(self.rect().adjusted(0, 0, -1, -1))
         p.end()
 
+@dataclass
 class ViewOptions:
     show_bbox: bool = False
     unclosed_red: bool = True
     show_index: bool = True
     show_start: bool = True
-    show_direction: bool = False
-    show_move_path: bool = False
+    show_direction: bool = True       # direction arrows on the planned path
+    show_move_path: bool = True       # rapids (dashed)
+    show_toolpath: bool = True        # the planned toolpath: leads, kerf path, gaps, pierce points
     background: str = "#000000"   # SP.DrawblkColor "Drawing area color" (default unverified)
     table_size: tuple[float, float] = (3000.0, 1500.0)
+    show_rulers: bool = True      # top / left rulers in the display units (docs/user/units.md)
+    show_grid: bool = False       # grid lines at the ruler's major step
+
+
+#: ruler / grid steps per display unit: (major step in that unit, minor ticks per major)
+_METRIC_STEPS = [(m * 10.0 ** e, 5 if m != 2 else 4) for e in range(-2, 6) for m in (1, 2, 5)]
+_INCH_STEPS = [(1 / 64, 1), (1 / 32, 2), (1 / 16, 2), (1 / 8, 2), (1 / 4, 4), (1 / 2, 4), (1.0, 4),
+               (2.0, 4), (3.0, 3), (6.0, 6), (12.0, 4), (24.0, 4), (36.0, 3), (60.0, 5), (120.0, 10),
+               (240.0, 4), (600.0, 5), (1200.0, 10), (2400.0, 4), (6000.0, 5), (12000.0, 10)]
+
+
+def ruler_step(px_per_mm: float, units=None, min_px: float = 56.0) -> tuple[float, float]:
+    """(major, minor) ruler / grid step in **mm** for a zoom of ``px_per_mm``: the smallest
+    "nice" step of the display length unit at least ``min_px`` pixels apart (metric 1-2-5 steps;
+    inches 1/64 ... 1/2, 1, 2, 3, 6 in, 1, 2, 3, 5, 10 ft ...)."""
+    from mlaser.services import units as U
+    u = units or U.current()
+    unit = u.unit("length")
+    mm_per_unit = U.UNIT_TABLE["length"][unit]
+    steps = _INCH_STEPS if unit in ("in", "ft") else _METRIC_STEPS
+    if unit == "ft":
+        steps = [(st / 12.0, n) for st, n in _INCH_STEPS]
+    for st, n in steps:
+        if st * mm_per_unit * px_per_mm >= min_px:
+            return st * mm_per_unit, st * mm_per_unit / n
+    st, n = steps[-1]
+    return st * mm_per_unit, st * mm_per_unit / n
 
 
 _PATH_CACHE: dict = {}       # segment values -> (QPainterPath, points): edits rebuild the scene
@@ -182,6 +209,17 @@ def _make_contour_path(contour) -> tuple[QPainterPath, list[tuple[float, float]]
         if contour.closed and pts[0] != pts[-1]:
             path.closeSubpath()
     return path, pts
+
+
+_LABEL_FONT: list = []
+
+
+def _label_font() -> QFont:
+    """The cut-order labels' font, made once (each ``QFont("Sans")`` is a font match; made per
+    label it was a large part of drawing a new toolpath on macOS)."""
+    if not _LABEL_FONT:
+        _LABEL_FONT.append(QFont("Sans", 8))
+    return _LABEL_FONT[0]
 
 
 def _arc_to(path: QPainterPath, start, end, center, ccw: bool) -> None:
@@ -241,8 +279,8 @@ def _mods(m) -> set:
 LOD_CONTOURS = 3000
 #: the overlay is built for at most this long per event-loop turn (the rest follows)
 OVERLAY_SLICE_S = 0.012
-#: toolpath items appended to the overlay paths between two time checks
-TOOLPATH_SLICE = 500
+#: drawings with up to this many contours get their overlay at once
+OVERLAY_SYNC_CONTOURS = 300
 LOD_TINY_PX = 3.0
 
 
@@ -363,10 +401,211 @@ class _Marker(QGraphicsEllipseItem):
         self.setZValue(5)
 
 
+@dataclass(frozen=True)
+class ToolpathMark:
+    """Where a contour's planned cut begins (from the toolpath, so a moved start or a lead shows
+    where the machine really pierces)."""
+
+    part: int
+    contour: int
+    pierce: tuple                # first point the laser fires (the lead-in start)
+    start: tuple                 # where the contour itself starts (end of the lead-in)
+    direction: tuple             # unit cut direction at ``start``
+    lead_length: float = 0.0     # mm; 0 = no lead-in
+    lead_direction: Optional[tuple] = None   # unit direction of the lead-in where it meets the contour
+
+
+_LEAD_OUT_MOVES: dict = {}
+
+
+def _lead_out_moves(lp) -> int:
+    """How many moves :func:`mlaser.cam.leads.lead_out` makes for ``lp`` (the count does not
+    depend on the contour, only on the lead's type and size)."""
+    key = (int(lp.kind), round(float(lp.length), 9), round(float(lp.angle_deg), 9), round(float(lp.radius), 9))
+    n = _LEAD_OUT_MOVES.get(key)
+    if n is None:
+        try:
+            from mlaser.cam.leads import lead_out
+            n = len(lead_out((0.0, 0.0), (1.0, 0.0), lp, True))
+        except Exception:  # noqa: BLE001 - display only
+            n = 0
+        _LEAD_OUT_MOVES[key] = n
+    return n
+
+
+def _move_length(m) -> float:
+    if type(m).__name__ == "CutArc":
+        from mlaser.model import Arc
+        return Arc(tuple(m.start), tuple(m.end), tuple(m.center), bool(m.ccw)).length()
+    return math.dist(m.start, m.end)
+
+
+def _move_direction(m, end: bool = False) -> tuple:
+    """Unit direction of a cut move at its start (``end``: at its end)."""
+    if type(m).__name__ == "CutArc":
+        p = m.end if end else m.start
+        rx, ry = p[0] - m.center[0], p[1] - m.center[1]
+        d = (-ry, rx) if m.ccw else (ry, -rx)
+    else:
+        d = (m.end[0] - m.start[0], m.end[1] - m.start[1])
+    n = math.hypot(*d)
+    return (d[0] / n, d[1] / n) if n > 1e-12 else (1.0, 0.0)
+
+
+class _LeadGlyph(QGraphicsItem):
+    """A lead-in that stays visible at any zoom: at the contour start, a stroke of ``MIN_PX``
+    screen pixels along the lead, drawn only while the lead itself is shorter than that on
+    screen (the pierce ring, :class:`_Ring`, marks the real pierce point)."""
+
+    MIN_PX = 12.0
+    RING_PX = 3.5
+
+    def __init__(self, view, mark: ToolpathMark, color: QColor) -> None:
+        super().__init__()
+        self._view = view
+        self._mark = mark
+        self._color = QColor(color)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        self.setPos(*mark.start)
+        self.setZValue(5.5)
+        self.setData(0, "toolpath.lead_glyph")
+
+    def boundingRect(self) -> QRectF:
+        r = self.MIN_PX + self.RING_PX + 2
+        return QRectF(-r, -r, 2 * r, 2 * r)
+
+    def screen_length(self) -> float:
+        return self._mark.lead_length * abs(self._view.transform().m11())
+
+    def paint(self, painter, option, widget=None) -> None:
+        if self.screen_length() >= self.MIN_PX:
+            return
+        dx, dy = self._mark.lead_direction or (1.0, 0.0)
+        # item coordinates are screen pixels with y down; the scene's y is up
+        x, y = -dx * self.MIN_PX, dy * self.MIN_PX
+        pen = QPen(self._color, 2.0)
+        pen.setCapStyle(Qt.RoundCap)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(0, 0), QPointF(x, y))
+
+
+class _Ring(QGraphicsEllipseItem):
+    """Fixed pixel-size ring (pierce point)."""
+
+    def __init__(self, x, y, r, color: QColor):
+        super().__init__(-r, -r, 2 * r, 2 * r)
+        self.setPos(x, y)
+        self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        pen = QPen(color, 1.6)
+        self.setPen(pen)
+        self.setBrush(Qt.NoBrush)
+        self.setZValue(5.4)
+        self.setData(0, "toolpath.pierce")
+
+
+class CanvasHud(QFrame):
+    """The canvas's own bar (top left of the view): the **Toolpath** toggle with the colour
+    legend of the planned path, the plan state ("Computing toolpath…") and *Fit drawing* /
+    *Fit table*.  It adapts to the view's width: the legend is dropped first, then the button
+    texts shorten to icons-free short labels; nothing is a fixed width."""
+
+    def __init__(self, view: "CanvasView") -> None:
+        super().__init__(view)
+        from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QToolButton, QVBoxLayout
+        from .i18n import tr
+        self.view = view
+        self.setObjectName("canvas_hud")
+        self.setFrameShape(QFrame.NoFrame)
+        self.setAutoFillBackground(False)
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(6, 3, 6, 3)
+        outer.setSpacing(1)
+        lay = QHBoxLayout()
+        lay.setSpacing(8)
+        outer.addLayout(lay)
+        self.toggle = QCheckBox(tr("canvas.hud.toolpath"))
+        self.toggle.setObjectName("canvas_hud_toolpath")
+        self.toggle.setToolTip(tr("canvas.hud.toolpath_tip"))
+        self.toggle.setChecked(view.options.show_toolpath)
+        self.toggle.toggled.connect(view.set_show_toolpath)
+        lay.addWidget(self.toggle)
+        self.legend = QLabel()
+        self.legend.setObjectName("canvas_hud_legend")
+        self.legend.setTextFormat(Qt.RichText)
+        self.legend.setWordWrap(True)
+        self.status = QLabel()
+        self.status.setObjectName("canvas_hud_status")
+        lay.addWidget(self.status)
+        self.fit_drawing = QToolButton()
+        self.fit_drawing.setText(tr("canvas.fit_drawing"))
+        self.fit_drawing.setToolTip(tr("canvas.fit_drawing_tip"))
+        self.fit_drawing.setObjectName("canvas_fit_drawing")
+        self.fit_drawing.clicked.connect(view.zoom_fit)
+        self.fit_table = QToolButton()
+        self.fit_table.setText(tr("canvas.fit_table"))
+        self.fit_table.setToolTip(tr("canvas.fit_table_tip"))
+        self.fit_table.setObjectName("canvas_fit_table")
+        self.fit_table.clicked.connect(view.zoom_fit_table)
+        for b in (self.fit_drawing, self.fit_table):
+            b.setAutoRaise(True)
+            b.setFocusPolicy(Qt.TabFocus)
+            lay.addWidget(b)
+        outer.addWidget(self.legend)
+        self.refresh()
+
+    def refresh(self) -> None:
+        from .i18n import tr
+        c = CANVAS_COLORS
+        bg = QColor(c["background"])
+        fg = c["cut"]                      # the theme's drawing colour: readable on the canvas
+        panel = QColor(bg)
+        panel.setAlpha(225)
+        self.setStyleSheet(
+            f"QFrame#canvas_hud {{ background: rgba({panel.red()},{panel.green()},{panel.blue()},225);"
+            f" border: 1px solid {c['table']}; border-radius: 6px; }}"
+            f" QFrame#canvas_hud QLabel, QFrame#canvas_hud QCheckBox, QFrame#canvas_hud QToolButton {{ color: {fg}; }}")
+        items = (("lead_in", "canvas.legend.lead_in"), ("lead_out", "canvas.legend.lead_out"),
+                 ("kerf", "canvas.legend.kerf"), ("gap", "canvas.legend.gap"), ("rapid", "canvas.legend.rapid"))
+        self.legend.setText(" &nbsp; ".join(
+            f"<span style='color:{c[role]}; font-weight:bold'>&#9473;&#9473;</span>&nbsp;"
+            + tr(key).replace(" ", "&nbsp;") for role, key in items))
+        self.legend.setToolTip(tr("canvas.legend.tip"))
+        self.set_status(self.view.plan_state)
+        self.place()
+
+    def set_status(self, state: str) -> None:
+        from .i18n import tr
+        text = {"planning": tr("canvas.plan.planning"), "failed": tr("canvas.plan.failed"),
+                "simulating_wait": tr("canvas.plan.sim_wait")}.get(state, "")
+        self.status.setText(text)
+        self.status.setVisible(bool(text))
+        self.place()
+
+    def place(self) -> None:
+        """Size and position for the view's current width (content-driven: the legend shows
+        only when the whole bar fits)."""
+        avail = max(0, self.view.width() - 16)
+        self.legend.setVisible(self.view.options.show_toolpath)
+        lay = self.layout()
+        lay.activate()
+        w = min(max(self.layout().itemAt(0).sizeHint().width() + 12, 0), avail)
+        if self.legend.isVisible():
+            # the legend wraps to the bar's width; it goes when even a short line does not fit
+            w = min(max(w, self.legend.sizeHint().width() + 12), avail)
+        h = self.layout().heightForWidth(w) if self.layout().hasHeightForWidth() else self.sizeHint().height()
+        if self.legend.isVisible() and h > self.view.height() // 3:
+            self.legend.setVisible(False)
+            lay.activate()
+            h = self.sizeHint().height()
+        self.setGeometry(8, 8, w, max(h, self.minimumSizeHint().height()))
+        self.raise_()
+
+
 class CanvasView(QGraphicsView):
     mouseMoved = Signal(float, float)
     selectionChanged = Signal()
     simulationFinished = Signal()
+    toolpathToggled = Signal(bool)
 
     MODE_SELECT, MODE_PAN, MODE_NODE = "select", "pan", "node"
     tool = None            # interaction tool (set_tool); class default so early events see it
@@ -414,7 +653,13 @@ class CanvasView(QGraphicsView):
         self._track_last = None
         self.tool = None                          # interaction tool (see set_tool)
         self._preview_items: list[QGraphicsItem] = []
+        self._fit_pending: Optional[str] = "drawing"   # see _fit
+        self.toolpath_marks: list[ToolpathMark] = []
+        self.plan_state = "idle"                  # idle | planning | ready | failed (set_plan_state)
         self._static_items()
+        self.hud = CanvasHud(self)
+        from .units_qt import on_units_changed
+        on_units_changed(self, lambda _u: self.viewport().update(), now=False)   # rulers relabel
 
     # ------------------------------------------------------------------ scene
     def _static_items(self) -> None:
@@ -441,6 +686,128 @@ class CanvasView(QGraphicsView):
             pen.setCosmetic(True)
             self._track.setPen(pen)
         self.rebuild()
+        self.hud.refresh()
+
+    def set_show_toolpath(self, on: bool) -> None:
+        """The Toolpath toggle (canvas bar, View > Show > Toolpath)."""
+        on = bool(on)
+        if self.options.show_toolpath == on and self.hud.toggle.isChecked() == on:
+            return
+        self.options.show_toolpath = on
+        if self.hud.toggle.isChecked() != on:
+            self.hud.toggle.blockSignals(True)
+            self.hud.toggle.setChecked(on)
+            self.hud.toggle.blockSignals(False)
+        self.rebuild()
+        self.hud.place()
+        self.toolpathToggled.emit(on)
+
+    def set_plan_state(self, state: str) -> None:
+        """"planning" while the plan of the current drawing is computed, "ready", "failed"
+        (shown in the canvas bar; the simulation waits for "ready")."""
+        self.plan_state = state
+        self.hud.set_status(state)
+
+    def toolpath_items(self, role: str) -> list:
+        """The overlay items of one toolpath role ("lead_in", "lead_out", "kerf", "gap",
+        "rapid", "cut", "bad", "pierce", "lead_glyph", "arrow"); tests and tools."""
+        return [it for it in self._overlay if it.data(0) == "toolpath." + role]
+
+    # ------------------------------------------------------------------ rulers / grid
+    RULER_PX = 18
+
+    def ruler_steps(self) -> tuple[float, float]:
+        """(major, minor) step in mm of the rulers and the grid at the current zoom."""
+        return ruler_step(1.0 / self.pixel_size())
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        super().drawBackground(painter, rect)
+        if not self.options.show_grid:
+            return
+        major, _minor = self.ruler_steps()
+        pen = QPen(_cc("table"), 0, Qt.DotLine)
+        painter.save()
+        painter.setPen(pen)
+        x = math.floor(rect.left() / major) * major
+        while x <= rect.right():
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            x += major
+        y = math.floor(rect.top() / major) * major
+        while y <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            y += major
+        painter.restore()
+
+    def ruler_labels(self) -> tuple[list[tuple[float, str]], list[tuple[float, str]], str]:
+        """The major ticks shown: ([(viewport x, label)], [(viewport y, label)], unit)."""
+        from mlaser.services import units as U
+        u = U.current()
+        major, _ = self.ruler_steps()
+        vp = self.viewport().rect()
+        tl, br = self.mapToScene(vp.topLeft()), self.mapToScene(vp.bottomRight())
+        xs, ys = [], []
+        x0, x1 = min(tl.x(), br.x()), max(tl.x(), br.x())
+        y0, y1 = min(tl.y(), br.y()), max(tl.y(), br.y())
+        dec = max(0, -math.floor(math.log10(u.to_display(major, "length")) + 1e-9)) + 2
+        k = math.floor(x0 / major)
+        while k * major <= x1 and len(xs) < 400:
+            v = k * major
+            xs.append((self.mapFromScene(QPointF(v, 0)).x(), u.number(v, "length", dec, trim=True)))
+            k += 1
+        k = math.floor(y0 / major)
+        while k * major <= y1 and len(ys) < 400:
+            v = k * major
+            ys.append((self.mapFromScene(QPointF(0, v)).y(), u.number(v, "length", dec, trim=True)))
+            k += 1
+        return xs, ys, u.suffix("length")
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        super().drawForeground(painter, rect)
+        if not self.options.show_rulers:
+            return
+        major, minor = self.ruler_steps()
+        xs, ys, unit = self.ruler_labels()
+        vp = self.viewport().rect()
+        r = self.RULER_PX
+        bg = QColor(_cc("background"))
+        bg.setAlpha(210)
+        fg = _cc("table").lighter(160)
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.fillRect(QRectF(0, 0, vp.width(), r), bg)
+        painter.fillRect(QRectF(0, 0, r, vp.height()), bg)
+        f = QFont(painter.font())
+        f.setPointSizeF(max(6.0, f.pointSizeF() * 0.75))
+        painter.setFont(f)
+        painter.setPen(QPen(fg, 1))
+        painter.drawLine(QPointF(r, r), QPointF(vp.width(), r))
+        painter.drawLine(QPointF(r, r), QPointF(r, vp.height()))
+        n = max(1, int(round(major / minor)))
+        px_minor = minor / self.pixel_size()
+        for px, label in xs:
+            if px_minor >= 4:
+                for i in range(1, n):
+                    mx = px + i * px_minor
+                    painter.drawLine(QPointF(mx, r - 4), QPointF(mx, r))
+            if px >= r:
+                painter.drawLine(QPointF(px, 0), QPointF(px, r))
+                painter.drawText(QPointF(px + 2, r - 6), label)
+        for py, label in ys:
+            if px_minor >= 4:
+                for i in range(1, n):
+                    my = py - i * px_minor
+                    painter.drawLine(QPointF(r - 4, my), QPointF(r, my))
+            if py >= r:
+                painter.drawLine(QPointF(0, py), QPointF(r, py))
+                painter.save()
+                painter.translate(r - 6, py - 2)
+                painter.rotate(-90)
+                painter.drawText(QPointF(0, 0), label)
+                painter.restore()
+        painter.fillRect(QRectF(0, 0, r, r), bg)
+        painter.drawText(QRectF(0, 0, r, r), Qt.AlignCenter, unit)
+        painter.restore()
 
     def set_table_size(self, w: float, h: float) -> None:
         self.options.table_size = (w, h)
@@ -538,34 +905,93 @@ class CanvasView(QGraphicsView):
                           if type(m).__name__ == "Marker" and getattr(m, "kind", "") == "contour"]
         self.rebuild()
 
-    def _toolpath_overlay(self):
-        """The toolpath (cut, laser-off and rapid paths); a generator of :meth:`_overlay_steps`.
-        The paths are cached for the toolpath's items (a rebuild after an edit redraws the same
-        toolpath until the new plan arrives) and built a slice of items at a time; arcs are
-        drawn with ``arcTo`` instead of a polyline of 0.5 mm steps (review 2 P2-4)."""
+    def _toolpath_overlay(self) -> None:
+        """The planned toolpath, drawn over the drawing so every CAM change shows: lead-ins and
+        lead-outs in their own colours, the kerf-compensated path of compensated contours (the
+        drawing stays in its layer colour underneath), micro-joint gaps (laser off), the
+        lead-in the lead check flagged (red) and the rapids (dashed).  The paths are cached for
+        the toolpath's items (a rebuild after an edit redraws the same toolpath until the new
+        plan arrives); arcs are drawn with ``arcTo`` (review 2 P2-4)."""
         rasters = tuple(sorted(pi for pi, _ in self._raster_items))
         flagged = frozenset(self._lead_flags())
+        kerfed = frozenset(self._kerf_contours())
+        louts = self._lead_out_counts()
         tp = self.toolpath
         hit = self._tp_paths
-        if hit is not None and hit[0] is tp and hit[1] == len(tp) and hit[2] == (rasters, flagged):
-            paths = hit[3]
+        key = (rasters, flagged, kerfed, louts)
+        if hit is not None and hit[0] is tp and hit[1] == len(tp) and hit[2] == key:
+            paths, marks = hit[3]
         else:
-            paths = (QPainterPath(), QPainterPath(), QPainterPath(), QPainterPath())
-            yield from self._toolpath_paths_iter(tp, set(rasters), flagged, paths)
-            self._tp_paths = (tp, len(tp), (rasters, flagged), paths)
-        cut, gap, rap, bad = paths
-        for path, color, style, show in ((cut, CANVAS_COLORS["cut"], Qt.SolidLine, True),
-                                         (gap, CANVAS_COLORS["gap"], Qt.SolidLine, True),
-                                         (bad, "#fc0000", Qt.SolidLine, True),
-                                         (rap, CANVAS_COLORS["rapid"], Qt.DashLine, self.options.show_move_path)):
+            paths, marks = self._toolpath_paths(tp, set(rasters), flagged, kerfed, dict(louts))
+            self._tp_paths = (tp, len(tp), key, (paths, marks))
+        self.toolpath_marks = marks
+        show_tp = self.options.show_toolpath
+        for name, z, width, style, show in (
+                ("rapid", 0.4, 0, Qt.DashLine, self.options.show_move_path and show_tp),
+                ("cut", 0.5, 0, Qt.SolidLine, True),
+                ("kerf", 1.5, 1.5, Qt.SolidLine, show_tp),
+                ("gap", 1.6, 2.0, Qt.SolidLine, show_tp),
+                ("lead_out", 2.0, 2.0, Qt.SolidLine, show_tp),
+                ("lead_in", 2.1, 2.0, Qt.SolidLine, show_tp),
+                ("bad", 2.2, 2.0, Qt.SolidLine, True)):
+            path = paths[name]
             if not show or path.isEmpty():
                 continue
+            color = "#fc0000" if name == "bad" else CANVAS_COLORS[name]
+            if name == "kerf":
+                # the kerf: a translucent band along the compensated path (the material the beam
+                # removes), so it reads as "offset path" even where it lies on the drawing
+                band = QGraphicsPathItem(path)
+                bc = QColor(color)
+                bc.setAlpha(80)
+                bpen = QPen(bc, 6.0)
+                bpen.setCosmetic(True)
+                bpen.setCapStyle(Qt.RoundCap)
+                bpen.setJoinStyle(Qt.RoundJoin)
+                band.setPen(bpen)
+                band.setZValue(z - 0.05)
+                band.setData(0, "toolpath.kerf_band")
+                self._add_overlay(band)
             it = QGraphicsPathItem(path)
-            pen = QPen(QColor(color), 0, style)
+            pen = QPen(QColor(color), width, style)
             pen.setCosmetic(True)
+            pen.setCapStyle(Qt.RoundCap)
             it.setPen(pen)
-            it.setZValue(0.5)
+            it.setZValue(z)
+            it.setData(0, "toolpath." + name)
             self._add_overlay(it)
+
+    def _kerf_contours(self) -> set:
+        """(part, contour) keys with kerf compensation (inside or outside, width > 0): their
+        planned path is drawn in the kerf colour."""
+        doc = getattr(self, "document", None)
+        out: set = set()
+        for pi, part in enumerate(getattr(doc, "parts", None) or []):
+            pc = getattr(part, "craft", None)
+            for ci, c in enumerate(part.contours):
+                cr = c.craft if c.craft is not None else pc
+                if cr is not None and int(getattr(cr, "kerf_comp", -1)) in (0, 1) and \
+                        float(getattr(cr, "kerf_width", 0.0) or 0.0) > 0:
+                    out.add((pi, ci))
+        return out
+
+    def _lead_out_counts(self) -> tuple:
+        """((part, contour), n) of the contours with a lead-out: the number of moves the CAM
+        emits for it (:func:`mlaser.cam.leads.lead_out`, the same for any start point), the
+        trailing cut moves of the contour's block."""
+        doc = getattr(self, "document", None)
+        out = []
+        for pi, part in enumerate(getattr(doc, "parts", None) or []):
+            pc = getattr(part, "craft", None)
+            for ci, c in enumerate(part.contours):
+                cr = c.craft if c.craft is not None else pc
+                lo = getattr(cr, "lead_out", None)
+                if lo is None or not lo.kind or not c.closed:
+                    continue
+                n = _lead_out_moves(lo)
+                if n:
+                    out.append(((pi, ci), n))
+        return tuple(out)
 
     def _lead_flags(self) -> set:
         """(part, contour) keys whose lead-in carries the lead-check error mark
@@ -581,42 +1007,74 @@ class CanvasView(QGraphicsView):
         return out
 
     @staticmethod
-    def _toolpath_paths(toolpath, rasters: set, flagged=frozenset()) -> tuple:
-        paths = (QPainterPath(), QPainterPath(), QPainterPath(), QPainterPath())
-        for _ in CanvasView._toolpath_paths_iter(toolpath, rasters, flagged, paths):
-            pass
-        return paths
-
-    @staticmethod
-    def _toolpath_paths_iter(toolpath, rasters: set, flagged, paths: tuple):
-        """Append ``toolpath`` to ``paths`` (cut, laser-off, rapid, flagged lead-in); yields
-        every :data:`TOOLPATH_SLICE` items (the overlay is built over several event-loop
-        turns)."""
-        cut, gap, rap, bad = paths
+    def _toolpath_paths(toolpath, rasters: set, flagged=frozenset(), kerfed=frozenset(),
+                        lead_outs: Optional[dict] = None) -> tuple[dict, list]:
+        """({role: QPainterPath}, marks) of a toolpath.  Roles: ``cut``, ``kerf`` (cut moves of
+        compensated contours), ``gap`` (laser off), ``lead_in``, ``lead_out``, ``bad`` (flagged
+        lead-ins), ``rapid``.  ``marks``: one :class:`ToolpathMark` per contour (pierce point,
+        contour start, cut direction, lead-in length) for the markers."""
+        paths = {k: QPainterPath() for k in ("cut", "kerf", "gap", "lead_in", "lead_out", "bad", "rapid")}
+        marks: list[ToolpathMark] = []
+        lead_outs = lead_outs or {}
         skip = False            # inside a raster part's block: its item shows the burn runs
         cur = None
-        for k, m in enumerate(toolpath):
-            if k and k % TOOLPATH_SLICE == 0:
-                yield
+        block: list = []
+
+        def flush() -> None:
+            if cur is None or not block:
+                return
+            n_out = lead_outs.get(cur, 0)
+            n_in = sum(1 for m in block if getattr(m, "lead", None) == "in")
+            if n_in + n_out >= len(block):
+                n_out = max(0, len(block) - n_in - 1)
+            lead_len = 0.0
+            for k, m in enumerate(block):
+                if k < n_in and getattr(m, "lead", None) == "in":
+                    role = "bad" if cur in flagged else "lead_in"
+                    lead_len += _move_length(m)
+                elif k >= len(block) - n_out:
+                    role = "lead_out"
+                elif not getattr(m, "laser", True):
+                    role = "gap"
+                else:
+                    role = "kerf" if cur in kerfed else "cut"
+                path = paths[role]
+                path.moveTo(*m.start)
+                if type(m).__name__ == "CutArc":
+                    _arc_to(path, m.start, m.end, m.center, m.ccw)
+                else:
+                    path.lineTo(*m.end)
+            body = block[n_in] if n_in < len(block) else block[-1]
+            marks.append(ToolpathMark(cur[0], cur[1], tuple(block[0].start), tuple(body.start),
+                                      _move_direction(body), lead_len if n_in else 0.0,
+                                      _move_direction(block[n_in - 1], end=True) if n_in else None))
+
+        for m in toolpath:
             name = type(m).__name__
             if name == "Marker":
+                flush()
+                block = []
                 skip = getattr(m, "part", -1) in rasters
-                cur = (getattr(m, "part", -1), getattr(m, "contour", -1))
+                cur = ((getattr(m, "part", -1), getattr(m, "contour", -1))
+                       if getattr(m, "kind", "") == "contour" else None)
                 continue
             if skip:
                 continue
             if name == "Rapid":
-                rap.moveTo(*m.start)
-                rap.lineTo(*m.end)
+                paths["rapid"].moveTo(*m.start)
+                paths["rapid"].lineTo(*m.end)
             elif name in ("CutLine", "CutArc"):
-                path = cut if getattr(m, "laser", True) else gap
-                if flagged and getattr(m, "lead", None) == "in" and cur in flagged:
-                    path = bad          # a lead-in the lead check flagged: red
-                path.moveTo(*m.start)
-                if name == "CutArc":
-                    _arc_to(path, m.start, m.end, m.center, m.ccw)
+                if cur is None:
+                    path = paths["cut" if getattr(m, "laser", True) else "gap"]
+                    path.moveTo(*m.start)
+                    if name == "CutArc":
+                        _arc_to(path, m.start, m.end, m.center, m.ccw)
+                    else:
+                        path.lineTo(*m.end)
                 else:
-                    path.lineTo(*m.end)
+                    block.append(m)
+        flush()
+        return paths, marks
 
     def add_track_point(self, x: float, y: float, cutting: bool) -> None:
         """Live machine track while a job runs (cut segments solid, moves skipped)."""
@@ -684,11 +1142,14 @@ class CanvasView(QGraphicsView):
     def _build_overlay(self) -> None:
         """Start (re)building the overlay: what fits in :data:`OVERLAY_SLICE_S` now, the rest in
         later event-loop turns (:meth:`_overlay_run`), so a new toolpath or an edit of a large
-        drawing never holds the GUI thread for the whole overlay (thousands of markers, labels
-        and arrows; review 2 P1-1: the Stop key waits for the GUI thread).
-        :meth:`finish_overlay` completes it at once."""
+        drawing never holds the GUI thread for the whole overlay (several markers per contour;
+        review 2 P1-1: a Stop waits for the GUI thread).  The toolpath paths and
+        ``toolpath_marks`` are built at once; :meth:`finish_overlay` completes the rest now."""
         self._overlay_gen += 1
         self._overlay_job = (self._overlay_gen, self._overlay_steps())
+        if len(self._items) <= OVERLAY_SYNC_CONTOURS:
+            self.finish_overlay()        # a small drawing: complete at once (deterministic)
+            return
         self._overlay_run(self._overlay_gen)
 
     def _overlay_run(self, gen: int) -> None:
@@ -714,47 +1175,43 @@ class CanvasView(QGraphicsView):
         return self._overlay_job is not None
 
     def _overlay_steps(self):
+        """The overlay, a generator: it yields between contours (see :meth:`_build_overlay`)."""
         doc = self.document
         o = self.options
         prev_end = None
+        self.toolpath_marks = []
         if self.toolpath:
-            yield from self._toolpath_overlay()
+            self._toolpath_overlay()
         if len(self._items) > LOD_CONTOURS:
             return          # level of detail: no per-contour markers / labels / arrows / boxes
-        lookup = {(pi, ci): pts for pi, ci, _, pts in self._items}
-        font = QFont("Sans", 8)          # one font for all labels (font matching is not free)
-        brush = QBrush(_cc("index"))
-        start_color = _cc("start")
-        for n, (pi, ci) in enumerate(self._order, start=1):
-            yield
-            pts = lookup.get((pi, ci))
-            if not pts:
-                continue
-            part = doc.parts[pi]
-            sx, sy = pts[0]
-            if o.show_start:
-                self._add_overlay(_Marker(sx, sy, 2.5, start_color))
-            if o.show_index:
-                t = QGraphicsSimpleTextItem(str(n))
-                t.setBrush(brush)
-                t.setFont(font)
-                t.setFlag(QGraphicsItem.ItemIgnoresTransformations)
-                t.setPos(sx, sy)
-                t.setZValue(6)
-                self._add_overlay(t)
-            if o.show_direction and len(pts) > 1:
-                self._add_overlay(self._arrow(pts))
-            lead = getattr(part.craft, "lead_in", None)
-            if lead is not None and lead.kind and len(pts) > 1 and not self.toolpath:
-                self._add_overlay(self._lead_item(pts, lead, display_layer_color(part.craft.layer)))
-            if o.show_move_path and prev_end is not None and not self.toolpath:
-                pen = QPen(_cc("rapid"), 0, Qt.DashLine)
-                pen.setCosmetic(True)
-                ln = QGraphicsLineItem(prev_end[0], prev_end[1], sx, sy)
-                ln.setPen(pen)
-                ln.setZValue(0)
-                self._add_overlay(ln)
-            prev_end = pts[-1] if not doc.parts[pi].contours[ci].closed else pts[0]
+        if self.toolpath and o.show_toolpath:
+            yield from self._toolpath_markers()
+        else:
+            lookup = {(pi, ci): pts for pi, ci, _, pts in self._items}
+            for n, (pi, ci) in enumerate(self._order, start=1):
+                yield
+                pts = lookup.get((pi, ci))
+                if not pts:
+                    continue
+                part = doc.parts[pi]
+                sx, sy = pts[0]
+                if o.show_start:
+                    self._add_overlay(_Marker(sx, sy, 2.5, _cc("start")))
+                if o.show_index:
+                    self._add_overlay(self._index_label(n, sx, sy))
+                if o.show_direction and len(pts) > 1 and not self.toolpath:
+                    self._add_overlay(self._arrow(pts))
+                lead = getattr(part.craft, "lead_in", None)
+                if lead is not None and lead.kind and len(pts) > 1 and not self.toolpath:
+                    self._add_overlay(self._lead_item(pts, lead, _cc("lead_in")))
+                if o.show_move_path and prev_end is not None and not self.toolpath:
+                    pen = QPen(_cc("rapid"), 0, Qt.DashLine)
+                    pen.setCosmetic(True)
+                    ln = QGraphicsLineItem(prev_end[0], prev_end[1], sx, sy)
+                    ln.setPen(pen)
+                    ln.setZValue(0)
+                    self._add_overlay(ln)
+                prev_end = pts[-1] if not doc.parts[pi].contours[ci].closed else pts[0]
         if o.show_bbox:
             for part in doc.parts:
                 yield
@@ -765,6 +1222,57 @@ class CanvasView(QGraphicsView):
                     pen.setCosmetic(True)
                     r.setPen(pen)
                     self._add_overlay(r)
+
+    def _toolpath_markers(self):
+        """Per-contour markers of the plan: pierce ring, contour start, cut order number,
+        direction arrow and the minimum-size lead glyph (tiny leads stay visible)."""
+        o = self.options
+        lead_c = _cc("lead_in")
+        for n, mk in enumerate(self.toolpath_marks, start=1):
+            yield
+            sx, sy = mk.start
+            if mk.lead_length > 0:
+                self._add_overlay(_Ring(mk.pierce[0], mk.pierce[1], 3.5, _cc("pierce")))
+                self._add_overlay(_LeadGlyph(self, mk, lead_c))
+            if o.show_start:
+                self._add_overlay(_Marker(sx, sy, 2.5, _cc("start")))
+            if o.show_index:
+                self._add_overlay(self._index_label(n, sx, sy))
+            if o.show_direction:
+                self._add_overlay(self._arrow_at(mk.start, mk.direction))
+
+    @staticmethod
+    def _index_label(n: int, x: float, y: float) -> QGraphicsSimpleTextItem:
+        t = QGraphicsSimpleTextItem(str(n))
+        t.setBrush(QBrush(_cc("index")))
+        t.setFont(_label_font())
+        t.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        t.setPos(x, y)
+        t.setZValue(6)
+        return t
+
+    @staticmethod
+    def _arrow_at(p, d) -> QGraphicsPathItem:
+        """Direction arrow (fixed pixel size) a little after ``p`` along the cut direction ``d``."""
+        ang = math.atan2(d[1], d[0])
+        path = QPainterPath()
+        L = 9.0
+        path.moveTo(0, 0)
+        path.lineTo(-L * math.cos(0.45), L * math.sin(0.45))
+        path.moveTo(0, 0)
+        path.lineTo(-L * math.cos(0.45), -L * math.sin(0.45))
+        path.moveTo(0, 0)
+        path.lineTo(-1.6 * L, 0)
+        it = QGraphicsPathItem(path)
+        it.setFlag(QGraphicsItem.ItemIgnoresTransformations)
+        it.setPos(p[0], p[1])
+        it.setRotation(-math.degrees(ang))
+        it.setTransform(QTransform.fromTranslate(16, 0), False)
+        pen = QPen(_cc("arrow"), 1.2)
+        it.setPen(pen)
+        it.setZValue(6)
+        it.setData(0, "toolpath.arrow")
+        return it
 
     @staticmethod
     def _arrow(pts) -> QGraphicsPathItem:
@@ -808,23 +1316,62 @@ class CanvasView(QGraphicsView):
 
     # ------------------------------------------------------------------ view
     def zoom(self, factor: float) -> None:
+        self._fit_pending = None          # the user chose a zoom: a resize keeps it
         self.scale(factor, factor)
 
     def zoom_fit(self) -> None:
+        """Fit the drawing (the machine table when the document is empty)."""
+        self._fit("drawing")
+
+    def zoom_fit_table(self) -> None:
+        """Fit the whole machine table."""
+        self._fit("table")
+
+    def fit_rect(self, kind: str = "drawing") -> QRectF:
         doc = self.document
-        if doc is not None and doc.parts:
+        if kind == "drawing" and doc is not None and doc.parts:
             x0, y0, x1, y1 = doc.bbox()
         else:
             w, h = self.options.table_size
             x0, y0, x1, y1 = 0, 0, w, h
         w, h = max(x1 - x0, 1.0), max(y1 - y0, 1.0)
         m = 0.08 * max(w, h)
-        self.fitInView(QRectF(x0 - m, y0 - m, w + 2 * m, h + 2 * m), Qt.KeepAspectRatio)
-        # fitInView resets the transform; re-apply the Y flip keeping the scale
-        s = abs(self.transform().m11())
-        c = QPointF((x0 + x1) / 2, (y0 + y1) / 2)
+        return QRectF(x0 - m, y0 - m, w + 2 * m, h + 2 * m)
+
+    def _fit(self, kind: str) -> None:
+        """Fit and keep fitting: the fit is re-applied when the view is resized (the window is
+        laid out, a dock or splitter moves, the workspace changes) until the user zooms or
+        pans.  A fit made before the view had its size (a document opened before the window
+        was shown, on macOS before the window's final geometry) used to leave the drawing a
+        few pixels wide."""
+        r = self.fit_rect(kind)
+        vp = self.viewport().rect()
+        hud = getattr(self, "hud", None)
+        top = hud.geometry().bottom() + 4 if hud is not None and hud.isVisible() else 0
+        top = min(top, vp.height() // 3)       # the canvas bar's band is kept free
+        s = min(max(vp.width() - 2, 1) / r.width(), max(vp.height() - top - 2, 1) / r.height())
+        s = max(s, 1e-9)
         self.setTransform(QTransform.fromScale(s, -s))
-        self.centerOn(c)
+        c = r.center()
+        self.centerOn(QPointF(c.x(), c.y() + top / (2 * s)))
+        self._fit_pending = kind
+
+    @property
+    def fit_mode(self) -> Optional[str]:
+        """"drawing" / "table" while the view follows a fit, None after a user zoom or pan."""
+        return self._fit_pending
+
+    def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
+        super().resizeEvent(ev)
+        if self._fit_pending:
+            self._fit(self._fit_pending)
+        if getattr(self, "hud", None) is not None:
+            self.hud.place()
+
+    def showEvent(self, ev) -> None:   # noqa: N802 - Qt
+        super().showEvent(ev)
+        if self._fit_pending:
+            self._fit(self._fit_pending)
 
     def set_mode(self, mode: str) -> None:
         self.mode = mode
@@ -907,6 +1454,8 @@ class CanvasView(QGraphicsView):
 
     # ------------------------------------------------------------------ events
     def wheelEvent(self, ev) -> None:
+        if ev.angleDelta().y() == 0:
+            return
         f = 1.25 if ev.angleDelta().y() > 0 else 0.8
         self.zoom(f)
 
@@ -934,6 +1483,8 @@ class CanvasView(QGraphicsView):
         if self._pan_start is not None:
             d = ev.position() - self._pan_start
             self._pan_start = ev.position()
+            if d.manhattanLength() > 0:
+                self._fit_pending = None
             self.horizontalScrollBar().setValue(self.horizontalScrollBar().value() - int(d.x()))
             self.verticalScrollBar().setValue(self.verticalScrollBar().value() - int(d.y()))
             return

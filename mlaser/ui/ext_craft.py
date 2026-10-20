@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDia
 
 from mlaser.cam import manual as M
 from mlaser.model import Craft, Document, Part
+from mlaser.services import units
 
 from .ext_cam import FieldDialog
 
@@ -233,6 +234,10 @@ def _targets(doc: Document) -> list[Part]:
     return contour_targets(doc)
 
 
+#: one-shot tool -> the extension attribute holding its last-used parameters (cam.tool.<tool>)
+CRAFT_TOOLS = {"bridge": "bridge_p", "onekey": "onekey_p", "engrave_scan": "engrave_p"}
+
+
 class CraftExtension:
     """State + handlers. ``exec_dialogs=False`` (tests) applies stored parameters directly."""
 
@@ -247,6 +252,9 @@ class CraftExtension:
         self.dock_p = DockParams()
         from mlaser.cam.flycut import EngraveScanParams
         self.engrave_p = EngraveScanParams()
+        # the one-shot tools' last-used values survive a restart (cam.tool.*, Settings › CAM tools)
+        from . import tool_memory
+        tool_memory.bind(self, window.config, CRAFT_TOOLS)
         import tempfile
         self.bitmap_dir = os.path.join(tempfile.gettempdir(), "mlaser_bitmap")   # original: <app>\\Bitmap
         self.host = ToolHost(window.canvas)
@@ -276,8 +284,15 @@ class CraftExtension:
         d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w)
         if not self.exec_dialogs:
             d.store()
-            return True
-        return bool(d.exec())
+            ok = True
+        else:
+            ok = bool(d.exec())
+        if ok:
+            from . import tool_memory
+            tool = next((t for t, a in CRAFT_TOOLS.items() if getattr(self, a, None) is obj), None)
+            if tool is not None:
+                tool_memory.remember(self.w.config, tool, obj)
+        return ok
 
     # ---------------------------------------------------------------- canvas tools
     def start_tool(self, name: str, on_click, status_key: str, hover: bool = True) -> PickTool:
@@ -316,7 +331,13 @@ class CraftExtension:
         def click(p, mods):
             h = self._hit(p, closed_only=True)
             if h is not None:
-                f = self.edit(lambda d: M.set_start_at(d.parts[h.part], h.contour, h.dist))
+                from mlaser.services.inheritance import mark_start
+
+                def do(d):
+                    f = M.set_start_at(d.parts[h.part], h.contour, h.dist)
+                    mark_start(d.parts[h.part], h.contour)       # lead edits keep it
+                    return f
+                f = self.edit(do)
                 self.log(f"mf93: start {f:.4f}")
             return True
         self.start_tool("start_point", click, "mf93")
@@ -330,7 +351,7 @@ class CraftExtension:
         def click(p, mods):
             if state["q"] is None:
                 state["q"] = p
-                self.log(self.t("mf88") + f": X {p[0]:.3f} Y {p[1]:.3f}")
+                self.log(self.t("mf88") + ": " + units.current().fmt_xy(p[0], p[1], "small_length"))
                 return True
             h = self._hit(p, closed_only=True)
             if h is None:
@@ -344,13 +365,14 @@ class CraftExtension:
                 inv = bool(getattr(self.w.cam_params, "invert_lead_side", False))
                 return M.manual_lead(d.parts[h.part], h.contour, q, h.dist, depth, inv)
             lp = self.edit(do)
-            self.log(f"mf88: {lp.length:.3f} mm" if lp is not None and lp.kind else "mf88: 0")
+            self.log(f"mf88: {units.current().fmt(lp.length, 'small_length')}" if lp is not None and lp.kind
+                     else "mf88: 0")
             return True
         self.start_tool("lead_manual", click, "mf88")
 
     # ---------------------------------------------------------------- bridge (tool 11)
     def bridge(self) -> None:
-        if not self.ask("mf114", self.bridge_p, [("width", "pd347", "float", (0.01, 1000, 3))]):
+        if not self.ask("mf114", self.bridge_p, [("width", "pd347", "len", (0.01, 1000, 3))]):
             return
         state = {"a": None}
 
@@ -391,7 +413,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- manual micro-joint (tool 10)
     def mj_manual(self) -> None:
-        if not self.ask("mf102", self.mj_p, [("length", "pd325", "float", (0.01, 100, 3))]):
+        if not self.ask("mf102", self.mj_p, [("length", "pd325", "slen", (0.01, 100, 3))]):
             return
 
         def click(p, mods):
@@ -432,11 +454,17 @@ class CraftExtension:
     # ---------------------------------------------------------------- gap / seal / overcut
     def _gap(self, mode: int) -> None:
         """CCAD 0x100c46a0(mode, value): selected graphs only (groups expanded); a contour is
-        changed when |v - current| > 0.02 and |v| < 0.33 * length."""
-        if mode == M.GAP and not self.ask("mf95", self.gap_p, [("value", "pd323", "float", (0, 100, 3))]):
+        changed when |v - current| > 0.02 and |v| < 0.33 * length.  With nothing selected it
+        says so (it used to log "mf97: 0" and do nothing)."""
+        if not any(p.selected for p in self.w.document.parts):
+            self.log(self.t("craft.msg.select_first"))
+            sb = getattr(self.w, "statusBar", None)
+            if sb is not None:
+                sb().showMessage(self.t("craft.msg.select_first"), 6000)
+            from mlaser.ui.homes import edit_in
+            edit_in(self.w, "craft.overcut")       # the value lives in Process › Properties
             return
-        if mode == M.OVERCUT and not self.ask("mf97", self.gap_p, [("value", "pd324", "float", (0, 100, 3))]):
-            return
+        # the length is the Properties' Overcut / gap field (its one editor; gap_p holds it)
         val = self.gap_p.value
 
         def do(doc):
@@ -514,6 +542,9 @@ class CraftExtension:
             self.w.document.parts[pi].selected = True
         self.w.canvas.refresh_styles()
         self.log(f"mf89: {len(marked)}")
+        if not any(c.lead_in.kind for p in self.w.document.parts
+                   for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
+            self.log(self.t("craft.msg.no_leads"))
 
     def lead_clear_mark(self) -> None:
         n = M.clear_lead_marks(self.w.document)          # no undo step in the original
@@ -531,7 +562,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- scan engraving
     def _engrave_dialog(self, title: str = "mf112_5") -> bool:
-        f = [("side_len", "pd719_3", "float", (0, 1000, 3)),
+        f = [("side_len", "pd719_3", "len", (0, 1000, 3)),
              ("direction", "pd719_4", "int", (0, 3))]
         return self.ask(title, self.engrave_p, f)
 
@@ -648,7 +679,28 @@ class CraftExtension:
         self.w.settings["SP.DockPoint"] = (float(p[0]), float(p[1]))
         self.w.document.extra["dock_point"] = (float(p[0]), float(p[1]))
         self.w.settings["SP.DockMode"] = self.dock_p.mode
-        self.log(f"mp68: X {p[0]:.3f} Y {p[1]:.3f}")
+        self.log("mp68: " + units.current().fmt_xy(p[0], p[1], "small_length"))
+
+    def _effective_leads(self):
+        """The leads OneKey applies: what the first target part inherits (its layer's or its
+        recipe's), the original's dialog defaults when nothing sets a lead."""
+        from mlaser.model import LeadParams
+        from mlaser.ops.craft import default_lead_params
+        from mlaser.services import inheritance as I
+
+        doc = self.w.document
+        parts = _targets(doc)
+        ext = self.w.extension("ext_process") if hasattr(self.w, "extension") else None
+        store = getattr(ext, "store", None)
+        if parts:
+            out = []
+            for name in ("in", "out"):
+                vals = {f: I.effective(doc, store, f"craft.lead_{name}.{f}", layer=parts[0].craft.layer, upto=2)[0]
+                        for f in I.LEAD_FIELDS}
+                out.append(LeadParams(**vals))
+            if out[0].kind:
+                return out[0], out[1]
+        return default_lead_params()
 
     # ---------------------------------------------------------------- one key planning
     def onekey(self) -> None:
@@ -660,9 +712,10 @@ class CraftExtension:
         q = self.onekey_p
         from mlaser.ops.craft import one_key
         cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
+        lead_in, lead_out = self._effective_leads()
         self.edit(lambda doc: one_key(doc, mirror_h=q.mirror_h, mirror_v=q.mirror_v, optimize=q.optimize,
                                       cleanup_params=getattr(cam, "cleanup", None), lead=q.lead,
-                                      lead_in=self.w.lead_in, lead_out=self.w.lead_out,
+                                      lead_in=lead_in, lead_out=lead_out,
                                       micro_joint=q.micro_joint, mj_params=self.w.mj_params),
                   "one-key planning")
         if q.sort:

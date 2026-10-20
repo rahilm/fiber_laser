@@ -24,3 +24,23 @@ def real_window(controller=None, exec_dialogs: bool = False, prompts: bool = Fal
         w._test_no_dialogs = True
         w.control.confirm_fn = lambda key: False
     return w
+
+
+def dispose(w) -> None:
+    """Close a window as the application does (``closeEvent``: safe halt, disconnect; no
+    questions) and delete it now, with its children, timers and models: a window a test only
+    closes stays alive (hidden) for the rest of the worker's session, and every application-wide
+    change (style, palette, display units) then reaches it too (tests/conftest.py,
+    ``close_leftover_windows``)."""
+    from PySide6.QtCore import QCoreApplication, QEvent
+    from PySide6.QtWidgets import QApplication
+    try:
+        w._test_no_dialogs = True
+        w.close()
+        w.deleteLater()
+    except RuntimeError:            # already deleted
+        return
+    app = QApplication.instance()
+    if app is not None:
+        app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)

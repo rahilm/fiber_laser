@@ -48,7 +48,7 @@ mlaser-cli = "mlaser.cli:main"         # the headless subcommands (also `mlaser 
 include = ["mlaser*"]
 
 [tool.setuptools.package-data]
-"mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*"]
+"mlaser.ui" = ["resources/*.json", "resources/icons/tabler/*", "resources/icons/app/*"]
 "mlaser.i18n" = ["*.json", "qm/*.qm"]   # catalogues; compiled Qt Linguist translations (docs/dev/i18n.md)
 "mlaser.formats" = ["data/*"]
 "mlaser.cad" = ["fontdata/*"]   # bundled Noto Sans SC / Arabic subsets + OFL (tools/build_bundled_fonts.py)

@@ -43,6 +43,15 @@ STRATEGIES = ("joint", "last", "avoid")
 STATES = ("held", "small", "drops", "stable", "tips")
 
 
+def _mm_size(w: float, h: float) -> str:
+    return f"{w:.0f} x {h:.0f} mm"
+
+
+#: how :attr:`TipRisk.message` shows a size (text only); the display-units service
+#: (mlaser.services.units) installs its formatter here
+SIZE_TEXT: list = [_mm_size]
+
+
 @dataclass
 class BedModel:
     pitch: float = 100.0  # slat pitch (mm, centre to centre)
@@ -118,7 +127,7 @@ class TipPiece:
         pi, ci = self.key
         what = "slug of" if self.slug else "part"
         return (
-            f"{what} part {pi + 1} contour {ci + 1} ({self.size[0]:.0f} x {self.size[1]:.0f} mm) "
+            f"{what} part {pi + 1} contour {ci + 1} ({SIZE_TEXT[0](self.size[0], self.size[1])}) "
             "can tip on the slats"
         )
 

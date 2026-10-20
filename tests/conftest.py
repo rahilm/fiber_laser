@@ -28,6 +28,7 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 # many windows compile in their worker thread instead (one process per window would cost an
 # interpreter start each).  tests/test_plan_process.py tests the process path explicitly.
 os.environ.setdefault("MLASER_PLAN_PROCESS", "0")
+os.environ.setdefault("MLASER_NO_INHIBIT", "1")   # no systemd-inhibit child per test job (tests/test_power.py tests it)
 
 # like the application (mlaser.ui.__main__): no macOS App Nap, which coalesces the timers of a
 # process without a front window (a CI runner) and starves the GUI-latency tests
@@ -57,6 +58,13 @@ UI_MODULES = {
     "test_plan_process",
     # Review 2 plugin manager
     "test_plugin_manager_ui",
+    # Review 2 UI wave: the Settings window
+    "test_settings_dialog",
+    # UI wave: process & technology
+    "test_ui_process_paths", "test_one_home",
+    # display units (units track)
+    "test_units_ui", "test_units_sweep", "test_units_sweep_design", "test_units_sweep_shop",
+    "test_units_sweep_machine",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -88,6 +96,9 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     if "MLASER_APP_DIR" not in os.environ or os.environ.get("_MLASER_APP_AUTO"):
         monkeypatch.setenv("MLASER_APP_DIR", str(tmp_path_factory.mktemp("app")))
         monkeypatch.setenv("_MLASER_APP_AUTO", "1")
+    # display units are process-wide (mlaser.services.units): every test starts metric, unbound
+    from mlaser.services import units as _units
+    _units.reset()
 
 
 @pytest.hookimpl(tryfirst=True)
@@ -152,5 +163,42 @@ def pytest_runtest_setup(item):
     mod = item.module.__name__ if item.module is not None else None
     if mod != _frozen_module[0]:
         _frozen_module[0] = mod
+        close_leftover_windows()
         gc.collect()
         gc.freeze()
+
+
+def close_leftover_windows() -> int:
+    """Close and delete every window (parentless top-level widget) the previous modules left
+    (their module and function fixtures are torn down by now).  Returns how many there were.
+
+    Most tests build windows and never close them: by the end of a CI worker's share there were
+    hundreds of main windows and ~10^5 widgets alive, and everything that reaches every widget
+    became that much slower: ``QApplication.setStyle`` / ``setPalette`` (a theme switch,
+    tests/test_native.py: 1894 s on macOS CI, 141 s locally after three UI modules), the
+    display-units signal that every unit-aware widget follows (370 s), each ``processEvents``,
+    and the leaked windows' own timers and threads competing with the timing tests.  A window
+    closes as the application closes it (``closeEvent``: safe halt, disconnect) without the
+    "job running" question, which offscreen would never answer."""
+    try:
+        from PySide6.QtCore import QCoreApplication, QEvent
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return 0
+    app = QApplication.instance()
+    if app is None:
+        return 0
+    # the parentless windows only: a window with a parent (a menu, a combo box's popup, a
+    # dialog) goes with it; deleting one of those by itself leaves its owner a dangling pointer
+    tops = [w for w in app.topLevelWidgets() if w.parent() is None]
+    for w in tops:
+        try:
+            w._test_no_dialogs = True
+            w.close()
+            w.deleteLater()
+        except RuntimeError:            # already deleted on the C++ side
+            pass
+    if tops:
+        app.processEvents()
+        QCoreApplication.sendPostedEvents(None, QEvent.DeferredDelete)
+    return len(tops)

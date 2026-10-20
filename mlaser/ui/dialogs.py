@@ -14,8 +14,38 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                                QTableWidget, QTableWidgetItem, QHeaderView)
 
+from mlaser.services import units as U
+
 from . import params as P
 from .i18n import Translator
+from .units_qt import QuantitySpinBox, kind_for, on_units_changed
+
+#: registry settings whose declared unit is not the value's unit: QR.QRCodeLineDensity is a print
+#: density (lines per mm) the registry tags "mm"; shown without the misleading "mm" and unconverted
+UNIT_NOT_A_QUANTITY = {"QR.QRCodeLineDensity"}
+
+
+def setting_kind(d) -> Optional[str]:
+    """The display-unit kind of a schema setting's number editor, or None (shown as stored)."""
+    if d.kind not in ("float", "int") or d.key in UNIT_NOT_A_QUANTITY:
+        return None
+    return kind_for(d.unit)
+
+
+def setting_unit_label(d) -> str:
+    """The unit shown after a setting's label: the display unit for converted settings, nothing
+    for check boxes and option lists (the registry tags some of them "mm"), else the stored one."""
+    k = setting_kind(d)
+    if k is not None:
+        return U.current().suffix(k)
+    if d.kind in ("bool", "enum") or d.key in UNIT_NOT_A_QUANTITY:
+        return ""
+    return d.unit or ""
+
+
+def _qspin(kind: str, lo, hi, val, dec=3, step=1.0) -> QuantitySpinBox:
+    """A spin box for a length (or other quantity) in the display units; value() in mm."""
+    return QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, step=step, value=val)
 
 
 def _spin(lo, hi, val, dec=3, step=1.0) -> QDoubleSpinBox:
@@ -33,6 +63,8 @@ class _Base(QDialog):
         self.tr_ = tr
         self.setWindowTitle(tr.tr(title_key))
         self.lay = QVBoxLayout(self)
+        self.lay.setContentsMargins(16, 16, 16, 16)     # DESIGN.md: dialog margins SP3
+        self.lay.setSpacing(8)
         self.form = QFormLayout()
         self.lay.addLayout(self.form)
         bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
@@ -87,7 +119,9 @@ class ParamGridDialog(QDialog):
                 g.setFirstColumnSpanned(True)
                 tree.addTopLevelItem(g)
                 for d, label in items:
-                    it = QTreeWidgetItem([label + (f" ({d.unit})" if d.unit else "")])
+                    it = QTreeWidgetItem([label])
+                    on_units_changed(tree, lambda _u, it=it, d=d, label=label: it.setText(
+                        0, label + (f" ({ul})" if (ul := setting_unit_label(d)) else "")))
                     it.setToolTip(0, d.key)
                     g.addChild(it)
                     ed = self._editor(d)
@@ -121,6 +155,16 @@ class ParamGridDialog(QDialog):
         if d.kind in ("int", "float", "enum"):
             lo = d.min if d.min is not None else -1e9
             hi = d.max if d.max is not None else 1e9
+            k = setting_kind(d)
+            if k is not None:
+                # value() in the stored unit (mm, mm/s ...); shown and typed in the display units
+                q = QuantitySpinBox(k, minimum=lo, maximum=hi, decimals=4 if d.kind == "float" else 0)
+                try:
+                    q.setValue(float(v))
+                except (TypeError, ValueError):
+                    pass
+                q.setProperty("int_setting", d.kind == "int")
+                return q
             if d.kind == "float":
                 ws: QWidget = _spin(lo, hi, 0.0, 4)
             else:
@@ -130,8 +174,8 @@ class ParamGridDialog(QDialog):
                 ws.setValue(float(v) if d.kind == "float" else int(float(v)))
             except (TypeError, ValueError):
                 pass
-            if d.unit:
-                ws.setSuffix(f" {d.unit}")
+            if setting_unit_label(d):
+                ws.setSuffix(f" {setting_unit_label(d)}")
             return ws
         return QLineEdit("" if v is None else str(v))
 
@@ -141,6 +185,9 @@ class ParamGridDialog(QDialog):
             return w.isChecked()
         if isinstance(w, QComboBox):
             return w.currentIndex()
+        if isinstance(w, QuantitySpinBox):
+            # an integer setting keeps integer mm (a typed 2 in = 50.8 mm is stored as 51)
+            return int(round(w.value())) if w.property("int_setting") else w.value()
         if isinstance(w, (QSpinBox, QDoubleSpinBox)):
             return w.value()
         return w.text().strip()
@@ -160,115 +207,12 @@ class ParamGridDialog(QDialog):
         self.accept()
 
 
-class LayerParamDialog(ParamGridDialog):
-    """lp0 "Layer Parameters": every GP.* field of one layer. Core fields go to LayerParams.
-
-    The other values go to ``extra['process']``, the GP.* overrides the job compiler reads
-    (``parity_ports.mainapp.layer.LayerView``).  They used to go to ``extra['gp']``, which
-    nothing read, so a pierce stage or focus typed here never reached the job (Wave 3 Process
-    track; ``mlaser.services.technology`` applies a technology the same way)."""
-
-    def __init__(self, tr: Translator, layer, parent=None):
-        ex = layer.extra or {}
-        vals = dict(ex.get("values", {}) or {})
-        vals.update(ex.get("gp", {}) or {})
-        vals.update(ex.get("process", {}) or {})
-        for gp, attr in P.LAYER_FIELD_MAP.items():
-            vals[gp] = getattr(layer, attr)
-        super().__init__(tr, "lp0", ["LayerParam"], vals, parent)
-        self.layer = layer
-        self.setWindowTitle(f"{tr.tr('lp0')} - {tr.tr('gp83')} {layer.index}")
-        self.accepted.connect(self._store)
-
-    def _store(self) -> None:
-        for gp, attr in P.LAYER_FIELD_MAP.items():
-            if gp in self.values:
-                try:
-                    setattr(self.layer, attr, type(getattr(self.layer, attr))(self.values[gp]))
-                except (TypeError, ValueError):
-                    pass
-        self.layer.extra.pop("gp", None)
-        proc = dict(self.layer.extra.get("process", {}) or {})
-        proc.update({k: v for k, v in self.values.items() if k not in P.LAYER_FIELD_MAP})
-        self.layer.extra["process"] = proc
+# lp0 "Layer parameters" is no longer a dialog: a layer's values are edited in one place, the
+# layer inspector of Process › Layers (mlaser.ui.workspaces.layer_inspector).
 
 
-class LeadDialog(_Base):
-    """mf205 "Lead line parameters": pd315 Type, pd316 Angle, pd317 Length, pd599 Radius,
-    pd318 start point mode, pd319 start point position, pd320 only closed, pd321 only selected,
-    pd322 "outer layer is inside cut". Separate lead-in / lead-out (``Craft.lead_in/out``)."""
-
-    KINDS = ["mf123:-", "mf45", "mf48", "mf87"]   # none, line, arc, line+arc (labels; kind ints per model)
-
-    def __init__(self, tr: Translator, lead_in, lead_out, parent=None):
-        super().__init__(tr, "mf205", parent)
-        self._w = {}
-        tabs = QTabWidget()
-        self.lay.insertWidget(0, tabs)
-        for name, lead, title in (("in", lead_in, "Lead in"), ("out", lead_out, "Lead out")):
-            page = QWidget()
-            f = QFormLayout(page)
-            kind = QComboBox()
-            kind.addItems([tr.tr("mp123"), tr.tr("mf45"), tr.tr("mv6"), tr.tr("mf45") + "+" + tr.tr("mv6")])
-            kind.setCurrentIndex(max(0, min(3, lead.kind)))
-            ang = _spin(0, 180, lead.angle_deg, 1)
-            ln = _spin(0, 1000, lead.length, 3, 0.5)
-            rad = _spin(0, 1000, lead.radius, 3, 0.5)
-            corner = QCheckBox()
-            corner.setChecked(lead.at_corner)
-            f.addRow(tr.tr_param("pd315")[1], kind)
-            f.addRow(tr.tr_param("pd316")[1], ang)
-            f.addRow(tr.tr_param("pd317")[1], ln)
-            f.addRow(tr.tr_param("pd599")[1], rad)
-            f.addRow(tr.tr_param("pd318")[1], corner)
-            self._w[name] = (lead, kind, ang, ln, rad, corner)
-            tabs.addTab(page, title)
-        self.only_closed = self.row("pd320", QCheckBox())
-        self.only_closed.setChecked(True)
-        self.only_selected = self.row("pd321", QCheckBox())
-        self.only_selected.setChecked(True)
-        self.finish()
-        self.accepted.connect(self._store)
-
-    def _store(self):
-        for lead, kind, ang, ln, rad, corner in self._w.values():
-            lead.kind = kind.currentIndex()
-            lead.angle_deg = ang.value()
-            lead.length = ln.value()
-            lead.radius = rad.value()
-            lead.at_corner = corner.isChecked()
-
-
-class KerfDialog(_Base):
-    """mf486 "Set Compensate": pd506 Compensate Type (inside/outside), pd507 width."""
-
-    def __init__(self, tr: Translator, kerf_comp: int = 1, width: float = 0.1, parent=None):
-        super().__init__(tr, "mf113", parent)
-        self.kind = self.row("pd506", QComboBox())
-        self.kind.addItems([tr.tr("mf98"), tr.tr("mf99")])   # 0 inner (阴切), 1 outer (阳切)
-        self.kind.setCurrentIndex(0 if kerf_comp == 0 else 1)
-        self.width = self.row("pd507", _spin(0, 10, width, 3, 0.05))
-        self.finish()
-
-    def result_values(self) -> tuple[int, float]:
-        return self.kind.currentIndex(), self.width.value()
-
-
-class MicroJointDialog(_Base):
-    """mf191 "Micro Joint Parameters" (auto): pd343 type, pd344 number, pd345 distance,
-    pd346 length, pd313_0 direction, pd314_1 min graph size; manual: pd325 length."""
-
-    def __init__(self, tr: Translator, parent=None):
-        super().__init__(tr, "mf191", parent)
-        self.kind = self.row("pd343", QComboBox())
-        self.kind.addItems([tr.tr_param("pd344")[1], tr.tr_param("pd345")[1]])
-        self.number = self.row("pd344", QSpinBox())
-        self.number.setRange(1, 100)
-        self.number.setValue(4)
-        self.distance = self.row("pd345", _spin(1, 10000, 100, 1))
-        self.length = self.row("pd346", _spin(0.01, 50, 0.5, 2, 0.1))
-        self.min_size = self.row("pd314_1", _spin(0, 10000, 0, 1))
-        self.finish()
+# Lead, kerf and micro-joint values are edited in one place, Process › Properties (SETTINGS_MAP
+# 3.3); their dialogs (mf205, mf113, mf103) are gone and the commands open the Properties field.
 
 
 class ValueDialog(_Base):
