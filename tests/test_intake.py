@@ -204,3 +204,17 @@ def test_public_view_hides_the_local_path(drawing):
     job = I.validate({"path": str(drawing)}, "api")
     pub = job.public()
     assert "path" not in pub and pub["file"] == "flange.dxf" and pub["status"] == "pending_approval"
+
+
+def test_path_inside_across_windows_drives_and_case():
+    """Windows CI: a drawing on D: and the job folders on C: made ``commonpath`` raise
+    ValueError, which the API answered with 400 instead of the ``forbidden_path`` 403."""
+    import ntpath
+    import posixpath
+    from mlaser.services.intake import path_inside
+    assert not path_inside("D:\\a\\repo\\gear.dxf", "C:\\Users\\me\\jobs", ntpath)
+    assert path_inside("C:\\Users\\Me\\Jobs\\gear.dxf", "c:\\users\\me\\jobs", ntpath)
+    assert not path_inside("C:\\Users\\me\\jobs2\\gear.dxf", "C:\\Users\\me\\jobs", ntpath)
+    assert path_inside("/srv/jobs/a/gear.dxf", "/srv/jobs", posixpath)
+    assert not path_inside("/srv/jobs2/gear.dxf", "/srv/jobs", posixpath)
+    assert not path_inside("/srv/Jobs/gear.dxf", "/srv/jobs", posixpath)   # POSIX: case matters
