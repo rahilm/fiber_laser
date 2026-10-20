@@ -295,6 +295,7 @@ class Report:
         self.dir = Path(d) / tag if d else None
         self.style = style
         self.rows: list[dict] = []
+        self.notes: list[str] = []
 
     def unreachable(self, kind: str, size, label: str) -> None:
         self.rows.append({"run": kind, "size": f"{size.width()}x{size.height()}", "view": label,
@@ -340,6 +341,10 @@ class Report:
         skipped = sorted({r["size"] for r in self.rows if r.get("unreachable")})
         if skipped:
             lines.append(f"not reachable on this screen (window below its minimum): {', '.join(skipped)}")
+            lines.append("")
+        for n in self.notes:
+            lines.append(f"note: {n}")
+        if self.notes:
             lines.append("")
         lines.append(f"distinct violations: {len(uniq)}")
         lines.append("")
@@ -474,7 +479,13 @@ def test_fits_this_screen(win, app):
         _pump(app, rounds=8)
         frame = win.frameGeometry().size() - win.size()
         m = win.minimumSizeHint().expandedTo(win.minimumSize())
-        if m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height():
+        over = m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height()
+        if over and small:
+            # the window's minimum (at most 1280 x 800: test_minimum_size_fits_the_smallest_sample)
+            # is larger than an unsupported screen: reported, not failed
+            rep.notes.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()} "
+                             f"(below the supported {SUPPORTED_MIN[0]}x{SUPPORTED_MIN[1]})")
+        elif over:
             bad.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()}")
         s = _fit(win, app, (avail.width() - frame.width(), avail.height() - frame.height()))
         rep.add("screen", s, ws, A.audit(win), allowed=below)

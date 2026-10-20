@@ -129,8 +129,10 @@ and `overlap` (siblings drawn over each other).
   Such samples are listed as "not reachable on this screen" in the report, not audited, and the
   sweep's heights stop at the screen. `test_fits_this_screen` checks the screen itself. On a
   screen smaller than the smallest supported window (1280 × 800; the runners have 1024 × 768),
-  the page wrapper scrolling its page is the documented fallback (rule 6). Nothing else may
-  scroll or clip there.
+  the page wrapper scrolling its page is the documented fallback (rule 6), and a window
+  minimum larger than that screen is reported but does not fail (the minimum is still held to
+  1280 × 800 by `test_minimum_size_fits_the_smallest_sample`). Nothing else may scroll or clip
+  there.
 * `.github/workflows/native-check.yml` samples the sweeps on macOS with a 160 px step on pushes
   and pull requests, since that window server answers every resize asynchronously and the full
   sweep takes about 40 minutes. The nightly run and local runs use the full 40 px step.
