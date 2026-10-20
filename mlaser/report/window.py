@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import datetime as _dt
 import os
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QStandardItem, QStandardItemModel
@@ -57,18 +57,26 @@ TEXT = {
 class CountFeeDialog(QDialog):
     """``countFee`` statistics & billing dialog."""
 
-    def __init__(self, records: list[JobRecord], lang: str = "zh", parent=None):
+    def __init__(self, records: list[JobRecord], lang: str = "zh", parent=None, units: Any = None):
         super().__init__(parent)
-        T = TEXT[lang]
+        T = dict(TEXT[lang])
+        self.units = units if printing.converts(units) else None
+        if self.units is not None:
+            # lengths and their prices in the display units (ft, per ft); cost() still gets metres
+            unit = self.units.suffix("long_length")
+            T["move"] = T["move"].replace("(米)", f"({unit})").replace("(m)", f"({unit})")
+            T["cut"] = T["cut"].replace("(米)", f"({unit})").replace("(m)", f"({unit})")
         self.setWindowTitle(T["fee"])
         self.tot = totals(records)
         lay = QVBoxLayout(self)
         box = QGroupBox(T["fee"])
         form = QFormLayout(box)
         self.prices = {}
-        for key, label, val in (("move", T["move"], f"{self.tot['move_m']:.2f}"),
+        def m(v: float) -> str:
+            return self.units.number(v * 1000.0, "long_length", 2) if self.units is not None else f"{v:.2f}"
+        for key, label, val in (("move", T["move"], m(self.tot["move_m"])),
                                 ("pierce", T["pierce"], str(self.tot["pierces"])),
-                                ("cut", T["cut"], f"{self.tot['cut_m']:.2f}"),
+                                ("cut", T["cut"], m(self.tot["cut_m"])),
                                 ("time", T["time"], f"{self.tot['time_s']:.2f}")):
             row = QHBoxLayout()
             q = QLineEdit(val)
@@ -95,8 +103,13 @@ class CountFeeDialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
 
+    def per_m(self, key: str) -> float:
+        """The price typed for a length (per display unit) as the price per metre."""
+        v = self.prices[key].value()
+        return self.units.from_display(v, "per_long_length") if self.units is not None else v
+
     def cost_cal(self) -> float:
-        v = cost(self.tot, self.prices["cut"].value(), self.prices["move"].value(),
+        v = cost(self.tot, self.per_m("cut"), self.per_m("move"),
                  self.prices["pierce"].value(), self.prices["time"].value())
         self.total.setText(f"{v:.2f}")
         return v
@@ -105,9 +118,12 @@ class CountFeeDialog(QDialog):
 class ReportWindow(QMainWindow):
     """Report viewer over a :class:`ReportStore` (``report.txt`` + thumbnails)."""
 
-    def __init__(self, store: ReportStore, lang: Optional[str] = None, parent=None):
+    def __init__(self, store: ReportStore, lang: Optional[str] = None, parent=None, units: Any = None):
         super().__init__(parent)
         self.store = store
+        # display units (mlaser.services.units.Units, handed in by the UI); None / metric keeps
+        # report.exe's texts (the report.txt fields) exactly
+        self.units = units
         self.lang = lang or store.viewer_lang()
         T = TEXT[self.lang]
         self.setWindowTitle(T["title"])
@@ -153,7 +169,7 @@ class ReportWindow(QMainWindow):
             it.setTextAlignment(Qt.AlignCenter)
             it.setEditable(False)
             m.setItem(row, 0, it)
-            for col, txt in enumerate(rec.fields(self.lang), start=1):
+            for col, txt in enumerate(self._fields(rec), start=1):
                 c = QStandardItem(txt)
                 c.setEditable(False)
                 m.setItem(row, col, c)
@@ -162,6 +178,14 @@ class ReportWindow(QMainWindow):
         self.view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         for col, w in enumerate((50, 160, 160, 100, 120, 120, 120, 160, 160, 160, 160)):
             self.view.setColumnWidth(col, w)
+
+    def _fields(self, rec: JobRecord) -> list[str]:
+        f = rec.fields(self.lang)
+        if printing.converts(self.units):
+            f[1] = printing.size_text(rec, self.units)
+            f[3] = printing.length_text(rec.cut_m, self.units)
+            f[4] = printing.length_text(rec.move_m, self.units)
+        return f
 
     def _record_at(self, row: int) -> JobRecord:
         return self.records[len(self.records) - 1 - row]
@@ -211,7 +235,7 @@ class ReportWindow(QMainWindow):
 
     def count_bill(self) -> CountFeeDialog:
         recs = self.checked_records() or self.records
-        d = CountFeeDialog(recs, self.lang, self)
+        d = CountFeeDialog(recs, self.lang, self, units=self.units)
         d.exec()
         return d
 
@@ -223,13 +247,14 @@ class ReportWindow(QMainWindow):
             QMessageBox.warning(self, T["tips"], T["choose"])
             return None
         if pdf_path:
-            printing.export_pdf(pdf_path, recs, self.store.report_dir, self.lang)
+            printing.export_pdf(pdf_path, recs, self.store.report_dir, self.lang, self.units)
             return pdf_path
         from PySide6.QtPrintSupport import QPrinter, QPrintPreviewDialog
         printer = QPrinter(QPrinter.HighResolution)
         dlg = QPrintPreviewDialog(printer, self)
         dlg.setWindowTitle(T["preview"])
-        dlg.paintRequested.connect(lambda pr: printing.print_to(pr, recs, self.store.report_dir, self.lang))
+        dlg.paintRequested.connect(lambda pr: printing.print_to(pr, recs, self.store.report_dir, self.lang,
+                                                                self.units))
         # Save Pdf button (report.exe adds one to the preview toolbar)
         from PySide6.QtWidgets import QToolBar
         bar = dlg.findChild(QToolBar)
@@ -247,7 +272,7 @@ class ReportWindow(QMainWindow):
             return None
         if not path.lower().endswith(".pdf"):
             path += ".pdf"
-        printing.export_pdf(path, recs, self.store.report_dir, self.lang)
+        printing.export_pdf(path, recs, self.store.report_dir, self.lang, self.units)
         return path
 
 

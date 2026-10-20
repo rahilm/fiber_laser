@@ -28,8 +28,7 @@ from dataclasses import dataclass
 from typing import Optional
 
 from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPolygonF,
-                           QTransform)
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTransform)
 from PySide6.QtWidgets import (QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsSimpleTextItem, QGraphicsView,
@@ -147,6 +146,33 @@ class ViewOptions:
     show_move_path: bool = False
     background: str = "#000000"   # SP.DrawblkColor "Drawing area color" (default unverified)
     table_size: tuple[float, float] = (3000.0, 1500.0)
+    show_rulers: bool = True      # top / left rulers in the display units (docs/user/units.md)
+    show_grid: bool = False       # grid lines at the ruler's major step
+
+
+#: ruler / grid steps per display unit: (major step in that unit, minor ticks per major)
+_METRIC_STEPS = [(m * 10.0 ** e, 5 if m != 2 else 4) for e in range(-2, 6) for m in (1, 2, 5)]
+_INCH_STEPS = [(1 / 64, 1), (1 / 32, 2), (1 / 16, 2), (1 / 8, 2), (1 / 4, 4), (1 / 2, 4), (1.0, 4),
+               (2.0, 4), (3.0, 3), (6.0, 6), (12.0, 4), (24.0, 4), (36.0, 3), (60.0, 5), (120.0, 10),
+               (240.0, 4), (600.0, 5), (1200.0, 10), (2400.0, 4), (6000.0, 5), (12000.0, 10)]
+
+
+def ruler_step(px_per_mm: float, units=None, min_px: float = 56.0) -> tuple[float, float]:
+    """(major, minor) ruler / grid step in **mm** for a zoom of ``px_per_mm``: the smallest
+    "nice" step of the display length unit at least ``min_px`` pixels apart (metric 1-2-5 steps;
+    inches 1/64 ... 1/2, 1, 2, 3, 6 in, 1, 2, 3, 5, 10 ft ...)."""
+    from mlaser.services import units as U
+    u = units or U.current()
+    unit = u.unit("length")
+    mm_per_unit = U.UNIT_TABLE["length"][unit]
+    steps = _INCH_STEPS if unit in ("in", "ft") else _METRIC_STEPS
+    if unit == "ft":
+        steps = [(st / 12.0, n) for st, n in _INCH_STEPS]
+    for st, n in steps:
+        if st * mm_per_unit * px_per_mm >= min_px:
+            return st * mm_per_unit, st * mm_per_unit / n
+    st, n = steps[-1]
+    return st * mm_per_unit, st * mm_per_unit / n
 
 
 _PATH_CACHE: dict = {}       # segment values -> (QPainterPath, points): edits rebuild the scene
@@ -408,6 +434,8 @@ class CanvasView(QGraphicsView):
         self.tool = None                          # interaction tool (see set_tool)
         self._preview_items: list[QGraphicsItem] = []
         self._static_items()
+        from .units_qt import on_units_changed
+        on_units_changed(self, lambda _u: self.viewport().update(), now=False)   # rulers relabel
 
     # ------------------------------------------------------------------ scene
     def _static_items(self) -> None:
@@ -434,6 +462,102 @@ class CanvasView(QGraphicsView):
             pen.setCosmetic(True)
             self._track.setPen(pen)
         self.rebuild()
+
+    # ------------------------------------------------------------------ rulers / grid
+    RULER_PX = 18
+
+    def ruler_steps(self) -> tuple[float, float]:
+        """(major, minor) step in mm of the rulers and the grid at the current zoom."""
+        return ruler_step(1.0 / self.pixel_size())
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        super().drawBackground(painter, rect)
+        if not self.options.show_grid:
+            return
+        major, _minor = self.ruler_steps()
+        pen = QPen(_cc("table"), 0, Qt.DotLine)
+        painter.save()
+        painter.setPen(pen)
+        x = math.floor(rect.left() / major) * major
+        while x <= rect.right():
+            painter.drawLine(QPointF(x, rect.top()), QPointF(x, rect.bottom()))
+            x += major
+        y = math.floor(rect.top() / major) * major
+        while y <= rect.bottom():
+            painter.drawLine(QPointF(rect.left(), y), QPointF(rect.right(), y))
+            y += major
+        painter.restore()
+
+    def ruler_labels(self) -> tuple[list[tuple[float, str]], list[tuple[float, str]], str]:
+        """The major ticks shown: ([(viewport x, label)], [(viewport y, label)], unit)."""
+        from mlaser.services import units as U
+        u = U.current()
+        major, _ = self.ruler_steps()
+        vp = self.viewport().rect()
+        tl, br = self.mapToScene(vp.topLeft()), self.mapToScene(vp.bottomRight())
+        xs, ys = [], []
+        x0, x1 = min(tl.x(), br.x()), max(tl.x(), br.x())
+        y0, y1 = min(tl.y(), br.y()), max(tl.y(), br.y())
+        dec = max(0, -math.floor(math.log10(u.to_display(major, "length")) + 1e-9)) + 2
+        k = math.floor(x0 / major)
+        while k * major <= x1 and len(xs) < 400:
+            v = k * major
+            xs.append((self.mapFromScene(QPointF(v, 0)).x(), u.number(v, "length", dec, trim=True)))
+            k += 1
+        k = math.floor(y0 / major)
+        while k * major <= y1 and len(ys) < 400:
+            v = k * major
+            ys.append((self.mapFromScene(QPointF(0, v)).y(), u.number(v, "length", dec, trim=True)))
+            k += 1
+        return xs, ys, u.suffix("length")
+
+    def drawForeground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        super().drawForeground(painter, rect)
+        if not self.options.show_rulers:
+            return
+        major, minor = self.ruler_steps()
+        xs, ys, unit = self.ruler_labels()
+        vp = self.viewport().rect()
+        r = self.RULER_PX
+        bg = QColor(_cc("background"))
+        bg.setAlpha(210)
+        fg = _cc("table").lighter(160)
+        painter.save()
+        painter.resetTransform()
+        painter.setRenderHint(QPainter.Antialiasing, False)
+        painter.fillRect(QRectF(0, 0, vp.width(), r), bg)
+        painter.fillRect(QRectF(0, 0, r, vp.height()), bg)
+        f = QFont(painter.font())
+        f.setPointSizeF(max(6.0, f.pointSizeF() * 0.75))
+        painter.setFont(f)
+        painter.setPen(QPen(fg, 1))
+        painter.drawLine(QPointF(r, r), QPointF(vp.width(), r))
+        painter.drawLine(QPointF(r, r), QPointF(r, vp.height()))
+        n = max(1, int(round(major / minor)))
+        px_minor = minor / self.pixel_size()
+        for px, label in xs:
+            if px_minor >= 4:
+                for i in range(1, n):
+                    mx = px + i * px_minor
+                    painter.drawLine(QPointF(mx, r - 4), QPointF(mx, r))
+            if px >= r:
+                painter.drawLine(QPointF(px, 0), QPointF(px, r))
+                painter.drawText(QPointF(px + 2, r - 6), label)
+        for py, label in ys:
+            if px_minor >= 4:
+                for i in range(1, n):
+                    my = py - i * px_minor
+                    painter.drawLine(QPointF(r - 4, my), QPointF(r, my))
+            if py >= r:
+                painter.drawLine(QPointF(0, py), QPointF(r, py))
+                painter.save()
+                painter.translate(r - 6, py - 2)
+                painter.rotate(-90)
+                painter.drawText(QPointF(0, 0), label)
+                painter.restore()
+        painter.fillRect(QRectF(0, 0, r, r), bg)
+        painter.drawText(QRectF(0, 0, r, r), Qt.AlignCenter, unit)
+        painter.restore()
 
     def set_table_size(self, w: float, h: float) -> None:
         self.options.table_size = (w, h)

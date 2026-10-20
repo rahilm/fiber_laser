@@ -178,9 +178,17 @@ def _row_hidden(v, r, root) -> bool:
         return v.isRowHidden(r)
 
 
+#: combo-box items that are exactly a unit name: a unit chooser (the units.* overrides in
+#: Settings, UN.GasPressureUnit, the storage unit of the layer pressures) lists unit names as its
+#: choices; that is not a measurement shown in metric
+UNIT_CHOICE_RE = re.compile(r"^\s*(?:mm|cm|m|mm/s|mm/min|m/min|m/s|mm/s²|m/s²|mm²|cm²|m²|bar|MPa|kPa|l/min|m³/h|kg)\s*$")
+
+
 def offenders(root: QWidget, visible_only: bool = True) -> list[str]:
     out = []
     for where, t in texts(root, visible_only):
+        if ".item[" in where and UNIT_CHOICE_RE.match(t):
+            continue
         h = metric_hits(t)
         if h:
             out.append(f"{where}: {t!r} -> {h}")

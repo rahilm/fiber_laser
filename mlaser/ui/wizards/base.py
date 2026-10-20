@@ -23,7 +23,8 @@ from mlaser.services.procedures import engine as PE
 from mlaser.services.procedures import simrig
 
 from .. import icons
-from .common import MIN_TARGET, Bridge, JogPad, SafetyNotes, T
+from ..units_qt import on_units_changed
+from .common import MIN_TARGET, Bridge, JogPad, SafetyNotes, T, unit_values
 
 
 class WizardDialog(QDialog):
@@ -101,6 +102,20 @@ class WizardDialog(QDialog):
         self.proc: PE.Procedure = self._make(False)
         self.proc.start()
         self.refresh()
+        on_units_changed(self, self._units_changed, now=False)
+
+    def _units_changed(self, _u: Any = None) -> None:
+        """Display units switched: the step texts, the action button, the status and the page
+        follow (no refresh(): it may auto-run a step)."""
+        p, s = self.proc, self.proc.step
+        if s is not None and p.state not in PE.FINAL:
+            self.text.setText(T(self.w, s.text, **unit_values()) if s.text else "")
+            if s.kind == "action":
+                self.b_run.setText(T(self.w, s.action_label or "wizard.run", **unit_values()))
+            pg = self.pages.get(s.id)
+            if pg is not None:
+                self.refresh_page(s, pg)
+        self.status.setText(self.status_text())
 
     # ------------------------------------------------------------------ building
     def _button(self, key: str, fn, icon: str = "", color: Optional[str] = None) -> QPushButton:
@@ -207,7 +222,7 @@ class WizardDialog(QDialog):
         if s is not None and not final:
             n = [x.id for x in vis].index(s.id) + 1 if s in vis else 0
             self.title.setText(T(self.w, "wizard.step_n", n=n, total=len(vis), title=T(self.w, s.title)))
-            self.text.setText(T(self.w, s.text) if s.text else "")
+            self.text.setText(T(self.w, s.text, **unit_values()) if s.text else "")
             self.notes.set_notes(self.w, s.safety)
             pg = self.pages.get(s.id)
             if pg is None:
@@ -222,7 +237,7 @@ class WizardDialog(QDialog):
         is_action = s is not None and s.kind == "action" and not final
         self.b_run.setVisible(is_action)
         if is_action:
-            self.b_run.setText(T(self.w, s.action_label or "wizard.run"))
+            self.b_run.setText(T(self.w, s.action_label or "wizard.run", **unit_values()))
         self.b_run.setEnabled(is_action and p.state == PE.WAITING and s.id not in p.done)
         q = s is not None and s.kind == "question" and not final
         self.b_yes.setVisible(q)
@@ -248,7 +263,7 @@ class WizardDialog(QDialog):
         if p.state == PE.RUNNING:
             return T(self.w, "wizard.running")
         if p.state == PE.FAILED and p.error is not None:
-            return "⚠ " + T(self.w, p.error.key, **p.error.values)
+            return "⚠ " + T(self.w, p.error.key, **{**unit_values(), **p.error.values})
         if p.state == PE.ABORTED:
             return T(self.w, "wizard.aborted_text")
         r = p.results.get(p.step.id) if p.step else None

@@ -93,6 +93,14 @@ def test_every_workspace_shows_no_metric_text_in_imperial(win, app):
         hits = {h for h in hits if not h.startswith("[") or h.split("] ", 1)[1] not in hits}
         if hits:
             bad[ws] = sorted(hits)
+    # Orders shares the Nest slot (a page of it): shown on its own too
+    if win.show_workspace("orders.orders"):
+        _pump(app)
+        if SHOTS:
+            win.grab().save(os.path.join(SHOTS, "orders.png"))
+        hits = set(offenders(win))
+        if hits:
+            bad["orders"] = sorted(hits)
     assert not bad, "metric text in imperial:\n" + "\n".join(
         f"== {ws}\n  " + "\n  ".join(h) for ws, h in bad.items())
 

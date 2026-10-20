@@ -153,3 +153,9 @@ def test_special_value_and_keys(app, cfg):
     sb.setFocus()
     QTest.keyClick(sb, Qt.Key_Up)
     assert sb.value() == 2.0
+
+
+def test_initial_value_is_zero_clamped_like_qdoublespinbox(app, cfg):
+    assert QuantitySpinBox("length", minimum=-1e6, maximum=1e6).value() == 0.0
+    assert QuantitySpinBox("length", minimum=5, maximum=10).value() == 5.0
+    assert QuantitySpinBox("length", minimum=-10, maximum=-5).value() == -5.0

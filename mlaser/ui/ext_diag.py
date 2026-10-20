@@ -53,8 +53,10 @@ from mlaser.diag import interferometer as IF, lighttest, logs as L, maintain as 
 from mlaser.diag import registers as R
 from mlaser.diag.measure import DataRecorder
 from mlaser.diag.paramset import ParamSet, find_def
+from mlaser.services import units as U
 from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
 from mlaser.ui.help_browser import HelpBrowser
+from mlaser.ui.units_qt import QuantitySpinBox, kind_for, on_units_changed
 
 
 # =========================================================================== helpers
@@ -146,12 +148,23 @@ class ParamForm(QWidget):
             elif t == 3:
                 w = QLineEdit(str(v))
             else:
-                w = QDoubleSpinBox()
                 lo, hi = (d.min, d.max) if d is not None and d.max > d.min else (-1e9, 1e9)
-                w.setRange(lo, hi)
-                w.setDecimals(3)
+                k = kind_for(d.unit) if d is not None and d.unit else None
+                if k is not None:      # mm, mm/s ...: display units, value() stays in the registry unit
+                    w = QuantitySpinBox(k, minimum=lo, maximum=hi, decimals=3)
+                else:
+                    w = QDoubleSpinBox()
+                    w.setRange(lo, hi)
+                    w.setDecimals(3)
                 w.setValue(float(v))
-            if d is not None and d.unit:
+            if isinstance(w, QuantitySpinBox):
+                lab = QLabel()
+                on_units_changed(lab, lambda u, lb=lab, base=label, kk=w.kind(): lb.setText(f"{base} ({u.suffix(kk)})"))
+                form.addRow(lab, w)
+                self.editors[key] = w
+                continue
+            # a convertible unit the registry puts on a switch or a choice is not shown
+            if d is not None and d.unit and not (isinstance(w, (QComboBox, QCheckBox)) and kind_for(d.unit)):
                 label = f"{label} ({d.unit})"
             form.addRow(label, w)
             self.editors[key] = w
@@ -394,7 +407,7 @@ class ControllerMonitor(QDialog):
         ppm = getattr(mc, "pulses_per_mm", 1000.0) or 1000.0
         a = self.axis.currentIndex()
         if a < len(snap.axis_ro):
-            self.pos_lbl.setText(f"{R.s32(snap.axis_ro[a][2]) / ppm:.3f} mm")
+            self.pos_lbl.setText(U.current().fmt(R.s32(snap.axis_ro[a][2]) / ppm, "small_length"))
 
     def closeEvent(self, ev) -> None:
         self._timer.stop()
@@ -462,8 +475,7 @@ class DeviceMonitor(QDialog):
             self._btn(row, "zf103", "Export Param", self.export_zpf)
             self._btn(row, "zf102", "Import Param", self.import_zpf)
         elif self.kind == "af":
-            self.step = QDoubleSpinBox()
-            self.step.setRange(0.001, 100)
+            self.step = QuantitySpinBox("small_length", minimum=0.001, maximum=100, decimals=2, step=1.0)
             self.step.setValue(1.0)
             row.addWidget(QLabel(_tr(self.ext.w, "af9", "StepLen")))
             row.addWidget(self.step)
@@ -473,11 +485,9 @@ class DeviceMonitor(QDialog):
             self._btn(row, "af15", "Step Down", lambda: self._af_step(-1))
             self._btn(row, "af16", "Stop", lambda: self.client.stop())
         else:
-            self.speed = QDoubleSpinBox()
-            self.speed.setRange(1, 200)                # ec25 1..200 mm/s
+            self.speed = QuantitySpinBox("speed", minimum=1, maximum=200, decimals=2)     # ec25 1..200 mm/s
             self.speed.setValue(10)
-            self.length = QDoubleSpinBox()
-            self.length.setRange(0, 10000)             # ec23 0..10000 mm
+            self.length = QuantitySpinBox("length", minimum=0, maximum=10000)           # ec23 0..10000 mm
             self.length.setValue(10)
             row.addWidget(QLabel(_tr(self.ext.w, "ec26", "Speed")))
             row.addWidget(self.speed)
@@ -620,6 +630,20 @@ class DeviceMonitor(QDialog):
 
 
 # =========================================================================== diagnostics
+def device_rows(counters, tr=None) -> list[tuple[str, str, str]]:
+    """The device report rows with the axis move lengths (stored in m) in the display units."""
+    import re
+    u = U.current()
+    out = []
+    for attr, label, val in counters.as_rows(tr):
+        if attr.endswith("_move_m"):
+            v = float(getattr(counters, attr, 0.0) or 0.0) * 1000.0      # m -> mm (internal)
+            label = re.sub(r"\s*\(m\)\s*$", "", label) + f" ({u.suffix('long_length')})"
+            val = u.number(v, "long_length", 3)
+        out.append((attr, label, val))
+    return out
+
+
 class DeviceReportDialog(QDialog):
     def __init__(self, ext):
         super().__init__(_parent(ext.w))
@@ -645,7 +669,7 @@ class DeviceReportDialog(QDialog):
         self.refresh()
 
     def refresh(self) -> None:
-        _fill(self.table, self.ext.counters.as_rows(getattr(self.ext.w, "tr_", None)))
+        _fill(self.table, device_rows(self.ext.counters, getattr(self.ext.w, "tr_", None)))
 
     def zero_selected(self) -> None:
         rows = {i.row() for i in self.table.selectedIndexes()}
@@ -753,12 +777,17 @@ class MeasureWindow(QDialog):
         self._timer.start(500)
 
     def refresh(self) -> None:
+        u = U.current()
+        self.table.setHorizontalHeaderLabels(["t (s)", u.header("X", "length"), u.header("Y", "length"),
+                                              u.header("Z", "length"), u.header("speed", "speed"), "laser", "mode"])
         s = self.ext.measure.samples[-200:]
-        _fill(self.table, [(f"{x.t:.2f}", f"{x.x:.3f}", f"{x.y:.3f}", f"{x.z:.3f}", f"{x.speed:.1f}",
+        d = u.decimals("small_length")
+        _fill(self.table, [(f"{x.t:.2f}", u.number(x.x, "length", d), u.number(x.y, "length", d),
+                            u.number(x.z, "length", d), u.number(x.speed, "speed"),
                             int(x.laser), x.mode) for x in reversed(s)])
         sm = self.ext.measure.summary()
         self.summary.setText(f"{sm.get('n', 0)} samples"
-                             + (f", {sm['duration_s']:.1f} s, max speed {sm['max_speed']:.1f} mm/s"
+                             + (f", {sm['duration_s']:.1f} s, max speed {u.fmt(sm['max_speed'], 'speed')}"
                                 if sm.get("n") else ""))
 
     def save(self, path: Optional[str] = None) -> Optional[str]:
@@ -1006,6 +1035,7 @@ class InterferometerPanel(QWidget):
         cl.addLayout(row)
         tabs.addTab(comp, _tr(w, "cp6", "Precision Compensate"))
         self.table = IF.PitchTable()
+        on_units_changed(self, lambda _u: self.set_table(self.table))   # headers and values in units
         self.runner = None
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -1066,14 +1096,23 @@ class InterferometerPanel(QWidget):
         self.table = t
         fe, be = t.errors()
         bl = t.backlash()
-        _fill(self.ctable, [(f"{p:.4f}", f"{t.forward[i]:.4f}", f"{t.backward[i]:.4f}", f"{fe[i]:.4f}",
-                             f"{be[i]:.4f}", f"{bl[i]:.4f}") for i, p in enumerate(t.positions)])
-        tr = getattr(self.ext.w, "tr_", None)
+        u = U.current()
+        w = self.ext.w
+        self.ctable.setHorizontalHeaderLabels([u.header(_tr(w, k, d), "small_length") for k, d in (
+            ("cp7", "Position"), ("cp8", "Positive Measured"), ("cp10", "Negative Measured"),
+            ("cp9", "Positive Deviation"), ("cp11", "Negative Deviation"), ("cp12", "Back Lash"))])
+
+        def n(v: float) -> str:
+            return u.number(v, "small_length", 4 if not u.imperial else 5)
+        _fill(self.ctable, [(n(p), n(t.forward[i]), n(t.backward[i]), n(fe[i]), n(be[i]), n(bl[i]))
+                            for i, p in enumerate(t.positions)])
+        tr = getattr(w, "tr_", None)
+        avg = u.fmt(t.mean_backlash(), "small_length", decimals=4 if not u.imperial else 5)
         try:
-            self.backlash.setText(tr.format("cp15", t.mean_backlash()) if tr is not None
-                                  else f"Average backlash (mm): {t.mean_backlash():.4f}")
-        except (TypeError, ValueError):
-            self.backlash.setText(f"{t.mean_backlash():.4f}")
+            self.backlash.setText(tr.format("cp15", backlash=avg) if tr is not None
+                                  else f"Average backlash: {avg}")
+        except (TypeError, ValueError, ZeroDivisionError):
+            self.backlash.setText(avg)
 
     def import_table(self, path: Optional[str] = None) -> bool:
         if path is None:
@@ -1457,9 +1496,10 @@ class DiagExtension:
                 pass
         win = self.windows.get("report")
         if win is not None and _alive(win):
+            win.units = U.current()
             win.reload()
         else:
-            win = ReportWindow(self.store)
+            win = ReportWindow(self.store, units=U.current())
             self.windows["report"] = win
         win.show()
         _raise(win)
@@ -1532,7 +1572,8 @@ class DiagExtension:
             self.ctx.replace_document(doc, "ball arm")
         else:
             self.w.set_document(doc)
-        _log(self.w, f"mf702: ball arm pattern R={p['GRP.BallArmCircleRadius']:g} x{p['GRP.BallArmCircleTimes']}")
+        _log(self.w, f"mf702: ball arm pattern R={U.current().fmt(float(p['GRP.BallArmCircleRadius']), 'length', trim=True)} "
+                    f"x{p['GRP.BallArmCircleTimes']}")
         return doc
 
     def interferometer(self):

@@ -130,7 +130,7 @@ class QuantitySpinBox(QAbstractSpinBox):
         Units.kind(kind)
         self._kind = kind
         self._min, self._max = float(minimum), float(maximum)
-        self._value = self._min
+        self._value = min(max(0.0, self._min), self._max)   # like QDoubleSpinBox: 0, clamped
         self._base = self._value          # the value before the current typing (no-drift rule)
         self._metric_dec = decimals
         self._metric_step = step
