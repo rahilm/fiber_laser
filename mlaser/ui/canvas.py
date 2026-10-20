@@ -131,6 +131,29 @@ def _make_contour_path(contour) -> tuple[QPainterPath, list[tuple[float, float]]
     return path, pts
 
 
+def _arc_to(path: QPainterPath, start, end, center, ccw: bool) -> None:
+    """Append the arc ``start`` -> ``end`` about ``center`` (``model.Arc`` semantics: a full
+    circle when start == end) to ``path``, whose current point is ``start``.
+
+    Qt measures arc angles with y pointing down; the scene's y points up (the view flips it),
+    so the scene angle a is Qt's -a."""
+    cx, cy = center
+    r = math.hypot(start[0] - cx, start[1] - cy)
+    if r <= 0:
+        path.lineTo(*end)
+        return
+    a0 = math.atan2(start[1] - cy, start[0] - cx)
+    a1 = math.atan2(end[1] - cy, end[0] - cx)
+    d = a1 - a0
+    if ccw:
+        while d <= 1e-12:
+            d += 2 * math.pi
+    else:
+        while d >= -1e-12:
+            d -= 2 * math.pi
+    path.arcTo(QRectF(cx - r, cy - r, 2 * r, 2 * r), -math.degrees(a0), -math.degrees(d))
+
+
 def _seg_dist(p, a, b) -> float:
     ax, ay = a; bx, by = b; px, py = p
     dx, dy = bx - ax, by - ay
@@ -311,6 +334,8 @@ class CanvasView(QGraphicsView):
         self._overlay: list[QGraphicsItem] = []
         self._raster_items: list[tuple[int, _RasterItem]] = []   # (part, item) of raster parts
         self._item_styles: list = []       # the pen key set on each of _items (refresh_styles)
+        self._item_keys: list = []         # (its QPainterPath object, item class) per item
+        self._tp_paths: Optional[tuple] = None   # (toolpath item ids, (cut, gap, rapid) paths)
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # part uid -> (segments, bbox)
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
@@ -395,22 +420,30 @@ class CanvasView(QGraphicsView):
         return out
 
     def rebuild(self) -> None:
-        for _, _, it, _ in self._items:
-            self._scene.removeItem(it)
+        """Show the document.  Incremental: a contour whose display path is unchanged (the
+        path cache returns the same QPainterPath for the same segment values) keeps its scene
+        item and pen; only changed, added and removed contours touch the scene.  A one-part
+        edit of a 2,000-part drawing re-created 5,000 items before (review 2 §1.2)."""
         for it in self._overlay:
             self._scene.removeItem(it)
         for _, rit in self._raster_items:
             self._scene.removeItem(rit)
-        self._items.clear()
-        self._item_styles.clear()
         self._overlay.clear()
         self._raster_items.clear()
+        old_items, old_styles, old_keys = self._items, self._item_styles, self._item_keys
+        self._items, self._item_styles, self._item_keys = [], [], []
         doc = self.document
         if doc is None:
+            for _, _, it, _ in old_items:
+                self._scene.removeItem(it)
             return
         self._order = self.contour_order()
         many = sum(len(p.contours) for p in doc.parts) > LOD_CONTOURS
         item_cls = _LodPathItem if many else QGraphicsPathItem
+        pool: dict = {}
+        # keyed by the identity of the path objects, which old_keys keeps alive meanwhile
+        for (_, _, it, _), (opath, ocls), style in zip(old_items, old_keys, old_styles):
+            pool.setdefault((id(opath), ocls), []).append((it, style))
         for pi, part in enumerate(doc.parts):
             if isinstance(part.extra, dict) and "raster" in part.extra:
                 rit = _RasterItem(part, display_layer_color(part.craft.layer))
@@ -419,10 +452,20 @@ class CanvasView(QGraphicsView):
                     self._raster_items.append((pi, rit))
             for ci, c in enumerate(part.contours):
                 path, pts = _contour_path(c)
-                it = item_cls(path)
-                it.setZValue(1)
-                self._scene.addItem(it)
+                key = (id(path), item_cls)
+                free = pool.get(key)
+                if free:
+                    it, style = free.pop()
+                else:
+                    it, style = item_cls(path), None
+                    it.setZValue(1)
+                    self._scene.addItem(it)
                 self._items.append((pi, ci, it, pts))
+                self._item_keys.append((path, item_cls))
+                self._item_styles.append(style)
+        for free in pool.values():
+            for it, _ in free:
+                self._scene.removeItem(it)
         self.refresh_styles()
         self._build_overlay()
 
@@ -436,37 +479,19 @@ class CanvasView(QGraphicsView):
         self.rebuild()
 
     def _toolpath_overlay(self) -> None:
-        from mlaser.model import Arc
-        cut, gap, rap, bad = QPainterPath(), QPainterPath(), QPainterPath(), QPainterPath()
-        pos = None
-        rasters = {pi for pi, _ in self._raster_items}
-        flagged = self._lead_flags()
-        skip = False            # inside a raster part's block: its item shows the burn runs
-        cur = None
-        for m in self.toolpath:
-            name = type(m).__name__
-            if name == "Marker":
-                skip = getattr(m, "part", -1) in rasters
-                cur = (getattr(m, "part", -1), getattr(m, "contour", -1))
-                continue
-            if skip:
-                continue
-            if name == "Rapid":
-                rap.moveTo(*m.start)
-                rap.lineTo(*m.end)
-                pos = None
-            elif name in ("CutLine", "CutArc"):
-                path = cut if getattr(m, "laser", True) else gap
-                if flagged and getattr(m, "lead", None) == "in" and cur in flagged:
-                    path = bad          # a lead-in the lead check flagged: red
-                path.moveTo(*m.start)
-                if name == "CutArc":
-                    a = Arc(m.start, m.end, m.center, m.ccw)
-                    n = max(4, min(360, int(a.length() / 0.5)))
-                    for k in range(1, n + 1):
-                        path.lineTo(*a.point_at(k / n))
-                else:
-                    path.lineTo(*m.end)
+        """The toolpath (cut, laser-off and rapid paths).  The three paths are cached for the
+        toolpath's items (a rebuild after an edit redraws the same toolpath until the new plan
+        arrives); arcs are drawn with ``arcTo`` instead of a polyline of 0.5 mm steps (0.35 s
+        of Python at 2,000 parts, review 2 P2-4)."""
+        rasters = tuple(sorted(pi for pi, _ in self._raster_items))
+        flagged = frozenset(self._lead_flags())
+        tp = self.toolpath
+        hit = self._tp_paths
+        if hit is not None and hit[0] is tp and hit[1] == len(tp) and hit[2] == (rasters, flagged):
+            cut, gap, rap, bad = hit[3]
+        else:
+            cut, gap, rap, bad = self._toolpath_paths(tp, set(rasters), flagged)
+            self._tp_paths = (tp, len(tp), (rasters, flagged), (cut, gap, rap, bad))
         for path, color, style, show in ((cut, CANVAS_COLORS["cut"], Qt.SolidLine, True),
                                          (gap, CANVAS_COLORS["gap"], Qt.SolidLine, True),
                                          (bad, "#fc0000", Qt.SolidLine, True),
@@ -492,6 +517,33 @@ class CanvasView(QGraphicsView):
                 if getattr(cr, "lead_error", False):
                     out.add((pi, ci))
         return out
+
+    @staticmethod
+    def _toolpath_paths(toolpath, rasters: set, flagged=frozenset()) -> tuple:
+        cut, gap, rap, bad = QPainterPath(), QPainterPath(), QPainterPath(), QPainterPath()
+        skip = False            # inside a raster part's block: its item shows the burn runs
+        cur = None
+        for m in toolpath:
+            name = type(m).__name__
+            if name == "Marker":
+                skip = getattr(m, "part", -1) in rasters
+                cur = (getattr(m, "part", -1), getattr(m, "contour", -1))
+                continue
+            if skip:
+                continue
+            if name == "Rapid":
+                rap.moveTo(*m.start)
+                rap.lineTo(*m.end)
+            elif name in ("CutLine", "CutArc"):
+                path = cut if getattr(m, "laser", True) else gap
+                if flagged and getattr(m, "lead", None) == "in" and cur in flagged:
+                    path = bad          # a lead-in the lead check flagged: red
+                path.moveTo(*m.start)
+                if name == "CutArc":
+                    _arc_to(path, m.start, m.end, m.center, m.ccw)
+                else:
+                    path.lineTo(*m.end)
+        return cut, gap, rap, bad
 
     def add_track_point(self, x: float, y: float, cutting: bool) -> None:
         """Live machine track while a job runs (cut segments solid, moves skipped)."""

@@ -20,7 +20,7 @@ from mlaser.cam.toolpath import CamParams
 from mlaser.model import LayerParams
 from mlaser.nc.machine import Machine
 from mlaser.services.document import DocumentService
-from mlaser.services.jobs import Cancelled, InlineExecutor, JobRequest, JobService, inputs_hash
+from mlaser.services.jobs import InlineExecutor, JobRequest, JobService, inputs_hash
 
 DATA = pathlib.Path(__file__).parent / "data"
 
@@ -134,6 +134,21 @@ def test_process_plan_equals_thread_plan(proc_svc, case):
     b = thread_svc().plan_sync(req)          # the same request: round-trip records by identity
     same_plan(a, b)
     assert proc_svc.stats["process_compiles"] >= 1
+
+
+def test_the_plan_process_runs_the_per_chain_pool(monkeypatch):
+    """The plan process may own the per-chain compile pool (nc/parallel.py), so moving the
+    compile out of the GUI process does not make it serial; the result is the serial one."""
+    monkeypatch.setenv("MLASER_COMPILE_WORKERS", "2")
+    svc = JobService(executor=InlineExecutor(), debounce_s=0, process=True)
+    try:
+        req = req_for(demo_doc(2))
+        plan = svc.plan_sync(req)
+        assert svc.stats["child_parallel"].get("parallel_jobs", 0) >= 1, svc.stats
+        monkeypatch.setenv("MLASER_COMPILE_WORKERS", "0")
+        same_plan(plan, thread_svc().plan_sync(req))
+    finally:
+        svc.shutdown()
 
 
 def test_process_cache_and_per_part_encoding():

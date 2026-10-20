@@ -577,6 +577,7 @@ class JobService:
             self._set_toolpath(t, items, placed, deliver)
 
         info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath)
+        self.stats["child_parallel"] = info.get("parallel", {})   # nc.parallel.STATS of the child
         if info.get("toolpath") is None:
             job.toolpath = list(t.toolpath or [])
         else:
@@ -760,10 +761,17 @@ def _placed_in_request(req_doc: Document, copy_doc: Document, placed: Document) 
 def process_compile_default() -> bool:
     """Whether the application's JobService compiles in the plan process: on, unless the
     environment says ``MLASER_PLAN_PROCESS=0`` (the test suite does, except where it tests the
-    process path; tools that patch the compiler in-process need it too)."""
+    process path; tools that patch the compiler in-process need it too) or the main script has
+    no ``__main__`` guard."""
     import os
 
-    return os.environ.get("MLASER_PLAN_PROCESS", "1").strip().lower() not in ("0", "false", "no", "off", "")
+    from mlaser.nc.parallel import _main_is_safe
+
+    if os.environ.get("MLASER_PLAN_PROCESS", "1").strip().lower() in ("0", "false", "no", "off", ""):
+        return False
+    # a spawned child imports the main script again: one without an ``if __name__ ==
+    # "__main__":`` guard would run again in the plan process (the per-chain pool's rule)
+    return _main_is_safe()
 
 
 class _null:

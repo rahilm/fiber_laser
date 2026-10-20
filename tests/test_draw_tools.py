@@ -303,6 +303,35 @@ def test_size_adv_advert_measure_fine_tune(win):
     assert win.document.parts[0].bbox()[1] == pytest.approx(-0.5)
 
 
+def test_draw_edits_copy_only_their_scope(win):
+    """ext_draw commands pass their part scope to the edit (review 2 P1-3: a one-part nudge
+    copied all 2,000 parts, 5.2 s): the undo command holds copies of the touched parts only,
+    and undo / redo still restore the drawing."""
+    parts = [Part([P.rect((k * 20.0, 0), (k * 20.0 + 10, 10))]) for k in range(40)]
+    win.set_document(Document(parts=parts))
+    ext = win.extension("ext_draw")
+    ext.fine.auto, ext.fine.step = False, 1.0
+
+    def last_swap():
+        return win.docs.stack._undo[-1].swap
+    before = [p.bbox() for p in win.document.parts]
+    win.canvas.select_parts([3])
+    win.nudge(1, 0)
+    assert set(last_swap()) == {win.document.parts[3].uid}
+    win.canvas.select_parts([5, 6])
+    win.run("xform.align")
+    assert set(last_swap()) == {win.document.parts[5].uid, win.document.parts[6].uid}
+    win.canvas.select_parts([8, 9])
+    win.run("tool.group")
+    assert len(last_swap()) == 3                     # the two members and the new group
+    win.undo()
+    win.undo()
+    win.undo()
+    assert [p.bbox() for p in win.document.parts] == before
+    win.redo()
+    assert win.document.parts[3].bbox()[0] == pytest.approx(before[3][0] + 1)
+
+
 def test_command_coverage_for_draw_commands(app):
     import importlib.util
     spec = importlib.util.spec_from_file_location(

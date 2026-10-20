@@ -135,3 +135,59 @@ def test_rubber_band_selection_at_10000_parts_is_linear():
     assert _selected_rows(pl) == list(range(0, n, 2))
     # generous bounds for a loaded host (measured 0.2-0.6 s each); quadratic took minutes
     assert t_all < 8.0 and t_small < 8.0 and t_alt < 8.0, (t_all, t_small, t_alt)
+
+
+def _scene_paths(cv):
+    return [it.path() for _, _, it, _ in cv._items]
+
+
+def test_canvas_rebuild_reuses_unchanged_items():
+    """An incremental rebuild keeps the items of unchanged contours and shows exactly the
+    document (review 2: an edit re-created every item)."""
+    from mlaser.cad import arrange as AR
+    from mlaser.ui.canvas import CanvasView, _contour_path
+    QApplication.instance() or QApplication([])
+    docs = DocumentService(_grid_doc(30))
+    cv = CanvasView()
+    cv.set_document(docs.document)
+    before = {id(it) for _, _, it, _ in cv._items}
+    target = docs.document.parts[4]
+    docs.edit(lambda d: AR.translate([target], 3.0, 0.0), parts=[target])
+    docs.edit(lambda d: d.parts.pop(7), parts=[])
+    docs.edit(lambda d: d.parts.append(sq(900, 900)), parts=[])
+    cv.document = docs.document
+    cv.rebuild()
+    doc = docs.document
+    assert [(pi, ci) for pi, ci, _, _ in cv._items] == [(pi, ci) for pi, p in enumerate(doc.parts)
+                                                       for ci in range(len(p.contours))]
+    assert _scene_paths(cv) == [_contour_path(c)[0] for p in doc.parts for c in p.contours]
+    scene_paths = [it for it in cv.scene().items() if it in {i for _, _, i, _ in cv._items}]
+    assert len(scene_paths) == len(cv._items)
+    after = {id(it) for _, _, it, _ in cv._items}
+    assert len(after & before) == len(cv._items) - 2          # the moved part and the new one
+    # styles follow the parts (selection after reuse)
+    doc.parts[0].selected = True
+    cv.refresh_styles()
+    assert cv._items[0][2].pen().style() != cv._items[-1][2].pen().style()
+
+
+def test_toolpath_arcs_follow_their_direction():
+    import math
+
+    from PySide6.QtGui import QPainterPath
+
+    from mlaser.model import Arc
+    from mlaser.ui.canvas import _arc_to
+    for ccw in (True, False):
+        for start, end in (((10.0, 0.0), (0.0, 10.0)), ((10.0, 0.0), (10.0, 0.0)), ((0.0, -10.0), (-10.0, 0.0))):
+            a = Arc(start, end, (0.0, 0.0), ccw)
+            p = QPainterPath()
+            p.moveTo(*start)
+            _arc_to(p, start, end, (0.0, 0.0), ccw)
+            for k in range(1, 20):
+                q = p.pointAtPercent(k / 20)
+                assert abs(math.hypot(q.x(), q.y()) - 10.0) < 0.02
+                x, y = a.point_at(k / 20)
+                assert math.hypot(q.x() - x, q.y() - y) < 0.6, (ccw, start, end, k)
+            e = p.currentPosition()
+            assert math.hypot(e.x() - end[0], e.y() - end[1]) < 1e-6

@@ -94,10 +94,20 @@ def _setting() -> tuple[str, int]:
     return ("fixed", n) if n > 1 else ("off", 0)
 
 
+_pool_owner = [False]
+
+
+def allow_pool_in_this_child() -> None:
+    """This multiprocessing child plans whole jobs (the JobService's plan process,
+    services/planproc.py) and may own a pool like the main process does."""
+    _pool_owner[0] = True
+
+
 def _in_worker() -> bool:
-    """A multiprocessing child (a pool worker, the streamer process): never a pool of its own."""
+    """A multiprocessing child (a pool worker, the streamer process): never a pool of its own,
+    except the plan process (:func:`allow_pool_in_this_child`)."""
     import multiprocessing as mp
-    return mp.parent_process() is not None
+    return mp.parent_process() is not None and not _pool_owner[0]
 
 
 def _main_is_safe() -> bool:

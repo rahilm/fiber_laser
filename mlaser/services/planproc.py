@@ -291,9 +291,24 @@ def _child_main(conn, cancel) -> None:
     import mlaser.model as M
     from mlaser.toolpath import items as _I  # noqa: F401 - warm the imports before "ready"
     import mlaser.nc.compiler  # noqa: F401
-    from .jobs import Cancelled, toolpath_bounds
     # objects the child creates must not take ids the parent hands out (uids are process-unique)
     M._ids = itertools.count(1 << 52)
+    from mlaser.nc import parallel
+    parallel.allow_pool_in_this_child()      # the per-chain pool, as the main process would
+    if hasattr(os, "setpgid"):
+        try:   # own process group: the parent can end this process and its pool workers at once
+            os.setpgid(0, 0)
+        except OSError:
+            pass
+    try:
+        _child_loop(conn, cancel)
+    finally:
+        parallel.shutdown()                  # a spawned child exits without atexit handlers
+
+
+def _child_loop(conn, cancel) -> None:
+    from .jobs import Cancelled, toolpath_bounds
+    from mlaser.nc import parallel
     try:
         os.nice(5)            # below the GUI and the streaming child
     except Exception:  # noqa: BLE001
@@ -301,7 +316,10 @@ def _child_main(conn, cancel) -> None:
     part_cache: dict[int, bytes] = {}
     blob_cache: dict[int, Any] = {}
     held: list = []                       # SharedJob blocks until the parent has copied them
-    conn.send(("ready", os.getpid()))
+    try:
+        conn.send(("ready", os.getpid()))
+    except OSError:                       # the parent went away while this process started
+        return
     while True:
         try:
             msg = conn.recv()
@@ -368,9 +386,10 @@ def _child_main(conn, cancel) -> None:
                     "bounds": toolpath_bounds(job.toolpath),
                     "cut_bounds": toolpath_bounds(job.toolpath, ("CutLine", "CutArc")),
                     "toolpath": None if tp_same else _chunks(list(job.toolpath), CHUNK_ITEMS),
-                    "meta": pickle.dumps(meta, protocol=5), "big": big}
+                    "meta": pickle.dumps(meta, protocol=5), "big": big,
+                    "parallel": dict(parallel.STATS)}
             from mlaser.nc.packed import PackedWire
-            wire = job.wire if isinstance(job.wire, PackedWire) else None
+            wire: Any = job.wire if isinstance(job.wire, PackedWire) else None
             packed = wire is not None and job._groups is not None and job._groups[0] is wire \
                 and isinstance(job._groups[2], str)
             shared = None
@@ -407,6 +426,23 @@ def _child_main(conn, cancel) -> None:
 
 
 # =============================================================================== parent
+import weakref  # noqa: E402
+
+_LIVE: "weakref.WeakSet[PlanProcess]" = weakref.WeakSet()
+
+
+def _close_all() -> None:
+    """At exit, before multiprocessing joins its non-daemon children: end the plan processes."""
+    for pp in list(_LIVE):
+        try:
+            pp.close()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+_atexit_done = [False]
+
+
 class PlanProcess:
     """The parent's handle of the plan process (used by one JobService worker thread)."""
 
@@ -417,8 +453,8 @@ class PlanProcess:
         import multiprocessing as mp
         self.ctx = mp.get_context("spawn")
         self.cancel = self.ctx.Value("q", 0, lock=False)
-        self.proc = None
-        self.conn = None
+        self.proc: Any = None
+        self.conn: Any = None
         self.pid: Optional[int] = None
         self.have: set = set()             # tokens the child holds
         self.rid = 0
@@ -433,18 +469,32 @@ class PlanProcess:
             if self.proc is not None and self.proc.is_alive():
                 return
             a, b = self.ctx.Pipe(duplex=True)
-            p = self.ctx.Process(target=_child_main, args=(b, self.cancel), name="mlaser-plan", daemon=True)
+            # not a daemon: a daemonic process may not start the per-chain compile pool
+            # (nc/parallel.py); _close_all (atexit) ends it, and it exits by itself when the
+            # parent's end of the pipe closes
+            p = self.ctx.Process(target=_child_main, args=(b, self.cancel), name="mlaser-plan", daemon=False)
             p.start()
             b.close()
             self.proc, self.conn, self.have, self._ready = p, a, set(), False
+            _LIVE.add(self)
+            if not _atexit_done[0]:
+                # registered after multiprocessing's own exit handler (imported by the start
+                # above), so it runs first (atexit is last-in, first-out)
+                import atexit
+                atexit.register(_close_all)
+                _atexit_done[0] = True
 
     def _wait_ready(self) -> None:
         if self._ready:
             return
         t_end = time.monotonic() + self.STARTUP_S
         while time.monotonic() < t_end:
-            if self.conn.poll(0.1):
-                msg = self.conn.recv()
+            try:
+                ready = self.conn.poll(0.1)
+                msg: Any = self.conn.recv() if ready else None
+            except (EOFError, OSError):
+                break
+            if ready:
                 if msg[0] == "ready":
                     self.pid = msg[1]
                     self._ready = True
@@ -475,18 +525,33 @@ class PlanProcess:
             except Exception:  # noqa: BLE001
                 pass
         if p is not None:
-            p.join(1.0)
+            p.join(5.0)                    # it shuts its compile pool down first
             if p.is_alive():
-                p.terminate()
-                p.join(1.0)
+                self._kill(p)
         if c is not None:
             c.close()
+
+    def _kill(self, p) -> None:
+        """End the plan process and its compile pool workers (its process group on POSIX)."""
+        if p is None:
+            return
+        try:
+            if hasattr(os, "killpg") and p.pid and os.getpgid(p.pid) == p.pid:
+                import signal
+                os.killpg(p.pid, signal.SIGKILL)
+            elif p.is_alive():
+                p.kill()
+        except (OSError, ProcessLookupError):
+            try:
+                p.kill()
+            except Exception:  # noqa: BLE001
+                pass
+        p.join(2.0)
 
     def _lost(self, why: str) -> ChildLost:
         self.failures += 1
         try:
-            if self.proc is not None and self.proc.is_alive():
-                self.proc.kill()
+            self._kill(self.proc)
         except Exception:  # noqa: BLE001
             pass
         self.proc = None
