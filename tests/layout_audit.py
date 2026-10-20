@@ -8,6 +8,7 @@ responsive-layout rules:
 * ``vscroll``: a visible vertical scroll bar on a *form or control panel*, i.e. a ``QScrollArea``
   that is not marked as a list (``responsive.mark_list``); item views, text views and areas
   marked as lists may scroll;
+* ``overlap``: sibling widgets drawn over each other (:func:`overlaps`);
 * ``clipped``: a widget smaller than its ``minimumSizeHint``; a button narrower than its
   ``sizeHint`` (its text is cut); a label whose text does not fit, unless it carries a tooltip
   (the elided text is readable there); a combo box narrower than its current text; a widget that
@@ -210,11 +211,38 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
         # cut by an ancestor that does not scroll
         if sa is None and (vis.width() < size.width() - TOL or vis.height() < size.height() - TOL):
             add("clipped", w, f"cut by its parent: {vis.width()}x{vis.height()} of {size.width()}x{size.height()}")
+    return out + overlaps(top)
+
+
+#: containers whose children overlap by design (they stack, scroll, float or are compound)
+_STACKING = ("QMainWindow", "QAbstractScrollArea", "QToolBar", "QTabBar", "QSplitter", "QStackedWidget",
+             "QComboBox", "QAbstractSpinBox", "QDockWidget", "QTabWidget", "QStatusBar", "QMenu")
+
+
+def overlaps(top: QWidget) -> list[Violation]:
+    """Sibling widgets drawn over each other (a manual layout that got its heights wrong).  A
+    widget marked ``overlay`` (a HUD over the canvas, a toast) is allowed to."""
+    import PySide6.QtWidgets as W
+    stacking = tuple(getattr(W, n) for n in _STACKING)
+    out = []
+    for parent in [top, *top.findChildren(QWidget)]:
+        if not parent.isVisible() or parent.window() is not top or isinstance(parent, stacking):
+            continue
+        kids = [c for c in parent.children() if isinstance(c, QWidget) and c.isVisible() and not c.isWindow()
+                and c.width() > 0 and c.height() > 0 and not c.property("overlay")
+                and not c.objectName().startswith("qt_")]
+        for i, a in enumerate(kids):
+            ga = a.geometry()
+            for b in kids[i + 1:]:
+                r = ga.intersected(b.geometry())
+                if r.width() > 2 and r.height() > 2:
+                    out.append(Violation("overlap", widget_path(a, top),
+                                         f"{r.width()}x{r.height()} px under {widget_path(b, top)}"))
     return out
 
 
 def summary(violations) -> dict[str, int]:
-    out = {"hscroll": 0, "vscroll": 0, "clipped": 0}
+    out = {"hscroll": 0, "vscroll": 0, "clipped": 0, "overlap": 0}
     for v in violations:
         out[v.kind] = out.get(v.kind, 0) + 1
     return out

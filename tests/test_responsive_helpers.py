@@ -68,6 +68,7 @@ def test_responsive_form_puts_labels_above_when_narrow(app):
 def test_columns_panel_folds_then_recovers(app):
     p = R.ColumnsPanel(max_columns=2)
     stop = QPushButton("STOP")
+    stop.setMinimumHeight(80)                 # a touch target taller than the button's hint
     p.add_pinned(stop)
     secs = []
     for i in range(4):
@@ -84,6 +85,7 @@ def test_columns_panel_folds_then_recovers(app):
     p.show()
     _pump(app)
     assert all(s.expanded() for s in secs) and "1 col" in p.property(R.STATE_PROP)
+    assert stop.height() >= 80 and all(s.y() >= stop.geometry().bottom() for s in secs)   # no overlap
     p.resize(w0, p.minimumSizeHint().height())
     _pump(app)
     assert stop.isVisible() and stop.geometry().bottom() < p.height()

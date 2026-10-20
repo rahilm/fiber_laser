@@ -610,14 +610,15 @@ class ColumnsPanel(QWidget):
         ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
         return max(ws, default=0)
 
+    @staticmethod
+    def _widget_h(p: QWidget, width: int) -> int:
+        """A pinned widget's height at ``width``: its preferred height, never less than its
+        minimum (an explicit minimum such as a touch target's counts, as in a layout)."""
+        ph = p.heightForWidth(width) if p.hasHeightForWidth() else -1
+        return max(ph if ph >= 0 else p.sizeHint().height(), p.minimumSizeHint().height(), p.minimumHeight())
+
     def _pinned_h(self, width: int) -> int:
-        h = 0
-        for p in self.pinned:
-            if p.isHidden():
-                continue
-            ph = p.heightForWidth(width) if p.hasHeightForWidth() else -1
-            h += max(ph if ph >= 0 else p.sizeHint().height(), p.minimumSizeHint().height()) + self.spacing()
-        return h
+        return sum(self._widget_h(p, width) + self.spacing() for p in self.pinned if not p.isHidden())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         m = 2 * self.margins()
@@ -755,8 +756,7 @@ class ColumnsPanel(QWidget):
         for p in self.pinned:
             if p.isHidden():
                 continue
-            ph = p.heightForWidth(W) if p.hasHeightForWidth() else -1
-            ph = max(ph if ph >= 0 else p.sizeHint().height(), p.minimumSizeHint().height())
+            ph = self._widget_h(p, W)
             p.setGeometry(m, y, W, ph)
             y += ph + sp
         cw = (W - (n - 1) * sp) // max(n, 1)

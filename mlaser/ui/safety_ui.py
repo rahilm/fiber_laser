@@ -344,15 +344,16 @@ class RunBar(QToolBar):
             b.clicked.connect(lambda _=False, f=fn: f())
             if key == "stop":
                 b.setStyleSheet("QPushButton{background:#c62828;color:white;font-weight:bold;}")
-            self.addWidget(b)
             self.buttons[key] = b
-            if key == "start":
+            if key != "start":
+                self.addWidget(b)
+            else:
                 # explicit scope: "Start selection only" (it used to hide in a Run Control check
                 # box that silently changed what Start did)
                 more = QToolButton()
                 more.setObjectName("run_start_menu")
-                more.setArrowType(Qt.DownArrow)
-                more.setPopupMode(QToolButton.InstantPopup)
+                more.setPopupMode(QToolButton.InstantPopup)      # the menu arrow only
+                more.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Preferred)
                 more.setToolTip("More ways to start")
                 more.setAccessibleName("Start options")
                 menu = QMenu(more)
@@ -360,8 +361,15 @@ class RunBar(QToolBar):
                 act.setObjectName("run_start_selection")
                 act.triggered.connect(lambda _=False: ui.start_selection())
                 more.setMenu(menu)
-                keep_min_size(more, QSize(MIN_TARGET // 2, MIN_TARGET))
-                self.addWidget(more)
+                keep_min_size(more, QSize(MIN_TARGET // 3, MIN_TARGET))
+                box = QWidget()                   # Start and its menu arrow side by side
+                box.setObjectName("run_start_box")
+                bl = QHBoxLayout(box)
+                bl.setContentsMargins(0, 0, 0, 0)
+                bl.setSpacing(0)
+                bl.addWidget(b)
+                bl.addWidget(more)
+                self.addWidget(box)
                 self.start_menu = more
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
