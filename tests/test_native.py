@@ -479,3 +479,37 @@ def test_setting_entries_go_to_their_home(win, app):
     assert not acts["craft.kerf"].isEnabled() and not acts["nav.layer_parameters"].isEnabled()
     assert win.shell.set_user_mode("engineer")
     assert acts["craft.kerf"].isEnabled()
+
+
+@pytest.mark.parametrize("name", theme.THEME_IDS)
+def test_quantity_spin_box_keeps_the_native_frame_and_focus_ring(win, app, name):
+    """Without a style-sheet rule for QAbstractSpinBox, the Units track's QuantitySpinBox is drawn
+    by the platform style: its frame and focus ring (macOS focus rect, Windows/Fusion focus
+    frame) come from the style, in every theme."""
+    from PySide6.QtCore import Qt
+    from PySide6.QtWidgets import QStyle, QStyleOptionSpinBox
+
+    from mlaser.ui.units_qt import QuantitySpinBox
+    win.shell.set_theme(name, persist=False)
+    sb = QuantitySpinBox("length", win.centralWidget(), maximum=100.0, value=12.5)
+    sb.show()
+    app.processEvents()
+    try:
+        assert sb.hasFrame() and sb.styleSheet() == ""
+        w = sb
+        while w is not None:                       # no ancestor style sheet styles spin boxes
+            assert "SpinBox" not in w.styleSheet(), w
+            w = w.parentWidget()
+        assert "SpinBox" not in app.styleSheet()
+        assert sb.focusPolicy() & Qt.TabFocus
+        assert sb.lineEdit().testAttribute(Qt.WA_MacShowFocusRect) or sys.platform != "darwin"
+        opt = QStyleOptionSpinBox()
+        sb.initStyleOption(opt)
+        assert opt.frame
+        sb.setFocus()
+        app.processEvents()
+        if sb.hasFocus():
+            sb.initStyleOption(opt)
+            assert opt.state & QStyle.State_HasFocus
+    finally:
+        sb.deleteLater()
