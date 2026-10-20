@@ -36,6 +36,7 @@ from ..services import units
 from . import qtbridge
 from .responsive import keep_min_size
 from .safety_texts import remedy
+from .style import TARGET_RUN
 
 log = logging.getLogger("mlaser.ui.safety")
 
@@ -57,7 +58,7 @@ TEXTS = {
     "DISARMED": "DISARMED - laser cannot fire",
     "OFFLINE": "OFFLINE",
 }
-MIN_TARGET = 56
+MIN_TARGET = TARGET_RUN
 
 
 def _ctl(w):

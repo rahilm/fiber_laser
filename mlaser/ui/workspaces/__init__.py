@@ -21,8 +21,7 @@ log = logging.getLogger("mlaser.ui.workspaces")
 
 PLUGINS = ("mlaser.ui.workspaces.run", "mlaser.ui.workspaces.nest", "mlaser.ui.workspaces.report",
            "mlaser.ui.workspaces.orders")
-TOUCH = 56          # primary touch targets (px, docs/SAFETY.md run bar)
-TOUCH_MIN = 44      # every other control on the touch screens
+from ..style import TARGET_RUN as TOUCH, TARGET_TOUCH as TOUCH_MIN  # noqa: E402 - primary / other touch targets
 
 
 def tr(window: Any, key: str, default: str = "", **kw: Any) -> str:

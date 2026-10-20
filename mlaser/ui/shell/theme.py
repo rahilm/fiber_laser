@@ -36,6 +36,12 @@ DEFAULT_THEME = SYSTEM
 
 THEMES: dict[str, dict[str, str]] = {
     LIGHT: {
+        # semantic roles (mlaser.ui.style.color): text colours >= 4.5:1 on the window and on
+        # their fill; STOP's fill is the same in every theme (docs/SAFETY.md)
+        "danger": "#c62828", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#9a4a06", "warning_fill": "#fff4e5", "on_warning": "#7a3a04",
+        "info": "#1b5fc1", "info_fill": "#e8f0fc", "on_info": "#123f80",
+        "success": "#2f7d32", "success_fill": "#e8f5e9", "on_success": "#1e5420",
         "window": "#f3f4f6", "base": "#ffffff", "alt_base": "#f6f7f9", "text": "#1d2127",
         "muted": "#59616d", "button": "#e8eaee", "button_text": "#1d2127", "border": "#c4c9d1",
         "accent": "#1b5fc1", "accent_text": "#ffffff", "tooltip": "#ffffe8", "tooltip_text": "#1d2127",
@@ -51,6 +57,10 @@ THEMES: dict[str, dict[str, str]] = {
         "c_lead_in": "#c2187a", "c_lead_out": "#6d28d9", "c_kerf": "#a86b00", "c_pierce": "#c2187a",
     },
     DARK: {
+        "danger": "#ef5350", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#f59e0b", "warning_fill": "#3a2a10", "on_warning": "#ffd089",
+        "info": "#7fb0ff", "info_fill": "#16243a", "on_info": "#cfe0ff",
+        "success": "#66bb6a", "success_fill": "#163a1a", "on_success": "#c8e6c9",
         "window": "#1f2226", "base": "#16181b", "alt_base": "#1c1f23", "text": "#e6e8eb",
         "muted": "#a3aab4", "button": "#2b2f35", "button_text": "#e6e8eb", "border": "#3d434b",
         "accent": "#4d8ff0", "accent_text": "#0b0d10", "tooltip": "#2b2f35", "tooltip_text": "#e6e8eb",
@@ -64,6 +74,10 @@ THEMES: dict[str, dict[str, str]] = {
         "c_lead_in": "#ff4fa0", "c_lead_out": "#b28cff", "c_kerf": "#ffc53d", "c_pierce": "#ff4fa0",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
+        "danger": "#ff5252", "on_danger": "#ffffff", "danger_fill": "#c62828",
+        "warning": "#ffd400", "warning_fill": "#000000", "on_warning": "#ffd400",
+        "info": "#00e5ff", "info_fill": "#000000", "on_info": "#00e5ff",
+        "success": "#69f0ae", "success_fill": "#000000", "on_success": "#69f0ae",
         "window": "#000000", "base": "#000000", "alt_base": "#0a0a0a", "text": "#ffffff",
         "muted": "#ffffff", "button": "#000000", "button_text": "#ffffff", "border": "#ffffff",
         "accent": "#ffd400", "accent_text": "#000000", "tooltip": "#000000", "tooltip_text": "#ffffff",

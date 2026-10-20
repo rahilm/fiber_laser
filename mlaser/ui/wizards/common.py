@@ -13,10 +13,11 @@ from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QFrame, QG
 from mlaser.services import units as U
 
 from .. import icons
+from ..style import TARGET_TOUCH
 from ..units_qt import on_units_changed
 
 AMBER_BG, AMBER_FG = "#ffd43b", "#212529"     # readable in light and dark themes
-MIN_TARGET = 44                                # px, touch target (56 for the run bar)
+MIN_TARGET = TARGET_TOUCH                      # px, touch target (TARGET_RUN for the run bar)
 
 
 def tr_of(window: Any):
