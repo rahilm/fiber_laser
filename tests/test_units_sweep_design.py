@@ -7,7 +7,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QPointF  # noqa: E402
+from PySide6.QtCore import QPointF, Qt  # noqa: E402
 from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
 
@@ -141,9 +141,6 @@ def test_design_dialogs_show_no_metric_text_in_imperial(win, app, monkeypatch):
     _rect(win)
     win.canvas.select_parts([len(win.document.parts) - 1])
     got.append(win.settings_dialog())          # app.options: the Settings window (modeless)
-    win.lead_dialog()
-    win.kerf_dialog()
-    win.microjoint_dialog()
     cam = win.extension("ext_cam")
     cam.exec_dialogs = True
     for m in ("array_dialog", "circular_array_dialog", "sheet_array_dialog", "cleanup_dialog", "fillet_auto",
@@ -151,7 +148,7 @@ def test_design_dialogs_show_no_metric_text_in_imperial(win, app, monkeypatch):
         getattr(cam, m)()
     craft = win.extension("ext_craft")
     craft.exec_dialogs = True
-    for m in ("bridge", "mj_manual", "gap", "overcut"):
+    for m in ("bridge", "mj_manual"):         # gap / overcut use the Properties field (no dialog)
         getattr(craft, m)()
     craft._engrave_dialog()
     draw = win.extension("ext_draw")
@@ -162,7 +159,7 @@ def test_design_dialogs_show_no_metric_text_in_imperial(win, app, monkeypatch):
     nest = win.extension("ext_nest")[0]
     nest.params_dialog()
     nest.add_std_sheet()
-    assert len(got) >= 25
+    assert len(got) >= 20
     bad = {}
     for d in got:
         if type(d).__name__ == "SettingsDialog":
@@ -198,21 +195,34 @@ def test_param_grid_edit_in_imperial_stores_mm(win, app):
     assert vals[key] == pytest.approx(target, abs=1e-9) or before == target
 
 
-def test_lead_and_kerf_dialogs_store_mm(win, app):
-    from mlaser.model import LeadParams
-    from mlaser.ui import dialogs
+def test_properties_leads_and_kerf_store_mm_in_imperial(win, app):
+    """Imperial: select a part, Properties' lead length shows inches; typing 0.25" stores
+    6.35 mm in the part's craft (leads and kerf are edited only there: the Lead / Kerf dialogs
+    are gone, the commands open these fields)."""
+    from mlaser.ui.units_qt import QuantitySpinBox
     win.config.set("units.system", "imperial")
-    k = dialogs.KerfDialog(win.tr_, 1, 0.1, win)
-    assert k.width.text() == "0.0039 in" and k.width.value() == 0.1
-    _type(k.width, "0.008")
-    assert k.result_values()[1] == pytest.approx(0.008 * IN)
-    lin, lout = LeadParams(kind=1, length=3.0), LeadParams(kind=1, length=2.0)
-    ld = dialogs.LeadDialog(win.tr_, lin, lout, win)
-    lead, kind, ang, ln, rad, corner = ld._w["in"]
-    assert ln.text() == "0.118 in"
-    _type(ln, "1/8\"")
-    ld._store()
-    assert lin.length == pytest.approx(3.175) and lout.length == 2.0   # untouched: unchanged
+    part = _rect(win)
+    win.canvas.select_parts([0])
+    app.processEvents()
+    win.commands.run("craft.lead")                        # opens Process › Properties › Leads
+    pp = win.extension("ext_process").properties
+    kind, ang, ln, rad = pp.lead_w["in"]
+    assert isinstance(ln, QuantitySpinBox) and ln.suffix() == " in"
+    assert ln.text().endswith(" in") and "mm" not in ln.text()
+    kind.setCurrentIndex(1)
+    _type(ln, '0.25"')
+    app.processEvents()
+    pp._commit_leads()
+    part = win.document.parts[0]
+    assert part.craft.lead_in.kind == 1 and part.craft.lead_in.length == pytest.approx(6.35, abs=1e-9)
+    assert ln.text() == "0.25 in" or ln.text().startswith("0.250")
+    assert isinstance(pp.kerf_w, QuantitySpinBox) and pp.kerf_w.suffix() == " in"
+    pp.kerf_kind.setCurrentIndex(pp.kerf_kind.findData(1))
+    _type(pp.kerf_w, "0.004")
+    pp._commit_kerf()
+    assert win.document.parts[0].craft.kerf_width == pytest.approx(0.004 * IN, abs=1e-9)
+    for w in (pp.mj_len, pp.overcut):
+        assert isinstance(w, QuantitySpinBox) and w.suffix() == " in"
 
 
 # --------------------------------------------------------------------------- panels
@@ -228,10 +238,13 @@ def test_layer_table_and_part_list_in_imperial(win, app):
     col = [a for _, a in win.layer_panel.COLS].index("cut_height")
     li = win.layer_panel._row_layer(0)
     it = t.item(0, col)
-    before = win.document.layers[li].cut_height
-    it.setText(it.text())                                 # same text: no change, no drift
-    assert win.document.layers[li].cut_height == before
-    it.setText("0.04")                                    # 0.04 in
+    assert not it.flags() & Qt.ItemIsEditable             # a legend: edited in the layer inspector
+    win.edit_layer(li)                                    # double-click: Process › Layers
+    insp = win.extension("ext_process").workspace.inspector
+    fld = insp.form.fields["GP.CutHeight"].widget
+    assert fld.suffix() == " in"
+    _type(fld, "0.04")                                    # 0.04 in
+    app.processEvents()
     assert win.document.layers[li].cut_height == pytest.approx(0.04 * IN)
     hdr = win.part_list.headerItem().text(4)
     assert hdr.endswith("(in)")

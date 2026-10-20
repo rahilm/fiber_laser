@@ -43,6 +43,13 @@ NOT_BUILT = "parity-only: {what} is not built in the rebuild; kept so a profile 
 
 #: (regex on the key, decision) in order; the first match wins (after keep / Machine settings)
 RULES: list[tuple[str, str]] = [
+    (r"^GRP\.(GuideLine|GuideArc|IsOnlyForEncolseContour$|LeadPosType$)",
+     "move: Process › Library (the recipe's lead defaults) and Process › Properties (a part's leads); "
+     "per-job values, not settings (SETTINGS_MAP 3.2, 3.3)"),
+    (r"^GRP\.(AutoMicroLink|MinEnableMicoLinkGraphSize$)",
+     "move: the micro-joint spec of the recipe (Process › Library) and of a part (Process › Properties)"),
+    (r"^GRP\.(SortType|SortIsSmallFirst)$", "move: the drawing's cutting order (Document.extra['cam'], set by the "
+                                          "Sort commands, saved with the project; SETTINGS_MAP 3.4)"),
     (r"^SOP\.RemoteType$", "parity-only: the wireless pendant is started by its own command (dev.pendant); "
                            "the original's default 3 (LCR19 on) would enable a device the shop may not have"),
     (r"^SOP\.JoystickID\d$", "parity-only: pendant pairing codes, written by the pairing command (hw.remoter_match)"),
@@ -80,7 +87,7 @@ RULES: list[tuple[str, str]] = [
                                                  "technology tables)"),
     (r"^GRP\.(IsOnlyForSelectContour|OutsideIsNegativeSide)$",
      "parity-only: the lead applies to the selection (all parts without one); the kerf side is per part"),
-    (r"^GRP\.LoopGapOverCutLength$", "move: Craft › Gap / overcut dialog (ext_craft; per job)"),
+    (r"^GRP\.LoopGapOverCutLength$", "move: Process › Properties › Overcut / gap (per part)"),
     (r"^GRP\.MicroLinkLength$", "move: the manual micro-joint tool (per job)"),
     (r"^GRP\.(Array|RowGap|ColGap|RowDir|ColDir|OffsetType$)", "move: Array dialog (ext_cam; per job)"),
     (r"^GRP\.RotateAngle_deg$", "move: Rotate dialog (per job)"),
@@ -115,7 +122,7 @@ RULES: list[tuple[str, str]] = [
     (r"^GRP\.RectShare", "move: Rectangle common-edge dialog (ext_cam; per job)"),
     (r"^QR\.", "move: Draw › QR code dialog (per job)"),
     (r"^IGP\.AutoSortType$", "parity-only: the DXF import reproduces the original's order (IMPORT_SORT_MODE = 5, "
-                             "parity); the cutting order is the Sort commands' (cam.sort_mode)"),
+                             "parity); the cutting order is the drawing's (the Sort commands)"),
     (r"^IGP\.(LongContour|AutoSplitThreshold|UIRefreshCycle)", "drop: drawing-performance knobs of the "
                                                                "original's canvas"),
     (r"^IGP\.EnableRuler$", "drop: the canvas has no rulers (the Units track owns ruler display)"),
@@ -148,7 +155,9 @@ KEY_RULES = {
                                  "technology; Kerf dialog)",
     "GraphParam:GRP.ArcRoundRadius": "move: the corner tool dialogs (ext_cam fillet; per job)",
     "GraphParam:GRP.IsOnlyForSelectContour": "parity-only: the lead applies to the selection (all parts without one)",
-    "GraphParam:GRP.LoopGapOverCutLength": "move: Craft › Gap / overcut dialog (ext_craft; per job)",
+    "GraphParam:GRP.LoopGapOverCutLength": "move: Process › Properties › Overcut / gap (per part)",
+    "GraphParam:GRP.MicroLinkLength": "move: the micro-joint spec of the recipe (Process › Library) and of a "
+                                      "part (Process › Properties)",
 }
 DEFAULT_RULE = NOT_BUILT.format(what="this machine or card behaviour")
 
@@ -157,9 +166,6 @@ KEEP_HOME = {
     "shell.language": "Settings › General", "app.reopen_last": "Settings › General",
     "app.last_file": "state (the last drawing opened)", "shell.theme": "Settings › Appearance",
     "display.": "Settings › Canvas", "import.": "Settings › Import (the Optimize dialog starts from them)",
-    "cam.lead_": "remembered by the Lead dialog; home: Process › Properties",
-    "cam.sort_mode": "remembered by the Sort commands", "cam.small_first": "remembered by the Sort commands",
-    "cam.mj_": "remembered by the Micro-joint dialog; home: Process › Properties",
     "design.nudge_": "Settings › Canvas", "nest.": "remembered by the Nest workspace (its home)",
 }
 
@@ -174,8 +180,6 @@ DEFAULT_NOTES = {
     "GRP.IsShowDirArrow": ("off", "arrows clutter large nests; the start points show the direction"),
     "GRP.StdSheetHeight": ("1500 mm (nest.sheet_height)", "1200 × 2400 portrait did not fit the 3000 × 1500 bed"),
     "GRP.StdSheetWidth": ("3000 mm (nest.sheet_width)", "the bed is landscape 3000 × 1500"),
-    "GRP.AutoMicroLinkNum": ("4 (cam.mj_count)", "the rebuild's micro-joint dialog default"),
-    "GRP.AutoMicroLinkStep": ("100 mm (cam.mj_distance)", "the rebuild's micro-joint dialog default"),
     "IGP.ConnectGate": ("0.1 mm, range up to 100 mm", "the Optimize dialog accepts up to 100 mm"),
     "SOP.RemoteType": ("not read", "3 = pendant on, for hardware a shop may not have"),
     "MC.IsReturnAfterManu": ("not followed", "no unrequested motion after a job"),
@@ -324,8 +328,8 @@ from `mlaser/services/settings_catalog.py`; each value has one home.
 * **keep**: a typed ConfigService key with a sensible default; the code named in the catalogue reads
   it. A value the user changed in the old dialog (or imported from an original installation) is
   taken into the new key once (`settings_catalog.migrate_legacy`, recorded in `settings.migrated`).
-  Per-job values (leads, micro-joints, cutting order) are *remembered* by their dialog, not edited
-  in Settings.
+  Per-part and per-job values (leads, kerf, micro-joints, the cutting order) are not settings:
+  they live in Process › Properties / Library and in the drawing.
 * **move**: the parameter belongs elsewhere; the decision names the place. The machine-side ones
   the controller and the job compiler read are in Machine settings (`hw.options` and the Machine
   workspace's hardware panel, section *Motion, laser point and process control*).
@@ -375,7 +379,7 @@ Every `Setting` has a `home` (`settings` / `machine` / `process` / `nest` / `run
 | Optimize (`camx.cleanup`) | a one-off clean-up | starts from the import defaults (Settings › Import), does not change them |
 | One-shot tool dialogs (array, fill, fly-cut, bridge, OneKey...) | a one-off operation | Settings › CAM tools shows the last-used values with Reset |
 | Plugin manager (`app.plugin_manager`, also `app.plugins`) | install, enable, permissions, the allowlist | linked; third-party plugins' own settings on the Plugins page |
-| Lead, Micro-joint, Sort, Nest panel | per-part / per-job values | not shown: they remember their last values |
+| Process › Properties and Library (leads, kerf, micro-joints), the drawing's cutting order, the Nest panel | per-part, per-recipe and per-job values | not shown (the Nest panel remembers its last sheet and spacing) |
 """
 
 

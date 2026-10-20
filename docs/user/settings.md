@@ -47,7 +47,7 @@ Also on this page: the display units (metric or imperial, and per-quantity overr
 
 | Setting | Key | Default | What it does |
 |---|---|---|---|
-| Theme | `shell.theme` | Light | Light, dark or high contrast (black, white and yellow, for safety glasses). The safety banners keep their own colours in every theme. Operator mode can change it. |
+| Theme | `shell.theme` | System appearance | Light, dark or high contrast (black, white and yellow, for safety glasses). The safety banners keep their own colours in every theme. Operator mode can change it. |
 | Classic ribbon | `shell.classic_ribbon` | off | Show the original program's ribbon with every command instead of the task workspaces' toolbars. Operator mode can change it. |
 
 

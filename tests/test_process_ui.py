@@ -55,7 +55,6 @@ def test_workspace_apply_compiles_like_the_layer_dialog(win, app):
     """Technology -> layer -> compiled job equals typing the same values in the layer dialog."""
     from mlaser.cam.toolpath import CamParams
     from mlaser.nc.compiler import compile_job
-    from mlaser.ui import dialogs
 
     ext = _ext(win)
     ws = ext.workspace
@@ -65,15 +64,16 @@ def test_workspace_apply_compiles_like_the_layer_dialog(win, app):
     n = ws.apply(tech, ws.layers_in_use(), leads=False, kerf=False, joints=False, rules=False)
     assert n == len(ws.layers_in_use())
     doc_t = win.docs.snapshot()
-    # the same values typed into the layer dialog of a fresh layer
+    # the same values typed into the layer inspector of a fresh layer (no recipe)
+    from mlaser.services import inheritance as I
+
     doc_h = win.docs.snapshot()
     for li in list(doc_h.layers):
-        lp = LayerParams(index=li, color=doc_h.layers[li].color)
-        d = dialogs.LayerParamDialog(win.tr_, lp)
+        doc_h.layers[li] = LayerParams(index=li, color=doc_h.layers[li].color)
+    I.derive_marks(doc_h, ext.store, force=True)      # the parts keep their (recipe) leads and kerf
+    for li in list(doc_h.layers):
         for k, v in tech.params.items():
-            d.values[k] = v
-        d._store()
-        doc_h.layers[li] = lp
+            I.set_override(doc_h, ext.store, "layer", k, v, layer=li)
     jt = compile_job(doc_t, CamParams())
     jh = compile_job(doc_h, CamParams())
     assert jt.frames() == jh.frames()
@@ -197,16 +197,15 @@ def test_scrubber_plays_the_planned_job(win, app):
 
 
 def test_layer_dialog_values_reach_the_compiler(app):
-    """The layer dialog's other GP values now go where the compiler reads them."""
+    """The layer values typed in the inspector go where the compiler reads them."""
+    from mlaser.model import Document
     from mlaser.parity_ports.mainapp.layer import LayerView
-    from mlaser.ui import dialogs, i18n
+    from mlaser.services import inheritance as I
 
     lp = LayerParams(index=1)
-    d = dialogs.LayerParamDialog(i18n.Translator(language="en"), lp)
-    d.values["GP.CutPower"] = 60
-    d.values["GP.DrillHeight0"] = 7.5
-    d.values["GP.ManuType"] = 2
-    d._store()
+    doc = Document(layers={1: lp})
+    for k, v in (("GP.CutPower", 60), ("GP.DrillHeight0", 7.5), ("GP.ManuType", 2)):
+        I.set_override(doc, None, "layer", k, v, layer=1)
     v = LayerView(lp)
     assert lp.duty_pct == 60 and v["GP.CutPower"] == 60          # duty, not the peak current
     assert v["GP.DrillHeight0"] == 7.5 and v.n_stages == 1

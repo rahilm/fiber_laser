@@ -152,13 +152,14 @@ def test_plugin_fills_a_slot_and_adds_its_own_workspace(win, app):
 
 # --------------------------------------------------------------------------- palette
 def test_palette_finds_runs_and_remembers(win, app):
+    from mlaser.ui.shell import keymap
     sh = win.shell
     entries = sh.entries()
     ids = {e.id for e in entries}
     assert len(entries) >= 256 - 40 and "craft.microjoint" in ids and "hw.upgrade" not in ids
     e = next(e for e in entries if e.id == "craft.microjoint")
     assert e.label == "Micro Joint" and e.workspace == "Process" and e.shortcut == "J"
-    assert next(e for e in entries if e.id == "file.save").shortcut == "Ctrl+S"
+    assert next(e for e in entries if e.id == "file.save").shortcut == keymap.key_for("file.save")  # ⌘S on macOS
     sh.open_palette()
     pal = sh.palette
     assert pal.isVisible()
@@ -205,7 +206,7 @@ def test_user_modes_gate_commands_rail_and_editing(win, app, monkeypatch):
     assert win.property("userMode") == "operator"
     assert not win.layer_panel.isEnabled()
     edited = []
-    monkeypatch.setattr("mlaser.ui.dialogs.LayerParamDialog.exec", lambda self: edited.append(1) or 0)
+    monkeypatch.setattr("mlaser.ui.homes.edit_in", lambda *a, **k: edited.append(1))
     win.edit_layer(1)
     assert edited == []                                   # no parameter editing
     from mlaser import ops
@@ -311,17 +312,18 @@ def test_classic_ribbon_toggle_and_no_elided_labels(win, app):
 def test_keys_and_shortcut_sheet(win, app):
     from mlaser.ui.shell import keymap
     a = win.ribbon.actions
-    for cmd, key in keymap.WINDOW_KEYS.items():
+    for cmd, key in keymap.window_keys().items():
         assert cmd in a, cmd
         assert [s.toString() for s in a[cmd].shortcuts()] == [QKeySequence(k).toString()
                                                                for k in keymap.sequences(key)], cmd
         assert a[cmd] in win.actions()
-    assert a["run.start"].shortcut() == QKeySequence("F5") and a["run.stop"].shortcut() == QKeySequence("F12")
+    assert QKeySequence("F5") in a["run.start"].shortcuts() and QKeySequence("F12") in a["run.stop"].shortcuts()
     # the tooltip shows the platform's native key text: "Ctrl+S" on Windows / Linux, "⌘S" on macOS
     assert f"({QKeySequence('Ctrl+S').toString(QKeySequence.NativeText)})" in a["file.save"].toolTip()
     rows = win.shell.shortcut_rows()
     keys = {r[2] for r in rows}
-    assert "Ctrl+K" in keys and "F1" in keys and "F5" in keys and "Space" in keys
+    assert keymap.native_text("Ctrl+K") in keys and any("F1" in k for k in keys) and any("F5" in k for k in keys)
+    assert "Space" in keys
     d = win.shell.show_shortcuts()
     assert d.table.rowCount() == len(rows)
     d.filter.setText("undo")
@@ -339,7 +341,7 @@ def test_accessible_names(win, app):
             b = page.toolbar.widgetForAction(act)
             if b is not None and isinstance(b, QToolButton):
                 assert b.accessibleName(), act.data()
-    for w in (sh.topbar.search, sh.topbar.mode_combo, sh.topbar.menu_btn, win.lang_combo, win.canvas):
+    for w in (sh.topbar.search, sh.topbar.mode_combo, win.lang_combo, win.canvas):
         assert w.accessibleName(), w
     for b in win.safety_ui.run_bar.buttons.values():
         assert b.text()                                   # text, not colour alone
@@ -366,7 +368,8 @@ def test_dirty_marker_and_title(win, app, tmp_path):
     from mlaser import ops
     sh = win.shell
     win.set_document(ops.demo_document())
-    assert sh.dirty and "●" in win.windowTitle() and "●" in sh.topbar.file.text()
+    # the platform's modified marker ([*]: the close-button dot on macOS, "*" elsewhere)
+    assert sh.dirty and win.isWindowModified() and "[*]" in win.windowTitle() and "●" in sh.topbar.file.text()
     path = tmp_path / "x.mlz"
     from PySide6.QtWidgets import QFileDialog
     orig = QFileDialog.getSaveFileName
@@ -375,7 +378,9 @@ def test_dirty_marker_and_title(win, app, tmp_path):
         win.file_save()
     finally:
         QFileDialog.getSaveFileName = orig
-    assert not sh.dirty and "x.mlz" in win.windowTitle() and "●" not in win.windowTitle()
+    assert not sh.dirty and "x.mlz" in win.windowTitle() and not win.isWindowModified()
+    assert win.windowFilePath() == str(path)                      # macOS proxy icon
+    assert win.shell.native.recent.paths[0] == str(path)          # File > Open Recent
     win.canvas.select_parts([0])
     win.run("xform.mirror_h")
     assert sh.dirty
@@ -431,7 +436,7 @@ def test_focus_order(win, app):
     sh = win.shell
     chain = sh.focus_chain()
     tb = sh.topbar
-    assert chain[:4] == [tb.menu_btn, tb.search, tb.mode_combo, win.lang_combo]
+    assert chain[:3] == [tb.search, tb.mode_combo, win.lang_combo]
     assert win.canvas in chain and chain.index(win.canvas) < chain.index(win.safety_ui.run_bar.buttons["start"])
     # Qt's own chain follows it: from the search box, Tab reaches the user-mode box next
     nxt = tb.search.nextInFocusChain()

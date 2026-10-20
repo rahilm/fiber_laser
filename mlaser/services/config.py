@@ -173,8 +173,7 @@ _MACHINE_PREFIXES = ("MC.Jog", "MC.XFastMove", "MC.LaserPointPower", "MC.PtLaser
 #: application keys whose home is not the Settings window
 _APP_HOMES = (("safety.", "machine"), ("bed.", "machine"), ("plugin.ext_process.machine_profile", "machine"),
               ("plugin.ext_options.parity_profile", "machine"), ("costing.laser_rated_w", "machine"),
-              ("cam.lead_", "process"), ("cam.mj_", "process"), ("cam.sort_mode", "process"),
-              ("cam.small_first", "process"), ("nest.", "nest"), ("plugins.", "hidden"),
+              ("nest.", "nest"), ("plugins.", "hidden"),
               ("shell.pin.", "hidden"), ("shell.user_mode", "hidden"), ("shell.layout", "hidden"),
               ("shell.workspace", "hidden"), ("shell.recent_commands", "hidden"), ("shell.welcome_done", "hidden"),
               ("app.last_file", "hidden"), ("settings.", "hidden"), ("plugin.ext_practice.", "hidden"))
@@ -361,23 +360,6 @@ PREF_SETTINGS: tuple[Setting, ...] = (
     _pref("import.smooth_accuracy", "float", 0.05, "mm", 0.01, 10.0),
     _pref("import.close_gap", "float", 0.0, "mm", 0.0, 100.0),
     # Design / CAM defaults
-    *(s for side in ("in", "out") for s in (
-        _pref(f"cam.lead_{side}_type", "enum", 1, options=("settings.opt.lead.none", "settings.opt.lead.line",
-                                                           "settings.opt.lead.arc", "settings.opt.lead.line_arc")),
-        _pref(f"cam.lead_{side}_length", "float", 3.0, "mm", 0.01, 1000.0),
-        _pref(f"cam.lead_{side}_angle", "float", 90.0, "°", 0.0, 90.0),
-        _pref(f"cam.lead_{side}_radius", "float", 2.0, "mm", 0.01, 30.0),
-    )),
-    _pref("cam.lead_closed_only", "bool", True),
-    _pref("cam.lead_start_mode", "enum", 0, options=("settings.opt.start.long_side", "settings.opt.start.vertex",
-                                                     "settings.opt.start.percent", "settings.opt.start.keep")),
-    _pref("cam.sort_mode", "int", 5, "", 0, 21),
-    _pref("cam.small_first", "bool", False),
-    _pref("cam.mj_kind", "enum", 0, options=("settings.opt.mj.count", "settings.opt.mj.distance")),
-    _pref("cam.mj_count", "int", 4, "", 1, 100),
-    _pref("cam.mj_distance", "float", 100.0, "mm", 1.0, 10000.0),
-    _pref("cam.mj_length", "float", 0.5, "mm", 0.01, 50.0),
-    _pref("cam.mj_min_size", "float", 0.0, "mm", 0.0, 10000.0),
     _pref("design.nudge_step", "float", 1.0, "mm", 0.01, 1000.0),
     _pref("design.nudge_auto", "bool", True),
     # Nest

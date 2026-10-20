@@ -11,10 +11,10 @@ dialog is linked from the Machine page.
 
 Platform conventions (:func:`platform_variant`): the window is called *Settings* on macOS (the
 application menu's PreferencesRole, Cmd+,), *Options* on Windows (Tools), *Preferences* on Linux
-(Edit, Ctrl+,): :func:`menu_label` / :data:`MENU_PLACEMENT` give the menu text and place for the
-menu bar.  On macOS a change applies at once (no OK button, Close only); on Windows and Linux
-the changes are collected and applied with OK or Apply, Cancel discards them; QDialogButtonBox
-orders the buttons natively.
+(Edit, Ctrl+,); the native menu bar (``shell/menubar.py``) gives ``app.settings`` those names and
+the PreferencesRole, :func:`menu_label` returns the same words.  On macOS a change applies at
+once (no OK button, Close only); on Windows and Linux the changes are collected and applied with
+OK or Apply, Cancel discards them; QDialogButtonBox orders the buttons natively.
 
 Responsive: the layout follows the space it actually gets, from content-driven thresholds and
 not from screen sizes.  When the sidebar and the page's widest row no longer fit side by side
@@ -32,7 +32,7 @@ import sys
 from typing import Any, Optional
 
 from PySide6.QtCore import QSize, Qt, Signal
-from PySide6.QtGui import QAction, QFont, QPalette
+from PySide6.QtGui import QFont, QPalette
 from PySide6.QtWidgets import (
     QAbstractSpinBox,
     QCheckBox,
@@ -98,19 +98,6 @@ def window_title(tr: Any, platform: Optional[str] = None) -> str:
 def instant_apply(platform: Optional[str] = None) -> bool:
     """macOS applies a change at once; Windows and Linux use OK / Cancel / Apply."""
     return platform_variant(platform) == "mac"
-
-
-def install_actions(window: Any, platform: Optional[str] = None) -> None:
-    """The platform's label and menu role on the Settings commands' actions: ``app.settings`` is
-    the macOS application menu's Settings… item (PreferencesRole), ``app.options`` the same
-    window under the original's name (no role, so Qt does not move a second item)."""
-    acts = window.ribbon.actions
-    text = menu_label(window.tr_, platform)
-    for cmd, role in (("app.settings", QAction.PreferencesRole), ("app.options", QAction.NoRole)):
-        act = acts.get(cmd)
-        if act is not None:
-            act.setText(text)
-            act.setMenuRole(role)
 
 
 # --------------------------------------------------------------------------- helpers

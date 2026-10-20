@@ -128,8 +128,7 @@ def test_home_ref_grid_and_manual(win):
 
 def test_onekey(win):
     ext = win.extension("ext_craft")
-    ext.onekey_p.lead = True
-    win.lead_in.kind = 1
+    ext.onekey_p.lead = True                  # the default lead (no layer / recipe sets one)
     win.run("tool.onekey")
     assert all(p.craft.lead_in.kind == 1 for p in win.document.parts)
     assert "mf209" in ext.last_message or ext.last_message

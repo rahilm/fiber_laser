@@ -74,10 +74,17 @@ def test_platform_names_and_apply_convention(win, platform, title, menu, instant
     assert d.windowTitle() == title
     assert (d.buttons.button(QDialogButtonBox.Apply) is None) is instant
     assert (d.buttons.button(QDialogButtonBox.Close) is not None) is instant
-    S.install_actions(win, platform)
-    assert win.ribbon.actions["app.settings"].menuRole() == QAction.PreferencesRole
-    assert win.ribbon.actions["app.settings"].text() == menu
-    assert win.ribbon.actions["app.options"].menuRole() == QAction.NoRole
+    # the native menu bar (shell/menubar.py) gives app.settings the PreferencesRole; Ctrl/Cmd+,
+    # is bound once
+    from mlaser.ui.shell import menu_spec as spec
+    mb = win.shell.menu_ctl
+    assert mb.settings_cmd() == "app.settings"
+    assert spec.roles(spec.MACOS, mb.settings_cmd())["app.settings"] == spec.PREFERENCES
+    if mb.plat == spec.MACOS:
+        assert win.ribbon.actions["app.settings"].menuRole() == QAction.PreferencesRole
+    from PySide6.QtGui import QKeySequence
+    comma = [c for c, a in win.ribbon.actions.items() if a.shortcut() == QKeySequence("Ctrl+,")]
+    assert comma == ["app.settings"], comma
     d.close()
 
 
@@ -245,12 +252,8 @@ def test_remembered_and_read_only_values_reach_their_consumers(win):
     cam = win.extension("ext_cam")
     win.config.set("import.small_gate", 0.7)
     assert cam.cleanup.small_gate == 0.7
-    win.config.set("cam.lead_in_length", 7.0)
-    assert win.lead_in.length == 7.0
-    win.config.set("cam.sort_mode", 1)
-    assert win.cam_params.sort_mode == 1
-    win.sort("nearest")                                    # the Sort command remembers its order
-    assert win.config.get("cam.sort_mode") == 5
+    # per-job values (leads, the cutting order) are not settings: no key for them
+    assert win.config.setting("cam.lead_in_length") is None and win.config.setting("cam.sort_mode") is None
 
 
 def test_cleanup_on_open_and_last_file(win, tmp_path):

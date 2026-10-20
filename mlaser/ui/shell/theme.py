@@ -1,14 +1,21 @@
-"""Themes: light, dark and high contrast (docs/review/ux.md P2-2, docs/user/shell.md §5).
+"""Themes: the system appearance (default), light, dark and high contrast
+(docs/review/ux.md P2-2, docs/user/shell.md §5, docs/dev/NATIVE.md).
 
-A theme is a set of design tokens (:data:`THEMES`) turned into
+Native first: standard widgets are drawn by the platform's own style (``macos`` on macOS,
+``windows11`` / ``windowsvista`` on Windows, the desktop's style, else Fusion, on Linux: Qt's
+default for the platform, recorded the first time a theme is applied) with the platform's
+palette.  A theme decides
 
-* a ``QPalette`` for the application (Fusion style, so every platform honours it; the SVG icons
-  of :mod:`mlaser.ui.icons` tint themselves from the palette's button text colour),
-* a small style sheet for the shell's own widgets (rail, top bar, chips, palette, empty
-  states), the keyboard focus ring and the Operator mode's large touch targets, and
-* the canvas colours (:data:`mlaser.ui.canvas.CANVAS_COLORS`) with the layer colours adjusted
-  for contrast against the canvas background (:func:`.contrast.adjust_palette`: at least 3:1,
-  WCAG 1.4.11, and still distinguishable from each other).
+* the colour scheme: ``system`` follows the operating system's light/dark appearance, live
+  (``QStyleHints.colorScheme``); ``light`` / ``dark`` ask the platform for that scheme
+  (``QStyleHints.setColorScheme``: native controls and title bars in dark on macOS, Windows and
+  the Linux portal) and fall back to the design tokens' ``QPalette`` where the platform cannot
+  (plain X11 without a portal, offscreen); ``high_contrast`` is the "safety glasses" palette on
+  Fusion (a native style would not honour it);
+* a small style sheet for the shell's own widgets only (:func:`style_sheet`);
+* the canvas colours (:data:`mlaser.ui.canvas.CANVAS_COLORS`) for the effective scheme, with the
+  layer colours adjusted for contrast against the canvas background
+  (:func:`.contrast.adjust_palette`: at least 3:1, WCAG 1.4.11, and still distinguishable).
 
 The choice is persisted in the ConfigService (``shell.theme``).  The safety banners keep their
 own fixed colours in every theme (docs/SAFETY.md): they always carry the state as text too.
@@ -17,14 +24,15 @@ from __future__ import annotations
 
 from typing import Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
 from .contrast import adjust_palette, contrast
 
-LIGHT, DARK, HIGH_CONTRAST = "light", "dark", "high_contrast"
-THEME_IDS = (LIGHT, DARK, HIGH_CONTRAST)
-DEFAULT_THEME = LIGHT
+SYSTEM, LIGHT, DARK, HIGH_CONTRAST = "system", "light", "dark", "high_contrast"
+THEME_IDS = (SYSTEM, LIGHT, DARK, HIGH_CONTRAST)
+DEFAULT_THEME = SYSTEM
 
 THEMES: dict[str, dict[str, str]] = {
     LIGHT: {
@@ -75,7 +83,30 @@ LAYER_MIN_CONTRAST = {LIGHT: 3.0, DARK: 3.0, HIGH_CONTRAST: 4.5}
 
 
 def tokens(theme: str) -> dict[str, str]:
-    return THEMES.get(theme, THEMES[DEFAULT_THEME])
+    """The design tokens of a theme (``system``: of the scheme the platform shows now)."""
+    if theme == SYSTEM:
+        theme = effective(SYSTEM)
+    return THEMES.get(theme, THEMES[LIGHT])
+
+
+def system_is_dark(app: Optional[QApplication] = None) -> bool:
+    """The platform's appearance: its colour scheme, else the lightness of its palette."""
+    app = app or QApplication.instance()
+    if app is None:
+        return False
+    scheme = app.styleHints().colorScheme()
+    if scheme == Qt.ColorScheme.Dark:
+        return True
+    if scheme == Qt.ColorScheme.Light:
+        return False
+    return app.palette().color(QPalette.Window).lightness() < 128
+
+
+def effective(theme: str, app: Optional[QApplication] = None) -> str:
+    """``light``, ``dark`` or ``high_contrast``: what the canvas and the domain widgets use."""
+    if theme in (LIGHT, DARK, HIGH_CONTRAST):
+        return theme
+    return DARK if system_is_dark(app) else LIGHT
 
 
 def palette(theme: str) -> QPalette:
@@ -99,63 +130,46 @@ def palette(theme: str) -> QPalette:
     return p
 
 
-def style_sheet(theme: str) -> str:
-    """The shell's style sheet (set on the main window, so dialogs of other tracks keep the
-    plain palette look)."""
-    t = tokens(theme)
+def style_sheet(theme: str, base_pt: Optional[float] = None) -> str:
+    """The style sheet of the shell's own widgets (set on the main window).  Standard widgets
+    (buttons, inputs, tabs, lists, docks, scroll bars, tool bars) get none: the platform style
+    draws them.  Only the command palette's overlay frame and the empty-state title, whose size
+    is a ratio of the platform font (never an absolute ``pt``: macOS points are ~25 % smaller)."""
+    base = base_pt or _base_point_size()
     hc = theme == HIGH_CONTRAST
     bw = "2px" if hc else "1px"
-    qss = f"""
-QToolBar#shell_rail {{ background: {t['rail']}; border: none; border-right: {bw} solid {t['border']};
-    spacing: 2px; padding: 4px 2px; }}
-QToolBar#shell_rail QToolButton {{ color: {t['text']}; border: {bw} solid transparent; border-radius: 6px;
-    padding: 4px 2px; min-width: 64px; min-height: 52px; }}
-QToolBar#shell_rail QToolButton:checked {{ background: {t['rail_checked']}; border-color: {t['border']};
-    {('color: ' + t['accent_text'] + ';') if hc else ('color: ' + t['accent'] + ';')} font-weight: bold; }}
-QToolBar#shell_rail QToolButton:hover {{ border-color: {t['border']}; }}
-QToolBar#shell_rail QToolButton:focus {{ border: 2px solid {t['focus']}; }}
-QWidget#shell_topbar {{ background: {t['topbar']}; border-bottom: {bw} solid {t['border']}; }}
-QWidget#shell_topbar QLabel#shell_file {{ font-weight: bold; color: {t['text']}; }}
-QPushButton#shell_search {{ text-align: left; padding: 4px 10px; border: {bw} solid {t['border']};
-    border-radius: 6px; background: {t['base']}; color: {t['placeholder']}; min-width: 220px; }}
-QPushButton#shell_search:focus {{ border: 2px solid {t['focus']}; }}
-QLabel[chip="true"] {{ border-radius: 9px; padding: 2px 8px; font-weight: bold; }}
-QToolBar#shell_ws_toolbar {{ background: {t['window']}; border: none; border-bottom: {bw} solid {t['border']};
-    spacing: 2px; }}
-QWidget#shell_empty {{ background: {t['window']}; }}
-QLabel#shell_empty_title {{ font-size: 18pt; font-weight: bold; color: {t['text']}; }}
-QLabel#shell_empty_text {{ color: {t['muted']}; }}
-QToolButton#shell_empty_cmd {{ border: {bw} solid {t['border']}; border-radius: 6px; padding: 6px;
-    background: {t['base']}; color: {t['text']}; min-width: 120px; min-height: 64px; }}
-QToolButton#shell_empty_cmd:focus {{ border: 2px solid {t['focus']}; }}
-QFrame#shell_palette {{ background: {t['base']}; border: {bw} solid {t['border']}; border-radius: 8px; }}
-QFrame#shell_palette QLineEdit {{ font-size: 13pt; padding: 6px; border: none;
-    border-bottom: {bw} solid {t['border']}; background: {t['base']}; color: {t['text']}; }}
-QFrame#shell_palette QListWidget {{ border: none; background: {t['base']}; color: {t['text']}; }}
-QFrame#shell_palette QListWidget::item:selected {{ background: {t['accent']}; color: {t['accent_text']}; }}
-QMainWindow[userMode="operator"] QPushButton, QMainWindow[userMode="operator"] QToolButton,
-QMainWindow[userMode="operator"] QComboBox {{ min-height: 48px; font-size: 12pt; }}
-QMainWindow[userMode="operator"] QToolBar#shell_rail QToolButton {{ min-width: 84px; min-height: 72px; }}
-"""
-    if hc:
-        qss += f"""
-QPushButton, QToolButton, QComboBox, QLineEdit, QAbstractSpinBox {{ border: 1px solid {t['border']}; }}
-QPushButton:focus, QToolButton:focus, QComboBox:focus, QLineEdit:focus,
-QAbstractSpinBox:focus {{ border: 3px solid {t['focus']}; }}
-QToolTip {{ color: #ffffff; background: #000000; border: 1px solid #ffffff; }}
-QCheckBox::indicator, QRadioButton::indicator {{ width: 14px; height: 14px; border: 2px solid #ffffff;
-    background: #000000; }}
-QCheckBox::indicator:checked, QRadioButton::indicator:checked {{ background: {t['accent']}; }}
-QProgressBar {{ border: 1px solid #ffffff; color: #ffffff; text-align: center; }}
-QProgressBar::chunk {{ background: {t['accent']}; }}
-QTabBar::tab:selected {{ color: {t['accent_text']}; background: {t['accent']}; }}
-QHeaderView::section {{ border: 1px solid #ffffff; }}
-"""
-    return qss
+    return (f"QFrame#shell_palette {{ background: palette(base); border: {bw} solid palette(mid); "
+            f"border-radius: 8px; }}\n"
+            f"QLabel#shell_empty_title {{ font-size: {base * TYPE_SCALE['display']:.1f}pt; font-weight: bold; }}\n")
+
+
+#: the type scale (docs: ui_audit DESIGN.md §1): sizes as ratios of the platform font
+TYPE_SCALE = {"caption": 0.85, "body": 1.0, "title": 1.25, "display": 1.6}
+
+
+def _base_point_size() -> float:
+    from PySide6.QtGui import QGuiApplication
+    f = QGuiApplication.font() if QGuiApplication.instance() is not None else None
+    pt = f.pointSizeF() if f is not None else -1.0
+    return pt if pt > 0 else 10.0
+
+
+def scaled_font(role: str, base=None):
+    """A QFont of the type-scale ``role`` (caption / body / title / display) relative to
+    ``base`` (default: the application font)."""
+    from PySide6.QtGui import QFont, QGuiApplication
+    f = QFont(base if base is not None else QGuiApplication.font())
+    if f.pointSizeF() > 0:
+        f.setPointSizeF(f.pointSizeF() * TYPE_SCALE.get(role, 1.0))
+    elif f.pixelSize() > 0:
+        f.setPixelSize(max(1, round(f.pixelSize() * TYPE_SCALE.get(role, 1.0))))
+    if role in ("title", "display"):
+        f.setBold(True)
+    return f
 
 
 def canvas_colors(theme: str) -> dict[str, str]:
-    t = tokens(theme)
+    t = tokens(effective(theme))
     return {k[2:]: v for k, v in t.items() if k.startswith("c_")}
 
 
@@ -163,6 +177,7 @@ def layer_colors(theme: str, base: Optional[list[str]] = None) -> list[str]:
     """The layer colours as drawn in ``theme`` (contrast-adjusted, distinguishable)."""
     from .. import canvas
     cols = list(base or canvas.LAYER_COLORS)
+    theme = effective(theme)
     bg = canvas_colors(theme)["background"]
     return adjust_palette(cols, bg, LAYER_MIN_CONTRAST.get(theme, 3.0))
 
@@ -175,23 +190,64 @@ def apply_canvas_theme(theme: str, view=None) -> None:
         view.apply_theme()
 
 
+def native_style_name(app: QApplication) -> str:
+    """The platform's own style (Qt's default, before any theme changed it)."""
+    name = app.property("mlaser_native_style")
+    if not name:
+        name = app.style().name()
+        app.setProperty("mlaser_native_style", name)
+    return str(name)
+
+
+def _set_style(app: QApplication, name: str) -> None:
+    if app.style().name().lower() != name.lower():
+        app.setStyle(name)
+
+
+def _set_scheme(app: QApplication, scheme: Optional["Qt.ColorScheme"]) -> bool:
+    """Ask the platform for ``scheme`` (None: follow the system).  True when it shows it."""
+    hints = app.styleHints()
+    try:
+        if scheme is None:
+            hints.unsetColorScheme()
+            return True
+        hints.setColorScheme(scheme)
+    except AttributeError:          # Qt < 6.8
+        return False
+    return hints.colorScheme() == scheme
+
+
 def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
-    """Apply ``theme`` to the application (palette, Fusion), the window's style sheet and the
-    canvas.  Returns the theme id actually applied."""
-    theme = theme if theme in THEMES else DEFAULT_THEME
+    """Apply ``theme`` to the application (style, colour scheme, palette), the window's style
+    sheet and the canvas.  Returns the theme id actually applied."""
+    theme = theme if theme in THEME_IDS else DEFAULT_THEME
     app = app or QApplication.instance()
     if app is not None and app.property("mlaser_theme") != theme:
         # application-wide changes only when the theme really changes: setStyle / setPalette
         # post a change event to every widget of every window
-        if app.style().objectName().lower() != "fusion":
-            app.setStyle("Fusion")
-        app.setPalette(palette(theme))
+        native = native_style_name(app)
+        custom: Optional[QPalette] = None
+        if theme == HIGH_CONTRAST:
+            _set_style(app, "Fusion")
+            _set_scheme(app, Qt.ColorScheme.Dark)
+            custom = palette(HIGH_CONTRAST)
+        else:
+            _set_style(app, native)
+            want = {LIGHT: Qt.ColorScheme.Light, DARK: Qt.ColorScheme.Dark}.get(theme)
+            if not _set_scheme(app, want) and want is not None:
+                custom = palette(theme)          # the platform cannot: the tokens' palette
+        if custom is not None:
+            app.setPalette(custom)
+            app.setProperty("mlaser_palette", True)
+        elif app.property("mlaser_palette"):
+            app.setPalette(QPalette())           # back to the platform's (live) palette
+            app.setProperty("mlaser_palette", False)
         app.setProperty("mlaser_theme", theme)
     if window is not None:
         qss = style_sheet(theme)
         if window.styleSheet() != qss:
             window.setStyleSheet(qss)
-        apply_canvas_theme(theme, getattr(window, "canvas", None))
+        apply_canvas_theme(effective(theme, app), getattr(window, "canvas", None))
         # icons re-tint from the new palette: repaint everything
         window.update()
     return theme
@@ -200,6 +256,7 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
 def contrast_report(theme: str) -> dict[str, float]:
     """Contrast ratios that matter (tests, docs/user/shell.md): text on the window and base,
     accent text, and every layer colour against the canvas."""
+    theme = effective(theme)
     t = tokens(theme)
     out = {"text/window": contrast(t["text"], t["window"]), "text/base": contrast(t["text"], t["base"]),
            "accent_text/accent": contrast(t["accent_text"], t["accent"]),
@@ -213,6 +270,7 @@ def contrast_report(theme: str) -> dict[str, float]:
     return out
 
 
-__all__ = ["THEME_IDS", "THEMES", "LIGHT", "DARK", "HIGH_CONTRAST", "DEFAULT_THEME", "apply",
-           "palette", "style_sheet", "canvas_colors", "layer_colors", "apply_canvas_theme",
+__all__ = ["THEME_IDS", "THEMES", "SYSTEM", "LIGHT", "DARK", "HIGH_CONTRAST", "DEFAULT_THEME", "apply",
+           "palette", "style_sheet", "effective", "system_is_dark", "native_style_name", "scaled_font",
+           "TYPE_SCALE", "canvas_colors", "layer_colors", "apply_canvas_theme",
            "contrast_report", "tokens"]

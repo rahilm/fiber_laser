@@ -338,7 +338,7 @@ class CraftExtension:
                     mark_start(d.parts[h.part], h.contour)       # lead edits keep it
                     return f
                 f = self.edit(do)
-                self.log(f"mf93: start {f:.4f}")       # a fraction of the contour (no unit)
+                self.log(f"mf93: start {f:.4f}")
             return True
         self.start_tool("start_point", click, "mf93")
 
@@ -461,11 +461,10 @@ class CraftExtension:
             sb = getattr(self.w, "statusBar", None)
             if sb is not None:
                 sb().showMessage(self.t("craft.msg.select_first"), 6000)
+            from mlaser.ui.homes import edit_in
+            edit_in(self.w, "craft.overcut")       # the value lives in Process › Properties
             return
-        if mode == M.GAP and not self.ask("mf95", self.gap_p, [("value", "pd323", "slen", (0, 100, 3))]):
-            return
-        if mode == M.OVERCUT and not self.ask("mf97", self.gap_p, [("value", "pd324", "slen", (0, 100, 3))]):
-            return
+        # the length is the Properties' Overcut / gap field (its one editor; gap_p holds it)
         val = self.gap_p.value
 
         def do(doc):
@@ -682,6 +681,27 @@ class CraftExtension:
         self.w.settings["SP.DockMode"] = self.dock_p.mode
         self.log("mp68: " + units.current().fmt_xy(p[0], p[1], "small_length"))
 
+    def _effective_leads(self):
+        """The leads OneKey applies: what the first target part inherits (its layer's or its
+        recipe's), the original's dialog defaults when nothing sets a lead."""
+        from mlaser.model import LeadParams
+        from mlaser.ops.craft import default_lead_params
+        from mlaser.services import inheritance as I
+
+        doc = self.w.document
+        parts = _targets(doc)
+        ext = self.w.extension("ext_process") if hasattr(self.w, "extension") else None
+        store = getattr(ext, "store", None)
+        if parts:
+            out = []
+            for name in ("in", "out"):
+                vals = {f: I.effective(doc, store, f"craft.lead_{name}.{f}", layer=parts[0].craft.layer, upto=2)[0]
+                        for f in I.LEAD_FIELDS}
+                out.append(LeadParams(**vals))
+            if out[0].kind:
+                return out[0], out[1]
+        return default_lead_params()
+
     # ---------------------------------------------------------------- one key planning
     def onekey(self) -> None:
         f = [("mirror_h", "pd476", "bool", None), ("mirror_v", "pd477", "bool", None),
@@ -692,9 +712,10 @@ class CraftExtension:
         q = self.onekey_p
         from mlaser.ops.craft import one_key
         cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
+        lead_in, lead_out = self._effective_leads()
         self.edit(lambda doc: one_key(doc, mirror_h=q.mirror_h, mirror_v=q.mirror_v, optimize=q.optimize,
                                       cleanup_params=getattr(cam, "cleanup", None), lead=q.lead,
-                                      lead_in=self.w.lead_in, lead_out=self.w.lead_out,
+                                      lead_in=lead_in, lead_out=lead_out,
                                       micro_joint=q.micro_joint, mj_params=self.w.mj_params),
                   "one-key planning")
         if q.sort:

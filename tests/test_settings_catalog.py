@@ -31,10 +31,10 @@ def test_changed_option_value_is_taken_once(tmp_path):
     assert c.get("shell.language") == "de"
     assert c.get("display.show_index") is False
     assert c.get("import.small_gate") == 0.5
-    assert c.get("cam.sort_mode") == 1                 # index 0 "left to right" -> mode 1
     assert c.get("nest.sheet_width") == 2500.0
     assert c.get("design.nudge_step") == 2.5
-    assert c.get("cam.lead_in_length") == 5.0
+    # per-job values are not settings: the original's lead and order rows are only kept
+    assert c.setting("cam.lead_in_length") is None and "GRP.GuideLineLength" not in c.get(C.MIGRATED_KEY)
     assert c.get(C.MIGRATED_KEY)["SP.Lang"] == 3
     # the user changes the new key: a later start does not take the old value again
     c.set("shell.language", "fr")
@@ -78,11 +78,12 @@ def test_import_dat_reaches_the_settings_keys(tmp_path):
 
 def test_unmappable_values_are_skipped(tmp_path):
     c = _cfg(tmp_path)
+    from mlaser.services.config import Setting
+    c.register([Setting("shell.theme", "str", "light", source="app")])
     c.values["SP.SoftwareThemeType"] = 1               # "Gray": no equivalent theme
-    c.values["GRP.SortType"] = 7                       # "small parts first" is a flag, not an order
     c.migrate_legacy()
-    assert not c.is_set("cam.sort_mode")
-    assert c.get(C.MIGRATED_KEY)["GRP.SortType"] == 7  # recorded: not tried again
+    assert c.get("shell.theme", "light") != "gray"
+    assert c.get(C.MIGRATED_KEY)["SP.SoftwareThemeType"] == 1   # recorded: not tried again
 
 
 def test_unit_keys_wait_for_the_units_service(tmp_path):

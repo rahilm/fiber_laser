@@ -44,14 +44,7 @@ PAGES: tuple[tuple[str, str], ...] = (
 )
 PAGE_IDS = tuple(p for p, _ in PAGES)
 
-#: the cutting-order modes of ``CamParams.sort_mode`` (mlaser.cam.ordering) offered as default
-SORT_CHOICES: tuple[tuple[int, str], ...] = (
-    (0, "settings.opt.sort.keep"), (1, "settings.opt.sort.left_right"), (2, "settings.opt.sort.right_left"),
-    (3, "settings.opt.sort.bottom_top"), (4, "settings.opt.sort.top_bottom"), (5, "settings.opt.sort.nearest"),
-    (6, "settings.opt.sort.in_out"), (7, "settings.opt.sort.out_in"), (20, "settings.opt.sort.shortest"),
-    (21, "settings.opt.sort.grid"),
-)
-THEME_CHOICES = (("light", "shell.theme.light"), ("dark", "shell.theme.dark"),
+THEME_CHOICES = (("system", "shell.theme.system"), ("light", "shell.theme.light"), ("dark", "shell.theme.dark"),
                  ("high_contrast", "shell.theme.high_contrast"))
 
 
@@ -235,15 +228,6 @@ def _same(v: Any) -> Any:
     return v
 
 
-def _sort_mode(v: Any) -> Any:
-    """GRP.SortType index -> CamParams.sort_mode (index + 1; 7 "small parts first" is a flag)."""
-    try:
-        i = int(v)
-    except (TypeError, ValueError):
-        return None
-    return i + 1 if 0 <= i <= 6 else None
-
-
 def _currency(v: Any) -> Any:
     from .costing import iso_currency
     return iso_currency(v) or None
@@ -270,23 +254,6 @@ LEGACY: tuple[tuple[str, str, Callable[[Any], Any]], ...] = (
     ("IGP.ConnectGate", "import.connect_gate", _same),
     ("IGP.IsAutoSmoothGraph", "import.smooth", _same),
     ("IGP.SmoothAccuracy", "import.smooth_accuracy", _same),
-    ("GRP.GuideLineType", "cam.lead_in_type", _same),
-    ("GRP.GuideLineAngle", "cam.lead_in_angle", _same),
-    ("GRP.GuideLineLength", "cam.lead_in_length", _same),
-    ("GRP.GuideArcRadius", "cam.lead_in_radius", _same),
-    ("GRP.GuideLineType_o", "cam.lead_out_type", _same),
-    ("GRP.GuideLineAngle_o", "cam.lead_out_angle", _same),
-    ("GRP.GuideLineLength_o", "cam.lead_out_length", _same),
-    ("GRP.GuideArcRadius_o", "cam.lead_out_radius", _same),
-    ("GRP.IsOnlyForEncolseContour", "cam.lead_closed_only", _same),
-    ("GRP.LeadPosType", "cam.lead_start_mode", _same),
-    ("GRP.SortType", "cam.sort_mode", _sort_mode),
-    ("GRP.SortIsSmallFirst", "cam.small_first", _same),
-    ("GRP.AutoMicroLinkType", "cam.mj_kind", _same),
-    ("GRP.AutoMicroLinkNum", "cam.mj_count", _same),
-    ("GRP.AutoMicroLinkStep", "cam.mj_distance", _same),
-    ("GraphParam:GRP.MicroLinkLength", "cam.mj_length", _same),
-    ("GRP.MinEnableMicoLinkGraphSize", "cam.mj_min_size", _same),
     ("IGP.KeyboardMoveStepLength", "design.nudge_step", _same),
     ("SP.KeyboardMoveStep", "design.nudge_step", _same),     # the key the rebuild's fine-tune stored
     ("IGP.AutoCalcKeyboardMoveStepLength", "design.nudge_auto", _same),
