@@ -145,10 +145,11 @@ When you change the layout of a member, do all of the following:
 
 Loading checks the following, in order:
 
-1. the zip structure;
+1. the zip structure and the number of entries (65,536 at most);
 2. the member names (no absolute paths, no `..`);
-3. the total size (4 GB at most);
-4. the CRC of every member;
+3. `mimetype` and `manifest.json` (or a format-0 `project.json`) are read first; then **only the
+   members the manifest lists** are read (a member it does not list is never inflated);
+4. the size limits of [Limits](#limits) while each member is inflated, and its CRC;
 5. the manifest (schema, format, version);
 6. the sha256 and size of every listed member;
 7. `document.json` against the schema, with the JSON path of the first errors;
@@ -156,7 +157,33 @@ Loading checks the following, in order:
 
 Every failure is a `ProjectError` whose message names the file and the problem, for example
 `job.mlz: document.json is damaged (checksum mismatch)` or
-`job.mlz: not an mlaser project (.mlz) file`.
+`job.mlz: not an mlaser project (.mlz) file`. That includes JSON nested too deeply, integers
+longer than Python's 4300-digit limit and running out of memory: a crafted file never reaches
+the crash handler (which would latch a FAULT).
+
+### Limits
+
+A project file is untrusted input, like a customer drawing. These limits (constants in
+`mlaser/project/format.py`) bound what a small file can cost:
+
+| limit | value | |
+|---|---|---|
+| one member, inflated | 256 MB | `MAX_MEMBER` |
+| all members read, together | 1 GB | `MAX_TOTAL`; the sizes the manifest claims count first |
+| entries in the archive | 65,536 | `MAX_MEMBERS` |
+| compression ratio | 200 : 1 | `MAX_RATIO`, for members above 16 MB; raster arrays under `blobs/` are exempt (a mostly empty bitmap compresses about 1000 : 1), the size limits still apply |
+| one JSON member | 256 MB | `MAX_JSON` |
+| JSON nesting | 100 levels | `MAX_JSON_DEPTH`; a document needs about 13 |
+
+Members are inflated in 1 MB chunks with running counts, so the sizes in the zip headers are
+not trusted; a member that grows past the size the manifest lists stops there as damaged.
+Measured with the Review 2 probe files: the 3.6 MB zip bomb (an unlisted 3.5 GB member) now
+opens in 0.01 s at 27 MB peak memory instead of 14 s and 7.2 GB.
+
+The application opens projects in a worker thread with a progress dialog and Cancel
+(`mlaser.ui.import_worker`); `load_project(path, progress=...)` reports the bytes read and
+checks the Cancel flag of `mlaser.io.limits.context`. The drawing importers' limits (DXF
+block expansion, SVG `<use>`) are in `mlaser/io/limits.py`.
 
 ## Atomic save, autosave and recovery
 

@@ -3,9 +3,10 @@
 ## Suites
 
 ```bash
-uv run pytest -q                 # default run: unit, ui, sim and safety tests
+uv run pytest -q -n auto --dist loadgroup   # default run in parallel (what CI runs), see below
+uv run pytest -q                 # default run, serial: unit, ui, sim and safety tests
 uv run pytest -q -m unit         # one suite: unit / ui / sim / safety
-uv run pytest -q -m golden       # frozen artefacts (about 40 s), Python 3.12 only
+uv run pytest -q -m golden       # frozen artefacts (about 75 s on a loaded host), Python 3.12 only
 uv run pytest -q -m parity       # Wine parity suite (needs the external harness)
 uv run pytest -q -m "safety or parity"
 ```
@@ -127,6 +128,37 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
   `lldb` on the runner (SIP is disabled there) gives the native backtrace.
 * Screenshots of new screens: offscreen, at 1280×800 and at 150 % of 1920×1080, light and dark.
 
+
+## Parallel runs (pytest-xdist)
+
+CI runs the default suite with `pytest -n auto --dist loadgroup` (pytest-xdist, in the `dev`
+dependency group). `tests/conftest.py` puts every test marked `safety` or `sim` into one
+xdist group, `timing`: with `--dist loadgroup` they all run on **one** worker, one after another
+in one process, exactly as in a serial run, so the real-time bounds below keep their meaning,
+while the other tests (unit, ui) spread over the remaining workers. Every marker of the default
+run is still collected and run; the golden and parity steps are unchanged. Without `-n`
+(or without pytest-xdist installed) nothing changes. `tests/test_xdist_groups.py` checks the
+grouping (the conftest hook must run `tryfirst`, before xdist's worker turns the group into
+the `@timing` node id suffix).
+
+Measured 2026-10-19 on a shared 64-core x86-64 host with a load average of 250-270 (CPython
+3.12.14, wall time of the pytest run, 1,230 tests):
+
+| run | time |
+|---|---|
+| serial (`pytest -q`) | 320 s, 327 s |
+| `-n auto --dist loadgroup` (64 workers), timing group on one worker | 163 s, 164 s |
+| `-n 4 --dist loadgroup` (a CI runner's 4 CPUs) | 159 s |
+| the `timing` group alone, serial (`-m "safety or sim"`, 339 tests) | 155 s |
+| `-n auto` without the group (for comparison only; not used) | 22 s, 23 s |
+
+So the wall time is set by the `timing` group, about half of the serial time; it does not fall
+with more workers. Splitting it further (one group per module, or the `sim` modules apart from
+`tests/safety/`) would let timing tests run concurrently in different processes on a loaded
+runner, which is what the group avoids; decide that only with CI measurements of the bounds.
+
+With xdist, `MLASER_FAULT_LOG=<file>` writes one file per worker (`<file>.gw0`, ...); CI's
+macOS crash step prints them all.
 
 ## Timing-sensitive tests
 

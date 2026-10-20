@@ -9,10 +9,16 @@ values, and the whole list is saved as a JSON report in mlaser's data directory:
    axis, interpolation period) against the machine parameters (``nc.Machine``).
 3. **soft limits**: the card's soft limits read back against ``MAC.SoftLimitMaxLen`` (what
    CNCModule +0x198 writes); the fix writes them (``MachineOps.write_soft_limits``).
-4. **homing**: Go Origin X/Y, then the homed bits.
-5. **heartbeat**: the "PC alive" output toggles at its frequency (measured), and the operator
+4. **interlocks**: the gas-low, door and laser-source-alarm inputs and the heartbeat output
+   (``safety.*``, :mod:`mlaser.services.safety_io`): every interlock that is neither wired nor
+   declared "not fitted" is flagged (``warn``); the fix opens the Safety I/O dialog.  The
+   **wiring test** then asks the operator to trigger each wired sensor in turn and watches the
+   controller's interlock monitor: it must go active and clear again (``fail`` otherwise).  In a
+   dry run the simulator's inputs are toggled instead.
+5. **homing**: Go Origin X/Y, then the homed bits.
+6. **heartbeat**: the "PC alive" output toggles at its frequency (measured), and the operator
    confirms the watchdog relay drops when the heartbeat is held (docs/SAFETY.md §11).
-6. **jog direction**: X+ and Y+ steps; the position must increase and the operator confirms
+7. **jog direction**: X+ and Y+ steps; the position must increase and the operator confirms
    the direction; the fix toggles the axis direction parameter (``MAC.AxisReverse``).
 """
 from __future__ import annotations
@@ -30,7 +36,8 @@ SCALE_TOL = 0.001                        # relative
 LIMIT_TOL_MM = 0.5
 JOG_STEP_MM = 10.0
 AXIS_REVERSE = {"X": "MAC.AxisReverse", "Y": "MAC_1.AxisReverse"}
-ITEMS = ("network", "scaling", "soft_limits", "homing", "heartbeat", "jog_x", "jog_y")
+ITEMS = ("network", "scaling", "soft_limits", "interlocks", "homing", "heartbeat", "jog_x", "jog_y")
+INTERLOCK_WINDOW_S = 30.0                # per sensor: time to trigger it, and to release it
 TITLES = {i: f"wizard.comm.item_{i}" for i in ITEMS}
 
 
@@ -50,8 +57,11 @@ class CommissioningProcedure(Procedure):
 
     def __init__(self, machine: Any, config: Any = None, ops: Any = None,
                  report_dir: Optional[Path] = None, netcheck_fn: Optional[Callable[..., Any]] = None,
-                 relay_window_s: float = 1.0, **kw: Any) -> None:
+                 relay_window_s: float = 1.0, interlock_window_s: float = INTERLOCK_WINDOW_S,
+                 **kw: Any) -> None:
         self.config = config
+        self.interlock_window_s = interlock_window_s
+        self.interlock_results: dict[str, str] = {}   # source -> ok | no_signal | stuck | active
         self.ops = ops
         self.report_dir = report_dir
         self.netcheck_fn = netcheck_fn
@@ -70,6 +80,11 @@ class CommissioningProcedure(Procedure):
             Step("scaling", TITLES["scaling"], "wizard.comm.scaling_text", "action", run=_scaling, auto=True),
             Step("soft_limits", TITLES["soft_limits"], "wizard.comm.soft_limits_text", "action",
                  run=_soft_limits, auto=True),
+            Step("interlocks", TITLES["interlocks"], "wizard.comm.interlocks_text", "action", run=_interlocks,
+                 auto=True),
+            Step("interlock_test", "wizard.comm.ilk_test_title", "wizard.comm.ilk_test_text", "action",
+                 run=_interlock_test, action_label="wizard.comm.ilk_test_button",
+                 skip=lambda p: not p.items["interlocks"].values.get("wired")),
             Step("homing", TITLES["homing"], "wizard.comm.homing_text", "action", run=_homing, motion=True,
                  safety=("wizard.safety.motion",), action_label="wizard.comm.homing_button"),
             Step("heartbeat", TITLES["heartbeat"], "wizard.comm.heartbeat_text", "action", run=_heartbeat,
@@ -118,6 +133,12 @@ class CommissioningProcedure(Procedure):
             pass
 
     # ------------------------------------------------------------------ fixes
+    def recheck_interlocks(self) -> CheckItem:
+        """Run the interlock configuration check again (after the Safety I/O dialog)."""
+        self.interlock_results.clear()
+        _interlocks(self)
+        return self.items["interlocks"]
+
     def fix_soft_limits(self) -> bool:
         if self.dry_run or self.ops is None:
             return False
@@ -266,6 +287,111 @@ def _soft_limits(p: CommissioningProcedure) -> dict:
             return vals
     p.set_item("soft_limits", PASS, "wizard.comm.limits_ok", **vals)
     return vals
+
+
+def _safety_io(p: CommissioningProcedure):
+    """(what the controller runs with, the declared "not fitted" sensors)."""
+    from mlaser.services import safety_io as S
+    cur = S.current(p.machine)
+    declared: frozenset = frozenset()
+    if p.config is not None:
+        try:
+            declared = S.from_config(p.config).not_fitted
+        except Exception:  # noqa: BLE001 - a config without the safety schema
+            declared = frozenset()
+    return cur, declared
+
+
+def _names(srcs) -> str:
+    from mlaser.services.safety_io import NAMES
+    return ", ".join(NAMES[s] for s in srcs)
+
+
+def _interlocks(p: CommissioningProcedure) -> dict:
+    from mlaser.services.safety_io import INTERLOCKS
+    cur, declared = _safety_io(p)
+    if cur is None:
+        p.set_item("interlocks", WARN, "wizard.comm.ilk_no_monitor", fix="wizard.comm.fix_safety_io")
+        return {}
+    wired = [s for s in INTERLOCKS if cur.configured(s)]
+    missing = [s for s in INTERLOCKS if not cur.configured(s) and s not in declared]
+    nf = [s for s in INTERLOCKS if not cur.configured(s) and s in declared]
+    vals = {"wired": _names(wired), "missing": _names(missing), "declared": _names(nf),
+            "inputs": {s: cur.input_of(s) for s in wired}, "heartbeat_output": cur.heartbeat_output}
+    p.items["interlocks"].values.clear()
+    if missing:
+        p.set_item("interlocks", WARN, "wizard.comm.ilk_unconfigured", fix="wizard.comm.fix_safety_io", **vals)
+    elif wired:
+        p.set_item("interlocks", PENDING, "wizard.comm.ilk_configured", fix="wizard.comm.fix_safety_io", **vals)
+    else:
+        p.set_item("interlocks", PASS, "wizard.comm.ilk_none_wired", fix="wizard.comm.fix_safety_io", **vals)
+    return vals
+
+
+def _sim_input(p: CommissioningProcedure, n: int, alarm: bool, active_level: bool) -> None:
+    """Dry run: play the operator's part on the simulator (input ``n`` at its alarm level)."""
+    sim = getattr(p.machine, "sim", None)
+    if sim is not None and hasattr(sim, "set_input"):
+        sim.set_input(int(n), active_level if alarm else not active_level)
+
+
+def _interlock_test(p: CommissioningProcedure) -> dict:
+    """Trigger each wired sensor in turn: the monitor must report it active, then clear."""
+    from mlaser.services.safety_io import INTERLOCKS
+    p.require_connected()
+    cur, _declared = _safety_io(p)
+    mon = getattr(p.machine, "interlocks", None)
+    if cur is None or mon is None:
+        p.set_item("interlocks", SKIP, "wizard.comm.ilk_no_monitor")
+        return {}
+    wired = [s for s in INTERLOCKS if cur.configured(s)]
+    results: dict[str, str] = {}
+    # a few monitor periods: the active set reflects the inputs read after any recent change
+    p.sleep(max(0.25, 4.0 * float(getattr(mon.cfg, "period_s", 0.05))))
+
+    def wait_for(cond, seconds: float) -> bool:
+        t_end = time.monotonic() + seconds
+        while not cond():
+            p.check_cancel()
+            if time.monotonic() > t_end:
+                return False
+            p.sleep(0.05)
+        return True
+
+    for src in wired:
+        n = cur.input_of(src)
+        level = bool(getattr(cur.interlocks, INTERLOCKS[src][1]))
+        active = lambda s=src: s in (getattr(mon, "active", {}) or {})
+        p.set_item("interlocks", PENDING, "wizard.comm.ilk_waiting", name=_names([src]), input=n)
+        p.log(f"interlock test: trigger the {src} sensor (input {n})")
+        if active():
+            results[src] = "stuck"           # alarm before the operator did anything
+            continue
+        if p.dry_run:
+            _sim_input(p, n, True, level)
+        if not wait_for(active, p.interlock_window_s):
+            results[src] = "no_signal"
+            continue
+        p.set_item("interlocks", PENDING, "wizard.comm.ilk_release", name=_names([src]), input=n)
+        if p.dry_run:
+            _sim_input(p, n, False, level)
+        results[src] = "ok" if wait_for(lambda s=src: not active(s), p.interlock_window_s) else "active"
+    p.interlock_results = results
+    failed = [s for s, r in results.items() if r != "ok"]
+    vals = dict(p.items["interlocks"].values)
+    vals.pop("name", None)
+    vals.pop("input", None)
+    vals.update(results={s: r for s, r in results.items()}, failed=_names(failed),
+                tested=_names([s for s, r in results.items() if r == "ok"]))
+    it = p.items["interlocks"]
+    it.values.clear()
+    if failed:
+        p.set_item("interlocks", FAIL, "wizard.comm.ilk_failed", fix="wizard.comm.fix_safety_io", **vals)
+    elif vals.get("missing"):
+        p.set_item("interlocks", WARN, "wizard.comm.ilk_tested_partial", fix="wizard.comm.fix_safety_io", **vals)
+    else:
+        p.set_item("interlocks", PASS, "wizard.comm.ilk_tested", **vals)
+    return results
 
 
 def _homing(p: CommissioningProcedure) -> dict:

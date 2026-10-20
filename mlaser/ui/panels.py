@@ -487,7 +487,8 @@ class ControlPanel(QWidget):
             return
         st = self.ctl.state()
         if st.mode == "pause":
-            self.ctl.resume()
+            from .resume import resume
+            resume(self.ctl, "exact", self.get_document())
             return
         doc = self.get_document()
         if doc is not None:
@@ -498,7 +499,8 @@ class ControlPanel(QWidget):
             self.run_hooks.hold()
             return
         if self.ctl.state().mode == "pause":
-            self.ctl.resume()
+            from .resume import resume
+            resume(self.ctl, "exact", self.get_document())
         else:
             self.ctl.pause()
 

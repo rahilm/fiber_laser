@@ -62,19 +62,25 @@ jobs:
       - name: C kernel check
         run: uv run --locked python tools/build_native.py --check
 
-      - name: "Tests (default suite: unit, ui, sim; parity and golden deselected; C kernel default)"
-        # macOS: -v names the running test, and a native crash leaves its Python stacks and the
-        # last command of the command-coverage test in files shown by the next step (how the
-        # QMessageBox / checkbox crash of 2026-10-19 was found, together with lldb)
+      - name: "Tests (default suite: unit, ui, sim, safety; parity and golden deselected; C kernel default)"
+        # pytest-xdist: one worker per CPU; tests/conftest.py puts every safety and sim test in
+        # the xdist group "timing", so --dist loadgroup runs them one after another on one
+        # worker (their real-time bounds keep their meaning) while the rest spreads over the
+        # others (docs/dev/TESTING.md, "Parallel runs").  Every marker of the default run is
+        # still collected: unit, ui, sim and safety.
+        # macOS: -v names the running test, and a native crash leaves its Python stacks
+        # (fault.log.gwN, one per worker) and the last command of the command-coverage test in
+        # files shown by the next step (how the QMessageBox / checkbox crash of 2026-10-19 was
+        # found, together with lldb)
         env:
           MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
-        run: uv run --locked pytest ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
+        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
 
       - name: Crash diagnostics (macOS)
         if: failure() && runner.os == 'macOS'
         run: |
-          echo "== fault log"; cat "$RUNNER_TEMP/fault.log" || true
+          for f in "$RUNNER_TEMP"/fault.log*; do echo "== fault log $f"; cat "$f" || true; done
           echo "== coverage trace (last commands)"; tail -5 "$RUNNER_TEMP/coverage.log" || true
           ls -lt ~/Library/Logs/DiagnosticReports/ | head -5 || true
           f=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)

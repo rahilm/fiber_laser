@@ -404,12 +404,13 @@ def test_commissioning_checklist_all_pass(tmp_path):
         run_all(p)
         assert p.state == PE.DONE, p.error
         st = {k: it.status for k, it in p.items.items()}
-        assert st == {"network": "pass", "scaling": "pass", "soft_limits": "warn", "homing": "pass",
-                      "heartbeat": "pass", "jog_x": "pass", "jog_y": "pass"}
+        # no interlock is configured on the simulator: flagged, not failed (tests/safety/test_safety_io.py)
+        assert st == {"network": "pass", "scaling": "pass", "soft_limits": "warn", "interlocks": "warn",
+                      "homing": "pass", "heartbeat": "pass", "jog_x": "pass", "jog_y": "pass"}
         assert p.items["heartbeat"].values["toggles_per_s"] == pytest.approx(10.0, rel=0.3)
         assert p.items["jog_x"].values["moved"] == pytest.approx(10.0, abs=0.01)
         rep = json.loads(p.report_path.read_text())
-        assert rep["summary"]["ok"] and len(rep["items"]) == 7
+        assert rep["summary"]["ok"] and len(rep["items"]) == 8
         assert ctl.heartbeat_status()["hold"] is False
     finally:
         simrig.close(ctl)

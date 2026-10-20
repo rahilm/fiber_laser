@@ -58,6 +58,7 @@ from ..geom import curves as geom
 from ..model import (GLYPH_ARC, GLYPH_CIRCLE, GLYPH_LINE, GLYPH_LWPOLY, GLYPH_POINT, Contour,
                      Glyph)
 from ..parity_ports.dxfparse.rules import _Chain, _contour, _Item
+from .limits import Budget, ImportCancelled, ImportLimitError, check_minsert, entity_budget
 
 log = logging.getLogger(__name__)
 
@@ -405,14 +406,19 @@ def _mtext_plain(e, tol: float) -> list[Contour]:
 
 # --------------------------------------------------------------------------- traversal
 def _walk(entities: Iterable, layer: Optional[str] = None, color: Optional[int] = None,
-          depth: int = 0) -> Iterator[tuple]:
+          depth: int = 0, budget: Optional[Budget] = None) -> Iterator[tuple]:
     """(entity, layer, colour) of every drawable entity, block references expanded (the
     traversal of ``ezdxf.disassemble.recursive_decompose``, plus layer "0" / BYBLOCK
-    inheritance from the INSERT)."""
+    inheritance from the INSERT).  Every entity visited counts against ``budget``
+    (:data:`mlaser.io.limits.DXF_MAX_ENTITIES`); a MINSERT of more than
+    :data:`~mlaser.io.limits.DXF_MAX_MINSERT` copies is refused."""
     from ezdxf.disassemble import recursive_decompose
     from ezdxf.entities import Insert
     from ezdxf.protocols import SupportsVirtualEntities, virtual_entities
+    if budget is None:
+        budget = entity_budget()
     for e in entities:
+        budget.add()
         try:
             if e.dxf.get("invisible", 0):
                 continue
@@ -426,18 +432,21 @@ def _walk(entities: Iterable, layer: Optional[str] = None, color: Optional[int] 
                 if depth > 32:
                     continue
                 if e.mcount > 1:
-                    yield from _walk(e.multi_insert(), layer, color, depth)
+                    check_minsert(e.mcount)
+                    yield from _walk(e.multi_insert(), layer, color, depth, budget)
                     continue
                 for a in e.attribs:
                     if not a.is_invisible:
                         yield a, lay if str(a.dxf.get("layer", "0")) == "0" else str(a.dxf.layer), col
                 if e.block() is None:
                     continue
-                yield from _walk(virtual_entities(e), lay, col, depth + 1)
+                yield from _walk(virtual_entities(e), lay, col, depth + 1, budget)
             elif isinstance(e, SupportsVirtualEntities):
-                yield from _walk(recursive_decompose([e]), lay, col, depth + 1)  # type: ignore[list-item]
+                yield from _walk(recursive_decompose([e]), lay, col, depth + 1, budget)  # type: ignore[list-item]
             else:
                 yield e, lay, col
+        except (ImportLimitError, ImportCancelled):
+            raise
         except Exception as ex:   # noqa: BLE001 - one broken entity must not stop the import
             log.debug("modern DXF import: %s skipped (%s)", e, ex)
 
@@ -450,7 +459,10 @@ def collect(layout, weights_map, levels, out: list, stats: dict, depth: int = 0)
     tol = float(opts.get("flatten_tol", FLATTEN_TOL) or FLATTEN_TOL)
     with_text = bool(opts.get("text_outlines", True))
     stats.setdefault("hatches", 0)
-    for e, lay, col in _walk(layout):
+    budget = stats.get("budget")
+    if not isinstance(budget, Budget):
+        budget = stats["budget"] = entity_budget()
+    for e, lay, col in _walk(layout, budget=budget):
         t = e.dxftype()
         key = (lay, col)
         if t in SKIP:

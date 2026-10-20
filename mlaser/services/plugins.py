@@ -28,6 +28,23 @@ entry point in the group ``mlaser.plugins`` (the MeerK40t pattern)::
     [project.entry-points."mlaser.plugins"]
     hello = "mlaser_hello:plugin"
 
+**Trust model** (docs/dev/PLUGINS.md §6): a plugin is code running in the application's process
+with the user's privileges and the machine's authority; nothing here sandboxes it.  What this
+module enforces:
+
+* entry-point plugins are **opt-in**: :func:`discover` lists them, but the application loads only
+  those in the persisted allowlist (``plugins.allowlist``: name -> entry-point target, edited in
+  Service mode; :func:`allowed`), and a changed target needs enabling again;
+* they load **after** the safety UI exists (``MainWindow``), and cannot register commands in the
+  core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
+  so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
+* ``ctx.controller`` of a third-party plugin is ``mlaser.controller.plugin_view.plugin_view(ctl,
+  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), and
+  :func:`plugin_policy` decides the safety actions a plugin asks for (arm, reset a fault, hold
+  the heartbeat, reconfigure safety): refused unless the service engineer granted that plugin
+  machine authority (``plugins.authority``).  Installed with ``ctl.set_plugin_policy``
+  (:func:`install_policy`).
+
 This module is Qt-free; the host (``mlaser.ui.mainwindow.MainWindow``) implements the UI calls.
 See docs/dev/PLUGINS.md.
 """
@@ -54,8 +71,71 @@ WORKSPACE_OPTIONS = ("icon", "order", "shortcut", "min_mode", "canvas", "toolbar
                      "description", "slot")
 
 
+#: command namespaces of the core (safety controls, shell, workspaces): only built-in plugins
+#: may register there
+RESERVED_PREFIXES = ("run.", "shell.", "workspace.")
+#: the ConfigService key of the entry-point allowlist ({name: "module:attr"})
+ALLOWLIST_KEY = "plugins.allowlist"
+#: plugin names the service engineer granted machine authority (arm, reset faults, hold the
+#: heartbeat, reconfigure safety through the controller's plugin policy)
+AUTHORITY_KEY = "plugins.authority"
+
+
 class DuplicateProviderError(KeyError):
     pass
+
+
+class DocumentLockedError(RuntimeError):
+    """``replace_document`` while a job runs or a breakpoint is pending."""
+
+
+class ReservedCommandError(PermissionError):
+    """A plugin that is not built in tried to register a command of the core's namespaces."""
+
+
+def controller_for(ctl: Any, plugin: str, origin: str) -> Any:
+    """What ``ctx.controller`` returns: the controller itself for a built-in plugin, the
+    Safety-core ``plugin_view(ctl, plugin)`` for any other.
+
+    TEMPORARY SHIM (remove the ImportError branch when r2-safety-core is merged): without
+    ``mlaser.controller.plugin_view`` a third-party plugin gets the controller, as before."""
+    if origin == "builtin" or ctl is None:
+        return ctl
+    try:
+        from mlaser.controller.plugin_view import plugin_view
+    except ImportError:
+        return ctl
+    return plugin_view(ctl, plugin)
+
+
+def plugin_policy(config: Any) -> Callable[[str, str, str], Optional[str]]:
+    """The controller's plugin policy (``fn(source, action, reason) -> None | refusal``): a
+    plugin (``source="plugin:<name>"``) may perform a safety action only when it is enabled
+    (allowlist) and the service engineer granted it machine authority; everything else is
+    refused with the reason shown to the operator.  Other sources are not judged here."""
+
+    def policy(source: str, action: str, reason: str = "") -> Optional[str]:
+        if not str(source).startswith("plugin:"):
+            return None
+        name = str(source).split(":", 1)[1]
+        allow = config.get(ALLOWLIST_KEY, {}) or {}
+        granted = config.get(AUTHORITY_KEY, []) or []
+        if name in allow and name in granted:
+            return None
+        return (f"plugin {name!r} may not {action}: it has no machine authority "
+                "(Options+ > Plugins, Service mode)")
+
+    return policy
+
+
+def install_policy(ctl: Any, config: Any) -> bool:
+    """Give the controller :func:`plugin_policy` (``ctl.set_plugin_policy``, Safety core);
+    False for a controller without that API (feature check until the merge)."""
+    fn = getattr(ctl, "set_plugin_policy", None)
+    if not callable(fn):
+        return False
+    fn(plugin_policy(config))
+    return True
 
 
 class Host(Protocol):
@@ -146,9 +226,10 @@ class PluginSettings:
 class PluginContext:
     """The API object of one plugin (see the module docstring)."""
 
-    def __init__(self, host: Host, name: str) -> None:
+    def __init__(self, host: Host, name: str, origin: str = "builtin") -> None:
         self.host = host
         self.name = name
+        self.origin = origin                # builtin | entry-point
         self.commands_registered: list[str] = []
         self.settings: Optional[PluginSettings] = None
 
@@ -175,7 +256,9 @@ class PluginContext:
 
     @property
     def controller(self):
-        return self.host.ctl
+        """The machine controller (built-in plugins), or the Safety-core plugin view of it
+        (:func:`controller_for`)."""
+        return controller_for(self.host.ctl, self.name, self.origin)
 
     @property
     def window(self):
@@ -204,7 +287,12 @@ class PluginContext:
         ``min_mode`` (``"operator"`` / ``"engineer"`` / ``"service"``) is the lowest user mode
         that may run it (default: :func:`mlaser.services.usermodes.default_min_mode`);
         ``workspace`` the workspace it belongs to (palette, shortcut sheet).
-        Raises :class:`DuplicateCommandError` when the id is already bound."""
+        Raises :class:`DuplicateCommandError` when the id is already bound, and
+        :class:`ReservedCommandError` for an id of the core's namespaces (``run.*``, ``shell.*``,
+        ``workspace.*``) from a plugin that is not built in."""
+        if self.origin != "builtin" and cmd_id.startswith(RESERVED_PREFIXES):
+            raise ReservedCommandError(f"command {cmd_id!r} is in a namespace reserved for the core "
+                                       f"({', '.join(RESERVED_PREFIXES)})")
         spec = self.host.commands.register(
             cmd_id, handler, self.name, label or cmd_id, checkable, min_mode=min_mode, workspace=workspace
         )
@@ -221,7 +309,12 @@ class PluginContext:
         return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts)
 
     def replace_document(self, doc: Any, label: str = "", path: Optional[str] = None) -> None:
-        """Make ``doc`` the open document (undoable)."""
+        """Make ``doc`` the open document (undoable).  Refused (:class:`DocumentLockedError`, the
+        reason shown to the operator) while a job runs or a breakpoint is pending: the cut must
+        not continue on another drawing (review 2, P1-5)."""
+        locked = getattr(self.host, "document_locked", None)
+        if callable(locked) and locked(f"{self.name}: replace the document"):
+            raise DocumentLockedError("the document is locked while a job runs or a breakpoint is pending")
         self.host.docs.replace(doc, path, label or f"{self.name}: replace")
 
     # ------------------------------------------------------------------ hooks
@@ -319,6 +412,7 @@ class PluginInfo:
     name: str
     target: str  # "module" or "module:attr"
     origin: str = "builtin"  # builtin | entry-point
+    dist: str = ""  # "package 1.2.3" of an entry point (for the Plugins dialog)
 
 
 def discover(
@@ -338,8 +432,27 @@ def discover(
             if ep.name in seen:
                 log.error("plugin entry point %s ignored: the name is taken", ep.name)
                 continue
-            out.append(PluginInfo(ep.name, ep.value, "entry-point"))
+            dist = getattr(ep, "dist", None)
+            label = f"{getattr(dist, 'name', '')} {getattr(dist, 'version', '')}".strip() if dist else ""
+            out.append(PluginInfo(ep.name, ep.value, "entry-point", label))
     return out
+
+
+def allowed(info: PluginInfo, allowlist: Optional[dict]) -> bool:
+    """Is this entry-point plugin enabled?  Only when the allowlist names it **with the same
+    target** (a package that later points the name at other code needs enabling again)."""
+    if info.origin == "builtin":
+        return True
+    return bool(allowlist) and isinstance(allowlist, dict) and allowlist.get(info.name) == info.target
+
+
+def plugin_status(info: PluginInfo, allowlist: Optional[dict]) -> str:
+    """``enabled`` / ``disabled`` / ``changed`` (enabled for another target)."""
+    if allowed(info, allowlist):
+        return "enabled"
+    if isinstance(allowlist, dict) and info.name in allowlist:
+        return "changed"
+    return "disabled"
 
 
 def resolve(target: str) -> Any:
@@ -370,9 +483,12 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         msg = f"plugin {info.name}: needs plugin API {need}, this is {PLUGIN_API}"
         host.log(msg)
         return None, RuntimeError(msg)
-    ctx = PluginContext(host, info.name)
+    ctx = PluginContext(host, info.name, info.origin)
     try:
-        return ctx, reg(ctx)
+        result = reg(ctx)
+        if info.origin != "builtin":
+            _audit_loaded(info)
+        return ctx, result
     except Exception as exc:  # noqa: BLE001 - reported, rolled back
         host.commands.unregister_owner(info.name)
         host.hooks.remove_owner(info.name)
@@ -381,3 +497,12 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         log.error("%s\n%s", msg, traceback.format_exc())
         host.log(msg)
         return None, exc
+
+
+def _audit_loaded(info: PluginInfo) -> None:
+    """A third-party plugin is code with machine authority: its loading is an audit record."""
+    try:
+        from mlaser.machine.audit import audit
+        audit("plugin_loaded", name=info.name, target=info.target, dist=info.dist, origin=info.origin)
+    except Exception:  # noqa: BLE001 - best effort
+        log.warning("plugin loaded: %s (%s)", info.name, info.target)

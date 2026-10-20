@@ -41,6 +41,7 @@ from typing import Optional
 
 from ..model import Arc, Contour, Document, Line, Part, Point, Segment
 from ..geom.curves import join_segments
+from . import limits as LIM
 
 PX_MM = 25.4 / 96.0
 _UNITS = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "pc": 25.4 / 6, "px": PX_MM, "": PX_MM}
@@ -127,6 +128,15 @@ def _normalise(root: ET.Element) -> None:
     root_w = vb[2] if vb else (_len_px(root.get("width"), 1000.0, None) or 1000.0)
     root_h = vb[3] if vb else (_len_px(root.get("height"), 1000.0, None) or 1000.0)
     budget = [20000]                    # expansions (guards self-referencing symbols)
+    # untrusted input: the elements in the file plus every element a <use> copies
+    # (mlaser.io.limits.SVG_MAX_ELEMENTS); a <use> of a large symbol counts its whole subtree
+    elements = LIM.Budget(LIM.SVG_MAX_ELEMENTS, "elements", LIM.SVG_TOO_MANY)
+    elements.add(sum(1 for _ in root.iter()))
+
+    def subtree(ref: ET.Element) -> int:
+        # not cached: a symbol grows when the <use>s inside it are expanded; counting costs no
+        # more than the copy it guards, and the budget stops it at the limit
+        return sum(1 for _ in ref.iter()) - 1
 
     def expand_uses(parent: ET.Element, vw: float, vh: float, depth: int) -> None:
         if depth > 64:
@@ -139,6 +149,7 @@ def _normalise(root: ET.Element) -> None:
                 if ref is None or _tag(ref) not in ("symbol", "svg") or budget[0] <= 0:
                     continue
                 budget[0] -= 1
+                elements.add(subtree(ref) + 1)
                 x = _len_px(el.get("x"), vw, 0.0) or 0.0
                 y = _len_px(el.get("y"), vh, 0.0) or 0.0
                 if _tag(ref) == "svg":
@@ -398,10 +409,22 @@ def _load_tree(path: str) -> tuple[bytes, ET.Element]:
 
 
 def import_svg(path: str, tol: float = 0.01, join_tol: float = 0.05) -> Document:
-    """Import an SVG file: one Part per contour (``svg#<i>``), coordinates in mm, Y up."""
+    """Import an SVG file: one Part per contour (``svg#<i>``), coordinates in mm, Y up.
+
+    Untrusted input: more than :data:`mlaser.io.limits.SVG_MAX_ELEMENTS` elements after the
+    ``<use>`` expansion, or nesting too deep to follow, raise
+    :class:`~mlaser.io.limits.ImportLimitError`."""
+    try:
+        return _import_svg(path, tol, join_tol)
+    except RecursionError:
+        raise LIM.too_deep("SVG") from None
+
+
+def _import_svg(path: str, tol: float, join_tol: float) -> Document:
     import svgelements as se
 
     data, root = _load_tree(path)
+    LIM.check_cancel()
     svg = se.SVG.parse(io.BytesIO(data), reify=False, ppi=96.0)
     if root.get("height") is None and _vb(root) is None:
         H = 0.0
@@ -413,7 +436,9 @@ def import_svg(path: str, tol: float = 0.01, join_tol: float = 0.05) -> Document
     loose: list[Segment] = []
     shape_types: tuple[type, ...] = (se.Shape,)
     skip_types: tuple[type, ...] = (se.Text, se.Image)
-    for el in svg.elements():
+    for n, el in enumerate(svg.elements()):
+        if not n & 1023:
+            LIM.check_cancel()
         if not isinstance(el, shape_types) or isinstance(el, skip_types) or _hidden(el):
             continue
         try:

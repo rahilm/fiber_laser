@@ -196,6 +196,14 @@ class MachineExtension:
         from .wizards.procedures import LaserWizard
         return self._wizard("wizard.laser_test", lambda: LaserWizard(self.w))
 
+    def safety_io(self) -> Optional[QDialog]:
+        """The Safety I/O dialog: interlock inputs and the heartbeat output (Engineer / Service)."""
+        from .safety_io import open_dialog
+        if getattr(self.w, "_test_no_dialogs", False):
+            from .safety_io import SafetyIODialog
+            return SafetyIODialog(self.w)
+        return open_dialog(self.w)
+
     def wizard_commissioning(self) -> Optional[QDialog]:
         from .wizards.procedures import CommissioningWizard
         return self._wizard("wizard.commissioning", lambda: CommissioningWizard(self.w, self))
@@ -561,7 +569,7 @@ COMMAND_MIN_MODES = {
     "job.offline": "engineer", "param.backup": "service", "param.backup_hw": "service",
     "param.backup_file": "engineer", "param.restore": "service", "param.restore_hw": "service",
     "param.restore_file": "service", "file.task_import": "operator", "file.task_save": "operator",
-    "app.recovery": "operator",
+    "app.recovery": "operator", "machine.safety_io": "engineer",
 }
 COMMAND_MIN_MODES.update({f"coord.tool{i}": "operator" for i in range(1, 7)})
 
@@ -615,7 +623,8 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
             ("wizard.focus_home", ext.wizard_focus, "wizard.focus.title"),
             ("wizard.laser_test", ext.wizard_laser, "wizard.laser.title"),
             ("wizard.commissioning", ext.wizard_commissioning, "wizard.comm.title"),
-            ("machine.import_install", ext.import_install, "wizard.import.title")):
+            ("machine.import_install", ext.import_install, "wizard.import.title"),
+            ("machine.safety_io", ext.safety_io, "safety.io.title")):
         _register(ctx, cmd, fn, label)
     from .workspaces.machine import MachineWorkspace
     ext.workspace = MachineWorkspace(ctx, ext, ext.history)

@@ -189,6 +189,52 @@ def data_dir() -> Path:
     return Path(platformdirs.user_data_dir("mlaser", appauthor=False))
 
 
+# --------------------------------------------------------------------------- safety I/O
+#: card input numbers are 1-based (``MCStatus.input``: 1..12 RO[4], 13..28 RO[21]); outputs
+#: 1..26 (``set_output``: 1..10 sub 2, 11..26 sub 13).  0 = not wired / off.
+MAX_INPUT = 28
+MAX_OUTPUT = 26
+
+
+def _safety_settings() -> list[Setting]:
+    """The interlocks and the "PC alive" heartbeat (docs/SAFETY.md §8, §11), typed and persisted.
+    The keys are the ``safety.<field>`` names :meth:`InterlockConfig.from_values` reads.  Every
+    input defaults to 0 (not wired): the hardware is unknown until a service engineer
+    commissions it, and the Run screen, the pre-flight and the commissioning checklist say so
+    (:mod:`mlaser.services.safety_io`)."""
+    out: list[Setting] = []
+    for src, inp, act in (("gas", "gas_low_input", "gas_low_active"),
+                          ("door", "door_input", "door_open_active"),
+                          ("laser", "laser_alarm_input", "laser_alarm_active")):
+        out += [
+            Setting(f"safety.{inp}", "int", 0, "", 0, MAX_INPUT, label=f"safety.set.{inp}",
+                    section="safety", source="app"),
+            Setting(f"safety.{act}", "bool", True, label=f"safety.set.{act}", section="safety", source="app"),
+            # the service engineer declares that this machine has no such sensor (silences the
+            # pre-flight warning; the Run screen and the checklist still list it)
+            Setting(f"safety.{src}_not_fitted", "bool", False, label="safety.set.not_fitted",
+                    section="safety", source="app"),
+        ]
+    out += [
+        Setting("safety.follower", "bool", True, label="safety.set.follower", section="safety", source="app"),
+        Setting("safety.heartbeat_output", "int", 0, "", 0, MAX_OUTPUT, label="safety.set.heartbeat_output",
+                section="safety", source="app"),
+        Setting("safety.heartbeat_hz", "float", 5.0, "Hz", 0.5, 50.0, label="safety.set.heartbeat_hz",
+                section="safety", source="app"),
+    ]
+    return out
+
+
+SAFETY_SETTINGS: tuple[Setting, ...] = tuple(_safety_settings())
+
+#: application settings outside the registry (``plugins.allowlist``: entry-point plugins the
+#: service engineer enabled, name -> entry-point target; docs/dev/PLUGINS.md §6)
+APP_SETTINGS: tuple[Setting, ...] = (
+    Setting("plugins.allowlist", "json", {}, label="plugins.allowlist", section="plugins", source="app"),
+    Setting("plugins.authority", "json", [], label="plugins.authority", section="plugins", source="app"),
+)
+
+
 # --------------------------------------------------------------------------- service
 @dataclass
 class MachineProfile:
@@ -205,6 +251,7 @@ class ConfigService:
 
     def __init__(self, path: Optional[os.PathLike | str] = None, load: bool = True) -> None:
         self.schema: dict[str, Setting] = dict(registry_settings())
+        self.schema.update({s.key: s for s in SAFETY_SETTINGS + APP_SETTINGS})
         self.values: dict[str, Any] = {}
         self.profile = MachineProfile()
         self.path = Path(path) if path is not None else config_dir() / self.FILE

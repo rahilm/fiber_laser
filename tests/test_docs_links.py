@@ -1,5 +1,5 @@
-"""Documentation links: every relative Markdown link (file and #anchor) in docs/ and README.md
-resolves, every ``docs/...md`` path named in the code exists, and the packaged help ships the
+"""Documentation links: every relative Markdown link (file and #anchor) in docs/, README.md and
+the top-level SECURITY / CONTRIBUTING / CHANGELOG resolves, every ``docs/...md`` path named in the code exists, and the packaged help ships the
 files :mod:`mlaser.diag.helpdocs` lists (docs/dev/TESTING.md).
 
 Run alone with ``pytest tests/test_docs_links.py -q``; the failure message lists every broken
@@ -34,6 +34,7 @@ EXTERNAL_IMAGES = ("docs/review/",)
 
 def _md_files():
     files = [ROOT / "README.md", ROOT / "packaging" / "README.md"]
+    files += [ROOT / n for n in ("SECURITY.md", "CONTRIBUTING.md", "CHANGELOG.md") if (ROOT / n).exists()]
     files += sorted(DOCS.rglob("*.md"))
     return files
 

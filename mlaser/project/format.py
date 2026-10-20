@@ -30,6 +30,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from ..io.limits import ImportCancelled, tick
 from ..model import Document
 from . import migrations as M
 from .codec import CHF_CONTOUR_KEYS, CHF_DOC_KEYS, CHF_PART_KEYS, Blobs, Decoder, Encoder
@@ -39,7 +40,7 @@ FORMAT = "mlaser-project"
 VERSION = M.CURRENT
 MIMETYPE = b"application/vnd.mlaser.project+zip"
 SUFFIX = ".mlz"
-MAX_UNCOMPRESSED = 4 * 2**30          # refuse archives that claim more (zip bombs)
+MAX_UNCOMPRESSED = 2**30               # kept for callers: the total limit (MAX_TOTAL below)
 FONT_EMBED_LIMIT = 8 * 2**20           # "auto": embed non-bundled font files up to this size
 
 PathLike = Union[str, os.PathLike]
@@ -224,43 +225,206 @@ def save_project(path: PathLike, project: Union[Project, Document], embed_fonts:
 
 
 # =========================================================================== reading
-def _read_members(data: bytes, name: str) -> dict[str, bytes]:
+# Untrusted input (docs/dev/project-format.md "Limits"): a project is a customer file like a
+# drawing.  Only ``mimetype``, ``manifest.json`` (or a version-0 ``project.json``) and the
+# members the manifest lists are read, each streamed in chunks with a running limit (the sizes
+# in the zip headers are not trusted), so a zip bomb costs at most the limits below.
+MAX_MEMBER = 256 * 2**20              # one member (raster blobs are the large ones)
+MAX_TOTAL = 2**30                     # every member read, together
+MAX_MEMBERS = 65536                   # entries in the archive
+MAX_RATIO = 200                       # uncompressed : compressed, above RATIO_MIN
+RATIO_MIN = 16 * 2**20                # small members may compress better (JSON of zeros)
+MAX_JSON = 256 * 2**20                # one JSON member
+MAX_JSON_DEPTH = 100                  # nesting of [ and { (a document needs about 12)
+_CHUNK = 1 << 20
+# raster arrays (blobs/*.npy) of a mostly empty bitmap compress up to ~1000:1 legitimately:
+# only the member and total limits apply to them
+_RATIO_EXEMPT = ("blobs/",)
+
+
+def _mb(n: int) -> str:
+    return f"{n / 2**20:,.0f} MB"
+
+
+class _Reader:
+    """Streamed, limited reads of zip members (see the limits above)."""
+
+    def __init__(self, z: zipfile.ZipFile, name: str, progress=None):
+        # default: the import context of this thread (mlaser.io.limits: progress dialog, Cancel)
+        self.z, self.name, self.total = z, name, 0
+        self.progress = progress if progress is not None else (lambda n: tick(n, "bytes"))
+
+    def read(self, info: zipfile.ZipInfo, expect: Optional[int] = None, cap: int = MAX_MEMBER) -> bytes:
+        """The member's bytes; ``expect``: its size in the manifest (more is damage), ``cap``:
+        the limit for this member."""
+        name, fn = self.name, info.filename
+        if fn.startswith("/") or ".." in fn.split("/"):
+            raise ProjectError(f"{name}: bad member name {fn!r}")
+        limit = cap if expect is None else min(cap, int(expect))
+        if expect is not None and expect > MAX_MEMBER:
+            raise ProjectError(f"{name}: member {fn} is {_mb(int(expect))}, more than the limit of "
+                               f"{_mb(MAX_MEMBER)} per member")
+        ratio = not fn.startswith(_RATIO_EXEMPT)
+        csize = max(1, int(info.compress_size))
+        buf = bytearray()
+        try:
+            with self.z.open(info) as f:
+                while True:
+                    chunk = f.read(_CHUNK)
+                    if not chunk:
+                        break
+                    buf += chunk
+                    n = len(buf)
+                    self.total += len(chunk)
+                    if n > limit:
+                        if expect is not None and n > expect:
+                            raise ProjectError(f"{name}: {fn} is damaged (checksum mismatch)")   # larger than listed
+                        raise ProjectError(f"{name}: member {fn} is larger than the limit of "
+                                           f"{_mb(cap)} for it")
+                    if self.total > MAX_TOTAL:
+                        raise ProjectError(f"{name}: the project expands to more than {_mb(MAX_TOTAL)}; "
+                                           "it is either damaged or built to exhaust the computer")
+                    if ratio and n > RATIO_MIN and n > MAX_RATIO * csize:
+                        raise ProjectError(f"{name}: member {fn} expands more than {MAX_RATIO}:1 "
+                                           "(a zip bomb?); not opened")
+                    self.progress(self.total)
+        except (ProjectError, ImportCancelled):
+            raise
+        except (zipfile.BadZipFile, EOFError, OSError, ValueError) as e:     # bad CRC, truncated
+            raise ProjectError(f"{name}: member {fn} is damaged ({e})") from e
+        except MemoryError:
+            raise ProjectError(f"{name}: not enough memory to read {fn}") from None
+        except Exception as e:  # noqa: BLE001 - zlib.error and friends
+            raise ProjectError(f"{name}: member {fn} is damaged ({type(e).__name__}: {e})") from e
+        return bytes(buf)
+
+
+def _json_depth_ok(b: bytes) -> bool:
+    """True when the brackets of the JSON text ``b`` nest at most :data:`MAX_JSON_DEPTH` deep
+    (strings removed first; numpy, so a large document costs milliseconds)."""
+    import re
+
+    import numpy as np
+    if b.count(b"[") + b.count(b"{") <= MAX_JSON_DEPTH:
+        return True
+    t = re.sub(rb'"(?:[^"\\]|\\.)*"', b"", b)
+    a = np.frombuffer(t, dtype=np.uint8)
+    step = (a == 0x5B).astype(np.int32) + (a == 0x7B) - (a == 0x5D) - (a == 0x7D)
+    return int(np.cumsum(step).max(initial=0)) <= MAX_JSON_DEPTH
+
+
+def _members_listed(raw: bytes) -> Optional[list[str]]:
+    """The member names a manifest lists (None when it cannot be read: the checks after the
+    read report that)."""
+    if len(raw) > MAX_JSON or not _json_depth_ok(raw):
+        return None
     try:
-        z = zipfile.ZipFile(io.BytesIO(data))
+        man = json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError, UnicodeDecodeError):
+        return None
+    files = man.get("files") if isinstance(man, dict) else None
+    if not isinstance(files, dict):
+        return None
+    return [k for k in files if isinstance(k, str)]
+
+
+def _expected_sizes(raw: bytes) -> dict[str, int]:
+    try:
+        files = json.loads(raw.decode("utf-8")).get("files") or {}
+        return {k: int(v["size"]) for k, v in files.items()
+                if isinstance(v, dict) and isinstance(v.get("size"), int) and v["size"] >= 0}
+    except Exception:  # noqa: BLE001 - validated later
+        return {}
+
+
+def _read_members(data, name: str, progress=None) -> dict[str, bytes]:
+    """The members of the archive ``data`` (bytes or a binary file) that a project uses."""
+    head = data[:4] if isinstance(data, (bytes, bytearray)) else None
+    try:
+        z = zipfile.ZipFile(io.BytesIO(data) if isinstance(data, (bytes, bytearray)) else data)
     except zipfile.BadZipFile as e:
-        if data[:4] != b"PK\x03\x04":
+        if head is None:
+            try:
+                data.seek(0)
+                head = data.read(4)
+            except OSError:
+                head = b""
+        if head != b"PK\x03\x04":
             raise ProjectError(f"{name}: not an mlaser project (.mlz) file") from e
         raise ProjectError(f"{name}: the file is damaged (the zip structure is broken: {e})") from e
+    except (OSError, ValueError) as e:
+        raise ProjectError(f"{name}: the file is damaged ({e})") from e
     infos = z.infolist()
-    if sum(i.file_size for i in infos) > MAX_UNCOMPRESSED:
-        raise ProjectError(f"{name}: the archive claims more than {MAX_UNCOMPRESSED >> 30} GB of content")
-    out = {}
+    if len(infos) > MAX_MEMBERS:
+        raise ProjectError(f"{name}: the archive has {len(infos):,} entries (more than {MAX_MEMBERS:,})")
     for i in infos:
-        if i.is_dir():
-            continue
         if i.filename.startswith("/") or ".." in i.filename.split("/"):
             raise ProjectError(f"{name}: bad member name {i.filename!r}")
-        try:
-            out[i.filename] = z.read(i)
-        except (zipfile.BadZipFile, EOFError, OSError, ValueError) as e:     # bad CRC, truncated
-            raise ProjectError(f"{name}: member {i.filename} is damaged ({e})") from e
-        except Exception as e:  # noqa: BLE001 - zlib.error and friends
-            raise ProjectError(f"{name}: member {i.filename} is damaged ({type(e).__name__}: {e})") from e
+    by_name = {i.filename: i for i in infos if not i.is_dir()}
+    rd = _Reader(z, name, progress)
+    out: dict[str, bytes] = {}
+    for meta in ("mimetype", "manifest.json"):
+        if meta in by_name:
+            out[meta] = rd.read(by_name[meta], cap=1024 if meta == "mimetype" else MAX_JSON)
+    if "manifest.json" not in out:
+        if "project.json" in by_name:                   # format version 0: one JSON member
+            out["project.json"] = rd.read(by_name["project.json"], cap=MAX_JSON)
+        return out
+    listed = _members_listed(out["manifest.json"])
+    if listed is None:
+        return out
+    sizes = _expected_sizes(out["manifest.json"])
+    claimed = sum(sizes.values())
+    if claimed > MAX_TOTAL:
+        raise ProjectError(f"{name}: the manifest lists {_mb(claimed)} of content, more than the limit "
+                           f"of {_mb(MAX_TOTAL)}")
+    for member in listed:
+        info = by_name.get(member)
+        if info is None or member in out:
+            continue                                     # missing: reported by the checksum loop
+        out[member] = rd.read(info, sizes.get(member))
     return out
 
 
 def _load_json(members: dict[str, bytes], member: str, name: str) -> Any:
     try:
-        return json.loads(members[member].decode("utf-8"))
+        raw = members[member]
     except KeyError:
         raise ProjectError(f"{name}: {member} is missing") from None
+    if len(raw) > MAX_JSON:
+        raise ProjectError(f"{name}: {member} is larger than {_mb(MAX_JSON)}")
+    if not _json_depth_ok(raw):
+        raise ProjectError(f"{name}: {member} is nested more than {MAX_JSON_DEPTH} levels deep")
+    try:
+        return json.loads(raw.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError) as e:
         raise ProjectError(f"{name}: {member} is not valid JSON ({e})") from e
+    except (ValueError, RecursionError) as e:       # Python's 4300-digit int limit, depth
+        raise ProjectError(f"{name}: {member} cannot be read ({e})") from e
 
 
-def loads_project(data: bytes, name: str = "<project>") -> Project:
-    """Read ``.mlz`` bytes (see the module docstring for the checks)."""
-    members = _read_members(data, name)
+def loads_project(data: bytes, name: str = "<project>", progress=None) -> Project:
+    """Read ``.mlz`` bytes or a binary file (see the module docstring for the checks, and the
+    limits above).  ``progress(bytes_read)`` is called while the members are read; it may raise
+    to cancel.  Every failure is a :class:`ProjectError` (also deep JSON, huge integers and
+    memory exhaustion: a crafted file must not reach the excepthook)."""
+    try:
+        return _loads_project(data, name, progress)
+    except ProjectError:
+        raise
+    except RecursionError:
+        raise ProjectError(f"{name}: the project data is nested too deeply") from None
+    except MemoryError:
+        raise ProjectError(f"{name}: not enough memory to open the project") from None
+    except ValueError as e:
+        raise ProjectError(f"{name}: the project cannot be read ({e})") from e
+
+
+def _loads_project(data, name: str, progress) -> Project:
+    members = _read_members(data, name, progress)
+    for meta in ("manifest.json", "project.json"):
+        if meta in members:
+            _load_json(members, meta, name)          # size and depth limits before parsing
     try:
         version = M.detect_version(members)
     except (ValueError, UnicodeDecodeError, json.JSONDecodeError) as e:
@@ -360,13 +524,15 @@ def _graft_chf(doc: Document, ddoc: dict, data: bytes, name: str, notes: list[st
             doc.extra[k] = cdoc.extra[k]
 
 
-def load_project(path: PathLike) -> Project:
+def load_project(path: PathLike, progress=None) -> Project:
+    """Open a ``.mlz`` file (read from the file, not loaded into memory whole first)."""
     p = Path(path)
     try:
-        data = p.read_bytes()
+        f = open(p, "rb")
     except OSError as e:
         raise ProjectError(f"{p}: cannot read the file ({e.strerror or e})") from e
-    return loads_project(data, str(p))
+    with f:
+        return loads_project(f, str(p), progress)  # type: ignore[arg-type]
 
 
 # =========================================================================== conveniences

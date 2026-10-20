@@ -1753,6 +1753,18 @@
   "pitch.positive_measured": "Positive Measured",
   "pitch.precision_compensate": "Precision Compensate",
   "pitch.save": "Save",
+  "plugins.allowlist": "Enabled third-party plugins",
+  "plugins.authority": "Plugins with machine authority",
+  "plugins.col_authority": "Machine authority",
+  "plugins.col_enabled": "Enabled",
+  "plugins.col_name": "Name",
+  "plugins.col_package": "Package",
+  "plugins.col_status": "Status",
+  "plugins.col_target": "Entry point",
+  "plugins.confirm": "Enable {names}?\n\n{warning}",
+  "plugins.none": "No third-party plugin is installed.",
+  "plugins.title": "Plugins",
+  "plugins.warning": "A plugin is program code that runs inside mlaser with your user account's rights and the machine's authority: it can read and write your files, use the network and command the motion card. The safety guard stops accidents, not a hostile plugin. Enable only plugins you trust, from a source you trust. Changes take effect at the next start.",
   "register.acceleration": "Acceleration",
   "register.accumulated_pulse_number": "Accumulated pulse number",
   "register.ad_sampling_value": "AD sampling value",
@@ -1901,7 +1913,8 @@
   "wizard.comm.fix_limits": "Write the soft limits",
   "wizard.comm.fix_reverse": "Reverse the axis direction",
   "wizard.comm.fix_reverse_axis": "Reverse the {axis} axis direction",
-  "wizard.comm.hb_off": "No heartbeat output is configured: the watchdog relay cannot work (docs/SAFETY.md §11).",
+  "wizard.comm.fix_safety_io": "Configure safety I/O...",
+  "wizard.comm.hb_off": "No heartbeat output is configured: the watchdog relay cannot work (docs/SAFETY.md §11). Configure it in Machine > Settings > Safety I/O.",
   "wizard.comm.hb_ok": "Output {output} toggles {toggles_per_s} times/s (expected {expected}).",
   "wizard.comm.hb_relay_fail": "The relay did NOT drop: check its wiring and timeout before any cut.",
   "wizard.comm.hb_relay_ok": "Heartbeat on output {output} measured; the relay drops when it stops.",
@@ -1912,10 +1925,24 @@
   "wizard.comm.home_timeout": "Homing did not finish.",
   "wizard.comm.homing_button": "Home X/Y",
   "wizard.comm.homing_text": "Press Home X/Y: the machine moves to its home switches.",
+  "wizard.comm.ilk_configured": "Wired: {wired}. Test the wiring in the next step.",
+  "wizard.comm.ilk_failed": "Failed: {failed} (no signal within 30 s, already active before the test, or it did not clear). Check the wiring, the input number and the alarm level in Safety I/O.",
+  "wizard.comm.ilk_no_monitor": "This controller has no interlock monitor (no machine connected).",
+  "wizard.comm.ilk_none_wired": "No interlock is wired; declared not fitted: {declared}.",
+  "wizard.comm.ilk_release": "{name} seen: release it now (input {input})...",
+  "wizard.comm.ilk_test_button": "Start the wiring test",
+  "wizard.comm.ilk_test_text": "Start the test, then trigger each wired sensor in turn when the checklist asks for it (open the door, close the gas supply, set the laser source's alarm) and release it again. Each one has 30 s. The machine stays disarmed: nothing moves or fires.",
+  "wizard.comm.ilk_test_title": "Interlock wiring test",
+  "wizard.comm.ilk_tested": "Every wired interlock tripped and cleared: {tested}.",
+  "wizard.comm.ilk_tested_partial": "Tested: {tested}. Not configured: {missing}.",
+  "wizard.comm.ilk_unconfigured": "Not configured: {missing}. These interlocks are not monitored. Wire and configure them in Safety I/O, or declare a sensor this machine does not have.",
+  "wizard.comm.ilk_waiting": "Trigger the {name} sensor now (input {input})...",
+  "wizard.comm.interlocks_text": "The gas-low, door and laser-source-alarm interlocks and the PC-alive heartbeat (docs/SAFETY.md §8, §11). An interlock that is neither wired nor declared \"not fitted\" is not monitored: configure it in Safety I/O.",
   "wizard.comm.intro_text": "Checks the network, the card's scaling and soft limits, homing, the watchdog heartbeat and the jog directions. A report is saved at the end.",
   "wizard.comm.intro_title": "First connection",
   "wizard.comm.item_heartbeat": "Watchdog heartbeat",
   "wizard.comm.item_homing": "Homing",
+  "wizard.comm.item_interlocks": "Interlocks",
   "wizard.comm.item_jog_x": "Jog direction X",
   "wizard.comm.item_jog_y": "Jog direction Y",
   "wizard.comm.item_network": "Network and connection",
@@ -2459,6 +2486,45 @@
   "run.val.position": "X {x}  Y {y}  Z {z} mm",
   "run.val.power": "Power {v} %",
   "run.val.speed": "Speed {v} mm/s",
+  "safety.io.active": "Alarm when",
+  "safety.io.button": "Safety I/O...",
+  "safety.io.door": "Door / guard interlock",
+  "safety.io.follower": "Follower alarm interlock (on-board follower)",
+  "safety.io.gas": "Gas-low interlock",
+  "safety.io.heartbeat": "PC-alive heartbeat",
+  "safety.io.heartbeat_hz": "Frequency",
+  "safety.io.heartbeat_output": "Card output",
+  "safety.io.input": "Card input",
+  "safety.io.intro": "Card inputs of the interlocks and the output of the PC-alive watchdog relay (docs/SAFETY.md §8, §11). 0 = not wired. After a change, check every input with the commissioning checklist (Machine > Procedures).",
+  "safety.io.laser": "Laser-source alarm interlock",
+  "safety.io.level_off": "input OFF (normally closed contact: a broken wire trips)",
+  "safety.io.level_on": "input ON (normally open contact)",
+  "safety.io.not_fitted": "This machine has no such sensor",
+  "safety.io.now": "Now",
+  "safety.io.now_alarm": "ALARM: {text}",
+  "safety.io.now_clear": "clear",
+  "safety.io.now_unknown": "no machine controller",
+  "safety.io.now_unwired": "not monitored",
+  "safety.io.off": "off",
+  "safety.io.problems": "Not saved: {problems}",
+  "safety.io.refused": "The controller refused the new safety I/O configuration; the previous one stays active.",
+  "safety.io.title": "Safety I/O",
+  "safety.io.unwired": "not wired",
+  "safety.notice.not_configured": "{name} not configured",
+  "safety.notice.not_fitted": "{name} not fitted (declared)",
+  "safety.notice.pending": "change pending: applies when the machine is disarmed and idle",
+  "safety.notice.prefix": "Safety I/O:",
+  "safety.notice.refused": "the last change was refused by the controller",
+  "safety.set.door_input": "Door interlock: card input",
+  "safety.set.door_open_active": "Door interlock: alarm when the input is on",
+  "safety.set.follower": "Follower alarm interlock",
+  "safety.set.gas_low_active": "Gas-low interlock: alarm when the input is on",
+  "safety.set.gas_low_input": "Gas-low interlock: card input",
+  "safety.set.heartbeat_hz": "PC-alive heartbeat: frequency",
+  "safety.set.heartbeat_output": "PC-alive heartbeat: card output",
+  "safety.set.laser_alarm_active": "Laser-source alarm interlock: alarm when the input is on",
+  "safety.set.laser_alarm_input": "Laser-source alarm interlock: card input",
+  "safety.set.not_fitted": "Sensor not fitted on this machine (declared)",
   "web.alarms": "Alarms",
   "web.cmd.toggle": "LAN monitor (read-only)",
   "web.elapsed": "elapsed",
@@ -2796,6 +2862,7 @@
   "shell.mode.title": "User mode",
   "shell.palette.disabled": "not available right now",
   "shell.palette.hint": "Enter runs · ↑↓ choose · Esc closes · ★ recently used",
+  "shell.palette.no_matches": "No command matches “{query}”. Try another word (for example lead, kerf, home, nest), or press Esc.",
   "shell.palette.not_now": "{label} is not available right now (for example while a job runs or without a machine).",
   "shell.palette.placeholder": "Type a command, e.g. lead, kerf, home, nest...",
   "shell.palette.recent": "recently used",
@@ -2921,6 +2988,10 @@
   "pitch.average_backlash": [
    "backlash"
   ],
+  "plugins.confirm": [
+   "names",
+   "warning"
+  ],
   "status.speed": [
    "unit",
    "speed"
@@ -2968,6 +3039,33 @@
    "seconds",
    "x",
    "y"
+  ],
+  "wizard.comm.ilk_configured": [
+   "wired"
+  ],
+  "wizard.comm.ilk_failed": [
+   "failed"
+  ],
+  "wizard.comm.ilk_none_wired": [
+   "declared"
+  ],
+  "wizard.comm.ilk_release": [
+   "name",
+   "input"
+  ],
+  "wizard.comm.ilk_tested": [
+   "tested"
+  ],
+  "wizard.comm.ilk_tested_partial": [
+   "tested",
+   "missing"
+  ],
+  "wizard.comm.ilk_unconfigured": [
+   "missing"
+  ],
+  "wizard.comm.ilk_waiting": [
+   "name",
+   "input"
   ],
   "wizard.comm.jog_moved": [
    "axis",
@@ -3263,6 +3361,18 @@
   "run.val.speed": [
    "v"
   ],
+  "safety.io.now_alarm": [
+   "text"
+  ],
+  "safety.io.problems": [
+   "problems"
+  ],
+  "safety.notice.not_configured": [
+   "name"
+  ],
+  "safety.notice.not_fitted": [
+   "name"
+  ],
   "web.log.failed": [
    "host",
    "port",
@@ -3369,6 +3479,9 @@
   ],
   "shell.mode.refused": [
    "mode"
+  ],
+  "shell.palette.no_matches": [
+   "query"
   ],
   "shell.palette.not_now": [
    "label"

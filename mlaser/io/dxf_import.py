@@ -78,6 +78,76 @@ from ..parity_ports.dxfparse.rules import (  # noqa: F401 - re-exported, used be
     _entity_glyphs, _Item, _collect, _near, _Chain, _is_closed_glyph,
     _try_append, _update_closed, _merge, chain_glyphs, _snap, _contour,
     _glyph_bbox, _graph_bbox, reverse_chain_contour, _part_bbox, place_document, _move)
+from . import limits as LIM
+
+
+# --------------------------------------------------------------------------- limits
+def _faithful_rules(rules) -> bool:
+    from ..parity_ports import ORIGINAL
+    return getattr(rules, "collect", None) is getattr(ORIGINAL.dxf, "collect", object())
+
+
+def check_expansion(layouts, *, max_depth: int = 32, multi_insert: bool = True,
+                    limit: int = 0, max_minsert: int = 0) -> int:
+    """Count the entities the collectors would visit with every block reference expanded,
+    without expanding anything (one pass over each block, memoised per block and depth), and
+    raise :class:`~mlaser.io.limits.ImportLimitError` above ``limit``
+    (:data:`~mlaser.io.limits.DXF_MAX_ENTITIES`).  ``max_depth``: the collector's INSERT depth
+    cut-off (faithful 16, modern 32); ``multi_insert``: MINSERT rows x columns count (modern;
+    the faithful import draws one copy).  Returns the count."""
+    budget = LIM.entity_budget(limit)
+    memo: dict[tuple, int] = {}
+
+    def count(entities, depth: int) -> int:
+        n = 0
+        for e in entities:
+            n += 1
+            if e.dxftype() != "INSERT" or e.dxf.get("invisible", 0) or depth > max_depth:
+                continue
+            try:
+                blk = e.block()
+            except Exception:   # noqa: BLE001 - the collectors skip it the same way
+                blk = None
+            if blk is None:
+                continue
+            copies = 1
+            if multi_insert:
+                try:
+                    copies = max(1, int(e.dxf.get("row_count", 1))) * max(1, int(e.dxf.get("column_count", 1)))
+                except (TypeError, ValueError):
+                    copies = 1
+                LIM.check_minsert(copies, max_minsert)
+            key = (str(getattr(blk, "name", id(blk))), depth + 1)
+            sub = memo.get(key)
+            if sub is None:
+                sub = memo[key] = count(blk, depth + 1)
+            n += copies * sub
+            if n > budget.limit:
+                budget.add(n)          # raises
+        return n
+
+    total = 0
+    for lay in layouts:
+        if lay is None:
+            continue
+        total += count(lay, 0)
+        if total > budget.limit:
+            budget.add(total)
+    LIM.check_cancel()
+    return total
+
+
+class _Items(list):
+    """The collector's item list: every append counts against the entity budget (and checks
+    for Cancel); otherwise a plain list."""
+
+    def __init__(self, budget: LIM.Budget):
+        super().__init__()
+        self._budget = budget
+
+    def append(self, item) -> None:      # type: ignore[override]
+        self._budget.add()
+        super().append(item)
 
 
 # --------------------------------------------------------------------------- text
@@ -408,18 +478,26 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     except ezdxf.DXFStructureError:
         from ezdxf import recover
         dxf, _ = recover.readfile(path)
+    LIM.check_cancel()
     rules = dxf_rules(mode)            # DxfParse + CADModule import rules (parity fence)
-    weights_map = _acad_weights(path)
-    stats: dict = {"faces": 0, "regions": 0,
-                   "options": {"flatten_tol": flatten_tol, "text_outlines": text_outlines}}
-    items: list[_Item] = []
-    rules.collect(dxf.modelspace(), weights_map, [], items, stats)
     try:
         psp = dxf.paperspace()        # the active layout's entities are in ENTITIES (group 67 = 1)
     except Exception:   # noqa: BLE001
         psp = None
+    # untrusted input: refuse a block-expansion bomb before expanding anything
+    # (mlaser.io.limits; the faithful collector cuts INSERTs off below depth 16 and draws one
+    # MINSERT copy, the modern one at depth 32 with every copy)
+    faithful = _faithful_rules(rules)
+    check_expansion([dxf.modelspace(), psp], max_depth=16 if faithful else 32, multi_insert=not faithful)
+    weights_map = _acad_weights(path)
+    budget = LIM.entity_budget()
+    stats: dict = {"faces": 0, "regions": 0, "budget": budget,
+                   "options": {"flatten_tol": flatten_tol, "text_outlines": text_outlines}}
+    items: list[_Item] = _Items(LIM.entity_budget())   # the collector's output
+    rules.collect(dxf.modelspace(), weights_map, [], items, stats)
     if psp is not None:
         rules.collect(psp, weights_map, [], items, stats)
+    LIM.check_cancel()
 
     texts = [it.text for it in items if it.text]
     ready = [t.pop("contours") if "contours" in t else None for t in texts]   # modern: outlines made
@@ -427,6 +505,7 @@ def import_dxf(path: str, join_tol: float = CHAIN_TOL, flatten_tol: float = geom
     chains = rules.chain_glyphs([it for it in items if it.glyphs], join_tol)
     contours = [(ch.key, rules.contour_of_chain(ch, flatten_tol), ch.kind) for ch in chains]
     contours = [c for c in contours if c[1].segments]
+    LIM.check_cancel()
 
     doc = Document()
     doc.extra.update({"source": path, "texts": texts, "points": points, "regions": stats["regions"],

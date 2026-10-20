@@ -12,12 +12,19 @@ contextual toolbar on top, then either
 
 The rail is a vertical, non-movable QToolBar (``shell_rail``) with one checkable button per
 workspace the user mode may see; Ctrl+1..6 (and each workspace's ``shortcut``) switch.
+
+**Exclusive workspaces** (the Run operator screen, :data:`EXCLUSIVE`, or a spec with
+``extra["exclusive_docks"]``): no docked panel shares the window with them.  Every dock that is
+not one of the workspace's own is hidden while it is active, also one a plugin shows later (the
+classic Nest dock used to squeeze the Run screen until STOP, START and Arm were cut off at
+1440 × 900, review 2), and shown again when the operator leaves the workspace.  A floating dock
+does not take room from the page and is left alone.
 """
 from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QSize, Qt
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
                                QSplitter, QStackedWidget, QTabWidget, QToolBar, QToolButton,
@@ -27,6 +34,10 @@ from mlaser.services import usermodes as um
 from mlaser.services.workspaces import BUILTIN, SLOTS, WorkspaceSpec, slot_for
 
 from ..icons import command_icon, icon
+
+
+#: workspaces that never share the window with docked panels (see the module docstring)
+EXCLUSIVE = frozenset({"run"})
 
 
 class EmptyState(QWidget):
@@ -308,6 +319,8 @@ class WorkspaceHost:
         self._group.setExclusive(True)
         self.rail_actions: dict[str, QAction] = {}
         self._managed_docks: set[str] = set()
+        self._suppressed: set[str] = set()      # docks hidden by an exclusive workspace
+        self._watched: set[int] = set()         # docks whose visibility is watched
         for slot in SLOTS:
             b = BUILTIN[slot]
             self._add_page(WorkspaceSpec(**{**b.__dict__, "extra": dict(b.extra)}))
@@ -423,9 +436,31 @@ class WorkspaceHost:
     def resolve(self, ws_id: str) -> str:
         return self.aliases.get(ws_id, ws_id)
 
+    def exclusive(self, spec: Optional[WorkspaceSpec] = None) -> bool:
+        """Is ``spec`` (default: the active workspace) an exclusive workspace?"""
+        spec = spec if spec is not None else self.specs.get(self.current)
+        return spec is not None and (spec.id in EXCLUSIVE or bool(spec.extra.get("exclusive_docks")))
+
     def _apply_docks(self, prev: Optional[WorkspaceSpec], spec: WorkspaceSpec) -> None:
         """Docks named by the new workspace are shown; docks named by any other workspace (the
-        "owned" docks) are hidden; every other dock stays as the user or a plugin left it."""
+        "owned" docks) are hidden; every other dock stays as the user or a plugin left it,
+        except in an exclusive workspace, which hides every other docked panel (restored when
+        the operator leaves it)."""
+        self.watch_docks()
+        if self.exclusive(spec):
+            want = set(spec.docks or ())
+            for d in self.docks():
+                if d.objectName() not in want and not d.isHidden() and not d.isFloating():
+                    self._suppressed.add(d.objectName())
+                    d.hide()
+        elif self._suppressed:
+            owned = set(self._managed_docks)
+            for s in self.specs.values():
+                owned.update(s.docks or ())
+            back, self._suppressed = self._suppressed, set()
+            for d in self.docks():
+                if d.objectName() in back and d.objectName() not in owned and d.isHidden():
+                    d.show()
         if spec.docks is None:
             return
         want = set(spec.docks)
@@ -443,6 +478,37 @@ class WorkspaceHost:
     def docks(self) -> list:
         from PySide6.QtWidgets import QDockWidget
         return [d for d in self.w.findChildren(QDockWidget) if d.parent() is self.w]
+
+    def watch_docks(self) -> None:
+        """Watch every dock's visibility (new ones too: called on each switch and by the shell's
+        poll): one that appears docked while an exclusive workspace is active is hidden again."""
+        for d in self.docks():
+            if id(d) in self._watched:
+                continue
+            self._watched.add(id(d))
+            d.visibilityChanged.connect(lambda vis, d=d: self._dock_shown(d) if vis else None)
+            d.topLevelChanged.connect(lambda floating, d=d: self._dock_shown(d) if not floating else None)
+            d.destroyed.connect(lambda *_a, k=id(d): self._watched.discard(k))
+            if d.isVisible():
+                self._dock_shown(d)
+
+    def _dock_shown(self, d) -> None:
+        spec = self.specs.get(self.current)
+        if spec is None or not self.exclusive(spec) or d.objectName() in (spec.docks or ()):
+            return
+        if d.isFloating() or d.isHidden():
+            return
+        self._suppressed.add(d.objectName())
+        QTimer.singleShot(0, lambda d=d: self._hide_if_still(d))
+
+    def _hide_if_still(self, d) -> None:
+        try:
+            spec = self.specs.get(self.current)
+            if spec is not None and self.exclusive(spec) and not d.isFloating() \
+                    and d.objectName() not in (spec.docks or ()):
+                d.hide()
+        except RuntimeError:            # the dock was deleted meanwhile
+            pass
 
     def refresh_mode(self) -> None:
         """The user mode changed: rail, toolbars and placeholders follow."""

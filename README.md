@@ -64,7 +64,7 @@ Each release on the GitHub release page carries:
 | `mlaser-<version>.tar.gz` | the source distribution (builds the C kernel when a compiler is present) |
 
 ```bash
-pip install mlaser-0.1.0-cp312-cp312-win_amd64.whl      # the wheel for your Python and OS; PySide6 etc. from PyPI
+pip install mlaser-0.1.0rc1-cp312-cp312-win_amd64.whl    # the wheel for your Python and OS; PySide6 etc. from PyPI
 python -m mlaser._native                                 # the C emitter kernel is active
 mlaser --demo
 ```
@@ -157,12 +157,17 @@ frames = job.frames(first_seq=1)   # values for write(102, frame)
 Tests (Qt runs offscreen):
 
 ```bash
-uv run pytest -q                        # default: unit, ui and sim tests (~55 s)
+uv run pytest -q -n auto --dist loadgroup   # default suite in parallel, as CI (~2.7 min; safety
+                                        #   and sim tests stay on one worker, docs/dev/TESTING.md)
+uv run pytest -q                        # default suite serially: unit, ui, sim, safety (~5.5 min)
 uv run pytest -q -m unit                # or ui / sim: one suite
-uv run pytest -q -m golden              # golden artefacts (~40 s), see tests/golden/
+uv run pytest -q -m golden              # golden artefacts (~75 s), see tests/golden/
 uv run pytest -q -m parity              # Wine parity suite (needs ../parity, ~2 min)
-uv run python tools/make_goldens.py     # regenerate the goldens after a reviewed change
+uv run python tools/make_goldens.py     # regenerate the goldens, only after a reviewed change (CONTRIBUTING.md)
 ```
+
+The times were measured on a shared 64-core host under heavy load (load average about 250,
+2026-10-19); see [docs/dev/TESTING.md](docs/dev/TESTING.md#parallel-runs-pytest-xdist).
 
 ## Languages
 
@@ -285,8 +290,10 @@ Latest: **263 match, 14 differ, 0 errors, 4 skipped** ([docs/re/parity.md](docs/
 ## Timing: why Python is enough
 
 The card replays the FIFO on its own servo clock (1 ms steps), so Python never does hard real-time
-work. It only has to compile the job, which runs about 200× faster than real time and is done
-before the start, and keep the card's FIFO from running dry, which takes about 12 kB/s. Measured
+work. It only has to compile the job, which runs roughly 100× faster than real time with the
+default profile (smoothing on: 90-180× measured on a loaded host, 1 ms per step; with smoothing
+off about 400×; [PERFORMANCE.md §5](docs/dev/PERFORMANCE.md#5-native-kernel-p2-2-the-default))
+and is done before the start, and keep the card's FIFO from running dry, which takes about 12 kB/s. Measured
 against the simulator replaying at real speed:
 
 | Setup | Card starved | Lowest buffer |

@@ -24,6 +24,23 @@ import multiprocessing
 import sys
 
 
+def make_controller(host: str, port: int, ini, laser_enabled: bool, config):
+    """The real-card controller with the machine's safety I/O from ``config``
+    (:mod:`mlaser.services.safety_io`): the interlocks at construction, the heartbeat through
+    ``safety_io.apply``, which checks it against the controller's output map (a heartbeat on a
+    process output stays off).  Later changes reach it through ``ui/safety_io.py``."""
+    from mlaser.controller.ui_adapter import UiController
+    from mlaser.services import safety_io
+    sio = safety_io.from_config(config)
+    ctl = UiController(host, port, ini_path=ini, laser_enabled=laser_enabled,
+                       interlocks=sio.kwargs()["interlocks"])
+    bad = safety_io.problems(sio, ctl.output_map)
+    if bad:
+        print("safety I/O: " + "; ".join(bad) + " (Machine > Settings > Safety I/O)", file=sys.stderr)
+    safety_io.apply(ctl, sio)
+    return ctl
+
+
 def main(argv=None) -> int:
     # a frozen Windows build re-runs the executable for the streaming child (spawn): let
     # multiprocessing take over there instead of starting a second GUI
@@ -78,11 +95,14 @@ def main(argv=None) -> int:
     if tr.language not in {li.code for li in tr.available()}:
         print(f"no texts for {args.lang!r}: import them with --import-lang <your Mlaser folder>; "
               "showing English", file=sys.stderr)
+    # the configuration first: the controller is built with the machine's safety I/O
+    # (interlocks, "PC alive" heartbeat: services.safety_io, docs/SAFETY.md §8, §11)
+    from mlaser.services.config import ConfigService
+    config = ConfigService()
     ctl = None
     if not args.fake:
         try:
-            from mlaser.controller.ui_adapter import UiController
-            ctl = UiController(args.host, args.port, ini_path=args.ini, laser_enabled=not args.laser_off)
+            ctl = make_controller(args.host, args.port, args.ini, not args.laser_off, config)
         except Exception as exc:  # noqa: BLE001 - controller package broken
             if args.real:
                 print(f"ERROR: the real controller cannot be built ({exc}); not starting "
@@ -90,7 +110,7 @@ def main(argv=None) -> int:
                 return 2
             print(f"real controller unavailable ({exc}); using the demo controller", file=sys.stderr)
     win = MainWindow(ctl or DemoController(laser_enabled=not args.laser_off), tr, extensions=EXTENSIONS,
-                     entry_points=True)
+                     config=config, entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
     if args.file:

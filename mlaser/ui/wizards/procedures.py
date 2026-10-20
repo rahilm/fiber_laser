@@ -317,12 +317,41 @@ class CommissioningWizard(WizardDialog):
         self.refresh()
 
     def make_rig(self) -> Any:
-        return simrig.simulator_controller("card", heartbeat_output=7)
+        rig = simrig.simulator_controller("card", heartbeat_output=7)
+        self._rig_interlocks(rig)
+        return rig
+
+    def _rig_interlocks(self, rig: Any) -> None:
+        """Dry run: the private simulator gets the configured interlock inputs (the wiring test
+        then toggles its inputs); its heartbeat stays on output 7."""
+        cfg = getattr(self.ext.ctx, "config", None)
+        if rig is None or cfg is None or not hasattr(getattr(rig, "interlocks", None), "cfg"):
+            return
+        from dataclasses import replace
+
+        from mlaser.services import safety_io
+        rig.interlocks.cfg = replace(safety_io.from_config(cfg).interlocks)
+
+    def configure_safety_io(self) -> None:
+        """The Safety I/O dialog from the checklist, then the interlock check again."""
+        from ..safety_io import SafetyIODialog
+        d = SafetyIODialog(self.w, self)
+        if d.exec() or getattr(self, "_test_accept_safety_io", False):
+            self._rig_interlocks(self.rig)
+            p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+            p.recheck_interlocks()
+        self.refresh()
 
     def page(self, step: PE.Step) -> QWidget:
         w = QWidget()
         lay = QHBoxLayout(w)
-        if step.id == "soft_limits":
+        if step.id in ("interlocks", "interlock_test"):
+            b = QPushButton(T(self.w, "wizard.comm.fix_safety_io"))
+            b.setObjectName("configure_safety_io")
+            b.setMinimumHeight(MIN_TARGET)
+            b.clicked.connect(lambda: self.configure_safety_io())
+            lay.addWidget(b)
+        elif step.id == "soft_limits":
             b = QPushButton(T(self.w, "wizard.comm.fix_limits"))
             b.setObjectName("fix")
             b.setMinimumHeight(MIN_TARGET)

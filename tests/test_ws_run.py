@@ -272,14 +272,10 @@ def test_queue_flow_with_confirmation_and_remnant(win, app, tmp_path):
 
 
 def test_lan_monitor_plugin(win, app):
-    import socket
     ws = win.extension("run")
-    s = socket.socket()
-    s.bind(("127.0.0.1", 0))
-    port = s.getsockname()[1]
-    s.close()
-    ws.settings["monitor_port"] = port
-    assert ws.set_monitor(True, confirm=False)
+    # port 0: the server binds a free port itself (no bind-close-reuse race between xdist workers)
+    assert ws.set_monitor(True, confirm=False, port=0)
+    port = ws.monitor.address[1]
     try:
         show_run(win, app)
         assert ws.screen.monitor_chip.isVisible() and str(port) in ws.screen.monitor_chip.text()
@@ -291,6 +287,12 @@ def test_lan_monitor_plugin(win, app):
         c.request("POST", f"/status.json?t={ws.settings['monitor_token']}", body=b"x")
         assert c.getresponse().status == 405
         c.close()
+        # the SVG is kept between ticks: published again only when it changed
+        builds = ws._svg_cache.builds
+        _, svg1 = ws.monitor.current()
+        ws.publish_monitor()
+        ws.publish_monitor()
+        assert ws._svg_cache.builds == builds and ws.monitor.current()[1] is svg1
         shot(ws.screen.window(), "run_monitor_on_1280x800.png")
     finally:
         ws.set_monitor(False)

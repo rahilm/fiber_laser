@@ -18,6 +18,15 @@ of the Wave 3 interface extends it.*
 The import can clean up the drawing: remove duplicates, join open ends, drop tiny objects and fit
 arcs (**Process → Optimize**).
 
+Files are read in the background: a large file shows a progress window with the number of
+entities read so far and a **Cancel** button, and the rest of the window (the run controls
+included) keeps working. A file that would expand far beyond any real drawing is refused with
+a message instead of being imported: a DXF with more than 2,000,000 entities once its blocks
+are expanded (or a MINSERT array of more than 100,000 copies), an SVG with more than 500,000
+elements once its `<use>` copies are made, or a project (`.mlz`) over its size limits
+([project format](../dev/project-format.md#limits)). Such files are either damaged or built to
+exhaust the computer; explode or simplify the blocks in the CAD program and export again.
+
 ## Draw
 
 The **Draw** tab has point, line, circle (centre or 3 points), arc, ellipse, rectangle, rounded
