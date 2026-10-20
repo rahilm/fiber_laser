@@ -1,0 +1,29 @@
+# The plugin manifest (docs/dev/PLUGIN_STANDARD.md §2).  It is read from the installed
+# distribution's file list, never by importing the plugin.
+
+[plugin]
+id = "hello"                            # = the entry-point name; settings are plugin.hello.*
+name = "Hello grid"
+version = "0.2.0"                       # = the distribution version
+entry = "mlaser_hello:plugin"           # = the entry-point value
+api = ">=2,<3"                          # plugin API range
+mlaser = ">=0.1.0rc1"                   # application version range
+summary = "Adds a grid of squares to the drawing (the example plugin)"
+description = """
+The smallest complete mlaser plugin: one command (`hello.grid`), a ribbon tab and four typed
+settings.  See docs/dev/PLUGINS.md.
+"""
+authors = ["mlaser contributors"]
+license = "MIT"
+homepage = "https://github.com/rahilm/fiber_laser/tree/main/examples/mlaser_hello"
+source = "https://github.com/rahilm/fiber_laser"
+min_mode = "engineer"                   # its commands need Engineer mode unless they say otherwise
+
+[permissions]
+network = []                            # no network access
+files = false
+document = true                         # ctx.edit: adds the squares to the open drawing
+orders = false
+queue = false
+machine = false
+secrets = false

@@ -18,7 +18,7 @@ from mlaser.services.commands import CommandRegistry, UnknownCommandError
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService, clone_parts
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
-from mlaser.services.plugins import ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
+from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
 from . import dialogs
 from .canvas import CanvasView, layer_color
@@ -252,10 +252,15 @@ class MainWindow(QMainWindow):
         (``[info, status]``), only those the allowlist enables (``plugins.allowlist``, Service
         mode, Options+ > Plugins) are imported.  Status: ``loaded`` / ``failed`` / ``disabled``
         / ``changed`` (enabled for another target: needs enabling again)."""
+        # the plugin manager's site directory goes at the END of sys.path first (core modules
+        # always win), so the plugins it installed appear as ordinary entry points
+        from mlaser.services.plugin_manager import activate_site
+        activate_site()
         allow = self.config.get(ALLOWLIST_KEY, {})
+        accepted = self.config.get(ACCEPTED_KEY, {})
         taken = set(self.extensions)
         for info in discover((), entry_points=True):
-            st = plugin_status(info, allow)
+            st = plugin_status(info, allow, accepted)
             if st == "enabled":
                 if info.name in taken:
                     st = "failed"
@@ -263,7 +268,7 @@ class MainWindow(QMainWindow):
                 else:
                     st = "loaded" if self._register(info) else "failed"
             elif st == "changed":
-                self.log(f"plugin {info.name}: its entry point changed to {info.target}; "
+                self.log(f"plugin {info.name}: its entry point ({info.target}) or its permissions changed; "
                          "not loaded until it is enabled again (Options+ > Plugins, Service mode)")
             self.plugin_catalog.append([info, st])
         found = [i.name for i, s in self.plugin_catalog if s in ("disabled", "changed")]

@@ -21,6 +21,14 @@ detected instead of depending on load order (architecture.md §1.3, P1-5):
   ``plugin.<name>.<key>`` (:class:`mlaser.services.config.ConfigService`).
 * services: ``ctx.docs``, ``ctx.config``, ``ctx.jobs``, ``ctx.commands``; ``ctx.controller``,
   ``ctx.document``, ``ctx.window`` (Qt parent for dialogs), ``ctx.tr``, ``ctx.log(msg)``.
+* plugin API 2 (docs/dev/PLUGIN_STANDARD.md §4): ``ctx.manifest``, ``ctx.permissions``,
+  ``ctx.data_dir``, ``ctx.http`` (:mod:`.plugin_http`), ``ctx.secrets``,
+  ``ctx.run_in_background(fn, on_done=, on_error=)``, ``ctx.services`` (orders, technology,
+  queue, intake, config) and ``ctx.show_message(text, level)``.  An entry-point plugin declares
+  its permissions in ``mlaser-plugin.toml`` (:mod:`.plugin_manifest`); the application enforces
+  them on its own APIs (http hosts, secrets, the controller, the document, orders and queue).
+  A legacy entry-point plugin (no manifest) keeps API-1 behaviour and gets none of the new
+  services.
 
 Discovery: the application's built-in plugins (``mlaser.ui.mainwindow.EXTENSIONS``) and every
 entry point in the group ``mlaser.plugins`` (the MeerK40t pattern)::
@@ -35,6 +43,9 @@ module enforces:
 * entry-point plugins are **opt-in**: :func:`discover` lists them, but the application loads only
   those in the persisted allowlist (``plugins.allowlist``: name -> entry-point target, edited in
   Service mode; :func:`allowed`), and a changed target needs enabling again;
+* an enabled plugin whose manifest permissions changed since they were accepted
+  (``plugins.accepted``) shows as ``changed`` and needs enabling again; a manifest whose ``api``
+  or ``mlaser`` range excludes this application is refused with a log line;
 * they load **after** the safety UI exists (``MainWindow``), and cannot register commands in the
   core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
   so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
@@ -53,16 +64,23 @@ from __future__ import annotations
 
 import importlib
 import logging
+import os
+import re
+import threading
 import traceback
 from dataclasses import dataclass, replace
+from pathlib import Path
 from typing import Any, Callable, Iterable, Optional, Protocol
 
 from .commands import CommandRegistry, CommandSpec, DuplicateCommandError
 from .config import Setting
+from .plugin_manifest import Permissions, check_identity, compatibility_errors, manifest_for_dist, normalize_permissions
 
 log = logging.getLogger("mlaser.plugins")
 
-PLUGIN_API = 1
+#: the plugin API this application implements (2: the manifest, permissions and the services of
+#: docs/dev/PLUGIN_STANDARD.md; additive to API 1)
+PLUGIN_API = 2
 ENTRY_POINT_GROUP = "mlaser.plugins"
 HOOKS = ("controller_changed", "mode_changed", "document_changed", "plan", "close",
          "workspace_changed", "user_mode_changed",
@@ -80,6 +98,8 @@ ALLOWLIST_KEY = "plugins.allowlist"
 #: plugin names the service engineer granted machine authority (arm, reset faults, hold the
 #: heartbeat, reconfigure safety through the controller's plugin policy)
 AUTHORITY_KEY = "plugins.authority"
+#: {name: normalised manifest permissions} accepted when the plugin was enabled
+ACCEPTED_KEY = "plugins.accepted"
 
 
 class DuplicateProviderError(KeyError):
@@ -222,12 +242,22 @@ class PluginSettings:
 class PluginContext:
     """The API object of one plugin (see the module docstring)."""
 
-    def __init__(self, host: Host, name: str, origin: str = "builtin") -> None:
+    def __init__(self, host: Host, name: str, origin: str = "builtin", manifest: Optional[dict] = None) -> None:
         self.host = host
         self.name = name
         self.origin = origin                # builtin | entry-point
         self.commands_registered: list[str] = []
         self.settings: Optional[PluginSettings] = None
+        self._manifest = manifest
+        if origin == "builtin":
+            self._permissions = Permissions.everything()
+        elif manifest is None:
+            self._permissions = Permissions(legacy=True)
+        else:
+            self._permissions = Permissions.from_dict(manifest.get("permissions", {}))
+        self._http: Any = None
+        self._secrets: Any = None
+        self._services: Any = None
 
     # ------------------------------------------------------------------ services
     @property
@@ -253,7 +283,18 @@ class PluginContext:
     @property
     def controller(self):
         """The machine controller (built-in plugins), or the Safety-core plugin view of it
-        (:func:`controller_for`)."""
+        (:func:`controller_for`).  A plugin with a manifest needs ``permissions.machine`` **and**
+        the service engineer's machine-authority grant (``plugins.authority``), else
+        ``PermissionError``; a legacy plugin keeps the API-1 rule (the view, and the controller's
+        plugin policy for every safety action)."""
+        if self._manifest is not None and self.origin != "builtin":
+            if not self._permissions.machine:
+                raise PermissionError(f"plugin {self.name!r} did not declare permissions.machine")
+            cfg = getattr(self.host, "config", None)
+            granted = (cfg.get(AUTHORITY_KEY, []) or []) if cfg is not None else []
+            if self.name not in granted:
+                raise PermissionError(f"plugin {self.name!r} has no machine authority "
+                                      "(Plugin manager, Service mode)")
         return controller_for(self.host.ctl, self.name, self.origin)
 
     @property
@@ -289,6 +330,8 @@ class PluginContext:
         if self.origin != "builtin" and cmd_id.startswith(RESERVED_PREFIXES):
             raise ReservedCommandError(f"command {cmd_id!r} is in a namespace reserved for the core "
                                        f"({', '.join(RESERVED_PREFIXES)})")
+        if not min_mode and self._manifest is not None:
+            min_mode = str(self._manifest.get("plugin", {}).get("min_mode", "") or "")
         spec = self.host.commands.register(
             cmd_id, handler, self.name, label or cmd_id, checkable, min_mode=min_mode, workspace=workspace
         )
@@ -301,13 +344,16 @@ class PluginContext:
 
     # ------------------------------------------------------------------ document
     def edit(self, fn: Callable[[Any], Any], label: str = "", parts=None) -> Any:
-        """Run ``fn(document)`` as one undoable transaction and refresh the views."""
+        """Run ``fn(document)`` as one undoable transaction and refresh the views
+        (a plugin with a manifest needs ``permissions.document``)."""
+        self._need("document")
         return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts)
 
     def replace_document(self, doc: Any, label: str = "", path: Optional[str] = None) -> None:
         """Make ``doc`` the open document (undoable).  Refused (:class:`DocumentLockedError`, the
         reason shown to the operator) while a job runs or a breakpoint is pending: the cut must
-        not continue on another drawing (review 2, P1-5)."""
+        not continue on another drawing (review 2, P1-5).  Needs ``permissions.document``."""
+        self._need("document")
         locked = getattr(self.host, "document_locked", None)
         if callable(locked) and locked(f"{self.name}: replace the document"):
             raise DocumentLockedError("the document is locked while a job runs or a breakpoint is pending")
@@ -389,6 +435,98 @@ class PluginContext:
         """The current user mode (``"engineer"`` when the host has no shell)."""
         return getattr(self.host, "user_mode", "engineer")
 
+    # ------------------------------------------------------------------ plugin API 2
+    def _need(self, permission: str) -> None:
+        """Enforce a declared permission (built-ins and legacy plugins: API-1 rules)."""
+        if self._permissions.all or self._permissions.legacy:
+            return
+        if not self._permissions.allows(permission):
+            raise PermissionError(f"plugin {self.name!r} did not declare permissions.{permission} "
+                                  "(mlaser-plugin.toml)")
+
+    def _api2(self, what: str) -> None:
+        if self._permissions.legacy:
+            raise PermissionError(f"{what} is plugin API 2: plugin {self.name!r} has no manifest "
+                                  "(mlaser-plugin.toml, docs/dev/PLUGIN_STANDARD.md)")
+
+    @property
+    def manifest(self) -> Optional[dict]:
+        """The parsed ``mlaser-plugin.toml`` (None: a built-in or legacy plugin)."""
+        return self._manifest
+
+    @property
+    def permissions(self) -> Permissions:
+        """The declared permissions, frozen (built-ins: everything)."""
+        return self._permissions
+
+    @property
+    def data_dir(self) -> Path:
+        """``<data dir>/plugins/data/<id>/``, created on first access."""
+        self._api2("ctx.data_dir")
+        from .plugin_manager import plugin_data_dir
+        d = plugin_data_dir(self.name)
+        d.mkdir(parents=True, exist_ok=True)
+        return d
+
+    @property
+    def http(self):
+        """The HTTP client (:class:`mlaser.services.plugin_http.HttpClient`): https only, hosts
+        of ``permissions.network`` only."""
+        self._api2("ctx.http")
+        if self._http is None:
+            from .plugin_http import HttpClient
+            self._http = HttpClient(self._permissions.allows_host,
+                                    owner="" if self._permissions.all else self.name)
+        return self._http
+
+    @property
+    def secrets(self) -> "PluginSecrets":
+        """``get`` / ``set`` / ``delete`` of credentials, namespaced to this plugin; needs
+        ``permissions.secrets``."""
+        self._api2("ctx.secrets")
+        self._need("secrets")
+        if self._secrets is None:
+            self._secrets = PluginSecrets(self.name, self.data_dir if not self._permissions.all
+                                          else _builtin_data_dir(self.name))
+        return self._secrets
+
+    def run_in_background(self, fn: Callable[[], Any], *, on_done: Optional[Callable[[Any], Any]] = None,
+                          on_error: Optional[Callable[[BaseException], Any]] = None) -> "BackgroundTask":
+        """Run ``fn()`` on a worker thread; ``on_done(result)`` / ``on_error(exc)`` run on the GUI
+        thread.  ``handle.cancel()`` sets ``handle.cancelled`` (``fn`` checks it)."""
+        task = BackgroundTask(self, fn, on_done, on_error)
+        task.start()
+        return task
+
+    def _post(self, fn: Callable[[], Any]) -> None:
+        post = getattr(self.host, "post_to_gui", None)
+        if not callable(post):
+            post = getattr(getattr(self.host, "jobs", None), "post", None)
+        if callable(post):
+            post(fn)
+        else:
+            fn()                        # a host without a GUI thread (tests): deliver here
+
+    @property
+    def services(self) -> "PluginServices":
+        """The window's public service objects: ``orders``, ``technology``, ``queue``,
+        ``intake``, ``config`` (None when that part is absent)."""
+        if self._services is None:
+            self._services = PluginServices(self)
+        return self._services
+
+    def show_message(self, text: str, level: str = "info") -> None:
+        """A status-bar message (also in the log panel)."""
+        text = str(text)
+        sb = getattr(self.host, "statusBar", None)
+        if callable(sb):
+            try:
+                sb().showMessage(text, 8000)
+            except Exception:  # noqa: BLE001 - the log line below still tells
+                pass
+        prefix = "" if level == "info" else f"{level.upper()}: "
+        self.host.log(f"{self.name}: {prefix}{text}")
+
     # ------------------------------------------------------------------ settings
     def settings_schema(self, settings: Iterable[Setting]) -> PluginSettings:
         prefix = f"plugin.{self.name}."
@@ -406,6 +544,150 @@ class PluginContext:
         return self.settings
 
 
+_SECRET_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
+
+
+def _builtin_data_dir(name: str) -> Path:
+    from .plugin_manager import plugin_data_dir
+    return plugin_data_dir(name)
+
+
+class PluginSecrets:
+    """``ctx.secrets``: the notifications' secret store (:class:`mlaser.notify.secrets.SecretStore`:
+    the keyring when available, else a 0600 JSON file), here under the names
+    ``plugin.<id>.<key>`` and with the file in the plugin's data directory.  Values are never
+    logged."""
+
+    FILE = "secrets.json"
+
+    def __init__(self, plugin: str, directory: Path, keyring_module: Any = None) -> None:
+        from mlaser.notify.secrets import SecretStore
+        self.plugin = plugin
+        use_kr = keyring_module is not None or not _under_test()
+        self._store = SecretStore(Path(directory) / self.FILE, use_keyring=use_kr, keyring_module=keyring_module)
+
+    @property
+    def backend(self) -> str:
+        return self._store.backend
+
+    def _name(self, key: str) -> str:
+        if not isinstance(key, str) or not _SECRET_KEY_RE.match(key):
+            raise ValueError("a secret key is 1-64 letters, digits, '_', '.', '-'")
+        return f"plugin.{self.plugin}.{key}"
+
+    def get(self, key: str) -> Optional[str]:
+        return self._store.get(self._name(key)) or None
+
+    def set(self, key: str, value: Optional[str]) -> None:
+        if value is not None and not isinstance(value, str):
+            raise TypeError("a secret value is a string")
+        self._store.set(self._name(key), value or "")
+
+    def delete(self, key: str) -> None:
+        self._store.set(self._name(key), "")
+
+    def __repr__(self) -> str:
+        return f"<PluginSecrets {self.plugin} ({self.backend})>"
+
+
+def _under_test() -> bool:
+    import sys
+    return bool(os.environ.get("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
+
+
+class BackgroundTask:
+    """The handle of ``ctx.run_in_background``."""
+
+    def __init__(self, ctx: PluginContext, fn: Callable[[], Any], on_done: Optional[Callable[[Any], Any]],
+                 on_error: Optional[Callable[[BaseException], Any]]) -> None:
+        self.ctx, self.fn, self.on_done, self.on_error = ctx, fn, on_done, on_error
+        self.cancelled = False
+        self.done = threading.Event()
+        self.result: Any = None
+        self.error: Optional[BaseException] = None
+        self.thread = threading.Thread(target=self._run, name=f"mlaser-plugin-{ctx.name}", daemon=True)
+
+    def start(self) -> None:
+        self.thread.start()
+
+    def cancel(self) -> None:
+        self.cancelled = True
+
+    def wait(self, timeout: Optional[float] = None) -> bool:
+        return self.done.wait(timeout)
+
+    def _deliver(self, cb: Optional[Callable[[Any], Any]], arg: Any) -> None:
+        if cb is None:
+            return
+
+        def call() -> None:
+            try:
+                cb(arg)
+            except Exception:  # noqa: BLE001 - a plugin callback must not break the GUI loop
+                msg = f"plugin {self.ctx.name}: background callback failed"
+                log.error("%s\n%s", msg, traceback.format_exc())
+                self.ctx.log(msg)
+
+        self.ctx._post(call)
+
+    def _run(self) -> None:
+        try:
+            self.result = self.fn()
+        except BaseException as exc:  # noqa: BLE001 - delivered to on_error
+            self.error = exc
+            if self.on_error is None:
+                log.error("plugin %s: background task failed: %s: %s", self.ctx.name, type(exc).__name__, exc)
+            self.done.set()
+            self._deliver(self.on_error, exc)
+            return
+        self.done.set()
+        self._deliver(self.on_done, self.result)
+
+
+class PluginServices:
+    """``ctx.services``: the public service objects of the window, looked up when asked for.
+    ``orders`` needs ``permissions.orders``; ``queue`` and ``intake`` need ``permissions.queue``."""
+
+    def __init__(self, ctx: PluginContext) -> None:
+        self._ctx = ctx
+
+    def _provider(self, name: str) -> Any:
+        hooks = getattr(self._ctx.host, "hooks", None)
+        fn = hooks.provider(name) if hooks is not None else None
+        try:
+            return fn() if callable(fn) else None
+        except Exception:  # noqa: BLE001 - an absent part reads as None
+            return None
+
+    @property
+    def orders(self) -> Any:
+        self._ctx._need("orders")
+        return self._provider("orders")
+
+    @property
+    def queue(self) -> Any:
+        self._ctx._need("queue")
+        return self._provider("queue")
+
+    @property
+    def intake(self) -> Any:
+        self._ctx._need("queue")
+        return self._provider("intake")
+
+    @property
+    def technology(self) -> Any:
+        tech = self._provider("technology")
+        if tech is not None:
+            return tech
+        ext = getattr(self._ctx.host, "extension", None)
+        proc = ext("ext_process") if callable(ext) else None
+        return getattr(proc, "store", None)
+
+    @property
+    def config(self) -> Any:
+        return getattr(self._ctx.host, "config", None)
+
+
 # --------------------------------------------------------------------------- loading
 @dataclass
 class PluginInfo:
@@ -413,6 +695,21 @@ class PluginInfo:
     target: str  # "module" or "module:attr"
     origin: str = "builtin"  # builtin | entry-point
     dist: str = ""  # "package 1.2.3" of an entry point (for the Plugins dialog)
+    manifest: Optional[dict] = None          # mlaser-plugin.toml (read without importing)
+    manifest_error: str = ""                  # an invalid manifest: never loaded
+    dist_name: str = ""
+    version: str = ""
+    location: str = ""                        # "site" (plugin manager) or "environment"
+
+    @property
+    def legacy(self) -> bool:
+        return self.origin != "builtin" and self.manifest is None and not self.manifest_error
+
+    @property
+    def permissions(self) -> Optional[Permissions]:
+        if self.manifest is None:
+            return None
+        return Permissions.from_dict(self.manifest.get("permissions", {}))
 
 
 def discover(
@@ -434,8 +731,27 @@ def discover(
                 continue
             dist = getattr(ep, "dist", None)
             label = f"{getattr(dist, 'name', '')} {getattr(dist, 'version', '')}".strip() if dist else ""
-            out.append(PluginInfo(ep.name, ep.value, "entry-point", label))
+            manifest, err = manifest_for_dist(dist, ep.value)
+            if manifest is not None:
+                bad = check_identity(manifest, ep.name, ep.value, str(getattr(dist, "version", "") or ""))
+                if bad:
+                    manifest, err = None, "; ".join(bad)
+            out.append(PluginInfo(ep.name, ep.value, "entry-point", label, manifest, err,
+                                  str(getattr(dist, "name", "") or "") if dist else "",
+                                  str(getattr(dist, "version", "") or "") if dist else "",
+                                  _location(dist)))
     return out
+
+
+def _location(dist: Any) -> str:
+    if dist is None:
+        return ""
+    try:
+        from .plugin_manager import site_dir
+        base = str(Path(dist.locate_file("")).resolve())
+        return "site" if Path(base) == site_dir().resolve() else "environment"
+    except Exception:  # noqa: BLE001
+        return "environment"
 
 
 def allowed(info: PluginInfo, allowlist: Optional[dict]) -> bool:
@@ -446,9 +762,18 @@ def allowed(info: PluginInfo, allowlist: Optional[dict]) -> bool:
     return bool(allowlist) and isinstance(allowlist, dict) and allowlist.get(info.name) == info.target
 
 
-def plugin_status(info: PluginInfo, allowlist: Optional[dict]) -> str:
-    """``enabled`` / ``disabled`` / ``changed`` (enabled for another target)."""
+def plugin_status(info: PluginInfo, allowlist: Optional[dict], accepted: Optional[dict] = None) -> str:
+    """``enabled`` / ``disabled`` / ``changed`` (enabled for another target, or its manifest
+    permissions differ from the ones accepted at enabling: ``accepted`` = ``plugins.accepted``)."""
     if allowed(info, allowlist):
+        if info.manifest is not None and isinstance(accepted, dict) and info.name in accepted:
+            try:
+                same = normalize_permissions(info.manifest.get("permissions", {})) == \
+                    normalize_permissions(accepted[info.name])
+            except ValueError:
+                same = False
+            if not same:
+                return "changed"
         return "enabled"
     if isinstance(allowlist, dict) and info.name in allowlist:
         return "changed"
@@ -465,7 +790,22 @@ def resolve(target: str) -> Any:
 
 def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContext], Any]:
     """Import and register one plugin.  A failure is logged (``host.log`` and logging) and its
-    partial registrations are removed; returns (context, register() result) or (None, error)."""
+    partial registrations are removed; returns (context, register() result) or (None, error).
+    An entry-point plugin with an invalid manifest, or whose manifest ``api`` / ``mlaser`` range
+    excludes this application, is refused before it is imported."""
+    if info.origin != "builtin":
+        if info.manifest_error:
+            msg = f"plugin {info.name}: invalid manifest, not loaded: {info.manifest_error}"
+            log.error(msg)
+            host.log(msg)
+            return None, RuntimeError(msg)
+        if info.manifest is not None:
+            bad = compatibility_errors(info.manifest, PLUGIN_API)
+            if bad:
+                msg = f"plugin {info.name}: incompatible, not loaded: {'; '.join(bad)}"
+                log.error(msg)
+                host.log(msg)
+                return None, RuntimeError(msg)
     try:
         obj = resolve(info.target)
     except Exception as exc:  # noqa: BLE001 - reported
@@ -483,7 +823,7 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         msg = f"plugin {info.name}: needs plugin API {need}, this is {PLUGIN_API}"
         host.log(msg)
         return None, RuntimeError(msg)
-    ctx = PluginContext(host, info.name, info.origin)
+    ctx = PluginContext(host, info.name, info.origin, info.manifest if info.origin != "builtin" else None)
     try:
         result = reg(ctx)
         if info.origin != "builtin":
@@ -503,6 +843,8 @@ def _audit_loaded(info: PluginInfo) -> None:
     """A third-party plugin is code with machine authority: its loading is an audit record."""
     try:
         from mlaser.machine.audit import audit
-        audit("plugin_loaded", name=info.name, target=info.target, dist=info.dist, origin=info.origin)
+        perms = info.permissions
+        audit("plugin_loaded", name=info.name, target=info.target, dist=info.dist, origin=info.origin,
+              manifest=info.manifest is not None, permissions=perms.to_dict() if perms else None)
     except Exception:  # noqa: BLE001 - best effort
         log.warning("plugin loaded: %s (%s)", info.name, info.target)

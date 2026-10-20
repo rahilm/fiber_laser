@@ -227,11 +227,20 @@ def _safety_settings() -> list[Setting]:
 
 SAFETY_SETTINGS: tuple[Setting, ...] = tuple(_safety_settings())
 
+#: the project's own plugin index (attached to every release by .github/workflows/package.yml)
+DEFAULT_PLUGIN_REPOSITORY = "https://github.com/rahilm/fiber_laser/releases/latest/download/mlaser-plugin-index.json"
+
 #: application settings outside the registry (``plugins.allowlist``: entry-point plugins the
 #: service engineer enabled, name -> entry-point target; docs/dev/PLUGINS.md §6)
 APP_SETTINGS: tuple[Setting, ...] = (
     Setting("plugins.allowlist", "json", {}, label="plugins.allowlist", section="plugins", source="app"),
     Setting("plugins.authority", "json", [], label="plugins.authority", section="plugins", source="app"),
+    # the manifest permissions the service engineer accepted when enabling ({id: permissions});
+    # a plugin whose declared permissions changed since needs enabling again (PLUGIN_STANDARD.md §7)
+    Setting("plugins.accepted", "json", {}, label="plugins.accepted", section="plugins", source="app"),
+    # plugin repositories of the plugin manager (mlaser.services.plugin_manager): [{"url", "name"}]
+    Setting("plugins.repositories", "json", [{"url": DEFAULT_PLUGIN_REPOSITORY, "name": "mlaser"}],
+            label="plugins.repositories", section="plugins", source="app"),
 )
 
 
