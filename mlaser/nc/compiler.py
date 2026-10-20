@@ -329,22 +329,28 @@ def _slow_moves(moves: list, up, down) -> list:
     return moves
 
 
-def path_inputs(obj: list, cur_layer: int, doc: Optional[Document], proc: bool):
+def path_inputs(obj: list, cur_layer: int, doc: Optional[Document], proc: bool,
+                views: Optional[dict] = None):
     """Planning inputs of one cut chain of :func:`compile_items` (a pure function of the
     toolpath, the layer table and the process switch; the emitter state plays no part):
     ``(moves, lead_index, layer view, slow start, slow end)``.  ``moves`` is ``obj`` split for
-    the slow start / end (``obj`` itself when there is none)."""
+    the slow start / end (``obj`` itself when there is none).  ``views``: a per-compile cache
+    layer -> (layer view, slow start, slow end), the same values for every chain of a layer."""
     moves = obj
     layer = int(getattr(moves[0], "layer", cur_layer))
-    lv = P.LayerView(_layer(doc, layer)) if proc else None
-    up = down = None
+    got = views.get(layer) if views is not None else None
+    if got is None:
+        lv = P.LayerView(_layer(doc, layer)) if proc else None
+        got = (lv, *(P.slow_start_end(lv) if proc else (None, None)))  # type: ignore[arg-type]
+        if views is not None:
+            views[layer] = got
+    lv, up, down = got
     # line lead-in joint (moves tagged .lead == "in" by build_toolpath): the original
     # blends it with lead_tol (type-4 marker, parity JC-08); the slow-start split below
     # may cut the lead into several moves, so the joint is found again by its length
     li = lead_in_index(moves)
     lead_len = sum(_move_len(mv) for mv in moves[:li]) if li else None
     if proc:
-        up, down = P.slow_start_end(lv)  # type: ignore[arg-type]
         moves = _slow_moves(moves, up, down)
     if li:
         li = lead_in_index(moves, 1, lead_len)
@@ -421,6 +427,7 @@ class _ChainPlans:
         k = used = 0
         cur: list = []
         cur_layer = 1
+        views: dict = {}
         for kind, obj in _chains(items):
             if kind == "item":
                 if isinstance(obj, (I.LayerChange, I.LaserOn)):
@@ -428,7 +435,7 @@ class _ChainPlans:
                 continue
             if k >= len(est) or any(a is not b for a, b in zip(obj, est[k][used:used + len(obj)])):
                 return None
-            cur.append((obj, *path_inputs(obj, cur_layer, doc, proc)))
+            cur.append((obj, *path_inputs(obj, cur_layer, doc, proc, views)))
             used += len(obj)
             if used > len(est[k]):
                 return None
@@ -477,6 +484,7 @@ class _ChainPlans:
         self.ci += 1
         if last:
             self.close_memo()
+            self.groups[self.gi] = None         # done: free its moves and plans
             self.gi, self.ci, self.res = self.gi + 1, 0, None
         return moves, li, lv, up, down, ss, pts, total, gaps
 

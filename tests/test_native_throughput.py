@@ -538,3 +538,24 @@ def test_selfcheck_detects_wrong_geometry_kernels(monkeypatch, what):
     monkeypatch.setattr(NS, "_K", fake)
     err = N.selfcheck()
     assert err and ("ring" in err if what == "ring" else "smoother" in err), err
+
+
+@needs_kernel
+def test_a_stale_build_is_not_selected(monkeypatch):
+    from mlaser.parity_ports.profiles.native import configure, kernel_status
+    assert K.KERNEL_VERSION == N._PKG.KERNEL_VERSION
+
+    class Old:
+        KERNEL_VERSION = K.KERNEL_VERSION - 1
+
+        def __getattr__(self, name):
+            return getattr(K, name)
+
+    monkeypatch.setattr(N, "_K", Old())
+    try:
+        st = configure("auto")
+        assert st.active == "python" and "rebuild" in st.reason
+    finally:
+        monkeypatch.undo()
+        configure(None)
+    assert kernel_status().active == "native"

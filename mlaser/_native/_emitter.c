@@ -1088,8 +1088,14 @@ static PyMethodDef methods[] = {
 
 /* the word cache is process-global: no per-interpreter-GIL subinterpreters, and the GIL is
  * required (no Py_mod_gil slot: a free-threaded build re-enables the GIL on import) */
+/* mlaser._native.KERNEL_VERSION of the sources this module was built from: a stale build
+ * (an editable install not rebuilt) is refused by the selection */
+#define MLASER_KERNEL_VERSION 3
+
 static int module_exec(PyObject *m)
 {
+    if (PyModule_AddIntConstant(m, "KERNEL_VERSION", MLASER_KERNEL_VERSION) < 0)
+        return -1;
     if (mlaser_geom_exec(m) < 0)
         return -1;
     if (PyType_Ready(&BlockType) < 0 || PyType_Ready(&SinkType) < 0)

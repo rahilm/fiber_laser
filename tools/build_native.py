@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Rebuild and check the C emitter kernel ``mlaser._native._emitter`` (docs/dev/NATIVE_KERNEL.md).
+"""Rebuild and check the C kernel ``mlaser._native._emitter`` (emitter loop, packed sink,
+smoother arithmetic, ring sort; docs/dev/NATIVE_KERNEL.md).
 
 The extension is part of the mlaser distribution (setup.py): ``uv sync`` / ``pip install -e .``
 compile it whenever a C compiler is present (``tool.uv.cache-keys`` makes uv rebuild it when

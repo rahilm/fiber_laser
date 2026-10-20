@@ -260,6 +260,7 @@ class PoolPlans:
                 and self.next_submit < len(self.tasks):
             try:
                 self.pending.append(self.pool.submit(plan_group, self.tasks[self.next_submit]))
+                self.tasks[self.next_submit] = None      # pickled: not needed here any more
             except Exception as e:  # noqa: BLE001 - a broken pool / unpicklable task
                 self._fail(e)
                 return

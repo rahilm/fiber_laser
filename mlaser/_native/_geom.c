@@ -241,14 +241,16 @@ double mlaser_crt_hypot(double x, double y)
     if (ex - ey > 64)
         return x + y;
     double z = 1.0;
+    /* 2^700 and 2^-700, exact (no hex float literals: MSVC C) */
+    const double up = ldexp(1.0, 700), down = ldexp(1.0, -700);
     if (ex > 0x3FF + 510) {
-        z = 0x1p700;
-        x = x * 0x1p-700;
-        y = y * 0x1p-700;
+        z = up;
+        x = x * down;
+        y = y * down;
     } else if (ey < 0x3FF - 450) {
-        z = 0x1p-700;
-        x = x * 0x1p700;
-        y = y * 0x1p700;
+        z = down;
+        x = x * up;
+        y = y * up;
     }
     double hx, lx, hy, ly;
     crt_sq(x, &hx, &lx);

@@ -405,8 +405,13 @@ def _decide() -> KernelStatus:
         reason = f"C kernel not built ({_PKG.IMPORT_ERROR or 'not importable'})"
         return KernelStatus("error" if mode == "on" else "python", mode, source, reason, "not run")
     path = getattr(_K, "__file__", "") or ""
+    built = getattr(_K, "KERNEL_VERSION", 1)
     try:
-        err = selfcheck()
+        if built != _PKG.KERNEL_VERSION:
+            # a module built from older sources (an editable install not rebuilt)
+            err = f"the built module is version {built}, the sources are {_PKG.KERNEL_VERSION} (rebuild it)"
+        else:
+            err = selfcheck()
     except Exception as e:  # noqa: BLE001 - any failure means "do not use the kernel"
         err = f"{type(e).__name__}: {e}"
     if err:

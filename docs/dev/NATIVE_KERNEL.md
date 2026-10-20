@@ -1,36 +1,54 @@
-# Native emitter kernel (default)
+# Native kernel (default)
 
-The per-sample emitter loop (sample -> quantise -> encode, MainApp FUN_00462630 /
-FUN_00473bd0, ported in `mlaser/parity_ports/mainapp/sampling.py`) is the hottest part of
-`compile_items` that is not geometry: about 2.5-3.4 us per step in Python.
-`mlaser._native._emitter` is a C kernel of that loop that produces **bit-identical** output.
+`mlaser._native._emitter` is one C extension module with the hot loops of a compile, each a
+**bit-identical** port of a Python port of the original (the Python code stays the reference
+and the automatic fallback):
+
+* the per-sample emitter loop (sample -> quantise -> encode, MainApp FUN_00462630 /
+  FUN_00473bd0, `mlaser/parity_ports/mainapp/sampling.py`), writing its step items straight into
+  the packed wire arrays (`Sink`, `mlaser/nc/packed.py`) (docs/review/architecture.md §4.1, §4.3
+  item 6, P2-2; Review 2 P1-6);
+* the arithmetic of CContoutSmooth (Review 2 P1-5): the musl `acos` / `atan` / `atan2` /
+  `hypot` of `crtmath.py`, the openNURBS curve tables of `cadmodule/curvetable.py`, the
+  smoothed path's arc length -> XY for every sample of a chain, and the planner's sampling
+  (`Plan.sample`, `Profile.sample`, also for the rapids);
+* the ring sort of sort modes 6 / 7 (`cadmodule/ordering.ring_sort`, CRingSort, Review 2 P3-1).
+
 It is compiled with mlaser whenever a C compiler is present and is **used by default**: the
 default ParityProfile `"original"` runs it after a built-in self-check against the Python
-port.  The Python port stays the reference and the automatic fallback.
-(docs/review/architecture.md §4.1, §4.3 item 6, P2-2.)
+ports.  The C sources are `_emitter.c` (emitter, sink), `_geom.c` (crtmath, curve tables,
+sampling) and `_ring.c` (ring sort), with the shared declarations in `_geom.h`.
 
 ## Layout
 
 | path | what |
 |---|---|
-| `mlaser/_native/_emitter.c` | the kernel (CPython C API, MIT), an optional extension of the mlaser distribution |
+| `mlaser/_native/_emitter.c` | the emitter loop and the packed `Sink` / `Block` types; the module init (CPython C API, MIT), an optional extension of the mlaser distribution |
+| `mlaser/_native/_geom.c`, `_ring.c`, `_geom.h` | crtmath, `CTable` (curve tables), `sample_path`, `sample_plan`, `sample_profile`, `rapid_points`; `ring_order`; compiled into the same module |
 | `setup.py` | declares the extension and its compiler flags (the rest of the build is pyproject.toml); `MLASER_BUILD_NATIVE` |
 | `mlaser/_native/__init__.py` | imports `_emitter` if it was built (`None` and `IMPORT_ERROR` otherwise); `python -m mlaser._native [--require] [--json]` prints the status |
 | `mlaser/parity_ports/profiles/native.py` | `NativeEmitter`, `emit_samples`, the default selection (`DefaultEmitter`, `select`, `kernel_status`, `configure`, `selfcheck`), profile `native-sampling`, `STATS` |
+| `mlaser/parity_ports/profiles/native_smooth.py` | crtmath drop-ins, `NativeCurveTable`, `NativeContourSmoother`, `NativeSmoothedPath` (`points`, `sample_plan`), `profile_samples` / `rapid_points` (rapids), the default profile's `smooth_path_points`, its `selfcheck`, `STATS` |
+| `mlaser/parity_ports/cadmodule/ordering_fast.py` | `ring_sort` (the default profile's; the C scan when the kernel is selected), `ring_selfcheck` |
+| `mlaser/nc/packed.py` | `WireBuilder(native=True)`: the packed wire in the kernel's `Sink` |
 | `tools/build_native.py` | rebuild in place (kernel required), `--wheel`, `--check` (FMA disassembly check, self-check, selection, parity smoke run) |
-| `tools/native_parity.py` | every golden job with `original-python` and with the default profile (must be on the kernel), compared bit for bit |
+| `tools/native_parity.py` | every golden job with `original-python` and with the default profile (must be on the kernel), compared bit for bit (also the estimate; `--workers N`: the compared run plans in a process pool, mlaser.nc.parallel) |
+| `tools/bench/bench_throughput.py` | the Review 2 measurements: compile time (smoothing on), memory per step, raster, ring sort; a fingerprint of everything a compile produces |
 | `tools/bench_native.py` | compile time and us/step, Python port vs kernel (compile_job, compile_items, the emitter alone) |
 | `tests/test_native_kernel.py` | hypothesis property tests, error paths, sample of golden jobs, FMA check; the full golden comparison is marked `golden` |
 | `tests/test_native_default.py` | default selection: `MLASER_NATIVE` values, `configure`, fallback on a missing kernel / failed self-check (with a warning), the self-check catching a perturbed kernel |
+| `tests/test_native_throughput.py` | hypothesis against the Python references: the sink vs `WireBuilder`, the kernel into the sink, flat sample buffers, crtmath, curve tables, the smoother (planner points, plan samples, path points), the ring sort; a perturbed sink / table / crtmath / ring kernel fails the self-check |
 
 ## Selection
 
-| profile | emitter loop |
-|---|---|
-| `"original"` (default) | the C kernel if it is built and passes its self-check, else the Python port (`MLASER_NATIVE`) |
-| `"original-python"` | always the Python port (the reference; `mlaser.parity_ports.ORIGINAL_PYTHON`) |
-| `"original-reference"` | always the Python port, plus the statement-level ordering references |
-| `"native-sampling"` | always the C kernel; raises `NativeKernelMissing` when it is not built (no fallback) |
+| profile | emitter loop, packed sink | smoother arithmetic | ring sort |
+|---|---|---|---|
+| `"original"` (default) | the C kernel if it is built and passes its self-check, else the Python port (`MLASER_NATIVE`) | same selection | same selection |
+| `"original-python"` | always the Python port (the reference; `mlaser.parity_ports.ORIGINAL_PYTHON`) | always the port | C when selected (the ordering slot is the default one) |
+| `"original-reference"` | always the Python port, plus the statement-level ordering references | always the port | always the reference |
+| `"native-sampling"` | always the C kernel; raises `NativeKernelMissing` when it is not built (no fallback) | always C (raises without the kernel) | same selection as the default |
+
+One selection covers all pieces: one module, one self-check, one `MLASER_NATIVE`.
 
 `ORIGINAL.sampling` points `Emitter` at `profiles.native.DefaultEmitter` and `emit_samples` at
 the kernel's `emit_samples` (which hands a plain port `Emitter` straight to the port's
@@ -56,10 +74,21 @@ the active profile (`compile_items`: `prof.sampling.Emitter(...)`, `emit_samples
    covers a cut run at varying speed, SpeedCurve duty / frequency evaluated in C, slow start /
    end, micro-joint gaps with a negative duty (floor division), 40 long rapids split over many
    periods (round half to even), out-of-range explicit duty / frequency values (clamps), and
-   dwells.  About 25 ms.  A failure (or an exception): `auto` falls back to the Python port
-   with a **warning** naming the difference; `on` raises `NativeSelfCheckFailed`.
-   Checked by hand: the kernel compiled with `-ffp-contract=fast -mfma` (5 FMA instructions)
-   fails it ("output differs from the Python port in carry x, carry y").
+   dwells.  The same vector runs once more with the steps written into the packed `Sink` (the
+   finished arrays are compared with the port's wire packed in plain Python) and with a batched
+   rapid (`to_path`).  Then `native_smooth.selfcheck()`: crtmath on 140 special and random
+   arguments (hypot / atan2 on 20 x 140 pairs), five curve tables (an exact symmetric 90
+   degree corner, shallow and sharp corners, an arc-like spline, a single-span Bezier glyph),
+   each with two `ref` values: every record, the nodes of two windows and 17 lookups each
+   (`point_f`, `tangent_f`, `point`, `radius_at`); a smoothed chain (lead-in joint, corners,
+   an arc, a short-line run): planner points, plan samples, path points; and no hand-back to
+   the port.  Then `ordering_fast.ring_selfcheck()`: the C ring sort, quick and exact paths,
+   on a 9 x 7 grid, a jittered line and duplicates.  About 100 ms on the loaded development
+   host.  A failure (or an exception): `auto` falls back to the Python port with a
+   **warning** naming the difference; `on` raises `NativeSelfCheckFailed`.
+   Checked by hand: the kernel compiled with `-ffp-contract=fast -mfma` fails it ("output
+   differs from the Python port in carry x, carry y"); only `_geom.c` compiled that way (79
+   FMA instructions) fails it too ("smoother: crtmath hypot / atan2 differ ...").
 
 `kernel_status()` (also `mlaser.parity_ports.kernel_status()`) returns a `KernelStatus`:
 `active` (`native` / `python` / `error`), `mode`, `source` (`default`, `MLASER_NATIVE=..`,
@@ -76,13 +105,21 @@ runs the same call.  Conditions: a coordinate that is not a float (or an int bel
 `pts` item that is not a 2-tuple, `|v + carry| >= 2^52`, a pulse delta beyond 2^31 or more than
 2^20 periods for one sample, a step over int8 (encode_step's ValueError), `max_step` not a
 positive finite number, a duty / frequency that is not an int below 2^62, a `power` override,
-an exception in a callback, a non-list `wire`.  So NaN / inf coordinates, oversize steps and
-odd types raise exactly the port's exception.  `STATS` counts kernel and port calls; over the
-326 golden jobs (2026-10-19): 1208 of 1208 `emit_samples` runs, 456048 of 456048 `to` calls
-and all 1322 non-empty `dwell` calls ran in C (an earlier data set had one NaN rapid, which
-the kernel handed to the port and which raised the port's ValueError).
+an exception in a callback, a `wire` that is neither a list nor the builder's `Sink`.  So NaN /
+inf coordinates, oversize steps and odd types raise exactly the port's exception.  The same
+holds for the smoother pieces: whatever the port would raise on (a division by zero,
+`math.sqrt` of a negative number, `math.cos(inf)`, `int(nan)`, ...) or the C code does not
+reproduce (int control points, another planner's plan blocks, a piece type it does not know)
+declines, and the port's code runs on the same values.  `STATS` (profiles/native.py) and
+`native_smooth.STATS` count kernel and port calls; over the 326 golden jobs (2026-10-20): 1208
+of 1208 `emit_samples` runs, all 1322 rapids (`to_path`) and all 1322 non-empty `dwell` calls,
+6853 of 6853 curve tables, 796 of 796 chains (path points and plan samples) and every rapid's
+samples ran in C (an earlier data set had one NaN rapid, which the kernel handed to the port
+and which raised the port's ValueError).
 
 ## What the kernel computes, operation by operation
+
+### Emitter loop
 
 State per emitter: `pos` (x, y), `carry` (2 doubles), `cur` (2 ints), `steps`, `overspeed`,
 `on_len`, plus `wire` / `starts`.  The kernel receives the state as a tuple and returns the new
@@ -122,6 +159,71 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
    replaced).  The addition to `on_len` is done in C in the same order.
 9. **Dwell**: `n = int(round(seconds * 1000.0 / period_ms))` in Python, then `n` zero steps
    in C with the emitter's duty / frequency.
+10. **Rapids** (`NativeEmitter.to_path`): all samples of a rapid in one `emit` call (steps 5-8
+    with the emitter's own duty / frequency); `pts` and `ss` may be flat `array('d')` buffers.
+
+### Packed sink (Review 2 P1-6)
+
+`compile_items` hands the native emitter a `WireBuilder(native=True)` (nc/packed.py) whose
+storage is an `_emitter.Sink`: exactly WireBuilder's arrays, built in C: the item words
+concatenated (uint32 while every word is in 0 .. 2^32 - 1, then int64, narrowed back at the end
+when they all fit: WireBuilder's dtype rule), the word offset of every run (`woff`, starting
+with 0), the run counts and the group-start flag per run; an item equal to the last one with
+the same flag only increments the last count.  A step does what `starts.append(len(wire))` +
+`wire.append([header, w1, w2])` do to the builder: the pending start flag, then the item.  The
+compiler's raw and process items go through `Sink.append` (an item word that is not a 64-bit
+int switches the builder to its plain-list fallback, as WireBuilder does).  A kernel call that
+hands back to the port restores the sink exactly (sizes, the pending flag, the last run's
+count).  `finish()` returns the arrays as `Block` buffers that numpy views without a copy.
+
+### Smoother arithmetic (Review 2 P1-5, `_geom.c`, profiles/native_smooth.py)
+
+* **crtmath**: musl `acos`, `atan`, `atan2` and `hypot` exactly as the Python port writes them
+  (word extraction by `memcpy`, the same constants, the same operation order; `hypot`'s
+  Dekker squares `_sq`).  `sqrt` is IEEE, correctly rounded everywhere.  Python callers get
+  them through `native_smooth.hypot` / `atan2` / `atan` / `acos` for float arguments (an int
+  argument stays on the port, which computes some of them differently).
+* **Curve tables** (`ct_build` -> `CTable`): `analyser_samples` (openNURBS `ON_NurbsSpanIndex`,
+  `ON_EvaluateNurbsBasis` with its rounding fix, `ON_EvaluateNurbsBasisDerivatives`, the
+  Bezier path of single-span glyphs, the quotient rule of the rational evaluation,
+  `ON_3dVector::Length`, the recursive span sampler FUN_100bf9c0 with `int()` truncations and
+  floor divisions), then `CurveTable._build` (record merge, chord / arc records with
+  `_angle_from_x`) and `_smooth_radii`.  Lookups: `_search`, `radius_at`, `point_at_fraction`
+  (the port's linear scan is a binary search when the arc lengths never decrease, which is
+  checked once per table), `point`, `point_f`, `tangent_f`, and `nodes` (trend points, pruning,
+  node selection, window, thinning and floor).  `is_straight` stays in Python (it uses
+  `math.dist`, CPython's own).  `NativeCurveTable` is a `CurveTable` subclass; its `recs` are
+  materialised from the C records only when a declined lookup runs the port's method (or a
+  test asks).
+* **Path sampling** (`sample_path`): `[SmoothedPath.at(s)[0] for s in ss]` of a chain:
+  `_locate` (CPython's `bisect_right` algorithm over the cumulative piece lengths, sentinels
+  skipped forwards then backwards, `min(max(s - cum[i], 0.0), length)` with Python's `max` /
+  `min` semantics) and the piece's `point`: `_LineG` (`p0 + (-p0 + p1) f`), `_ArcG`
+  (`c + r cos(a0 + copysign(s / r, sw))`), a C table, or a call back for any other piece.
+* **Plan sampling** (`sample_plan`, `sample_profile`): `Plan.sample` / `Profile.sample_from`
+  (phase formulas FUN_101094e0, the carry between blocks) for the port's own `Plan` and
+  `Profile` types only (another planner's blocks, e.g. `modern-ruckig`'s, sample differently);
+  `Profile.sample` (normalised, FUN_1000f730) for the rapids, plus their points
+  `a + (p - a) u` (`rapid_points`).  The port's `_div` is IEEE division, which C does.
+
+`compile_items` uses `NativeSmoothedPath.sample_plan` and `.points` when the geometry has
+them (flat `array('d')` results, which the emitter kernel takes as they are), and memoises a
+rapid's profile and samples by its length within a compile.
+
+### Ring sort (Review 2 P3-1, `_ring.c`)
+
+`ring_order(P, tol, rx, ry, math.hypot, exact)` is the reference's spiral scan: per pick the
+remaining nodes from the second-to-last down to the first, the tolerance-box test, the cross
+product and the comparisons as the reference writes them, removal from an int array.  `|w|`
+and `|v|` are CPython's `math.hypot` in the reference; the kernel uses `sqrt(x*x + y*y)`
+(within 1.5 ulp; not outside 1e-150 .. 1e150) when every comparison it feeds is more than
+1e-13 from its threshold (a few ulp move the sine by about 1e-15), otherwise it calls
+`math.hypot` back for both and decides with those values (`exact=True`: always).  The scan
+stays O(n) per pick (O(n^2) per sort): on a nested sheet the direction changes about 100 times
+per pick (2 500 nodes, an instrumented copy of the reference), each decision depending on the
+one before; a segment tree with box pruning was tried, reproduced the order and only halved
+the time.  The wrapper computes the centres, the tolerance and the start point exactly as the
+reference (`RING_TOL_FAITHFUL` included) and falls back to it for non-float centres.
 
 ### Traps found (and how each is handled)
 
@@ -168,7 +270,27 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
   mutated, no cycle possible).  Visible only through `gc.is_tracked`; the cyclic GC otherwise
   re-scanned the growing wire list and cost 3x the kernel time.  The kernel also shares the int
   objects of repeated `w1` / `w2` values (direct-mapped cache, process-global: the module
-  declares no per-interpreter-GIL support and needs the GIL).
+  declares no per-interpreter-GIL support and needs the GIL).  The packed sink makes both moot
+  in a compile (no Python object per step); they still apply to list wires.
+* **`sin` / `cos` pairs** (the arc pieces and records): a compiler may merge `sin(a)` and
+  `cos(a)` into one `sincos` call or expand them as builtins; Python's `math.sin` / `math.cos`
+  call the libm functions one by one.  `_geom.c` calls them through `volatile` function
+  pointers, so the libm's own `sin` and `cos` run (the same functions the port gets, in the same
+  process).  They remain the platform libm's: the goldens' Windows / macOS last-bit differences
+  (TESTING.md) are those of the port, unchanged.
+* **`math.hypot` is not libm `hypot`** (also in the ring sort): CPython's value is called back
+  wherever a decision depends on its last bits (above).
+* **Ints are not floats**: the port computes `p1 - p0` of int coordinates exactly in Python
+  ints, `hypot(3, 0)` returns the int 3, an int control point makes an int curve table.  The C
+  code takes exact floats only; the path sampler converts an int line / arc coordinate below
+  2^52 (where the port's arithmetic gives the same float), a plan block int below 2^48;
+  everything else declines to the port.
+* **Unspecified argument evaluation order**: `pair(f(&x, &y), x, y)` passed the old `x`, `y`
+  (C evaluates arguments in any order); caught by the motion goldens during development, the
+  result is now taken first.
+* **Another planner's plan**: `profiles/modern_motion.RuckigBlock` is a `Profile` subclass with
+  its own `sample_from`; the C plan sampler takes exact `Plan` / `Profile` instances only
+  (caught by tests/test_profile_modern_motion.py during development).
 
 ## Verification
 
@@ -176,9 +298,23 @@ one (committed only on success).  All arithmetic is IEEE binary64 in exactly the
   configs) and the 300 `jobs_random` seeds of `tools/make_goldens.py`, compiled under both
   profiles; compares `Job.wire`, `Job.frames()`, the group starts, markers, cut blocks,
   ManuItem indexes, steps, overspeed, start / end pulses, end position, and **exactly**
-  (`float.hex`) `pulse_carry` and `laser_on_length_mm`, or the same exception.  Result:
-  326 jobs, 3 045 237 steps, 0 differences (about 45 s; 2026-10-19, with the default profile
-on the kernel against `original-python`).  Also a `golden`-marked test.
+  (`float.hex`) `pulse_carry`, `laser_on_length_mm`, `duration_s` and the time estimate, or the
+  same exception.  `original-python` runs the emitter loop and the smoother on the ports, so
+  this compares every C piece at once.  Result: 326 jobs, 3 045 237 steps, 0 differences
+  (30-36 s; 2026-10-20, the default profile on the kernel against `original-python`); with
+  `--workers 4` (all 1208 chain groups planned in the pool) also 0.  Also a `golden`-marked
+  test.
+* `tests/test_native_throughput.py`: the sink against `WireBuilder` on random item streams
+  (words beyond uint32 / int64, bools, repeated items, start marks off by one, the plain
+  fallback); the kernel writing into the sink against the port's list wire, also when a call
+  is handed to the port (the sink restored); flat sample buffers; crtmath on 3 000 random
+  pairs plus specials (NaN, inf, subnormals, 2^512, 1 +- ulp); curve tables on 400 random
+  control polygons (clamped uniform, random, repeated and integer knots, single-span glyphs,
+  three `ref` values): records, windows, nodes and every lookup, also outside [0, 1] and NaN,
+  and the port's exception where it raises; 60 random chains through both smoothers (planner
+  points, cumulative lengths, plan samples at 1 and 0.5 ms, path points also outside the
+  path, `at`); the ring sort on 400 random sets (grids, duplicates, near-collinear lines,
+  both tolerance formulas, inside-out) and the kernel's quick path against its exact path.
 * `tests/test_native_kernel.py`: hypothesis streams of `emit_samples` / `to` / `dwell` /
   repositioning calls on random machines (ppm 0.5 .. 2e5, also 1000 int, 2500/3), carries at
   0, -0, +-0.5 +-1 ulp, 0.999.., +-(1 - 2^-53), random; deltas from 1e-6 to 60 mm (splits
@@ -187,7 +323,12 @@ on the kernel against `original-python`).  Also a `golden`-marked test.
   overrides with odd duty / frequency values, micro-joint percentages, dry run, `max_step` 127
   / 40 / 127.0 / 200 (int8 overflow -> ValueError on both), NaN / inf / 1e300 coordinates;
   every state field after every call compared exactly.  Plus `round_half_even` vs `round`.
-* FMA check on the built module (above).
+* FMA check on the built module (above).  For arm64, where the compilers contract by default,
+  all three sources were also compiled with `zig cc` 0.17 (LLVM) for `aarch64-macos` and
+  `aarch64-linux-gnu` with the setup.py flags and disassembled with llvm-objdump: no fused
+  multiply-add (the same objects built with `-ffp-contract=fast` have 87).  `zig` comes as a
+  wheel: `uv venv z && uv pip install --python z ziglang`, then `python -m ziglang cc
+  --target=aarch64-macos -O2 -ffp-contract=off -fno-fast-math -I<python include> -c ...`.
 * Mutation check (by hand, during development): making the frequency clamp unconditional or
   rounding halves away from zero makes the property tests fail.  Replacing the SpeedCurve
   expression by an explicit `fma()` is NOT caught: a search of 4 million random curve
@@ -197,9 +338,11 @@ on the kernel against `original-python`).  Also a `golden`-marked test.
 
 ## Measurements
 
-x86-64 (container, gcc 13.3, CPython 3.13), best of 5, `smooth=False`
-(`python tools/bench_native.py --repeat 5`, 2026-10-19, on a shared host: load average about
-233 on 64 cores; PERFORMANCE.md §5 has the end-to-end compile times):
+The Review 2 numbers (the default machine, **smoothing on**; the sink's memory, the smoother,
+the parallel compile, the ring sort) are in [PERFORMANCE.md](PERFORMANCE.md) §7.  The table
+below is the emitter loop alone, from the Wave 2 measurement (x86-64 container, gcc 13.3,
+CPython 3.13), best of 5, `smooth=False` (`python tools/bench_native.py --repeat 5`,
+2026-10-19, on a shared host: load average about 233 on 64 cores):
 
 | job | steps | compile_items Python | compile_items native | emitter alone Python | emitter alone native |
 |---|---|---|---|---|---|
@@ -208,18 +351,19 @@ x86-64 (container, gcc 13.3, CPython 3.13), best of 5, `smooth=False`
 
 "Emitter alone" replays the job's recorded `emit_samples` calls on a fresh emitter (the
 target was about 0.1 s per million steps; the kernel is at 0.15-0.17 s/M, about 15-22x the
-port).  What is left of `compile_items` is planning, `geom.at` sampling and the process items,
-not the emitter; the rapids still loop over `em.to` in Python (one kernel call per sample,
-about 0.6 us each).
+port).  At that time what was left of `compile_items` was planning, `geom.at` sampling and the
+process items, and the rapids looped over `em.to` in Python; the rapids are now one call each
+(`to_path`) and the sampling is in C too.
 
 ## Building and packaging
 
 The extension is part of the mlaser distribution (root `setup.py`, `optional=True`):
 
 * **Development:** `uv sync` builds the editable install with setuptools and compiles the
-  extension in place (`mlaser/_native/_emitter.cpython-3XX-*.so`, git-ignored).
-  `[tool.uv] cache-keys` lists `setup.py` and `mlaser/_native/*.c`, so a change to the C source
-  makes the next `uv sync` / `uv run` rebuild it.  `python tools/build_native.py` rebuilds in
+  extension in place (`mlaser/_native/_emitter.cpython-3XX-*.so`, git-ignored) from the three
+  sources `_emitter.c`, `_geom.c`, `_ring.c`.  `[tool.uv] cache-keys` lists `setup.py` and
+  `mlaser/_native/*.c` / `*.h`, so a change to the C source makes the next `uv sync` / `uv run`
+  rebuild it.  `python tools/build_native.py` rebuilds in
   place on demand (kernel required) and runs `--check`.
 * **No compiler:** the build prints setuptools' "building optional extension failed" warning and
   installs mlaser without the module; the default profile then runs the Python port (warning at
@@ -236,16 +380,16 @@ The extension is part of the mlaser distribution (root `setup.py`, `optional=Tru
   manylinux_2_28 container but tested on the Ubuntu 24.04 runner afterwards: PySide6 6.12 only
   has manylinux_2_34 (x86_64) / manylinux_2_39 (aarch64) wheels, which the build container
   cannot install.  No 32-bit builds (x87, below), no musllinux (no PySide6 wheels).
-* **sdist:** carries `setup.py` and `_emitter.c` (MANIFEST.in), never a built module; the wheel
-  carries the module, not the C source.
+* **sdist:** carries `setup.py`, the `.c` sources and `_geom.h` (MANIFEST.in), never a built
+  module; the wheel carries the module, not the C source.
 * **PyInstaller:** `collect_submodules("mlaser")` picks up `mlaser._native._emitter` like any
   other module; `packaging/build.py --smoke` runs the frozen program with `MLASER_NATIVE=1`,
   so a bundle without a working kernel fails its bundle check.
 
 ### Compiler flags and portability
 
-Bit-identical output depends on evaluating every expression of `_emitter.c` exactly as the
-port does, one IEEE binary64 operation at a time:
+Bit-identical output depends on evaluating every expression of the C sources exactly as the
+ports do, one IEEE binary64 operation at a time:
 
 | compiler | flags (setup.py) | why |
 |---|---|---|
@@ -258,9 +402,11 @@ Never `-ffast-math`, `-Ofast`, `-ffp-contract=fast`, `-march=native`, `/fp:fast`
 defined or `FLT_EVAL_METHOD` is neither 0 nor -1 (x87 excess precision on 32-bit x86), and a
 static check that `long long` is 64 bits (LP64 and LLP64).  The C is the portable subset that
 gcc, clang and MSVC (VS 2019+) compile alike: `long long` for every integer, `<math.h>`
-`floor` / `ceil` / `fmod` / `fabs` / `isnan` / `isfinite` (exact functions in every libm, no
-rounding), no compiler builtins, no VLAs, no `_Static_assert` (MSVC C needs `/std:c11` for it).
-`math.hypot` is not computed in C at all (CPython's own, called back).
+`floor` / `ceil` / `fabs` / `copysign` / `ldexp` / `isnan` / `isfinite` (exact functions in
+every libm, no rounding) and `sqrt` (correctly rounded by IEEE 754), no compiler builtins, no
+VLAs, no hex float literals, no `_Static_assert` (MSVC C needs `/std:c11` for it).  `sin` /
+`cos` are the libm's, called as Python calls them (through `volatile` pointers, not merged).
+CPython's `math.hypot` is not computed in C at all (called back where its bits matter).
 
 Checks of the built module, per platform: `tools/build_native.py --check` disassembles it
 (objdump / llvm-objdump; dumpbin on Windows when it is on PATH, otherwise skipped) and refuses
@@ -271,7 +417,11 @@ with `MLASER_NATIVE=1` and `=0` on Linux, Windows and macOS (ci.yml).
 ## Rules
 
 * The Python port is the reference.  A change to `sampling.py`, `frames.encode_step` or
-  `SpeedCurve` needs the matching change in `_emitter.c` (same operation order) and a
-  `tools/native_parity.py` run in the same commit (the kernel is the default: a mismatch would
-  ship).  The self-check catches only what its vector exercises.
+  `SpeedCurve` needs the matching change in `_emitter.c` (same operation order); a change to
+  `crtmath.py`, `cadmodule/curvetable.py`, the sampling of `cadmodule/smooth.py`
+  (`_locate`, the pieces' `point`), `Plan.sample` / `Profile.sample(_from)` or
+  `cadmodule/ordering.ring_sort` the matching change in `_geom.c` / `_ring.c`; and a
+  `tools/native_parity.py` run plus `pytest tests/test_native_throughput.py` in the same commit
+  (the kernel is the default: a mismatch would ship).  The self-check catches only what its
+  vector exercises.
 * No `-march=native`, `-ffast-math`, `-Ofast`, `-ffp-contract=fast`.

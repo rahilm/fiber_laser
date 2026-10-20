@@ -20,6 +20,10 @@ bit-identical on the default profile.
 | Open an 800×600 dither engraving (184,627 burn runs) | > 454 s (canvas 6.9 s + sort-0 toolpath 447 s) | **1.18 s** as one raster object | `tools/bench/bench_raster.py` |
 | Wire memory per hour of job | ~1 GB (792 MB measured) | **69 MB** | `tools/bench/bench_wire_memory.py 300` |
 | Emitter (sample → quantise → encode) | 2.5–3.4 µs/step | 0.15–0.17 µs/step with the optional C kernel | `tools/bench_native.py` |
+| Default compile (smoothing on), 1,000 parts, 5 M steps (Review 2, §7) | 50.96 s | **2.93 s** serial, **0.96 s** with 4 planning processes | `tools/bench/bench_throughput.py --parts 1000` |
+| Memory of a compile with the C kernel (Review 2, §7) | 206 B/step peak, +437 MB RSS per M steps | **26 B/step**, **+26 MB** per M steps | `bench_throughput.py --mem` |
+| 800×600 dither engraving compile, 54.6 M steps (Review 2, §7) | 119 s, +8.2 GB RSS | **35 s, +1.2 GB** | `bench_throughput.py --raster 800` |
+| `build_toolpath`, 8,000 parts, sort 6 (ring sort, Review 2, §7) | 14.7 s | **1.42 s** | `bench_throughput.py --parts 8000 --order 6` |
 
 ## 2. Ordering kernels (P1-4, architecture.md §4.3 item 3)
 
@@ -171,3 +175,97 @@ circle each), offscreen, machine load ~230 on 64 cores:
 The 250 ms coalescing timer in `MainWindow._document_changed` (shell) can go: the refresh is now
 cheap enough to run inside each edit.  Benchmark: `tools/bench/bench_partlist.py`.
 
+
+## 7. Compile throughput, Review 2 (throughput track)
+
+Everything here is the **default profile with smoothing on** (`Machine()`, the default for
+contours; the earlier sections measured `smooth=False`), on the review's drawing
+(`tools/bench/bench_throughput.py`: N parts, half a 24 mm square with a 10 mm hole, half a
+24-point star with two 4 mm holes, 2 mm line lead-ins, four layers, `CamParams()`).  Times are
+`compile_items` (the toolpath is built once beforehand), best of 2-3, CPU time of the compiling
+process (the wall time where a pool is involved); CPython 3.12, gcc 13.3, a shared 64-core
+x86-64 host at load average 230-260, so absolute times are pessimistic (3-5x a quiet desktop):
+compare within a column.  "Before" is commit f7a1ea0 (the start of the track) measured in the
+same session.  Every row's output is bit-identical to the others: the same fingerprint of wire,
+frames, markers, cut blocks, steps, carry, laser length and estimate, printed by the bench), the
+goldens `--check --strict` with `MLASER_NATIVE=1` and `=0`, and `tools/native_parity.py`
+(326 jobs, 0 differences, also with `--workers 4`).
+
+### Compile time, one step at a time (C kernel, 200 parts, 996 249 steps)
+
+| state | compile_items | us/step |
+|---|---|---|
+| before (f7a1ea0) | 10.14 s | 10.2 |
+| 1. no duplicate estimate pass (P1-4) | 7.05 s | 7.1 |
+| 2. packed arrays from the kernel, rapids in one call (P1-6) | 6.28 s | 6.3 |
+| 3. crtmath, curve tables, path / plan sampling in C (P1-5) | 0.63 s | 0.63 |
+| 4. + rapid samples in C and memoised per length | 0.58 s | 0.58 |
+| 4. + a pool of 4 planning processes (P2-5), warm | 0.18 s wall | 0.18 |
+
+### Before / after, both sizes, both implementations
+
+| | 200 parts (1.0 M steps) | 1 000 parts (5.0 M steps) |
+|---|---|---|
+| C kernel, before | 10.14 s | 50.96 s |
+| C kernel, after, serial | 0.58 s (17x) | 2.93 s (17x) |
+| C kernel, after, 4 workers | 0.18 s wall (56x) | 0.96 s wall (53x) |
+| C kernel, after, auto (8 workers from 600 chains) | 0.58 s (500 chains: serial) | 0.98 s wall |
+| Python port (`MLASER_NATIVE=0`), before | 12.54 s | 62.86 s |
+| Python port, after, serial | 9.40 s | 47.56 s |
+| Python port, after, 8 workers | 3.82 s wall | 18.55 s wall |
+
+The Python port's gain is the estimate pass (P1-4) and the rapid memo only; it stays the
+reference.  With the kernel, what is left of a serial compile is the smoother's Python
+structure (primitives, corners, blend control points, nodes), the velocity planner, the
+estimate chains that differ from the compile chains (the lead-in joint), the process items and
+the item loop; in parallel mode the sequential tail (emitter, rapids, process items, packing)
+is about 0.9 s CPU per 5 M steps, which bounds the speed-up (4 and 8 workers give the same).
+The first parallel compile of a process also starts the workers (about +0.3 s here).
+
+### Memory per step (one compile, 200 parts; tracemalloc and RSS growth)
+
+| | retained | peak (traced) | RSS growth |
+|---|---|---|---|
+| C kernel, before | 22.4 B/step | 206 B/step | +437 MB per million steps |
+| C kernel, after | 22.4 B/step | **26 B/step** | **+26 MB per million steps** |
+| Python port, before | 22.4 B/step | 47 B/step | +32 MB per million steps |
+| Python port, after | 22.4 B/step | 48 B/step | +40 MB per million steps |
+
+1 000 parts with the kernel: peak 25 B/step, +26 MB per million steps.  The steps go straight
+into the packed arrays (the C `Sink`, uint32 words, no Python object per step).
+
+### The 800 x 600 dither engraving (54.6 M steps, `--raster 800`, compile_job)
+
+| | compile_job | RSS growth | max RSS |
+|---|---|---|---|
+| C kernel, before | 119.1 s | +8 240 MB | 11 897 MB |
+| C kernel, after | 35.0 s | +1 229 MB | 1 323 MB |
+| Python port, after | 159.2 s | +1 817 MB | 2 476 MB |
+
+The +1.2 GB retained after the compile is the Job: 381 MB of packed wire (10.2 M runs for 56.7 M
+items) and the 1.48 M toolpath items it keeps.
+
+### Ring sort (sort modes 6 / 7)
+
+| | 1 000 parts | 2 000 | 4 000 | 8 000 |
+|---|---|---|---|---|
+| `build_toolpath(sort_mode=6)`, before | 0.54 s | 1.44 s | 4.34 s | 14.70 s |
+| after | 0.14 s | 0.30 s | 0.66 s | 1.42 s |
+| `ring_sort` alone (2 500 / 5 000 / 10 000 nodes), before -> after | 1.16 s -> 0.04 s | 4.4 s -> 0.13 s | 18 s -> 0.5 s | |
+
+Same order (order fingerprint, the order goldens with the kernel on and off, hypothesis against
+the reference).  It is still O(n^2): the reference's spiral scan is sequential (about 100
+direction changes per pick at 2 500 nodes, each depending on the last), so an exact
+reproduction cannot skip it; the C scan only makes each candidate cheap (NATIVE_KERNEL.md,
+"Ring sort").
+
+### Parallel compile (mlaser.nc.parallel)
+
+`MLASER_COMPILE_WORKERS` = `0` / `off`, `N`, or `auto` (default: `min(8, cpus - 1)` workers for
+jobs of at least 600 cut chains, `MLASER_COMPILE_MIN_CHAINS`); `compile_items(workers=)`,
+`compile_job(workers=)`, `parallel.configure()`.  Crossover measured here: a warm pool wins
+from about 250 chains (100 parts: 0.29 s serial, 0.10 s with 8 workers), a cold one, which
+starts the workers, from about 600.  Workers are spawned (like the streamer process), kept for
+the process lifetime, run at nice 10 / below-normal priority, never start inside a
+multiprocessing child, and auto mode stays serial when the main script has no `__main__`
+guard.  A broken pool finishes the compile serially (with a warning).
