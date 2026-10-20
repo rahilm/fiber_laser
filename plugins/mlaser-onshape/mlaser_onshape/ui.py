@@ -23,6 +23,16 @@ COLS = ("Name", "P/N", "Material", "Sheet material", "t faces", "t volume", "t n
 C_NAME, C_PN, C_MAT, C_SHEET, C_TP, C_TV, C_TL, C_QTY, C_MADE, C_CUT, C_PROC, C_FACE, C_STATUS, C_NOTES = range(len(COLS))
 
 
+def _fit_columns(table: Any, priorities: dict, key: int) -> None:
+    """The host's responsive columns (no horizontal scroll bar: the less important columns hide
+    while the table is narrow), when the host offers them (mlaser 2026-10 and later)."""
+    try:
+        from mlaser.ui.responsive import ColumnFitter
+    except ImportError:          # an older host: the table scrolls as before
+        return
+    ColumnFitter(table, priorities, stretch=key)
+
+
 def _mm(v: Optional[float]) -> str:
     return "" if v is None else f"{v:.2f}"
 
@@ -67,6 +77,8 @@ class OnshapeWorkspace(QWidget):
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.table.horizontalHeader().setStretchLastSection(True)
+        _fit_columns(self.table, {C_PN: 3, C_MAT: 2, C_SHEET: 4, C_TP: 0, C_TV: 0, C_TL: 1, C_QTY: 5, C_MADE: 4,
+                                  C_CUT: 6, C_PROC: 1, C_FACE: 0, C_STATUS: 5, C_NOTES: -1}, C_NAME)
         self.table.itemChanged.connect(self._item_changed)
         rl.addWidget(self.table, 3)
         bar = QHBoxLayout()

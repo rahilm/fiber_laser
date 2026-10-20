@@ -14,20 +14,21 @@ Hardware settings are read-only below Service.
 """
 from __future__ import annotations
 
-import time
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QSize, Qt, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame,
-                               QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
+                               QGridLayout, QHBoxLayout, QHeaderView, QLabel, QLineEdit,
                                QListWidget, QListWidgetItem, QPlainTextEdit, QPushButton, QRadioButton,
-                               QScrollArea, QSpinBox, QStackedWidget, QTableWidget, QTableWidgetItem,
+                               QScrollArea, QSpinBox, QStyle, QTableWidget, QTableWidgetItem,
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.services.alarm_history import AlarmHistory, fmt_time
 from mlaser.services.procedures import MIN_MODES, mode_allows
 
 from .. import icons
+from ..responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, CurrentPageStack, FlowLayout, ResponsiveForm, flow,
+                          mark_list)
 from ..wizards.common import MIN_TARGET, JogPad, T
 
 #: (id, title, icon, lowest mode)
@@ -123,7 +124,12 @@ class SettingsPanel(QWidget):
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels([T(window, "ws.machine.hw_name"), T(window, "ws.machine.hw_value"),
                                    T(window, "ws.machine.hw_key")])
-        self.tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
+        hh = self.tree.header()
+        hh.setStretchLastSection(False)
+        hh.setSectionResizeMode(1, QHeaderView.Fixed)     # as wide as the widest editor (build)
+        hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
+        # the name column stretches, the key column hides first in a narrow window
+        self.columns = ColumnFitter(self.tree, {1: None, 2: 0}, stretch=0)
         lay.addWidget(self.tree, 1)
         row = QHBoxLayout()
         self.status = QLabel(T(window, "ws.machine.hw_note"))
@@ -225,7 +231,11 @@ class SettingsPanel(QWidget):
             self._editors[s.key] = ed
             self._initial[s.key] = self._read(ed)
         self.tree.expandAll()
+        if self._editors:
+            self.tree.header().resizeSection(1, max(max(e.sizeHint().width(), e.minimumSizeHint().width())
+                                                    for e in self._editors.values()))
         self._filter(self.search.text())
+        self.columns.schedule()
 
     def _filter(self, text: str) -> None:
         t = text.strip().lower()
@@ -272,9 +282,10 @@ class MachineWorkspace(QWidget):
         self.setWindowTitle(T(self.w, "ws.machine.title"))
         outer = QHBoxLayout(self)
         self.nav = QListWidget()
-        self.nav.setMaximumWidth(220)
+        self.nav.setObjectName("machine_nav")
+        self.nav.setProperty("responsive_views", True)     # the layout harness visits each row
         self.nav.setIconSize(self.nav.iconSize() * 1.4)
-        self.stack = QStackedWidget()
+        self.stack = CurrentPageStack()
         outer.addWidget(self.nav)
         outer.addWidget(self.stack, 1)
         self.pages: dict[str, QWidget] = {}
@@ -285,13 +296,11 @@ class MachineWorkspace(QWidget):
             it.setData(Qt.UserRole, sid)
             it.setSizeHint(QSize(0, MIN_TARGET))
             self.nav.addItem(it)
+            # no scroll area per section (the shell's page wrapper is the only one): the
+            # section's lists and logs take the room that is left (docs/dev/RESPONSIVE.md)
             page = builders[sid]()
-            sa = QScrollArea()
-            sa.setWidgetResizable(True)
-            sa.setFrameShape(QFrame.NoFrame)
-            sa.setWidget(page)
-            self.pages[sid] = sa
-            self.stack.addWidget(sa)
+            self.pages[sid] = page
+            self.stack.addWidget(page)
         self.nav.currentRowChanged.connect(self.stack.setCurrentIndex)
         self.nav.setCurrentRow(0)
         self.history.listeners.append(lambda: QTimer.singleShot(0, self._fill_alarms))
@@ -301,6 +310,27 @@ class MachineWorkspace(QWidget):
         self.tick()
 
     # ------------------------------------------------------------------ navigation
+    def _fit_nav(self) -> None:
+        """The navigation list is as wide as its longest entry (a content width, not a
+        constant), so the page beside it gets the rest."""
+        fm = self.nav.fontMetrics()
+        text = max((fm.horizontalAdvance(self.nav.item(i).text()) for i in range(self.nav.count())), default=0)
+        pad = self.nav.style().pixelMetric(QStyle.PM_FocusFrameHMargin, None, self.nav) + 1
+        want = text + self.nav.iconSize().width() + 6 * pad + 3 * fm.horizontalAdvance("M") + 2 * self.nav.frameWidth()
+        if self.nav.verticalScrollBar().isVisible():
+            want += self.nav.verticalScrollBar().sizeHint().width()
+        if want > 0 and self.nav.width() != want:
+            self.nav.setFixedWidth(want)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._fit_nav()
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange, QEvent.LanguageChange):
+            self._fit_nav()
+
     def show_section(self, sid: str) -> None:
         for i in range(self.nav.count()):
             if self.nav.item(i).data(Qt.UserRole) == sid:
@@ -313,10 +343,13 @@ class MachineWorkspace(QWidget):
     # ------------------------------------------------------------------ connection
     def _connection(self) -> QWidget:
         w = self.w
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        box = QGroupBox(T(w, "ws.machine.connect_box"))
+        # connect, status and the network self-test as sections: side by side when the page is
+        # wide enough, folded from the self-test up when it is short (ui/responsive.py)
+        page = ColumnsPanel(max_columns=2, compact=False)
+        page.setObjectName("machine_connection")
+        box = QWidget()
         g = QGridLayout(box)
+        g.setContentsMargins(0, 0, 0, 0)
         self.r_sim = QRadioButton(T(w, "ws.machine.simulator"))
         self.r_real = QRadioButton(T(w, "ws.machine.real_card"))
         self.r_sim.setChecked(True)
@@ -337,21 +370,23 @@ class MachineWorkspace(QWidget):
         row.addWidget(_button(w, "ws.machine.connect", self.connect, "plug-connected", icons.GREEN))
         row.addWidget(_button(w, "ws.machine.disconnect", self.disconnect, "plug-connected-x"))
         g.addLayout(row, 3, 0, 1, 2)
-        lay.addWidget(box)
-        st = QGroupBox(T(w, "ws.machine.status_box"))
+        page.add_section(CollapsibleSection(T(w, "ws.machine.connect_box"), box, collapsible=False))
+        st = QWidget()
         f = QFormLayout(st)
+        f.setContentsMargins(0, 0, 0, 0)
         self.lbl: dict[str, QLabel] = {}
         for k in ("conn", "kind", "safety", "endpoint", "link", "homed"):
             lb = QLabel("–")
             lb.setTextInteractionFlags(Qt.TextSelectableByMouse)
             self.lbl[k] = lb
             f.addRow(T(w, f"ws.machine.st_{k}"), lb)
-        lay.addWidget(st)
-        nc = QGroupBox(T(w, "ws.machine.selftest_box"))
+        page.add_section(CollapsibleSection(T(w, "ws.machine.status_box"), st, priority=2))
+        nc = QWidget()
         v = QVBoxLayout(nc)
+        v.setContentsMargins(0, 0, 0, 0)
         self.selftest = QPlainTextEdit()
         self.selftest.setReadOnly(True)
-        self.selftest.setMinimumHeight(140)
+        self.selftest.setMinimumHeight(self.selftest.fontMetrics().lineSpacing() * 5)
         v.addWidget(self.selftest)
         row = QHBoxLayout()
         self.probe = QCheckBox(T(w, "ws.machine.selftest_probe"))
@@ -359,8 +394,7 @@ class MachineWorkspace(QWidget):
         row.addStretch(1)
         row.addWidget(_button(w, "ws.machine.selftest_run", self.run_selftest, "network"))
         v.addLayout(row)
-        lay.addWidget(nc)
-        lay.addStretch(1)
+        page.add_section(CollapsibleSection(T(w, "ws.machine.selftest_box"), nc, priority=1))
         self._load_selftest()
         return page
 
@@ -399,68 +433,75 @@ class MachineWorkspace(QWidget):
 
     # ------------------------------------------------------------------ motion
     def _motion(self) -> QWidget:
+        """Position, homing, jog and coordinates as sections in one or two columns (as the width
+        allows), folded from the coordinates up when the page is short (ui/responsive.py)."""
         w = self.w
-        page = QWidget()
-        lay = QVBoxLayout(page)
-        pos = QGroupBox(T(w, "ws.machine.position_box"))
+        page = ColumnsPanel(max_columns=2, compact=False)
+        page.setObjectName("machine_motion")
+        pos = QWidget()
         h = QHBoxLayout(pos)
+        h.setContentsMargins(0, 0, 0, 0)
         self.pos_lbl = _big(QLabel("X –   Y –   Z –"), 1.8)
         self.pos_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         h.addWidget(self.pos_lbl, 1)
         self.homed_lbl = QLabel()
         h.addWidget(self.homed_lbl)
-        lay.addWidget(pos)
-        hb = QGroupBox(T(w, "ws.machine.homing_box"))
-        hl = QHBoxLayout(hb)
-        for key, cmd in (("ws.machine.home_xy", "machine.home"), ("ws.machine.home_x", "machine.home_x"),
-                         ("ws.machine.home_y", "machine.home_y"), ("ws.machine.home_xyz", "machine.home_xyz"),
-                         ("ws.machine.home_focus", "wizard.focus_home")):
-            hl.addWidget(_button(w, key, lambda c=cmd: self.ctx.commands.run(c), "home"))
-        lay.addWidget(hb)
-        jb = QGroupBox(T(w, "ws.machine.jog_box"))
-        jl = QVBoxLayout(jb)
+        page.add_section(CollapsibleSection(T(w, "ws.machine.position_box"), pos, collapsible=False))
+        # homing: text buttons (the section title says what they do; no repeated home icon)
+        homing = flow([_button(w, key, lambda c=cmd: self.ctx.commands.run(c))
+                       for key, cmd in (("ws.machine.home_xy", "machine.home"), ("ws.machine.home_x", "machine.home_x"),
+                                        ("ws.machine.home_y", "machine.home_y"),
+                                        ("ws.machine.home_xyz", "machine.home_xyz"),
+                                        ("ws.machine.home_focus", "wizard.focus_home"))], uniform=True)
+        page.add_section(CollapsibleSection(T(w, "ws.machine.homing_box"), homing, priority=2))
         self.jog = JogPad(w, lambda: self.ctx.controller, z=True)
         self.jog.log.connect(self.ctx.log)
-        jl.addWidget(self.jog)
-        lay.addWidget(jb)
-        cb = QGroupBox(T(w, "ws.machine.coords_box"))
-        cl = QGridLayout(cb)
+        page.add_section(CollapsibleSection(T(w, "ws.machine.jog_box"), self.jog, priority=3))
+        cb = QWidget()
+        cl = QVBoxLayout(cb)
+        cl.setContentsMargins(0, 0, 0, 0)
         from mlaser.controller import coords as C
         self.coord = QComboBox()
-        self.coord.setMinimumHeight(32)
+        self.coord.setMinimumHeight(MIN_TARGET)
         tr = getattr(w, "tr_", None)
         for i in range(8):
             self.coord.addItem(tr.tr(C.NAMES[i]) if tr is not None else C.NAMES[i], i)
         self.coord.setCurrentIndex(self.ext.ops.coords.kind)
         self.coord.activated.connect(lambda i: self.ext.select_coord(int(self.coord.itemData(i))))
-        cl.addWidget(QLabel(T(w, "ws.machine.coord_system")), 0, 0)
-        cl.addWidget(self.coord, 0, 1, 1, 2)
-        cl.addWidget(_button(w, "ws.machine.set_origin", lambda: self.ctx.commands.run("coord.set_origin"),
-                             "map-pin-plus"), 1, 0)
-        cl.addWidget(_button(w, "ws.machine.return_origin", lambda: self.ctx.commands.run("coord.return_origin"),
-                             "current-location"), 1, 1)
-        cl.addWidget(_button(w, "ws.machine.edge_clear", lambda: self.ctx.commands.run("machine.edge_clear"),
-                             "eraser"), 1, 2)
+        form = ResponsiveForm()
+        form.addRow(QLabel(T(w, "ws.machine.coord_system")), self.coord)
+        cl.addWidget(form)
+        cl.addWidget(flow([
+            _button(w, "ws.machine.set_origin", lambda: self.ctx.commands.run("coord.set_origin"), "map-pin-plus"),
+            _button(w, "ws.machine.return_origin", lambda: self.ctx.commands.run("coord.return_origin"),
+                    "current-location"),
+            _button(w, "ws.machine.edge_clear", lambda: self.ctx.commands.run("machine.edge_clear"), "eraser")],
+            uniform=True))
         self.origins = QLabel()
         self.origins.setWordWrap(True)
         self.origins.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        cl.addWidget(self.origins, 2, 0, 1, 3)
-        lay.addWidget(cb)
-        lay.addStretch(1)
+        cl.addWidget(self.origins)
+        page.add_section(CollapsibleSection(T(w, "ws.machine.coords_box"), cb, priority=1))
         return page
 
     # ------------------------------------------------------------------ procedures
     def _procedures(self) -> QWidget:
         w = self.w
-        page = QWidget()
-        g = QGridLayout(page)
+        cards = QWidget()
+        g = FlowLayout(cards, uniform=True)         # as many card columns as the width allows
         self.proc_buttons: dict[str, QPushButton] = {}
         for i, (cmd, title, desc, ic, pid) in enumerate(PROCEDURES):
             card = QFrame()
             card.setFrameShape(QFrame.StyledPanel)
             v = QVBoxLayout(card)
+            head = QHBoxLayout()
+            pic = QLabel()
+            pic.setPixmap(icons.icon(ic).pixmap(24, 24))     # the procedure's icon on its title
+            head.addWidget(pic)
             t = _big(QLabel(T(w, title)), 1.15)
-            v.addWidget(t)
+            t.setWordWrap(True)
+            head.addWidget(t, 1)
+            v.addLayout(head)
             d = QLabel(T(w, desc))
             d.setWordWrap(True)
             v.addWidget(d, 1)
@@ -468,11 +509,17 @@ class MachineWorkspace(QWidget):
             m = QLabel(T(w, "ws.machine.min_mode", mode=T(w, f"ws.machine.mode_{mode}")))
             m.setEnabled(False)
             v.addWidget(m)
-            b = _button(w, "ws.machine.start_procedure", lambda c=cmd: self.ctx.commands.run(c), ic)
+            b = _button(w, "ws.machine.start_procedure", lambda c=cmd: self.ctx.commands.run(c))
             b.setProperty("min_mode", mode)
             v.addWidget(b)
             self.proc_buttons[cmd] = b
-            g.addWidget(card, i // 3, i % 3)
+            g.addWidget(card)
+        page = QScrollArea()                        # a list of cards: it may scroll (mark_list)
+        page.setObjectName("machine_procedures")
+        page.setFrameShape(QFrame.NoFrame)
+        page.setWidgetResizable(True)
+        page.setWidget(cards)
+        mark_list(page)
         return page
 
     # ------------------------------------------------------------------ monitors

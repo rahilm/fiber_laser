@@ -7,8 +7,8 @@ from typing import Callable, Optional
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox,
-                               QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
-                               QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
+                               QGridLayout, QHBoxLayout, QHeaderView, QLabel,
+                               QPlainTextEdit, QPushButton, QSizePolicy, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget,
                                QTreeWidgetItem, QVBoxLayout, QWidget)
 
@@ -19,6 +19,10 @@ from ..machine.api import MachineAPI
 from .i18n import Translator
 from .params import GAS_KEYS
 from .icons import command_icon
+from .responsive import (TARGET, TARGET_MIN, CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLayout,
+                         ResponsiveForm, flow, keep_min_size)
+
+PAD_ICON = 28       # px: the touch icon size (jog pad, run buttons)
 
 
 def _swatch(color: QColor, size: int = 14) -> QIcon:
@@ -48,8 +52,7 @@ class LayerPanel(QWidget):
         self.document = None
         v = QVBoxLayout(self)
         v.setContentsMargins(2, 2, 2, 2)
-        row = QHBoxLayout()
-        row.setSpacing(1)
+        row = FlowLayout(justify=False, hspacing=1, vspacing=1)     # wraps in a narrow dock
         self.color_buttons = []
         for i in range(len(LAYER_COLORS)):
             b = QToolButton()
@@ -60,12 +63,14 @@ class LayerPanel(QWidget):
             b.clicked.connect(lambda _=False, i=i: self.assignLayer.emit(i))
             row.addWidget(b)
             self.color_buttons.append(b)
-        row.addStretch(1)
         v.addLayout(row)
         self.table = QTableWidget(0, len(self.COLS))
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # no horizontal scroll bar in a narrow dock: the layer column stretches, the parameter
+        # columns of least use hide first (ui/responsive.py ColumnFitter)
+        ColumnFitter(self.table, {1: 5, 2: 4, 3: 1, 4: 2, 5: 2, 6: 3}, stretch=0)
         self.table.itemChanged.connect(self._item_changed)
         self.table.cellDoubleClicked.connect(lambda r, c: c == 0 and self.editLayer.emit(self._row_layer(r)))
         v.addWidget(self.table)
@@ -162,6 +167,7 @@ class PartListPanel(QTreeWidget):
         self.bbox_hits = self.bbox_misses = 0
         self.itemSelectionChanged.connect(self._sel_changed)
         tr.bind(self, "np_Part", lambda _t: self._headers())
+        ColumnFitter(self, {0: 1, 2: 3, 3: 2, 4: 0}, stretch=1)
 
     def _headers(self):
         t = self.tr_
@@ -299,31 +305,58 @@ class ControlPanel(QWidget):
         self._keepalive = QTimer(self)
         self._keepalive.setInterval(self.JOG_KEEPALIVE_MS)
         self._keepalive.timeout.connect(self._jog_keepalive)
-        v = QVBoxLayout(self)
-        v.setContentsMargins(4, 4, 4, 4)
+        # Responsive layout (docs/dev/RESPONSIVE.md): Start / Pause / Stop pinned on top (never
+        # folded, never scrolled away), then the sections Jog, DO, Run Control and Coordinate in
+        # 1..3 columns as the dock's width allows; when the dock is too short the panel turns
+        # compact and then folds the sections of lowest priority (Coordinate first, Jog last).
+        # One rule for icons and text: the jog pad is icon-only (direction and meaning in the
+        # tooltip and accessible name; every pad button the same size), the run buttons carry
+        # icon and text, every other action is a text button.
+        outer = QVBoxLayout(self)
+        outer.setContentsMargins(0, 0, 0, 0)
+        self.columns = ColumnsPanel(max_columns=3)
+        self.columns.setObjectName("control_columns")
+        outer.addWidget(self.columns)
+
+        # --- run: Start / Pause / Stop (pinned)
+        run_row = QWidget()
+        run_row.setObjectName("control_run_row")
+        rr = QHBoxLayout(run_row)
+        rr.setContentsMargins(0, 0, 0, 0)
+        for key, ic, fn in (("mp54", "run.start", self._start), ("mp55", "run.pause", self._pause),
+                            ("mp56", "run.stop", self._stop)):
+            b = self._icon_button(key, ic, fn)
+            rr.addWidget(b, 1)
+        self.columns.add_pinned(run_row)
 
         # --- jog
-        jog = QGroupBox()
-        tr.bind(jog, "slp17", jog.setTitle)
-        g = QGridLayout(jog)
+        jog = QWidget()
+        jv = QVBoxLayout(jog)
+        jv.setContentsMargins(0, 0, 0, 0)
+        pad = QWidget()
+        pad.setObjectName("jog_pad")
+        g = QGridLayout(pad)
+        g.setContentsMargins(0, 0, 0, 0)
+        g.setSpacing(4)
         for (axis, d, r, c) in (("Y", 1, 0, 1), ("Y", -1, 2, 1), ("X", -1, 1, 0),
                                 ("X", 1, 1, 2), ("Z", 1, 0, 3), ("Z", -1, 2, 3)):
-            b = QToolButton()
-            b.setObjectName(f"jog_{axis}{'+' if d > 0 else '-'}")
-            b.setIcon(command_icon(b.objectName()))
-            b.setIconSize(QSize(40, 40))
-            b.setAccessibleName(f"Jog {axis}{'+' if d > 0 else '-'}")
-            b.setToolTip(b.accessibleName())
+            name = f"jog_{axis}{'+' if d > 0 else '-'}"
+            b = self._pad_button(name, name, f"Jog {axis}{'+' if d > 0 else '-'}")
             b.setAutoRepeat(False)
             b.pressed.connect(lambda a=axis, d=d: self._jog_press(a, d))
             b.released.connect(lambda a=axis: self._jog_release(a))
             g.addWidget(b, r, c)
-            self.buttons[b.objectName()] = b
-        # mp29 回零位 "Home" = move to the coordinate zero (FUN_005bc220); mp29_1 系统回原 = Go
-        # Origin with the mf156 prompt (FUN_005b5de0)
-        home = self._text_button("mp29", self._return_zero)
-        g.addWidget(home, 1, 1)
-        g.addWidget(self._text_button("mp29_1", self._sys_home), 4, 0)
+        # mp29 回零位 = move to the coordinate zero (FUN_005bc220), in the centre of the pad;
+        # mp30 = home Z, between Z+ and Z-; mp29_1 系统回原 = Go Origin (machine homing, with the
+        # mf156 prompt, FUN_005b5de0) is a text action below the pad
+        g.addWidget(self._pad_button("mp29", "jog_zero", "", self._return_zero), 1, 1)
+        g.addWidget(self._pad_button("mp30", "jog_home_z", "", lambda: self.ctl.home("Z")), 1, 3)
+        g.setColumnMinimumWidth(3, 0)
+        prow = QHBoxLayout()
+        prow.addStretch(1)
+        prow.addWidget(pad)
+        prow.addStretch(1)
+        jv.addLayout(prow)
         self.mode_step = QCheckBox()
         tr.bind(self.mode_step, "mp31", self.mode_step.setText)
         self.mode_fast = QCheckBox()
@@ -332,27 +365,26 @@ class ControlPanel(QWidget):
         for k in self.STEP_KEYS:
             self.step.addItem(tr.tr(k))
         self.step.setCurrentIndex(3)
-        g.addWidget(self.mode_step, 3, 0)
-        g.addWidget(self.mode_fast, 3, 1)
-        g.addWidget(self.step, 3, 2, 1, 2)
-        zf = self._text_button("mp30", lambda: self.ctl.home("Z"))
-        g.addWidget(zf, 1, 3)
+        self.step.setSizeAdjustPolicy(QComboBox.AdjustToContents)
+        tr.bind(self.step, "mp31", self.step.setAccessibleName)
+        jv.addWidget(flow([self.mode_step, self.mode_fast, self.step], justify=False))
         # mark points (标记点1..6 = MC.MarkPtIndex, 标记 mp39 FUN_005c9390, 返回 af10 FUN_005c97f0)
         self.mark_index = QComboBox()
         for k in ("mp33", "mp34", "mp35", "mp36", "mp37", "mp38"):
             self.mark_index.addItem(tr.tr(k))
+        self.mark_index.setSizeAdjustPolicy(QComboBox.AdjustToContents)
         self.mark_index.currentIndexChanged.connect(self._mark_index_changed)
-        g.addWidget(self.mark_index, 4, 1)
-        g.addWidget(self._text_button("mp39", self._set_mark), 4, 2)
-        g.addWidget(self._text_button("af10", self._return_mark), 4, 3)
-        v.addWidget(jog)
+        jv.addWidget(flow([self._text_button("mp29_1", self._sys_home), self.mark_index,
+                           self._text_button("mp39", self._set_mark), self._text_button("af10", self._return_mark)]))
+        self.sec_jog = self._section("slp17", jog, priority=3)
 
         # --- outputs
-        io = QGroupBox()
-        tr.bind(io, "ss4", io.setTitle)
-        gi = QGridLayout(io)
-        for n, (name, key) in enumerate((("follow", "mp41"), ("gas", "mp42"), ("shutter", "mp49"),
-                                         ("red_light", "mp50"), ("laser", "mp51"))):
+        io = QWidget()
+        iv = QVBoxLayout(io)
+        iv.setContentsMargins(0, 0, 0, 0)
+        outs = []
+        for name, key in (("follow", "mp41"), ("gas", "mp42"), ("shutter", "mp49"),
+                          ("red_light", "mp50"), ("laser", "mp51")):
             if name == "laser":
                 # 激光 is a push button (CManuPanel +0x2153, FUN_005ad9f0): press = laser on
                 # (FUN_005b05c0), release = laser off when MC.PtLaserTime_ms is 0 (FUN_005b0630)
@@ -363,71 +395,69 @@ class ControlPanel(QWidget):
                 b = self._text_button(key, None, checkable=True)
                 b.toggled.connect(lambda on, nm=name: self.ctl.set_output(nm, on))
             self.buttons[f"out_{name}"] = b
-            gi.addWidget(b, n // 3, n % 3)
+            outs.append(b)
+        iv.addWidget(flow(outs, uniform=True))
         self.gas_type = QComboBox()
         for k in GAS_KEYS:
             self.gas_type.addItem(tr.tr(k))
         self.gas_type.currentIndexChanged.connect(lambda i: self.ctl.set_gas_type(i))
-        gi.addWidget(self.gas_type, 1, 2)
         self.power = QSpinBox()
         self.power.setRange(0, 100)
         self.power.setValue(10)
         self.power.setSuffix(" %")
         self.power.valueChanged.connect(lambda p: self.ctl.set_laser_power(float(p)))
+        form = ResponsiveForm()
+        lbl_gas = QLabel()
+        tr.bind(lbl_gas, "mp42", lbl_gas.setText)
+        form.addRow(lbl_gas, self.gas_type)
         lbl = QLabel()
         tr.bind(lbl, "mp53", lbl.setText)
-        gi.addWidget(lbl, 2, 0)
-        gi.addWidget(self.power, 2, 1)
-        v.addWidget(io)
+        form.addRow(lbl, self.power)
+        iv.addWidget(form)
+        self.sec_io = self._section("ss4", io, priority=2)
 
         # --- process
-        proc = QGroupBox()
-        tr.bind(proc, "mf141", proc.setTitle)
-        gp = QGridLayout(proc)
-        start = self._icon_button("mp54", "run.start", self._start)
-        pause = self._icon_button("mp55", "run.pause", self._pause)
-        stop = self._icon_button("mp56", "run.stop", self._stop)
-        gp.addWidget(start, 0, 0)
-        gp.addWidget(pause, 0, 1)
-        gp.addWidget(stop, 0, 2)
-        gp.addWidget(self._text_button("mp57", self._dry_run), 1, 0)
-        gp.addWidget(self._text_button("mp58", self._frame), 1, 1)
-        gp.addWidget(self._text_button("mp59", self.simulateRequested.emit), 1, 2)
+        proc = QWidget()
+        pv = QVBoxLayout(proc)
+        pv.setContentsMargins(0, 0, 0, 0)
         self.bf_len = QDoubleSpinBox()
         self.bf_len.setRange(0.1, 10000)
         self.bf_len.setValue(10.0)
-        gp.addWidget(self._text_button("mp61", lambda: self.ctl.step_backward(self.bf_len.value())), 2, 0)
-        gp.addWidget(self._text_button("mp62", lambda: self.ctl.step_forward(self.bf_len.value())), 2, 1)
-        gp.addWidget(self.bf_len, 2, 2)
+        tr.bind(self.bf_len, "mp62", self.bf_len.setAccessibleName)
+        pv.addWidget(flow([self._text_button("mp57", self._dry_run), self._text_button("mp58", self._frame),
+                           self._text_button("mp59", self.simulateRequested.emit)], uniform=True))
+        pv.addWidget(flow([self._text_button("mp61", lambda: self.ctl.step_backward(self.bf_len.value())),
+                           self._text_button("mp62", lambda: self.ctl.step_forward(self.bf_len.value())),
+                           self.bf_len], uniform=True))
         self.selected_only = QCheckBox()
         tr.bind(self.selected_only, "mp52", self.selected_only.setText)
-        gp.addWidget(self.selected_only, 3, 0, 1, 2)
+        self.soft_limit = QCheckBox()
+        tr.bind(self.soft_limit, "mp73", self.soft_limit.setText)
+        self.soft_limit.setChecked(True)
+        pv.addWidget(flow([self.selected_only, self.soft_limit], justify=False))
         self.return_to = QComboBox()
         for k in ("mp71", "mp68", "mp69", "mp70"):
             self.return_to.addItem(tr.tr(k))
         lbl2 = QLabel()
         tr.bind(lbl2, "mp67", lbl2.setText)
-        gp.addWidget(lbl2, 4, 0)
-        gp.addWidget(self.return_to, 4, 1, 1, 2)
-        self.soft_limit = QCheckBox()
-        tr.bind(self.soft_limit, "mp73", self.soft_limit.setText)
-        self.soft_limit.setChecked(True)
-        gp.addWidget(self.soft_limit, 5, 0, 1, 3)
-        v.addWidget(proc)
+        f2 = ResponsiveForm()
+        f2.addRow(lbl2, self.return_to)
+        pv.addWidget(f2)
+        self.sec_run = self._section("mf141", proc, priority=1)
 
         # --- coordinate / misc
-        coord = QGroupBox()
-        tr.bind(coord, "mf307", coord.setTitle)
-        gc = QGridLayout(coord)
+        coord = QWidget()
+        cv = QVBoxLayout(coord)
+        cv.setContentsMargins(0, 0, 0, 0)
         self.coord_sys = QComboBox()
         for k in ("mp200", "mp201", "mp202", "mp203", "mp204", "mp205", "mp206", "mp207"):
             self.coord_sys.addItem(tr.tr(k))
-        gc.addWidget(self.coord_sys, 0, 0, 1, 2)
-        gc.addWidget(self._text_button("mf514", self.ctl.set_origin), 1, 0)
-        gc.addWidget(self._text_button("mp164", self.ctl.go_origin_point), 1, 1)
-        gc.addWidget(self._text_button("mf21", self.ctl.clear_alarms), 2, 0)
-        v.addWidget(coord)
-        v.addStretch(1)
+        tr.bind(self.coord_sys, "mf307", self.coord_sys.setAccessibleName)
+        cv.addWidget(self.coord_sys)
+        cv.addWidget(flow([self._text_button("mf514", self.ctl.set_origin),
+                           self._text_button("mp164", self.ctl.go_origin_point),
+                           self._text_button("mf21", self.ctl.clear_alarms)], uniform=True))
+        self.sec_coord = self._section("mf307", coord, priority=0)
 
     # -- machine actions
     machine_ops = None       # controller.machine_ops.MachineOps, set by ui.ext_machine.register
@@ -477,6 +507,13 @@ class ControlPanel(QWidget):
             self.log.emit("af10: mark points need the machine extension")
 
     # -- helpers
+    def _section(self, key: str, body: QWidget, priority: int) -> CollapsibleSection:
+        sec = CollapsibleSection("", body, collapsible=True, priority=priority)
+        sec.setObjectName(f"section_{key}")
+        self.tr_.bind(sec, key, sec.setTitle)
+        self.columns.add_section(sec)
+        return sec
+
     def _text_button(self, key: str, fn: Optional[Callable], checkable: bool = False) -> QPushButton:
         b = QPushButton()
         self.tr_.bind(b, key, b.setText)
@@ -487,12 +524,40 @@ class ControlPanel(QWidget):
         self.buttons[key] = b
         return b
 
+    def _pad_button(self, name: str, icon_cmd: str, label: str, fn: Optional[Callable] = None) -> QToolButton:
+        """A jog-pad button: icon only, its meaning in the tooltip and accessible name, the same
+        touch-sized square as every other pad button."""
+        b = QToolButton()
+        b.setObjectName(name)
+        b.setIcon(command_icon(icon_cmd))
+        b.setIconSize(QSize(PAD_ICON, PAD_ICON))
+        b.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        b.setMinimumSize(TARGET_MIN, TARGET_MIN)
+        b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        b.setFocusPolicy(Qt.StrongFocus)
+
+        def text(t: str, b=b) -> None:
+            b.setText(t)
+            b.setToolTip(t)
+            b.setAccessibleName(t)
+        if label:
+            text(label)
+        else:
+            self.tr_.bind(b, name, text)
+        if fn is not None:
+            b.clicked.connect(lambda _=False: fn())
+        self.buttons[name] = b
+        return b
+
     def _icon_button(self, key: str, icon_cmd: str, fn: Callable) -> QToolButton:
         b = QToolButton()
         b.setIcon(command_icon(icon_cmd))
-        b.setIconSize(QSize(36, 36))
+        b.setIconSize(QSize(PAD_ICON, PAD_ICON))
         b.setToolButtonStyle(Qt.ToolButtonTextUnderIcon)
+        b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        keep_min_size(b, QSize(TARGET_MIN, TARGET))
         self.tr_.bind(b, key, b.setText)
+        self.tr_.bind(b, key, b.setAccessibleName)
         b.clicked.connect(lambda _=False: fn())
         b.setObjectName(key)
         self.buttons[key] = b

@@ -35,6 +35,7 @@ from mlaser.nest.engine import available_engines
 from mlaser.nest.model import GRAIN_NONE, GRAIN_X, GRAIN_Y, SCRAP_GAPS, SCRAP_GRID, SCRAP_OFF
 from mlaser.services.nesting import NestRun, NestService, send_to_queue
 
+from ..responsive import ColumnFitter
 from . import TOUCH_MIN, show_workspace, tr
 
 #: per-part rotation choices of the parts table: (id, label key, default text, NestPart.angles, grain)
@@ -380,6 +381,8 @@ class NestWorkspace(QWidget):
         self.compare.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.compare.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.compare.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
+        # no horizontal scroll bar: the run column stretches, the others hide by priority
+        ColumnFitter(self.compare, {1: 4, 2: 5, 3: 2, 4: 1, 5: 3}, stretch=0)
         self.compare.itemSelectionChanged.connect(self._run_selected)
         rv.addWidget(self.compare, 2)
         self.queue_btn = self._button("nestws.btn.queue", "Send to queue", self.send_to_queue, TOUCH_MIN + 8)

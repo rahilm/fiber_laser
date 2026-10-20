@@ -39,6 +39,7 @@ from mlaser.services.config import Setting
 from mlaser.services.workspaces import SLOTS, WorkspaceSpec, command_workspace
 
 from . import keymap, theme
+from .dock_policy import CANVAS_MIN, DockPolicy  # noqa: F401 - CANVAS_MIN re-exported
 from .workspace_host import WorkspaceHost
 
 SETTINGS = [
@@ -49,9 +50,7 @@ SETTINGS = [
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
     Setting("shell.workspace", "str", "design", label="shell.rail", section="shell", source="app"),
 ]
-LAYOUT_VERSION = 3
-NARROW = 1400          # logical px: below this the side docks share one tabbed column
-CANVAS_MIN = 480       # logical px: the canvas width fit_docks keeps (tests/test_shell.py)
+LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
 
 class _WindowWatch(QObject):
@@ -93,6 +92,7 @@ class Shell:
         self._default_state: Optional[QByteArray] = None
         self.palette = None
         self.topbar = None
+        self.dock_policy = DockPolicy(window)
         self.host = WorkspaceHost(window, self.tr, self.action, self.allows, lambda: self.modes.mode)
         self.host.listeners.append(self._workspace_changed)
         window.setCentralWidget(self.host.stack)
@@ -512,52 +512,42 @@ class Shell:
     # ------------------------------------------------------------------ layout
     def _first_show(self) -> None:
         w = self.w
+        pol = self.dock_policy
+        pol.enabled = True
         if self._default_state is None:
             self.fit_docks()
             self._default_state = w.saveState(LAYOUT_VERSION)
         saved = self.config.get("shell.layout", "")
         if saved:
             try:
-                w.restoreState(QByteArray.fromBase64(saved.encode("ascii")), LAYOUT_VERSION)
+                if w.restoreState(QByteArray.fromBase64(saved.encode("ascii")), LAYOUT_VERSION):
+                    # the saved widths are the user's: kept, and clamped to this window
+                    w.layout().activate()
+                    for d in pol.side_docks():
+                        pol.remember(d)
             except Exception:  # noqa: BLE001 - a broken saved layout falls back to the default
                 pass
             self.host.activate(self.host.current, force=True)
         ws = self.config.get("shell.workspace", "design")
         if ws in self.host.specs and ws != self.host.current:
             self.host.activate(ws)
+        pol.apply()
 
     def fit_docks(self) -> None:
-        """Dock sizes for the window's logical size: at least 1280×800 (1920×1080 at 150 %)
-        without clipped controls.  Below :data:`NARROW` px the layers/parts dock is tabbed with
-        the run-control dock in one right-hand column, so the canvas keeps its width."""
+        """Dock sizes for the window as it is now (:mod:`.dock_policy`): the remembered or
+        natural widths, given back in proportion when the page needs the room."""
         w = self.w
-        W, H = w.width(), w.height()
-        left, right, log = getattr(w, "left_dock", None), getattr(w, "right_dock", None), getattr(w, "log_dock", None)
-        if left is None or right is None:
-            return
-        if W < NARROW:
-            if w.dockWidgetArea(left) != Qt.RightDockWidgetArea or left not in w.tabifiedDockWidgets(right):
-                w.addDockWidget(Qt.RightDockWidgetArea, left)
-                w.tabifyDockWidget(right, left)
-            right.raise_()
-            w.resizeDocks([right], [max(300, min(380, int(W * 0.3)))], Qt.Horizontal)
-        else:
-            if w.dockWidgetArea(left) != Qt.LeftDockWidgetArea:
-                w.addDockWidget(Qt.LeftDockWidgetArea, left)
-            w.resizeDocks([left, right], [max(240, min(320, int(W * 0.2))), max(300, min(380, int(W * 0.24)))],
-                          Qt.Horizontal)
-        # the docks' minimum widths follow the platform's font metrics (macOS: a few px wider):
-        # give the canvas its CANVAS_MIN back from the right dock
         lay = w.layout()
-        central = w.centralWidget()
-        if lay is not None and central is not None:
+        if lay is not None:
             lay.activate()
-            short = CANVAS_MIN - central.width()
-            if short > 0 and right.width() > 300:
-                w.resizeDocks([right], [max(300, right.width() - short)], Qt.Horizontal)
-                lay.activate()
-        if log is not None:
-            w.resizeDocks([log], [110 if H < 900 else 150], Qt.Vertical)
+        pol = self.dock_policy
+        was, pol.enabled = pol.enabled, True
+        try:
+            pol.apply()
+        finally:
+            pol.enabled = was or pol.enabled
+        if lay is not None:
+            lay.activate()
 
     def reset_layout(self) -> None:
         """Default dock positions and sizes, all toolbars back, the Design workspace."""
@@ -567,6 +557,7 @@ class Shell:
         for d in self.host.docks():
             if d.isFloating():
                 d.setFloating(False)
+        self.dock_policy.forget()
         self.fit_docks()
         self.config.set("shell.layout", "")
         self.host.activate("design" if "design" in self.host.visible_ids() else self.host.visible_ids()[0],

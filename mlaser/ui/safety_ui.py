@@ -26,13 +26,14 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialog,
                                QDialogButtonBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox,
-                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QTextEdit,
+                               QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStyle, QTextEdit,
                                QToolBar, QVBoxLayout, QWidget)
 
 from .._power import keep_awake
 
 from ..machine import events as EV
 from . import qtbridge
+from .responsive import keep_min_size
 from .safety_texts import remedy
 
 log = logging.getLogger("mlaser.ui.safety")
@@ -314,7 +315,6 @@ class RunBar(QToolBar):
         self.setIconSize(QSize(28, 28))
         self.pill = QLabel(" OFFLINE ")
         self.pill.setObjectName("run_state")
-        self.pill.setMinimumWidth(120)
         self.pill.setAlignment(Qt.AlignCenter)
         f = self.pill.font()
         f.setBold(True)
@@ -331,7 +331,9 @@ class RunBar(QToolBar):
             b = QPushButton(text)
             b.setObjectName(f"run_{key}")
             b.setToolTip(tip)
-            b.setMinimumSize(QSize(MIN_TARGET + (24 if key == "stop" else 0), MIN_TARGET))
+            # the touch size is kept against style sheets (an Operator-mode min-height rule used to
+            # leave these at 22 px after leaving Operator mode: responsive.keep_min_size)
+            keep_min_size(b, QSize(MIN_TARGET + (24 if key == "stop" else 0), MIN_TARGET))
             b.clicked.connect(lambda _=False, f=fn: f())
             if key == "stop":
                 b.setStyleSheet("QPushButton{background:#c62828;color:white;font-weight:bold;}")
@@ -339,14 +341,48 @@ class RunBar(QToolBar):
             self.buttons[key] = b
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
-        self.progress.setMinimumWidth(160)
         self.progress.setTextVisible(True)
         self.progress.setFormat("")
+        self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.addWidget(self.progress)
         self.eta = QLabel("")
-        self.eta.setMinimumWidth(110)
         self.addWidget(self.eta)
+        self._alt = {"hold": "Continue", "arm": "Disarm"}      # the longer texts the buttons take
+        self.fit()
         self._style = ""
+
+    def fit(self) -> None:
+        """Every button's full text fits, also its longer state (Continue, Disarm), and the bar
+        never hides a button in its overflow menu: its minimum width is what they need, so the
+        window's minimum follows (docs/dev/RESPONSIVE.md)."""
+        fm = self.fontMetrics()
+        for key, b in self.buttons.items():
+            bfm = b.fontMetrics()
+            text_w = max(bfm.horizontalAdvance(t) for t in (b.text(), self._alt.get(key, "")) if t)
+            pad = b.sizeHint().width() - bfm.horizontalAdvance(b.text())
+            keep_min_size(b, QSize(max(MIN_TARGET + (24 if key == "stop" else 0), text_w + pad), MIN_TARGET))
+        self.pill.setMinimumWidth(max(fm.horizontalAdvance(f" {t} ") for t in
+                                      ("SIMULATOR", "RUNNING", "OFFLINE", "DISARMED", "DRY-RUN"))
+                                  + 2 * fm.horizontalAdvance("M"))
+        self.progress.setMinimumWidth(fm.horizontalAdvance("100 %") * 2)
+        self.eta.setMinimumWidth(fm.horizontalAdvance("00:00:00") + fm.horizontalAdvance("M"))
+        lay = self.layout()
+        sp = lay.spacing() if lay is not None else 0
+        st = self.style()
+        need = sum(w.minimumWidth() + sp for w in (self.pill, *self.buttons.values(), self.progress, self.eta))
+        if lay is not None:
+            m = lay.contentsMargins()
+            need += m.left() + m.right()
+        need += 2 * st.pixelMetric(QStyle.PM_ToolBarFrameWidth, None, self) + 2 * st.pixelMetric(
+            QStyle.PM_ToolBarItemMargin, None, self)
+        if self.isMovable():
+            need += st.pixelMetric(QStyle.PM_ToolBarHandleExtent, None, self)
+        self.setMinimumWidth(need)
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "_alt", None) is not None:
+            self.fit()
 
     def refresh(self, st, ms, running: bool, eta: str) -> None:
         kind = st.banner if st is not None else "OFFLINE"
