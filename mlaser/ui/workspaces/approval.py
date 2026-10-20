@@ -16,7 +16,9 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
                                QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
 
+from mlaser.services import units as U
 from mlaser.services.intake import IntakeError
+from mlaser.ui.units_qt import on_units_changed
 
 from . import TOUCH_MIN, tr
 
@@ -72,6 +74,7 @@ class ApprovalPanel(QFrame):
         v.addLayout(row)
         self.table.itemSelectionChanged.connect(self._selected)
         self.refresh()
+        on_units_changed(self, lambda _u: self.refresh(), now=False)
 
     # ------------------------------------------------------------------ data
     @property
@@ -100,7 +103,8 @@ class ApprovalPanel(QFrame):
         keep = self.selected_id()
         self.table.setRowCount(len(jobs))
         for r, j in enumerate(jobs):
-            mat = " ".join(x for x in (j.material, f"{j.thickness_mm:g} mm" if j.thickness_mm else "") if x)
+            mat = " ".join(x for x in (j.material, U.current().fmt(j.thickness_mm, "length", trim=True)
+                                       if j.thickness_mm else "") if x)
             when = _dt.datetime.fromtimestamp(j.submitted).strftime("%Y-%m-%d %H:%M") if j.submitted else ""
             vals = [f"{j.name}  ({os.path.basename(j.path)})", str(j.quantity), self._from(j), mat, when,
                     " · ".join(x for x in (j.reference, j.note) if x)]

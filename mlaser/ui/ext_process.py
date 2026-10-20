@@ -26,6 +26,7 @@ from mlaser.services.config import Setting
 from mlaser.services.costing import Rates, card_for_plan
 from mlaser.services.preview import Timeline, build_timeline
 from mlaser.services.technology import TechnologyStore
+from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 PLUGIN_API = 1
 LAZY_TIMELINE_ITEMS = 1_000_000      # larger plans (about 0.5 s to build) wait for the first scrub / play
@@ -48,6 +49,11 @@ SETTINGS = [
     Setting("sheet_h_mm", "float", 0.0, "mm", 0.0, 100000.0, label="process.set.sheet_h"),
 ]
 RATE_KEYS = [s.key for s in SETTINGS if s.key != "machine_profile"]
+#: rate fields shown in the display units (mlaser.services.units); the stored values stay
+#: per m³ / per kg / l/min / mm.  Prices carry the currency as a prefix ("€ 0.120 /ft³").
+RATE_KINDS = {"gas_o2_per_m3": "per_volume", "gas_n2_per_m3": "per_volume", "gas_air_per_m3": "per_volume",
+              "material_per_kg": "per_mass", "gas_flow_l_min": "flow", "sheet_w_mm": "length",
+              "sheet_h_mm": "length"}
 
 
 def rates_from(settings: Any) -> Rates:
@@ -82,6 +88,16 @@ class RatesDialog(QDialog):
             s = st.setting(key)
             if s.kind == "str":
                 w: Any = QLineEdit(str(st[key]))
+            elif key in RATE_KINDS:
+                kind = RATE_KINDS[key]
+                w = QuantitySpinBox(kind, minimum=s.min if s.min is not None else 0.0,
+                                    maximum=s.max if s.max is not None else 1e9,
+                                    decimals=0 if kind == "length" else 3)
+                w.setValue(float(st[key]))
+                if kind.startswith("per_"):
+                    w.setPrefix(f"{st['currency']} ")
+                if key in ("gas_flow_l_min", "sheet_w_mm", "sheet_h_mm"):
+                    w.setSpecialValueText(t("process.set.auto"))
             else:
                 w = QDoubleSpinBox()
                 w.setDecimals(3)
@@ -155,6 +171,8 @@ class ProcessExtension:
         self.closed = False
         ctx.on_close(self._close)
         self.config_unsub = ctx.config.subscribe(self._config_changed)
+        # the cost card's notes carry lengths (sheet size, nozzle): rebuilt in the new units
+        on_units_changed(self.workspace, lambda _u: self.update_card(), now=False)
         ctx.register_command("process.show", self.show_process, label="process.cmd.show")
         ctx.register_command("process.apply", self.workspace.apply_selected, label="process.cmd.apply")
         ctx.register_command("process.rates", self.rates_dialog, label="process.cmd.rates")

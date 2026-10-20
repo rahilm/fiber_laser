@@ -26,6 +26,37 @@ def _fmt_s(s: Any) -> str:
     return f"{h}:{m:02d}:{sec:02d}" if h else f"{m}:{sec:02d}"
 
 
+def _len(mm: Any, kind: str = "length") -> str:
+    """A length (mm) in the text output's units (``--units``; JSON stays mm)."""
+    try:
+        return C.out_units().fmt(float(mm), kind)
+    except (TypeError, ValueError):
+        return "-"
+
+
+def _extent(b: Any) -> str:
+    """``[x0, y0, x1, y1]`` (mm) as "X a..b, Y c..d <unit>" in the text output's units."""
+    try:
+        x0, y0, x1, y1 = (float(v) for v in b)
+    except (TypeError, ValueError):
+        return str(b)
+    u = C.out_units()
+    n = lambda v: u.number(v, "length", 1 if not u.imperial else 2)  # noqa: E731
+    return f"X {n(x0)}..{n(x1)}, Y {n(y0)}..{n(y1)} {u.suffix('length')}"
+
+
+#: cost-card line units (mlaser.services.costing) -> (factor to the internal unit, kind)
+_LINE_KINDS = {"m": (1000.0, "long_length"), "m³": (1000.0, "volume"), "kg": (1.0, "mass")}
+
+
+def _line_value(value: float, unit: str) -> str:
+    k = _LINE_KINDS.get(unit)
+    if k is None:
+        return f"{value:g} {unit}".rstrip()
+    u = C.out_units()
+    return u.fmt(value * k[0], k[1], decimals=max(u.decimals(k[1]), 2))
+
+
 def _load(args: Any, path: str) -> tuple[Any, Optional[dict]]:
     """The document of ``path`` with ``--tech`` applied; returns (document, technology info)."""
     doc = C.load_document(path)
@@ -64,8 +95,8 @@ def cmd_compile(args: Any) -> Result:
         lines = [f"{d['file']}: {j['mode']}{' (laser off)' if j['dry_run'] else ''}, "
                  f"{d['document']['parts']} parts, {j['pierces']} pierces",
                  f"  time {_fmt_s(j['time_s'])} (planner estimate {_fmt_s(j['estimate_s'])}), "
-                 f"cut {j['cut_length_mm'] / 1000:.2f} m, rapid {j['rapid_length_mm'] / 1000:.2f} m",
-                 f"  {j['wire_items']} wire items in {j['frames']} frames, extent {j['bounds']}"]
+                 f"cut {_len(j['cut_length_mm'], 'long_length')}, rapid {_len(j['rapid_length_mm'], 'long_length')}",
+                 f"  {j['wire_items']} wire items in {j['frames']} frames, extent {_extent(j['bounds'])}"]
         if d.get("frames_file"):
             lines.append(f"  frames written to {d['frames_file']}")
         lines += [f"  WARNING: {w['message']}" for w in d.get("warnings", [])]
@@ -163,11 +194,11 @@ def cmd_estimate(args: Any) -> Result:
         t = d["time"]
         out = [f"{d['file']}: {_fmt_s(t['total_s'])} total (cut {_fmt_s(t['cut_s'])}, travel "
                f"{_fmt_s(t['travel_s'])}, pierce/process {_fmt_s(t['dwell_s'] + t['process_s'])}), "
-               f"{d['pierces']} pierces, cut {d['length_mm']['cut'] / 1000:.2f} m"]
+               f"{d['pierces']} pierces, cut {_len(d['length_mm']['cut'], 'long_length')}"]
         c = d["cost"]
         for ln in c["lines"]:
             v = ("input needed" if ln["value"] is None or ln["key"] in c["missing"]
-                 else f"{ln['value']:g} {ln['unit']}")
+                 else _line_value(ln["value"], ln["unit"]))
             out.append(f"  {ln['key']:<16} {v}")
         if c["missing"]:
             out.append("  (rates not set: Process > Rates and assumptions, or --rates FILE)")
@@ -345,7 +376,8 @@ def cmd_validate(args: Any) -> Result:
         if x0 < -1e-6 or y0 < -1e-6 or x1 > sheet[0] + 1e-6 or y1 > sheet[1] + 1e-6:
             issues.append({"code": "exceeds_sheet", "severity": "error",
                            "message": f"the cut ({x0:.1f}, {y0:.1f}) .. ({x1:.1f}, {y1:.1f}) mm does not fit on "
-                                      f"a {sheet[0]:g} x {sheet[1]:g} mm sheet at the origin"})
+                                      f"a {sheet[0]:g} x {sheet[1]:g} mm sheet at the origin",
+                           "cut_bounds": C.r([x0, y0, x1, y1]), "sheet": C.r(list(sheet))})
     errors = [i for i in issues if i["severity"] == "error"]
     res = {"file": args.file, "valid": not errors, "errors": len(errors),
            "warnings": len(issues) - len(errors), "issues": issues, "technology": tech,
@@ -356,8 +388,34 @@ def cmd_validate(args: Any) -> Result:
 
     def text(d: dict) -> str:
         head = f"{d['file']}: {'OK' if d['valid'] else 'NOT VALID'} ({d['errors']} error(s), {d['warnings']} warning(s))"
-        return "\n".join([head] + [f"  {i['severity'].upper()}: {i['message']}" for i in d["issues"]])
+        shown = d["issues"]
+        u = C.out_units()
+        if u.unit("length") != "mm":
+            # the pre-flight's messages again, in the output units (the JSON keeps the mm ones)
+            from mlaser.services.units import messages_in
+            with messages_in(u):
+                again = PF.check("start", document=doc, job=p.job if p is not None else None, travel=travel,
+                                 require_homed=False, armed=True, emits=emits).issues
+            if len(again) == len(rep.issues):
+                pre = [x for x in shown if x.get("code") not in ("compile_failed", "exceeds_sheet")]
+                if len(pre) == len(again):
+                    it = iter(again)
+                    shown = [dict(x, message=next(it).message)
+                             if x.get("code") not in ("compile_failed", "exceeds_sheet") else x for x in shown]
+        return "\n".join([head] + [f"  {i['severity'].upper()}: {_issue_text(i)}" for i in shown])
     return (EXIT_OK if not errors else EXIT_CHECK), res, text
+
+
+def _issue_text(i: dict) -> str:
+    """An issue's message for the text output; the CLI's own sheet check in the output units
+    (the pre-flight's messages are made again in the output units by ``cmd_validate``)."""
+    if i.get("code") == "exceeds_sheet" and i.get("cut_bounds") and i.get("sheet"):
+        u = C.out_units()
+        x0, y0, x1, y1 = i["cut_bounds"]
+        n = lambda v: u.number(v, "length", 1 if not u.imperial else 2)  # noqa: E731
+        return (f"the cut ({n(x0)}, {n(y0)}) .. ({n(x1)}, {n(y1)}) {u.suffix('length')} does not fit on a "
+                f"{u.fmt_size(i['sheet'][0], i['sheet'][1], trim=True)} sheet at the origin")
+    return str(i.get("message", ""))
 
 
 # ------------------------------------------------------------------------------ convert

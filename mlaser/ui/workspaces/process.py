@@ -33,10 +33,10 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
 
 from mlaser.model import LeadParams
 from mlaser.services import technology as T
-from mlaser.ui.quantity import quantity
+from mlaser.ui.techform import quantity
 from mlaser.ui.techform import FlowLayout, ResponsiveForm, TechForm
 
-from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label  # noqa: F401 - re-exported
+from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label, thickness_label  # noqa: F401
 
 
 # --------------------------------------------------------------------------- editor
@@ -262,6 +262,10 @@ class TechnologyEditor(QWidget):
 # --------------------------------------------------------------------------- diff view
 def change_rows(changes: list[T.Change], tr: Any) -> list[tuple[str, str, str, str, str]]:
     """(label, unit, old, new, key) per change, for the "what changed" view."""
+    from mlaser.services import units
+    from mlaser.services.units import kind_for_unit
+
+    u = units.current()
     reg = T.layer_registry()
     out = []
     for c in changes:
@@ -271,7 +275,16 @@ def change_rows(changes: list[T.Change], tr: Any) -> list[tuple[str, str, str, s
         else:
             label = tr.tr(f"tech.field.{c.key}", c.key)
             unit = "mm" if c.key.endswith(("width", "length", "_mm", "radius")) else ""
-        fmt = lambda v: "—" if v is None else (f"{v:g}" if isinstance(v, float) else str(v))  # noqa: E731
+        kind = kind_for_unit(unit) if unit else None
+        if kind is not None:                  # shown in the display units (Units track)
+            unit = u.suffix(kind).strip()
+
+        def fmt(v, k=kind):
+            if v is None:
+                return "—"
+            if k is not None and isinstance(v, (int, float)) and not isinstance(v, bool):
+                return u.number(float(v), k, trim=True)
+            return f"{v:g}" if isinstance(v, float) else str(v)
         out.append((label, unit, fmt(c.old), fmt(c.new), c.key))
     return out
 
@@ -379,8 +392,13 @@ class TechCompareDialog(QDialog):
         t = self.tr_.tr
         out = []
         ca, cb = {**T.DEFAULT_CRAFT, **(ta.craft or {})}, {**T.DEFAULT_CRAFT, **(tb.craft or {})}
-        for label, get in ((t("tech.lead_length"), lambda c: f"{(c.get('lead_in') or {}).get('length', 0):g} mm"),
-                           (t("tech.kerf_width"), lambda c: f"{c.get('kerf_width', 0):g} mm"),
+        from mlaser.services import units
+
+        u = units.current()
+        for label, get in ((t("tech.lead_length"),
+                            lambda c: u.fmt(float((c.get('lead_in') or {}).get('length', 0)), "length", trim=True)),
+                           (t("tech.kerf_width"), lambda c: u.fmt(float(c.get('kerf_width', 0)), "small_length",
+                                                                  trim=True)),
                            (t("tech.joint_count"), lambda c: str((c.get('micro_joint') or {}).get('count', 0)))):
             out.append((label, get(ca), get(cb)))
         return out
@@ -590,7 +608,7 @@ class LibraryPage(QWidget):
                 m.setExpanded(True)
             th = ths.get((k.material, k.thickness_mm))
             if th is None:
-                th = ths[(k.material, k.thickness_mm)] = QTreeWidgetItem([f"{k.thickness_mm:g} mm"])
+                th = ths[(k.material, k.thickness_mm)] = QTreeWidgetItem([thickness_label(k.thickness_mm)])
                 m.addChild(th)
                 th.setExpanded(True)
             it = QTreeWidgetItem([f"{k.gas} · {_nz_label(_nz(k.nozzle, k.power_w))}" +

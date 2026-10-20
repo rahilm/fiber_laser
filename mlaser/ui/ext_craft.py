@@ -36,6 +36,7 @@ from PySide6.QtWidgets import (QButtonGroup, QDialog, QDialogButtonBox, QFileDia
 
 from mlaser.cam import manual as M
 from mlaser.model import Craft, Document, Part
+from mlaser.services import units
 
 from .ext_cam import FieldDialog
 
@@ -336,7 +337,7 @@ class CraftExtension:
         def click(p, mods):
             if state["q"] is None:
                 state["q"] = p
-                self.log(self.t("mf88") + f": X {p[0]:.3f} Y {p[1]:.3f}")
+                self.log(self.t("mf88") + ": " + units.current().fmt_xy(p[0], p[1], "small_length"))
                 return True
             h = self._hit(p, closed_only=True)
             if h is None:
@@ -350,13 +351,14 @@ class CraftExtension:
                 inv = bool(getattr(self.w.cam_params, "invert_lead_side", False))
                 return M.manual_lead(d.parts[h.part], h.contour, q, h.dist, depth, inv)
             lp = self.edit(do)
-            self.log(f"mf88: {lp.length:.3f} mm" if lp is not None and lp.kind else "mf88: 0")
+            self.log(f"mf88: {units.current().fmt(lp.length, 'small_length')}" if lp is not None and lp.kind
+                     else "mf88: 0")
             return True
         self.start_tool("lead_manual", click, "mf88")
 
     # ---------------------------------------------------------------- bridge (tool 11)
     def bridge(self) -> None:
-        if not self.ask("mf114", self.bridge_p, [("width", "pd347", "float", (0.01, 1000, 3))]):
+        if not self.ask("mf114", self.bridge_p, [("width", "pd347", "len", (0.01, 1000, 3))]):
             return
         state = {"a": None}
 
@@ -397,7 +399,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- manual micro-joint (tool 10)
     def mj_manual(self) -> None:
-        if not self.ask("mf102", self.mj_p, [("length", "pd325", "float", (0.01, 100, 3))]):
+        if not self.ask("mf102", self.mj_p, [("length", "pd325", "slen", (0.01, 100, 3))]):
             return
 
         def click(p, mods):
@@ -546,7 +548,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- scan engraving
     def _engrave_dialog(self, title: str = "mf112_5") -> bool:
-        f = [("side_len", "pd719_3", "float", (0, 1000, 3)),
+        f = [("side_len", "pd719_3", "len", (0, 1000, 3)),
              ("direction", "pd719_4", "int", (0, 3))]
         return self.ask(title, self.engrave_p, f)
 
@@ -663,7 +665,7 @@ class CraftExtension:
         self.w.settings["SP.DockPoint"] = (float(p[0]), float(p[1]))
         self.w.document.extra["dock_point"] = (float(p[0]), float(p[1]))
         self.w.settings["SP.DockMode"] = self.dock_p.mode
-        self.log(f"mp68: X {p[0]:.3f} Y {p[1]:.3f}")
+        self.log("mp68: " + units.current().fmt_xy(p[0], p[1], "small_length"))
 
     def _effective_leads(self):
         """The leads OneKey applies: what the first target part inherits (its layer's or its

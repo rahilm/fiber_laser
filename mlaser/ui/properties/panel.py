@@ -25,9 +25,9 @@ from PySide6.QtWidgets import (QComboBox, QDoubleSpinBox, QFormLayout, QFrame, Q
 from mlaser import ops
 from mlaser.model import Document, LeadParams, Part
 
-from mlaser.ui.quantity import QuantitySpinBox, shrinkable
-from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section
+from mlaser.ui.techform import FlowLayout, ResponsiveForm, Section, shrinkable
 
+from ..units_qt import QuantitySpinBox
 from .lead_diagram import LeadDiagram
 
 MAX_PREVIEW_CONTOURS = 400     # live CAM preview only for selections up to this size
@@ -35,7 +35,7 @@ LEAD_KINDS = ("props.lead.none", "props.lead.line", "props.lead.arc", "props.lea
 KERF_KINDS = ((-1, "props.kerf.none"), (0, "props.kerf.inner"), (1, "props.kerf.outer"))
 
 
-_KIND = {"mm": "length", "°": "angle"}
+_KIND = {"mm": "length", "mm_small": "small_length", "°": "angle"}
 
 
 def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoubleSpinBox:
@@ -53,6 +53,13 @@ def _spin(lo: float, hi: float, dec: int, unit: str, step: float = 1.0) -> QDoub
             s.setSuffix(f" {unit}")
     s.setKeyboardTracking(False)
     s.setAccelerated(True)
+    return shrinkable(s)
+
+
+def _qspin(lo: float, hi: float, dec: int, step: float = 1.0) -> QuantitySpinBox:
+    """A length in the display units (``value()`` in mm); ``dec`` / ``step`` are the metric ones."""
+    s = QuantitySpinBox("length", minimum=lo, maximum=hi, decimals=dec, step=step)
+    s.setKeyboardTracking(False)
     return shrinkable(s)
 
 
@@ -99,10 +106,11 @@ class PropertiesPanel(QScrollArea):
 
         # ---- transform
         g, f = self._section("props.transform")
-        self.x = _spin(-1e6, 1e6, 3, "mm")
-        self.y = _spin(-1e6, 1e6, 3, "mm")
-        self.w = _spin(0.001, 1e6, 3, "mm")
-        self.h = _spin(0.001, 1e6, 3, "mm")
+        # position and size in the display units (value() stays mm: docs/user/units.md)
+        self.x = _qspin(-1e6, 1e6, 3)
+        self.y = _qspin(-1e6, 1e6, 3)
+        self.w = _qspin(0.001, 1e6, 3)
+        self.h = _qspin(0.001, 1e6, 3)
         self.rot = _spin(-360.0, 360.0, 2, "°", 15.0)
         for key, wdg in (("props.x", self.x), ("props.y", self.y), ("props.width", self.w),
                          ("props.height", self.h), ("props.rotate_by", self.rot)):
@@ -155,7 +163,7 @@ class PropertiesPanel(QScrollArea):
         self.kerf_kind = QComboBox()
         for v, k in KERF_KINDS:
             self.kerf_kind.addItem(t(k), v)
-        self.kerf_w = _spin(0.0, 10.0, 3, "mm", 0.01)
+        self.kerf_w = _spin(0.0, 10.0, 3, "mm_small", 0.01)
         self._inherited_row(f, "props.kerf_side", self.kerf_kind, "craft.kerf_comp")
         self._inherited_row(f, "props.kerf_width", self.kerf_w, "craft.kerf_width")
         self.kerf_kind.activated.connect(self._commit_kerf)
@@ -170,7 +178,7 @@ class PropertiesPanel(QScrollArea):
         self.mj_count = QSpinBox()
         self.mj_count.setRange(1, 100)
         self.mj_count.setValue(4)
-        self.mj_len = _spin(0.01, 50.0, 2, "mm", 0.1)
+        self.mj_len = _spin(0.01, 50.0, 2, "mm_small", 0.1)
         self.mj_len.setValue(0.5)
         self._row(f, "props.joint_count", self.mj_count)
         self._row(f, "props.joint_length", self.mj_len)
@@ -193,7 +201,7 @@ class PropertiesPanel(QScrollArea):
 
         # ---- overcut / gap
         g, f = self._section("props.overcut", expanded=False)
-        self.overcut = _spin(0.0, 100.0, 3, "mm", 0.1)
+        self.overcut = _spin(0.0, 100.0, 3, "mm_small", 0.1)
         self.overcut.setToolTip(t("props.overcut_tip"))
         self._row(f, "props.overcut_len", self.overcut)
         craft_ext = ctx.window.extension("ext_craft") if hasattr(ctx.window, "extension") else None

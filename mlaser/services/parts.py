@@ -43,6 +43,7 @@ from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Sequence
 
 from mlaser.model import Contour, Document, Part
+from mlaser.services import units as _units
 
 MODES = ("nested", "layer", "block", "file", "none")
 FEATURE_LAYERS = ("ETCH*", "MARK*", "ENGRAV*", "SCRIBE*", "TEXT*")
@@ -126,7 +127,7 @@ class PartGroup:
 
     def label(self) -> str:
         w, h = self.size
-        bits = [f"{w:.0f} × {h:.0f} mm"]
+        bits = [_units.mm_size(w, h)]
         if self.holes:
             bits.append(f"{self.holes} hole{'s' if self.holes != 1 else ''}")
         if self.open_contours:

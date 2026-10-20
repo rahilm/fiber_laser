@@ -44,7 +44,8 @@ def test_lang_catalogue(tmp_path):
     # named placeholders, positional values in the original's order
     msg = tr.format("mp83", 1, 2.25, 3.0, 4.0, 5)
     assert msg.startswith("Estimated time: 1 min 2.2 s") and "pierces: 5" in msg
-    assert tr.format("mv17", dx=1, dy=2, length=3).endswith("length 3.000 mm")
+    # the measurement values arrive formatted in the display units (docs/user/units.md)
+    assert tr.format("mv17", dx="1.000 mm", dy="2.000 mm", length="3.000 mm").endswith("length 3.000 mm")
     assert [li.code for li in tr.available()] == ["en"]     # nothing imported
     tr.set_language("zh")
     assert tr.tr("mf15") == "Go Origin"                       # no Chinese yet: English

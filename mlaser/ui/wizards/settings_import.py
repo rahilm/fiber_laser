@@ -31,6 +31,22 @@ def _fmt(v: Any) -> str:
     return str(v)
 
 
+def _value(v: Any, unit: str, key: str = "") -> str:
+    """A parameter value with its unit: converted to the display units when the setting is a
+    number in a unit that converts (mm, mm/s, mm/s² ...; the stored value stays as imported), else
+    as stored."""
+    from mlaser.services import units
+    from mlaser.services.config import registry_settings
+    from mlaser.ui.dialogs import setting_kind
+    d = registry_settings().get(key)
+    k = setting_kind(d) if d is not None else None
+    if k is not None and isinstance(v, (int, float)) and not isinstance(v, bool):
+        return units.current().fmt(float(v), k, trim=True, decimals=max(units.current().decimals(k), 4))
+    if v is None:
+        return _fmt(v)
+    return _fmt(v) + (f" {unit}" if unit else "")
+
+
 class SettingsImportDialog(QDialog):
     def __init__(self, window: Any, config: Any, parent: Optional[QWidget] = None,
                  install: str = "", param_dir: str = "") -> None:
@@ -128,8 +144,7 @@ class SettingsImportDialog(QDialog):
             self.tree.addTopLevelItem(top)
             for c in changes:
                 label = self._label(c)
-                top.addChild(QTreeWidgetItem([c.key, label, _fmt(c.old) + (f" {c.unit}" if c.unit and c.old is not None else ""),
-                                              _fmt(c.new) + (f" {c.unit}" if c.unit else "")]))
+                top.addChild(QTreeWidgetItem([c.key, label, _value(c.old, c.unit, c.key), _value(c.new, c.unit, c.key)]))
             if area == "lang":
                 for code, name, cnt in plan.languages:
                     top.addChild(QTreeWidgetItem([code, name, "", T(self.w, "wizard.import.texts", n=cnt)]))

@@ -22,6 +22,12 @@ def _nz_split(v: str) -> tuple[str, int]:
     return name, int(p or 0)
 
 
+def thickness_label(v: float) -> str:
+    """A sheet thickness (mm, the technology key) in the display units: "3 mm", "0.118 in"."""
+    from mlaser.services import units
+    return units.current().fmt(float(v), "length", trim=True)
+
+
 def _nz_label(v: str) -> str:
     name, p = _nz_split(v)
     return name + (f" · {p / 1000:g} kW" if p else "")
@@ -59,10 +65,10 @@ class MaterialPicker(QWidget):
             fl.addWidget(lab)
             for th in sorted(by[m]):
                 b = QToolButton()
-                b.setText(f"{th:g} mm")
+                b.setText(thickness_label(th))
                 b.setCheckable(True)
                 b.setObjectName("material_chip")
-                b.setAccessibleName(f"{m} {th:g} mm")
+                b.setAccessibleName(f"{m} {thickness_label(th)}")
                 b.clicked.connect(lambda _c=False, mm=m, tt=th: self.picked.emit(mm, tt))
                 fl.addWidget(b)
                 self.chips[(m, th)] = b
@@ -109,6 +115,8 @@ class RecipePicker(QWidget):
         self.gas.currentIndexChanged.connect(lambda _i: self._cascade(3))
         self.nozzle.currentIndexChanged.connect(lambda _i: self._done())
         self._all: list[T.Technology] = []
+        from mlaser.ui.units_qt import on_units_changed
+        on_units_changed(self, lambda _u: self.reload(self.picked()), now=False)   # relabel thicknesses
         self.reload()
 
     def reload(self, select: Optional[T.Technology] = None) -> None:
@@ -139,7 +147,7 @@ class RecipePicker(QWidget):
         m = self.material.currentData()
         recs = [t for t in self._all if t.key.material == m]
         if level <= 1:
-            self._combo_set(self.thickness, sorted({t.key.thickness_mm for t in recs}), lambda v: f"{v:g} mm")
+            self._combo_set(self.thickness, sorted({t.key.thickness_mm for t in recs}), thickness_label)
         th = self.thickness.currentData()
         recs = [t for t in recs if th is None or abs(t.key.thickness_mm - th) < 1e-9]
         if level <= 2:

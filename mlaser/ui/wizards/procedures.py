@@ -6,11 +6,11 @@ import copy
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QDoubleSpinBox, QFormLayout, QHBoxLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QCheckBox, QFormLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
-from mlaser.controller import edgeseek as E
+from mlaser.services import units as U
 from mlaser.services.procedures import commissioning as CM
 from mlaser.services.procedures import edge_seek as ES
 from mlaser.services.procedures import engine as PE
@@ -20,17 +20,16 @@ from mlaser.services.procedures.focus_home import AF_TYPES, FocusHomingProcedure
 from mlaser.services.procedures.laser_test import LaserTestParams, LaserTestProcedure
 
 from .. import icons
+from ..units_qt import spin_for_unit
 from .base import WizardDialog
 from .common import MIN_TARGET, JogPad, OutlineView, T
 
 
-def _spin(lo: float, hi: float, val: float, unit: str = "", dec: int = 3) -> QDoubleSpinBox:
-    w = QDoubleSpinBox()
-    w.setRange(lo, hi)
-    w.setDecimals(dec)
+def _spin(lo: float, hi: float, val: float, unit: str = "", dec: int = 3) -> QAbstractSpinBox:
+    """A form spin box for a value in ``unit``: lengths and speeds in the display units
+    (:class:`~mlaser.ui.units_qt.QuantitySpinBox`, value() stays mm / mm/s), others as is."""
+    w = spin_for_unit(unit, lo, hi, decimals=dec)
     w.setValue(float(val))
-    if unit:
-        w.setSuffix(f" {unit}")
     w.setMinimumHeight(32)
     return w
 
@@ -87,7 +86,7 @@ class EdgeSeekWizard(WizardDialog):
             self.cur = QCheckBox(T(self.w, "wizard.edge.f_current"))
             self.cur.setChecked(p.params.current_start)
             f.addRow(self.cur)
-            self.ed: dict[str, QDoubleSpinBox] = {}
+            self.ed: dict[str, QAbstractSpinBox] = {}
             for attr, key, unit in self.FIELDS:
                 if self.mode == "disc" and attr not in ("out_speed", "follow_height"):
                     continue
@@ -133,8 +132,10 @@ class EdgeSeekWizard(WizardDialog):
             lbl = page.findChild(QLabel, "pointLabel")
             q = p.points.get(n)
             if lbl is not None:
-                lbl.setText(T(self.w, "wizard.edge.point_value", n=n, x=f"{q[0]:.3f}", y=f"{q[1]:.3f}")
-                            if q else "")
+                u = U.current()
+                d = u.decimals("small_length")
+                lbl.setText(T(self.w, "wizard.edge.point_value", n=n, x=u.number(q[0], "length", d),
+                              y=u.number(q[1], "length", d), unit=u.suffix("length")) if q else "")
         elif step.id == "apply" and p.applied:
             self.status.setText(T(self.w, "wizard.edge.applied", angle=f"{p.result.angle_deg:.3f}"))
 
@@ -298,6 +299,22 @@ class LaserWizard(WizardDialog):
 
 
 # =========================================================================== commissioning
+#: checklist details whose values are lengths in mm (shown in the display units; the report
+#: file keeps the numbers in mm)
+LENGTH_VALUES = {"wizard.comm.home_ok": ("x", "y"), "wizard.comm.jog_moved": ("moved", "step"),
+                 "wizard.comm.jog_position": ("moved", "step")}
+
+
+def _detail_values(detail: str, values: dict) -> dict:
+    out = {k: v for k, v in values.items() if not isinstance(v, dict)}
+    u = U.current()
+    for k in LENGTH_VALUES.get(detail, ()):
+        if isinstance(out.get(k), (int, float)):
+            out[k] = u.number(float(out[k]), "length", u.decimals("small_length"), trim=True)
+    out.setdefault("unit", u.suffix("length"))
+    return out
+
+
 STATUS_TEXT = {CM.PASS: ("✓", "wizard.comm.s_pass", icons.GREEN), CM.WARN: ("!", "wizard.comm.s_warn", icons.AMBER),
                CM.FAIL: ("✗", "wizard.comm.s_fail", icons.RED), CM.SKIP: ("–", "wizard.comm.s_skip", None),
                CM.PENDING: ("…", "wizard.comm.s_pending", None)}
@@ -392,8 +409,7 @@ class CommissioningWizard(WizardDialog):
         for i, it in enumerate(p.items.values()):
             sym, key, color = STATUS_TEXT[it.status]
             cells = (T(self.w, CM.TITLES[it.id]), f"{sym} {T(self.w, key)}",
-                     T(self.w, it.detail, **{k: v for k, v in it.values.items() if not isinstance(v, dict)})
-                     if it.detail else "")
+                     T(self.w, it.detail, **_detail_values(it.detail, it.values)) if it.detail else "")
             for j, v in enumerate(cells):
                 cell = QTableWidgetItem(v)
                 if j == 1 and color:

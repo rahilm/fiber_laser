@@ -6,7 +6,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
-from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox,
+from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QCheckBox, QComboBox,
                                QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget,
@@ -17,7 +17,10 @@ from mlaser.model import LayerParams
 from .canvas import LAYER_COLORS, layer_color
 from ..machine.api import MachineAPI
 from .i18n import Translator
+from mlaser.services import units as U
+
 from .params import GAS_KEYS
+from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 from .icons import command_icon
 
 
@@ -42,6 +45,15 @@ class LayerPanel(QWidget):
 
     COLS = [("gp83", None), ("pd125", "speed"), ("pd127", "power_pct"), ("pd128", "frequency_hz"),
             ("pd130", "gas"), ("pd131", "gas_pressure"), ("pd129", "cut_height")]
+    #: columns shown in the display units (the layer keeps mm/s, bar, mm)
+    KINDS = {"speed": "speed", "gas_pressure": "pressure", "cut_height": "length"}
+    #: UN.GasPressureUnit of the machine (0 bar, 1 MPa: the unit the layers' pressures are stored
+    #: in, mlaser.services.technology.display_unit); the window sets a getter
+    pressure_unit: Callable[[], int] = staticmethod(lambda: 0)
+
+    def _scale(self, attr: str) -> float:
+        """Stored value -> the kind's internal unit (MPa-stored pressures are x10 bar)."""
+        return 10.0 if attr == "gas_pressure" and int(self.pressure_unit() or 0) == 1 else 1.0
 
     def __init__(self, tr: Translator, parent=None):
         super().__init__(parent)
@@ -90,9 +102,13 @@ class LayerPanel(QWidget):
         btns.addStretch(1)
         v.addLayout(btns)
         tr.bind(self, "gp83", lambda _t: self._headers())
+        on_units_changed(self, lambda _u: self.refresh(), now=False)
 
     def _headers(self):
-        self.table.setHorizontalHeaderLabels([self.tr_.tr_param(k)[1] for k, _ in self.COLS])
+        u = U.current()
+        self.table.setHorizontalHeaderLabels([
+            u.header(self.tr_.tr_param(k)[1], self.KINDS[a]) if a in self.KINDS else self.tr_.tr_param(k)[1]
+            for k, a in self.COLS])
         self.fit_columns()
 
     def fit_columns(self) -> None:
@@ -165,11 +181,14 @@ class LayerPanel(QWidget):
                 tips = []
                 for c, (_, attr) in enumerate(self.COLS[1:], start=1):
                     val = getattr(lp, attr)
-                    txt = self.tr_.tr(GAS_KEYS[int(val) % len(GAS_KEYS)]) if attr == "gas" else f"{val:g}"
-                    it = QTableWidgetItem(txt)
+                    if attr in self.KINDS:
+                        it = set_cell(QTableWidgetItem(), float(val) * self._scale(attr), self.KINDS[attr], trim=True)
+                    else:
+                        txt = self.tr_.tr(GAS_KEYS[int(val) % len(GAS_KEYS)]) if attr == "gas" else f"{val:g}"
+                        it = QTableWidgetItem(txt)
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(r, c, it)
-                    tips.append(f"{self.tr_.tr_param(self.COLS[c][0])[1]}: {txt}")
+                    tips.append(f"{self.tr_.tr_param(self.COLS[c][0])[1]}: {it.text()}")
                 if isinstance(ref, dict) and isinstance(ref.get("key"), dict):
                     k = ref["key"]
                     tips.insert(0, f"{k.get('material', '')} {k.get('thickness_mm', 0):g} mm · {k.get('gas', '')}")
@@ -185,7 +204,18 @@ class LayerPanel(QWidget):
         attr = self.COLS[it.column()][1]
         try:
             lp = self.document.layers[li]
-            setattr(lp, attr, float(it.text()))
+            kind = self.KINDS.get(attr)
+            if kind is not None:
+                # typed in the display units (or with a unit); unchanged display = unchanged value
+                u = U.current()
+                v = u.parse(it.text(), kind)
+                old = cell_value(it)
+                if old is not None and u.number(v, kind, trim=True) == u.number(old, kind, trim=True):
+                    return
+                setattr(lp, attr, v / self._scale(attr))
+                it.setData(VALUE_ROLE, v)
+            else:
+                setattr(lp, attr, float(it.text()))
             lp.extra.pop("placeholder", None)        # the operator set it: the layer is defined
             self.changed.emit()
         except (ValueError, KeyError):
@@ -218,10 +248,12 @@ class PartListPanel(QTreeWidget):
         self.bbox_hits = self.bbox_misses = 0
         self.itemSelectionChanged.connect(self._sel_changed)
         tr.bind(self, "np_Part", lambda _t: self._headers())
+        on_units_changed(self, lambda _u: (self._headers(), self.refresh()), now=False)
 
     def _headers(self):
         t = self.tr_
-        self.setHeaderLabels([t.tr("gp75"), t.tr("np_PartName"), t.tr("gp83"), t.tr("gp76"), t.tr("sf1").strip(" :：")])
+        size = U.current().header(t.tr("sf1").strip(" :："), "length")
+        self.setHeaderLabels([t.tr("gp75"), t.tr("np_PartName"), t.tr("gp83"), t.tr("gp76"), size])
 
     def set_document(self, doc) -> None:
         self.document = doc
@@ -254,6 +286,8 @@ class PartListPanel(QTreeWidget):
             for i in range(n_items - 1, len(parts) - 1, -1):
                 self.takeTopLevelItem(i)
         part_word = self.tr_.tr("np_Part")
+        u = U.current()
+        dec = 2 if u.unit("length") == "mm" else u.decimals("length")
         red = QColor("#d00000")
         live = set()
         new_items = []
@@ -261,7 +295,7 @@ class PartListPanel(QTreeWidget):
             live.add(p.uid)
             x0, y0, x1, y1 = self.part_bbox(p)
             vals = (str(i + 1), p.name or f"{part_word}{i + 1}", str(p.craft.layer), str(len(p.contours)),
-                    f"{x1 - x0:.2f}×{y1 - y0:.2f}")
+                    f"{u.number(x1 - x0, 'length', dec)}×{u.number(y1 - y0, 'length', dec)}")
             is_open = any(not c.closed for c in p.contours)
             if i < n_items:
                 it = self.topLevelItem(i)
@@ -385,9 +419,9 @@ class ControlPanel(QWidget):
         self.mode_fast = QCheckBox()
         tr.bind(self.mode_fast, "mp32", self.mode_fast.setText)
         self.step = QComboBox()
-        for k in self.STEP_KEYS:
-            self.step.addItem(tr.tr(k))
+        self._fill_steps()
         self.step.setCurrentIndex(3)
+        on_units_changed(self.step, lambda _u: self._fill_steps(), now=False)
         g.addWidget(self.mode_step, 3, 0)
         g.addWidget(self.mode_fast, 3, 1)
         g.addWidget(self.step, 3, 2, 1, 2)
@@ -449,9 +483,7 @@ class ControlPanel(QWidget):
         gp.addWidget(self._text_button("mp57", self._dry_run), 1, 0)
         gp.addWidget(self._text_button("mp58", self._frame), 1, 1)
         gp.addWidget(self._text_button("mp59", self.simulateRequested.emit), 1, 2)
-        self.bf_len = QDoubleSpinBox()
-        self.bf_len.setRange(0.1, 10000)
-        self.bf_len.setValue(10.0)
+        self.bf_len = QuantitySpinBox("length", minimum=0.1, maximum=10000, decimals=2, step=1.0, value=10.0)
         gp.addWidget(self._text_button("mp61", lambda: self.ctl.step_backward(self.bf_len.value())), 2, 0)
         gp.addWidget(self._text_button("mp62", lambda: self.ctl.step_forward(self.bf_len.value())), 2, 1)
         gp.addWidget(self.bf_len, 2, 2)
@@ -621,12 +653,35 @@ class ControlPanel(QWidget):
                         bt.setChecked(on)
                         bt.blockSignals(False)
 
+    #: imperial jog steps (in): round inch values, each no longer than the metric step it replaces
+    STEP_INCHES = (0.001, 0.002, 0.01, 0.02, 0.25, 1.0, 1.5, 3.0, 5.0, 7.5)
+
+    def step_values(self) -> list[float]:
+        """The jog step presets in mm: the original's (mp90..mp99, mm) in metric, round inch
+        steps in imperial."""
+        if U.current().unit("length") in ("in", "ft"):
+            return [v * U.MM_PER_IN for v in self.STEP_INCHES]
+        out = []
+        for k in self.STEP_KEYS:
+            try:
+                out.append(float(self.tr_.tr(k)))
+            except ValueError:
+                out.append(1.0)
+        return out
+
+    def _fill_steps(self) -> None:
+        i = self.step.currentIndex()
+        self.step.blockSignals(True)
+        self.step.clear()
+        for v in self.step_values():
+            self.step.addItem(U.current().fmt(v, "length", decimals=4, trim=True), v)
+        self.step.setCurrentIndex(i if i >= 0 else 3)
+        self.step.blockSignals(False)
+
     def _jog_press(self, axis: str, d: int) -> None:
         if self.mode_step.isChecked():
-            try:
-                step = float(self.tr_.tr(self.STEP_KEYS[self.step.currentIndex()]))
-            except ValueError:
-                step = 1.0
+            step = self.step.currentData()
+            step = float(step) if step is not None else 1.0
             # the step jog uses the fast/slow speed too (FUN_005bdae0)
             self.ctl.jog_step(axis, d, step, fast=self.mode_fast.isChecked())
         else:

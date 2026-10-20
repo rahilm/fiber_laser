@@ -36,6 +36,7 @@ from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
 from mlaser.model import Contour, Document, Line, Part, Point, Segment
+from mlaser.services import units as _units
 
 KINDS = ("open_contour", "duplicate", "overlap", "zero_length", "tiny_segment", "tiny_object",
          "self_intersection", "text")
@@ -235,9 +236,9 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
         gap = math.dist(a, b)
         near = min(nearest(k, a), nearest(k, b))
         fix = o.fix_open and (near <= o.join_tol or (gap <= o.close_gap and c.length() > 2 * gap))
-        msg = f"part {pi + 1} contour {ci + 1} is open: gap {gap:.3f} mm"
+        msg = f"part {pi + 1} contour {ci + 1} is open: gap {_units.mm_text(gap, '.3f', 'small_length')}"
         if near < math.inf:
-            msg += f", nearest open end {near:.3f} mm"
+            msg += f", nearest open end {_units.mm_text(near, '.3f', 'small_length')}"
         rep.findings.append(Finding("open_contour", pi, ci, gap, a, fix, msg))
     # ---- duplicates: a contour lying on an earlier one (bbox candidates first)
     if 1 < len(items):
@@ -269,7 +270,7 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
             first = next(((pi, ci, c) for pi, ci, c in items if not c.closed), None)
             rep.findings.append(Finding("overlap", first[0] if first else -1, first[1] if first else -1,
                                         before - after, first[2].segments[0].start if first else None,
-                                        o.fix_overlaps, f"{before - after:.2f} mm of open lines lie on each other"))
+                                        o.fix_overlaps, f"{_units.mm_text(before - after, '.2f')} of open lines lie on each other"))
     # ---- zero length, tiny segments, tiny objects, self-intersections
     for pi, ci, c in items:
         if _is_point(c):
@@ -289,11 +290,11 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
             rep.findings.append(Finding("tiny_segment", pi, ci, float(len(tiny)), c.segments[tiny[0]].start,
                                         o.fix_tiny_segments,
                                         f"part {pi + 1} contour {ci + 1}: {len(tiny)} segment(s) shorter than "
-                                        f"{o.tiny_segment:g} mm"))
+                                        f"{_units.mm_text(o.tiny_segment, 'g', 'small_length')}"))
         x0, y0, x1, y1 = _bbox(c)
         if max(x1 - x0, y1 - y0) < o.tiny_object:
             rep.findings.append(Finding("tiny_object", pi, ci, max(x1 - x0, y1 - y0), (x0, y0), o.fix_tiny_objects,
-                                        f"part {pi + 1} contour {ci + 1} is smaller than {o.tiny_object:g} mm"))
+                                        f"part {pi + 1} contour {ci + 1} is smaller than {_units.mm_text(o.tiny_object)}"))
         elif c.closed:
             hit = _self_intersection(c)
             if hit is not None:

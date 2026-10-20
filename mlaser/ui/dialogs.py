@@ -14,8 +14,38 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, 
                                QTabWidget, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
                                QTableWidget, QTableWidgetItem, QHeaderView)
 
+from mlaser.services import units as U
+
 from . import params as P
 from .i18n import Translator
+from .units_qt import QuantitySpinBox, kind_for, on_units_changed
+
+#: registry settings whose declared unit is not the value's unit: QR.QRCodeLineDensity is a print
+#: density (lines per mm) the registry tags "mm"; shown without the misleading "mm" and unconverted
+UNIT_NOT_A_QUANTITY = {"QR.QRCodeLineDensity"}
+
+
+def setting_kind(d) -> Optional[str]:
+    """The display-unit kind of a schema setting's number editor, or None (shown as stored)."""
+    if d.kind not in ("float", "int") or d.key in UNIT_NOT_A_QUANTITY:
+        return None
+    return kind_for(d.unit)
+
+
+def setting_unit_label(d) -> str:
+    """The unit shown after a setting's label: the display unit for converted settings, nothing
+    for check boxes and option lists (the registry tags some of them "mm"), else the stored one."""
+    k = setting_kind(d)
+    if k is not None:
+        return U.current().suffix(k)
+    if d.kind in ("bool", "enum") or d.key in UNIT_NOT_A_QUANTITY:
+        return ""
+    return d.unit or ""
+
+
+def _qspin(kind: str, lo, hi, val, dec=3, step=1.0) -> QuantitySpinBox:
+    """A spin box for a length (or other quantity) in the display units; value() in mm."""
+    return QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=dec, step=step, value=val)
 
 
 def _spin(lo, hi, val, dec=3, step=1.0) -> QDoubleSpinBox:
@@ -89,7 +119,9 @@ class ParamGridDialog(QDialog):
                 g.setFirstColumnSpanned(True)
                 tree.addTopLevelItem(g)
                 for d, label in items:
-                    it = QTreeWidgetItem([label + (f" ({d.unit})" if d.unit else "")])
+                    it = QTreeWidgetItem([label])
+                    on_units_changed(tree, lambda _u, it=it, d=d, label=label: it.setText(
+                        0, label + (f" ({ul})" if (ul := setting_unit_label(d)) else "")))
                     it.setToolTip(0, d.key)
                     g.addChild(it)
                     ed = self._editor(d)
@@ -123,6 +155,16 @@ class ParamGridDialog(QDialog):
         if d.kind in ("int", "float", "enum"):
             lo = d.min if d.min is not None else -1e9
             hi = d.max if d.max is not None else 1e9
+            k = setting_kind(d)
+            if k is not None:
+                # value() in the stored unit (mm, mm/s ...); shown and typed in the display units
+                q = QuantitySpinBox(k, minimum=lo, maximum=hi, decimals=4 if d.kind == "float" else 0)
+                try:
+                    q.setValue(float(v))
+                except (TypeError, ValueError):
+                    pass
+                q.setProperty("int_setting", d.kind == "int")
+                return q
             if d.kind == "float":
                 ws: QWidget = _spin(lo, hi, 0.0, 4)
             else:
@@ -132,8 +174,8 @@ class ParamGridDialog(QDialog):
                 ws.setValue(float(v) if d.kind == "float" else int(float(v)))
             except (TypeError, ValueError):
                 pass
-            if d.unit:
-                ws.setSuffix(f" {d.unit}")
+            if setting_unit_label(d):
+                ws.setSuffix(f" {setting_unit_label(d)}")
             return ws
         return QLineEdit("" if v is None else str(v))
 
@@ -143,6 +185,9 @@ class ParamGridDialog(QDialog):
             return w.isChecked()
         if isinstance(w, QComboBox):
             return w.currentIndex()
+        if isinstance(w, QuantitySpinBox):
+            # an integer setting keeps integer mm (a typed 2 in = 50.8 mm is stored as 51)
+            return int(round(w.value())) if w.property("int_setting") else w.value()
         if isinstance(w, (QSpinBox, QDoubleSpinBox)):
             return w.value()
         return w.text().strip()

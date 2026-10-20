@@ -34,8 +34,16 @@ mlaser queue list
 `mlaser` is the program itself: these words in the first position run the command instead of
 the window (`python -m mlaser ...` and `mlaser-cli ...` do the same). Add `--json` to any
 command for one JSON object on standard output, for scripts. Options common to all commands:
-`--config PATH` (another `config.json`), `--tech-db PATH` (another technology database);
-`MLASER_DATA_DIR` / `MLASER_CONFIG_DIR` select the data and configuration directories.
+`--config PATH` (another `config.json`), `--tech-db PATH` (another technology database),
+`--units metric|imperial` (the units of the text output; default: the configuration's unit
+system, [Units](units.md)); `MLASER_DATA_DIR` / `MLASER_CONFIG_DIR` select the data and
+configuration directories.
+
+**Units.** The JSON output is always in millimetres (mm/s, mm², ...) whatever `--units` says,
+and says so: every object carries `"units": "mm"`; the field names keep their `_mm` suffixes.
+Only the text output converts. Lengths given on the command line (`--sheet`, `--travel`,
+`--start`, `--spacing`, `--margin`, `--thickness`) are millimetres when they are plain numbers,
+as before, and may carry a unit: `--sheet 120inx60in`, `--spacing 0.125in`, `--thickness 1/8in`.
 
 ### What the commands do
 
@@ -71,7 +79,7 @@ the CLI also reads `name`, `rotation` (allowed step in degrees, 0 = none) and `m
 | 5 | an output file could not be written |
 | 6 | `queue add` refused (the approval list is full); `plugin` refused (a verification check, https only, `--yes` missing) |
 
-With `--json` an error is `{"ok": false, "exit_code": N, "error": {"code": "...", "message": "..."}}`.
+With `--json` an error is `{"ok": false, "exit_code": N, "units": "mm", "error": {"code": "...", "message": "..."}}`.
 
 ### Examples
 

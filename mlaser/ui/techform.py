@@ -27,7 +27,8 @@ and a reset button, and the header counts them ("3 overridden on this layer").
 **Responsive**: each section's form puts the label beside the field when the widest label and
 field fit the width the panel actually has, and above the field when they do not; no widths
 are fixed, the form never scrolls horizontally.  Unit-bearing fields use
-:class:`mlaser.ui.quantity.QuantitySpinBox` (the Units track's widget).
+:class:`mlaser.ui.units_qt.QuantitySpinBox` (the Units track's widget: shown in the user's
+units, stored in mm / mm/s / bar).
 """
 
 from __future__ import annotations
@@ -41,7 +42,33 @@ from PySide6.QtWidgets import (QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout
 
 from mlaser.services import technology as T
 
-from .quantity import QuantitySpinBox, kind_for_unit, shrinkable
+from mlaser.services.units import kind_for_unit
+
+from .units_qt import QuantitySpinBox
+
+
+def shrinkable(w: QWidget, chars: int = 7) -> QWidget:
+    """Let a spin box shrink to its content instead of to the text of its largest value (a
+    range of ±1e6 asks ~170 px and forces a narrow dock to scroll sideways): the minimum width
+    becomes ``chars`` digits plus the suffix in the widget's own font."""
+    from PySide6.QtWidgets import QAbstractSpinBox
+
+    if isinstance(w, QAbstractSpinBox):
+        fm = w.fontMetrics()
+        suffix = w.suffix() if hasattr(w, "suffix") else ""
+        w.setMinimumWidth(fm.horizontalAdvance("8" * chars + suffix) + 2 * fm.height())
+        w.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+    return w
+
+
+def quantity(kind: str, lo: float, hi: float, decimals: Optional[int] = None,
+             step: Optional[float] = None) -> QuantitySpinBox:
+    """A QuantitySpinBox (Units track) with the panels' defaults: no keyboard tracking (a value
+    is taken when the field is confirmed), shrinkable."""
+    s = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=decimals, step=step)
+    s.setKeyboardTracking(False)
+    shrinkable(s)
+    return s
 
 # --------------------------------------------------------------------------- layout helpers
 
@@ -355,10 +382,9 @@ class TechField:
             self.label_text = name or key
             self.help = ""
         self.stage = st
-        rng = f"{d.min:g} … {d.max:g} {unit}".strip() if d.max > d.min and d.type_name not in ("bool", "enum") else ""
-        tip = (self.help + "\n\n" if self.help else "") + (name or key) + f"  [{key}]"
-        if rng:
-            tip += f"\n{tr.tr('tech.range')}: {rng}"
+        self.kind = kind
+        self._name = name or key
+        tip = self._make_tip()
         self.tooltip = tip
         w.setToolTip(tip)
         w.setAccessibleName(self.label_text)
@@ -404,6 +430,27 @@ class TechField:
         self.secondary = False
         self.section = ""
 
+    def _make_tip(self) -> str:
+        """Help, registry name and key, and the range in the display units."""
+        d, tr = self.d, self.tr_
+        rng = ""
+        if d.max > d.min and d.type_name not in ("bool", "enum"):
+            if self.kind is not None:
+                from mlaser.services import units
+                u = units.current()
+                rng = f"{u.fmt(d.min, self.kind, trim=True)} … {u.fmt(d.max, self.kind, trim=True)}"
+            else:
+                rng = f"{d.min:g} … {d.max:g} {self.unit}".strip()
+        tip = (self.help + "\n\n" if self.help else "") + self._name + f"  [{self.key}]"
+        if rng:
+            tip += f"\n{tr.tr('tech.range')}: {rng}"
+        return tip
+
+    def units_changed(self) -> None:
+        self.tooltip = self._make_tip()
+        self.widget.setToolTip(self.tooltip)
+        self.label.setToolTip(self.tooltip)
+
     # ---------------------------------------------------------------- value
     def set(self, v: Any) -> None:
         w = self.widget
@@ -442,6 +489,9 @@ class TechField:
         if isinstance(w, QComboBox):
             i = int(v or 0)
             return w.itemText(i) if 0 <= i < w.count() else str(v)
+        if self.kind is not None and isinstance(v, (int, float)):
+            from mlaser.services import units
+            return units.current().fmt(float(v), self.kind, trim=True)
         if isinstance(v, float):
             return f"{v:g} {self.unit}".strip()
         return f"{v} {self.unit}".strip() if v not in (None, "") else "—"
@@ -589,6 +639,9 @@ class TechForm(QWidget):
         if self.scope:
             from .homes import bind_editor
             bind_editor(f.widget, f"{self.scope}.{key}")
+        if f.kind is not None:
+            from .units_qt import on_units_changed
+            on_units_changed(f.label, lambda _u, ff=f: ff.units_changed(), now=False)
         if grouped and form.property("last_group") != f.group:
             form.setProperty("last_group", f.group)
             g = QLabel(f"<b>{f.group}</b>")

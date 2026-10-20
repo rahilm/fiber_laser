@@ -27,7 +27,7 @@ from mlaser.model import LayerParams
 from mlaser.services import inheritance as I
 from mlaser.services import technology as T
 from mlaser.ui.inherited_field import InheritedField
-from mlaser.ui.quantity import quantity
+from mlaser.ui.techform import quantity
 from mlaser.ui.techform import FlowLayout, Section, TechForm
 
 from .recipe_picker import RecipePicker
