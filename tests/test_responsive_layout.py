@@ -150,7 +150,8 @@ def _fit(win, app, size) -> QSize:
         if win.size() != s:
             win.resize(s)
             stable = 0
-        _pump(app, settle, rounds=8)
+        _pump(app, settle, rounds=2)
+        at_rest(win, app)         # the minimum is read once the relayout has run its course
         if win.size() == want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize()):
             stable += 1
             if stable >= 2:
@@ -171,14 +172,7 @@ def settle(win, app) -> None:
     # then until the layout is at rest: a page that grows (the Nest options opened) reaches the
     # window's minimum through a chain of layout requests and zero-delay syncs, one event-loop
     # turn each; a fixed number of turns ran out on a loaded worker
-    last, same = None, 0
-    for _ in range(100):
-        _pump(app, rounds=1)
-        sig = _layout_signature(win)
-        same = same + 1 if sig == last else 0
-        last = sig
-        if same >= 3 and not sig[-1]:
-            break
+    at_rest(win, app)
     if real_screen():
         # a window server applies a grown minimum asynchronously (X11: a round trip to the
         # window manager): wait for that condition, not for a time
@@ -193,6 +187,29 @@ def settle(win, app) -> None:
         _pump(app, rounds=3)
 
 
+def at_rest(win, app) -> None:
+    """Pump until nothing is pending: the document's plan delivered, no zero-delay timer of the
+    window's panels is armed (a
+    columns panel's or a column fitter's relayout), no page wrapper has a sync queued, and the
+    layout signature has not changed for three event-loop turns."""
+    from PySide6.QtCore import QTimer
+    jobs = getattr(win, "jobs", None)
+    if jobs is not None:
+        # the document's plan (a selection or a new document starts one, in another process):
+        # delivered now, not whenever it happens to arrive (it fills the Process page's
+        # estimate card and the preview, so the page's minimum depends on it)
+        jobs.settle()
+    last, same = None, 0
+    for _ in range(200):
+        _pump(app, rounds=1)
+        sig = _layout_signature(win)
+        same = same + 1 if sig == last else 0
+        last = sig
+        armed = any(t.isActive() and t.interval() == 0 for t in win.findChildren(QTimer))
+        if same >= 3 and not sig[-1] and not armed:
+            break
+
+
 def _layout_signature(win) -> tuple:
     """The sizes that change while a relayout travels between a page and the window; the last
     item: a page wrapper still has a sync queued."""
@@ -205,7 +222,9 @@ def _layout_signature(win) -> tuple:
     for fa in win.findChildren(FitArea):
         if fa.isVisible():
             n = fa.need(fa.viewport().width())
-            out += [fa.width(), fa.height(), n.width(), n.height(), fa.widget().width(), fa.widget().height()]
+            m2 = fa.minimumSizeHint()
+            out += [fa.width(), fa.height(), n.width(), n.height(), fa.widget().width(), fa.widget().height(),
+                    m2.width(), m2.height()]
             queued = queued or bool(getattr(fa, "_sync_queued", False))
     return (*out, queued)
 
