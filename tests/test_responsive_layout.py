@@ -90,8 +90,11 @@ def win(app, tmp_path_factory):
         mp.setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
     # the offscreen screen is 800 × 800: pages must not be capped to it (FitArea's screen cap is
     # tested on its own, test_fit_area_screen_cap)
-    from mlaser.ui.responsive import FitArea
-    mp.setattr(FitArea, "_cap", lambda self, size: size)
+    try:
+        from mlaser.ui.responsive import FitArea
+        mp.setattr(FitArea, "_cap", lambda self, size: size)
+    except ImportError:          # a checkout before the responsive layout (the baseline run)
+        pass
     w = real_window(config=ConfigService())
     onshape = _load_onshape(w)
     w.shell.host.refresh_mode()

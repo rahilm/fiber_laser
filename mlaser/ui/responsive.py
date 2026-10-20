@@ -111,6 +111,7 @@ class FlowLayout(QLayout):
         self.max_columns = max_columns
         self._h = hspacing
         self._v = vspacing
+        self._width = 0              # the width last laid out at (its rows set the minimum)
 
     # --- QLayout API
     def addItem(self, item: QLayoutItem) -> None:  # noqa: N802 - Qt API
@@ -145,7 +146,26 @@ class FlowLayout(QLayout):
 
     def setGeometry(self, rect: QRect) -> None:  # noqa: N802 - Qt API
         super().setGeometry(rect)
+        if rect.width() != self._width:
+            before = self._rows_h(self._width)
+            self._width = rect.width()
+            if self._rows_h(self._width) != before:
+                # more (or fewer) rows at this width: the minimum height changes; tell the
+                # parents (a splitter does not ask for height-for-width)
+                QTimer.singleShot(0, self._changed)
         self._do(rect, apply=True)
+
+    def _changed(self) -> None:
+        try:
+            self.invalidate()
+            w = self.parentWidget()
+            if w is not None:
+                w.updateGeometry()
+        except RuntimeError:          # deleted meanwhile
+            pass
+
+    def _rows_h(self, width: int) -> int:
+        return self._do(QRect(0, 0, width, 0), apply=False) if width > 0 else 0
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
         """One row (what the items want when there is room)."""
@@ -171,8 +191,11 @@ class FlowLayout(QLayout):
         items = self._visible()
         m = self.contentsMargins()
         w = max((self._min_w(it) for it in items), default=0)
-        h = max((it.minimumSize().height() for it in items), default=0)
-        return QSize(w + m.left() + m.right(), h + m.top() + m.bottom())
+        h = max((it.minimumSize().height() for it in items), default=0) + m.top() + m.bottom()
+        # at the width it has, the rows it needs (a parent that does not ask for height for
+        # width, such as a splitter, still gives the room: no row drawn over the next widget)
+        h = max(h, self._rows_h(self._width))
+        return QSize(w + m.left() + m.right(), h)
 
     # --- helpers
     def hspacing(self) -> int:
