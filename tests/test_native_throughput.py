@@ -246,3 +246,199 @@ def test_selfcheck_detects_a_wrong_sink(monkeypatch):
     # the steps go to the real sink only when it is the kernel's own type: the bad one makes the
     # kernel decline, which the self-check reports as well
     assert N.selfcheck() != ""
+
+
+# ----------------------------------------------------------------------------- crtmath
+from mlaser.parity_ports import crtmath as CRT  # noqa: E402
+from mlaser.parity_ports.cadmodule import curvetable as CT  # noqa: E402
+from mlaser.parity_ports.cadmodule import smooth as SM  # noqa: E402
+from mlaser.parity_ports.profiles import native_smooth as NS  # noqa: E402
+
+
+def _hx(v):
+    if isinstance(v, float):
+        return v.hex()
+    if isinstance(v, (list, tuple)):
+        return [_hx(x) for x in v]
+    return v
+
+
+any_float = st.one_of(st.floats(allow_nan=True, allow_infinity=True, allow_subnormal=True),
+                      st.floats(-2.0, 2.0), st.floats(-1e-300, 1e-300),
+                      st.sampled_from([0.0, -0.0, 1.0, -1.0, 0.5, 2.0 ** 512, 2.0 ** -460, 5e-324,
+                                       1.0000000000000002, 0.9999999999999999]))
+
+
+@needs_kernel
+@settings(max_examples=3000, deadline=None)
+@given(x=any_float, y=any_float)
+def test_crtmath_matches_the_port(x, y):
+    assert _hx(K.crt_hypot(x, y)) == _hx(CRT.hypot(x, y))
+    assert _hx(K.crt_atan2(y, x)) == _hx(CRT.atan2(y, x))
+    assert _hx(K.crt_atan(x)) == _hx(CRT.atan(x))
+    assert _hx(K.crt_acos(x)) == _hx(CRT.acos(x))
+    assert _hx(NS.hypot(x, y)) == _hx(CRT.hypot(x, y)) and _hx(NS.acos(x)) == _hx(CRT.acos(x))
+
+
+@needs_kernel
+def test_crtmath_wrappers_keep_ints_on_the_port():
+    assert NS.hypot(3, 0) == 3 and type(NS.hypot(3, 0)) is int      # the port returns the int
+    assert NS.atan2(1, 1) == CRT.atan2(1, 1) and NS.atan(2) == CRT.atan(2)
+    with pytest.raises(TypeError):
+        K.crt_hypot(3, 4.0)
+
+
+# ----------------------------------------------------------------------------- CurveTable
+@st.composite
+def table_v(draw):
+    n = draw(st.integers(4, 9))
+    x = y = 0.0
+    ctrl = []
+    for _ in range(n):
+        x += draw(st.floats(-3.0, 3.0))
+        y += draw(st.one_of(st.floats(-3.0, 3.0), st.just(0.0)))
+        ctrl.append((x, y))
+    kind = draw(st.integers(0, 3))
+    if kind == 0 or n == 4:
+        knots = SM._clamped_uniform(n, 3)
+    elif kind == 1:
+        inner = sorted(draw(st.lists(st.floats(0.0, 1.0), min_size=n - 4, max_size=n - 4)))
+        knots = [0.0] * 4 + inner + [1.0] * 4
+    elif kind == 2:
+        knots = [0.0, 0.0, 0.0, 0.0] + [0.5] * (n - 4) + [1.0] * 4      # repeated interior knots
+    else:
+        knots = [0.0] * 4 + [float(i) for i in range(1, n - 3)] + [float(n - 3)] * 4
+    if n == 4 and draw(st.booleans()):
+        knots = [0.0, 0.0, 0.0, 0.0, 2.0, 2.0, 2.0, 2.0]               # a DXF spline glyph
+    return ctrl, knots, draw(st.sampled_from([0.0, 0.3, 18.16]))
+
+
+frac_v = st.one_of(st.floats(-0.2, 1.2), st.sampled_from([0.0, 1.0, 0.5, float("nan")]))
+
+
+def _records(t):
+    if isinstance(t, NS.NativeCurveTable):
+        return _hx([list(v) for v in t._t.records()])
+    return _hx([[getattr(r, f) for f in CT._Rec.__slots__] for r in t.recs])
+
+
+def _outcome(fn, *a):
+    try:
+        return ("ok", _hx(fn(*a)))
+    except Exception as e:  # noqa: BLE001 - the port's exception is the behaviour
+        return (type(e).__name__,)
+
+
+@needs_kernel
+@settings(max_examples=400, deadline=None, suppress_health_check=[HealthCheck.too_slow])
+@given(case=table_v(), fs=st.lists(frac_v, min_size=1, max_size=12),
+       win=st.tuples(st.floats(0.0, 0.4), st.floats(0.6, 1.0)))
+def test_curve_table_matches_the_port(case, fs, win):
+    ctrl, knots, ref = case
+    a = _outcome(CT.CurveTable, ctrl, knots, 0.0, 1.0, ref)
+    b = _outcome(NS.NativeCurveTable, ctrl, knots, 0.0, 1.0, ref)
+    if a[0] != "ok":
+        assert b[0] == a[0]
+        return
+    pa, pb = CT.CurveTable(ctrl, knots, 0.0, 1.0, ref), NS.NativeCurveTable(ctrl, knots, 0.0, 1.0, ref)
+    assert _records(pa) == _records(pb)
+    assert _hx((pa.total, pa.length, pa.sample_tol)) == _hx((pb.total, pb.length, pb.sample_tol))
+    # the lazily materialised records are the port's
+    assert _hx([[getattr(r, f) for f in CT._Rec.__slots__] for r in pb.recs]) == _records(pa)
+    for u0, u1 in ((0.0, 1.0), win):
+        wa, wb = pa.windowed(u0, u1), pb.windowed(u0, u1)
+        assert type(wb) is type(pb)
+        assert _outcome(wa.nodes) == _outcome(wb.nodes)
+        for f in fs:
+            for name in ("point_f", "tangent_f", "radius_at", "point_at_fraction"):
+                assert _outcome(getattr(wa, name), f) == _outcome(getattr(wb, name), f), name
+            assert _outcome(wa.point, f * wa.length) == _outcome(wb.point, f * wb.length)
+            assert _outcome(wa.tangent, f * wa.length) == _outcome(wb.tangent, f * wb.length)
+            assert wa._search(f * wa.total) == wb._search(f * wb.total)
+
+
+@needs_kernel
+def test_curve_table_falls_back_to_the_port():
+    ints = [(0, 0), (1, 0), (2, 0), (2, 1), (2, 2)]
+    t = NS.NativeCurveTable(ints, SM._clamped_uniform(5, 3))
+    assert type(t) is CT.CurveTable              # an int control point: the port's own table
+    before = NS.STATS["table_port"]
+    NS.NativeCurveTable([(0.0, 0.0)] * 5, SM._clamped_uniform(5, 3))
+    assert NS.STATS["table_port"] == before      # all points equal: C handles it (no records)
+
+
+# ----------------------------------------------------------------------------- smoother
+class _Mv:
+    def __init__(self, a, b, c=None, ccw=True, feed=100.0, laser=True):
+        self.start, self.end, self.center, self.ccw = a, b, c, ccw
+        self.feed, self.laser = feed, laser
+
+
+def _chain(r: random.Random):
+    pts = [(0.0, 0.0)]
+    mv = []
+    for _ in range(r.randint(1, 10)):
+        a = pts[-1]
+        k = r.random()
+        if k < 0.6:
+            L = r.choice((r.uniform(0.01, 0.4), r.uniform(0.5, 3.0), r.uniform(3.0, 30.0)))
+            ang = r.uniform(0, 2 * math.pi)
+            b = (a[0] + L * math.cos(ang), a[1] + L * math.sin(ang))
+            mv.append(_Mv(a, b, feed=r.choice((50.0, 100.0, 100.0, 300.0)), laser=r.random() < 0.9))
+        else:
+            rad = r.uniform(0.3, 12.0)
+            ang = r.uniform(0, 2 * math.pi)
+            c = (a[0] - rad * math.cos(ang), a[1] - rad * math.sin(ang))
+            sw = r.uniform(0.2, 6.2)
+            ccw = r.random() < 0.5
+            e = ang + (sw if ccw else -sw)
+            b = (c[0] + rad * math.cos(e), c[1] + rad * math.sin(e))
+            mv.append(_Mv(a, b, c, ccw, feed=r.choice((60.0, 100.0))))
+        pts.append(mv[-1].end)
+    if r.random() < 0.3:      # a closed contour (full circle)
+        c = (pts[-1][0] - 4.0, pts[-1][1])
+        mv.append(_Mv(pts[-1], pts[-1], c, True))
+    return mv
+
+
+@needs_kernel
+@pytest.mark.parametrize("seed", range(60))
+def test_smoother_matches_the_port(seed):
+    from mlaser.motion.interp import MotionConfig
+    from mlaser.parity_ports.cadmodule.planner import PlannerParams, plan_velocity
+    r = random.Random(seed)
+    mv = _chain(r)
+    cfg = MotionConfig(corner_tol=r.choice((0.05, 0.01, 0.2)), arc2seg_k=r.choice(((1.0, 1.0), (0.9, 0.7))))
+    li = r.choice((None, 1)) if len(mv) > 1 else None
+    a = _outcome(SM.smooth_path_points, mv, cfg, None, li)
+    b = _outcome(NS.native_smooth_path_points, mv, cfg, None, li)
+    assert a[0] == b[0]
+    if a[0] != "ok":
+        return
+    pa, ga = SM.smooth_path_points(mv, cfg, None, li)
+    pb, gb = NS.native_smooth_path_points(mv, cfg, None, li)
+    assert _hx([(p.s, p.radius, p.feed, p.factor) for p in pa]) == _hx([(p.s, p.radius, p.feed, p.factor) for p in pb])
+    assert _hx(ga.cum) == _hx(gb.cum)
+    plan = plan_velocity(pa, PlannerParams())
+    for period in (1.0, 0.5):
+        ss = plan.sample(period)
+        sb = gb.sample_plan(plan, period)
+        assert _hx(list(sb)) == _hx(ss)
+    ss = plan.sample(1.0)
+    extra = [-1.0, 0.0, ga.cum[-1], ga.cum[-1] + 1.0] + [r.uniform(0, ga.cum[-1]) for _ in range(20)]
+    for s_list in (ss, extra):
+        want = [c for s in s_list for c in ga.at(s)[0]]
+        got = gb.points(array("d", s_list))
+        assert type(got) is array and _hx(list(got)) == _hx(want)
+        assert _hx([c for s in s_list for c in gb.at(s)[0]]) == _hx(want)
+        assert [ga.at(s)[1] for s in s_list] == [gb.at(s)[1] for s in s_list]
+
+
+@needs_kernel
+def test_sampling_declines_odd_inputs_and_gives_the_ports_values():
+    from mlaser.motion.interp import MotionConfig
+    mv = [_Mv((0, 0), (10, 0)), _Mv((10, 0), (10, 10)), _Mv((10, 10), (0, 10), (5, 10), True)]   # ints
+    pa, ga = SM.smooth_path_points(mv, MotionConfig())
+    pb, gb = NS.native_smooth_path_points(mv, MotionConfig())
+    ss = [0.0, 1.5, 7.25, 30.0]
+    assert _hx([c for s in ss for c in ga.at(s)[0]]) == _hx(list(gb.points(ss)))

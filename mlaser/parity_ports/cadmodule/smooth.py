@@ -1295,12 +1295,19 @@ def smooth_path_points(moves, cfg=None, params: Optional[SmoothParams] = None,
     ``lead_index``: first contour move after a line lead-in (the original's type-4 marker);
     the joint before it is blended with ``SmoothParams.lead_tol``.
     """
+    return run_smoother(ContourSmoother, SmoothedPath, moves, cfg, params, lead_index)
+
+
+def run_smoother(smoother_cls: type, path_cls: type, moves, cfg=None, params: Optional[SmoothParams] = None,
+                 lead_index: Optional[int] = None):
+    """:func:`smooth_path_points` with the given smoother and path classes (the port's, or the
+    C-backed subclasses of mlaser/parity_ports/profiles/native_smooth.py)."""
     from .planner import PathPoint   # local import: planner is not modified
     tol = getattr(cfg, "corner_tol", 0.05) if cfg is not None else 0.05
     kx, ky = getattr(cfg, "arc2seg_k", (1.0, 1.0)) if cfg is not None else (1.0, 1.0)
     params = params or (getattr(cfg, "smooth_params", None) if cfg is not None else None)
     flag = bool(getattr(cfg, "smooth", True)) if cfg is not None else True
-    sm = ContourSmoother(params).load(moves, tol, flag, kx, ky, lead_index).run()
+    sm = smoother_cls(params).load(moves, tol, flag, kx, ky, lead_index).run()
     pts = []
     for nd in sm.nodes():
         feed = sm.feed_at(min(nd.s, sm.length)) or (moves[0].feed if moves else 1e9)
@@ -1313,4 +1320,4 @@ def smooth_path_points(moves, cfg=None, params: Optional[SmoothParams] = None,
             out[-1].factor = min(out[-1].factor, p.factor)
             continue
         out.append(p)
-    return out, SmoothedPath(sm)
+    return out, path_cls(sm)

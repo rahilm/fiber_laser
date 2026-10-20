@@ -29,6 +29,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "_geom.h"
+
 /* Deterministic IEEE binary64: refuse builds that would change the bits. */
 #if defined(__FAST_MATH__)
 #error "mlaser._native._emitter must not be built with -ffast-math / -Ofast (bit-identity)"
@@ -1088,6 +1090,8 @@ static PyMethodDef methods[] = {
  * required (no Py_mod_gil slot: a free-threaded build re-enables the GIL on import) */
 static int module_exec(PyObject *m)
 {
+    if (mlaser_geom_exec(m) < 0)
+        return -1;
     if (PyType_Ready(&BlockType) < 0 || PyType_Ready(&SinkType) < 0)
         return -1;
     Py_INCREF(&SinkType);

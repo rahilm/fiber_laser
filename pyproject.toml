@@ -56,7 +56,7 @@ include = ["mlaser*"]
 "mlaser" = ["help/docs/*.md", "help/docs/**/*"]
 
 [tool.setuptools.exclude-package-data]
-"mlaser._native" = ["*.c"]   # the extension's source goes in the sdist only (MANIFEST.in)
+"mlaser._native" = ["*.c", "*.h"]   # the extension's source goes in the sdist only (MANIFEST.in)
 
 [tool.setuptools.cmdclass]
 build_py = "tools.help_build.BuildPy"
@@ -64,7 +64,7 @@ build_py = "tools.help_build.BuildPy"
 
 [tool.uv]
 # rebuild the editable install, and with it the C extension, when the build inputs change
-cache-keys = [{ file = "pyproject.toml" }, { file = "setup.py" }, { file = "mlaser/_native/*.c" }]
+cache-keys = [{ file = "pyproject.toml" }, { file = "setup.py" }, { file = "mlaser/_native/*.c" }, { file = "mlaser/_native/*.h" }]
 
 # ---------------------------------------------------------------------------- cibuildwheel
 # Wheels with the C emitter kernel (.github/workflows/package.yml, job "wheels"): CPython 3.12 /

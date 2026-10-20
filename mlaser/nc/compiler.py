@@ -359,7 +359,10 @@ def plan_cut_chain(moves: list, cfg, lead_index: Optional[int], period: float):
     arguments (the per-chain unit of the parallel compile)."""
     plan, geom = plan_path(moves, cfg, return_geom=True, lead_index=lead_index)
     total = geom.cum[-1]
-    ss = plan.sample(period)
+    # a native geometry (profiles/native_smooth.py) samples the plan and the path in C:
+    # array('d') of the same values
+    sample = getattr(geom, "sample_plan", None)
+    ss = sample(plan, period) if sample is not None else plan.sample(period)
     batch = getattr(geom, "points", None)
     pts = batch(ss) if batch is not None else [geom.at(s)[0] for s in ss]
     return plan, ss, pts, total, gap_intervals(moves, geom)
@@ -551,6 +554,8 @@ def compile_items(items: Iterable, machine: Optional[Machine] = None, start: Poi
                 est.begin()
                 plan, ss, pts, total, gaps = plan_cut_chain(moves, cfg, li, period)
                 est.done(obj, moves, li, plan)
+                if type(pts) is not list and not getattr(em, "PACKED_SINK", False):
+                    pts = list(zip(pts[0::2], pts[1::2]))     # flat samples, a Python emitter
                 if proc:
                     dcurve, fcurve = P.layer_curves(lv)
                     micro = pcfg.adv_micro_link_pct if pcfg.adv_micro_link else 0

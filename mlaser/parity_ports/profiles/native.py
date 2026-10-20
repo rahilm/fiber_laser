@@ -289,9 +289,12 @@ SAMPLING = Implementation(
     sample_speeds=ORIGINAL.sampling.target("sample_speeds"),
 )
 
+SMOOTHER = ORIGINAL.smoother.with_(
+    smooth_path_points="mlaser.parity_ports.profiles.native_smooth:native_smooth_path_points")
+
 NATIVE = register_profile(ORIGINAL.derive(
-    NAME, "original, with the emitter loop always on the C kernel mlaser._native (no fallback)",
-    sampling=SAMPLING))
+    NAME, "original, with the emitter loop and the smoother always on the C kernel mlaser._native "
+          "(no fallback)", sampling=SAMPLING, smoother=SMOOTHER))
 
 
 # =========================================================================== default selection
@@ -621,4 +624,6 @@ def selfcheck() -> str:
     finally:
         STATS.clear()
         STATS.update(saved)
-    return ""
+    from . import native_smooth
+    err = native_smooth.selfcheck()
+    return f"smoother: {err}" if err else ""

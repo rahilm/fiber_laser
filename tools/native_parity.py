@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
-"""Every golden job with the emitter loop on the Python port and on the C kernel, bit for bit.
+"""Every golden job with the Python ports and with the C kernel (emitter loop, packed wire,
+smoother: crtmath, curve tables, path and plan sampling), bit for bit.
 
 Usage::
 
@@ -15,7 +16,8 @@ The jobs are exactly those of ``tools/make_goldens.py`` (``sample_docs`` x ``SAM
 ``random_doc(seed)`` for seed < N_RANDOM).  For each, both compiles must give identical
 ``Job.wire``, ``Job.frames()``, wire group starts, markers, cut blocks, ManuItem indexes, steps,
 overspeed periods, start / end pulses, end position, and, compared EXACTLY (``float.hex``, not
-the 1e-9 tier of the goldens), ``pulse_carry`` and ``laser_on_length_mm``; or the same exception
+the 1e-9 tier of the goldens), ``pulse_carry``, ``laser_on_length_mm``, ``duration_s`` and the
+time estimate; or the same exception
 (type and message).  Exit status 1 on any difference.  docs/dev/NATIVE_KERNEL.md.
 """
 from __future__ import annotations
@@ -33,6 +35,7 @@ import make_goldens as G  # noqa: E402
 
 from mlaser.parity_ports import ORIGINAL, ORIGINAL_PYTHON, use_profile  # noqa: E402
 import mlaser.parity_ports.profiles.native as N  # noqa: E402
+import mlaser.parity_ports.profiles.native_smooth as NS  # noqa: E402
 
 
 def _fx(v) -> str:
@@ -56,6 +59,7 @@ def fingerprint(job) -> dict:
         "pulse_carry": tuple(_fx(v) for v in job.pulse_carry),
         "laser_on_length_mm": _fx(job.laser_on_length_mm),
         "duration_s": _fx(job.duration_s),
+        "estimate": sorted((k, _fx(v)) for k, v in (job.estimate or {}).items()),
     }
 
 
@@ -126,6 +130,7 @@ def main(argv=None) -> int:
     n, steps, bad = compare(set(a.only), _seeds(a.seeds), a.verbose, a.profile)
     print(f"{n} jobs, {steps} steps: {len(bad)} differ ({time.perf_counter() - t:.0f} s)")
     print("kernel coverage (calls by the kernel / handed to the port):", dict(N.STATS))
+    print("smoother coverage (C / handed to the port):", dict(NS.STATS))
     return 1 if bad else 0
 
 
