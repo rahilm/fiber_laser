@@ -45,6 +45,7 @@ class MenuBar:
         self._pending = False
         self._labels_bound: set[str] = set()
         self._heads: dict[str, list[QMenu]] = {}      # drop-down command -> its submenus
+        self._navs: dict[str, QAction] = {}           # setting entries -> their home (NAV)
         self.build()
 
     # ------------------------------------------------------------------ helpers
@@ -53,7 +54,43 @@ class MenuBar:
         return "app.settings" if "app.settings" in self.w.commands else "app.options"
 
     def action(self, cid: str) -> Optional[QAction]:
+        """The menu's action for ``cid``: the command's own QAction, or for a setting the menu
+        entry that goes to its home (:data:`menu_spec.NAV`)."""
+        if cid in spec.NAV:
+            return self._nav_action(cid)
         return self.w.ribbon.actions.get(cid)
+
+    def _nav_action(self, cid: str) -> Optional[QAction]:
+        act = self._navs.get(cid)
+        if act is not None:
+            return act
+        vid, need_sel, label_key = spec.NAV[cid]
+        cmd = self.w.ribbon.actions.get(cid) or self.w.ribbon.actions.get(spec.NAV_GATE.get(cid, ""))
+        if cmd is None:
+            return None
+        act = QAction(self.bar)
+        act.setData(cid)
+        act.setObjectName(f"nav_{cid}")
+        act.setMenuRole(QAction.NoRole)
+        from .. import homes
+        go = homes.nav_command(self.w, cid, vid, need_selection=need_sel)
+        act.triggered.connect(lambda _=False: go())
+        if label_key:
+            self.tr.bind(act, label_key, act.setText)
+        else:
+            act.setText(self.shell.label(cid))
+
+        def sync(a=act, c=cmd, own=not label_key, cid=cid) -> None:
+            try:
+                a.setEnabled(c.isEnabled())
+                if own:
+                    a.setText(self.shell.label(cid))
+            except RuntimeError:
+                pass
+        cmd.changed.connect(sync)
+        sync()
+        self._navs[cid] = act
+        return act
 
     def schedule_rebuild(self, *_a) -> None:
         """A command was added (a plugin, a workspace): rebuild once the burst is over."""
@@ -90,7 +127,7 @@ class MenuBar:
             self.tr.bind(qm, m.title, lambda t, i=i: self._set_title(i, t))
             self._fill(qm, m.items)
         for cid in spec.all_ids(self.layout):
-            act = self.action(cid)
+            act = self.w.ribbon.actions.get(cid) if cid not in spec.NAV else None
             if act is not None:
                 act.setMenuRole(_ROLE.get(roles.get(cid, ""), QAction.NoRole))
         if self.plat == native.MACOS:
@@ -113,7 +150,7 @@ class MenuBar:
     def _apply_labels(self, settings: str) -> None:
         """The platform's words (Settings… / Options… / Preferences…, Quit / Exit)."""
         for cid, key in spec.platform_labels(self.plat, settings).items():
-            act = self.action(cid)
+            act = self.w.ribbon.actions.get(cid)
             if act is None or cid in self._labels_bound:
                 continue
             self._labels_bound.add(cid)
@@ -135,11 +172,13 @@ class MenuBar:
         sub.setObjectName(f"menu_{e.id or e.head or e.title}")
         if e.head:
             head = self.action(e.head)
+            cmd = self.w.ribbon.actions.get(e.head)
             if head is not None:
                 sub.setTitle(self.shell.label(e.head))
-                if e.head not in self._heads:
+                if e.head not in self._heads and cmd is not None:
                     self._heads[e.head] = []
-                    head.changed.connect(lambda c=e.head: self._retitle(c))
+                    cmd.changed.connect(lambda c=e.head: self._retitle(c))
+                self._heads.setdefault(e.head, [])
                 self._heads[e.head].append(sub)
                 sub.addAction(head)
                 if e.items:

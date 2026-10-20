@@ -72,7 +72,7 @@ def test_layout_places_every_command_once(win, plat):
     menus = menu_spec.layout(ids, plat)
     placed = menu_spec.placement(menus)            # raises on a command placed twice
     expected = {c for c in ids if not c.startswith(menu_spec.DYNAMIC_PREFIXES)}
-    assert set(placed) == expected
+    assert set(placed) == expected | {"nav.layer_parameters"}
     assert [m.id for m in menus] == ["file", "edit", "view", "draw", "process", "workspace", "machine",
                                      "tools", "window", "help"]
     # the conventional places
@@ -167,7 +167,8 @@ def test_menu_bar_roles_on_macos(win, app):
         assert a["app.options"].menuRole() == QAction.PreferencesRole
         assert a["app.exit"].menuRole() == QAction.QuitRole
         assert a["app.plugin_manager"].menuRole() == QAction.ApplicationSpecificRole
-        assert a["hw.options"].menuRole() == QAction.NoRole and a["file.open"].menuRole() == QAction.NoRole
+        assert a["file.open"].menuRole() == QAction.NoRole and a["hw.options"].menuRole() != QAction.PreferencesRole
+        assert mb.action("hw.options").menuRole() == QAction.NoRole        # the menu's "Machine setup…"
         titles = [x.text() for x in mb.bar.actions()]
         assert "&File" not in titles and "File" in titles               # no access keys on macOS
     finally:
@@ -439,3 +440,40 @@ def test_linux_launcher_entry_signal():
     assert cmd[-2] == "application://io.github.mlaser.desktop"
     assert "'progress': <0.420>" in cmd[-1] and "'progress-visible': <true>" in cmd[-1]
     assert "'progress-visible': <false>" in native.LinuxLauncher.command("gdbus", None, True)[-1]
+
+
+def test_setting_entries_go_to_their_home(win, app):
+    """Layer parameters, Lead, Kerf, Micro-joint, Hardware parameters and Nest parameters in the
+    menu bar navigate to the one home of the value (mlaser/ui/homes.py), not a second editor."""
+    acts = {a.data(): a for _p, a in _bar_actions(win.shell.menubar)}
+    for cid in menu_spec.NAV:
+        a = acts[cid]
+        assert a is not win.ribbon.actions.get(cid) and a.objectName() == f"nav_{cid}", cid
+    opened = []
+    monkey = QDialog.exec
+    try:
+        QDialog.exec = lambda self, *a: opened.append(type(self).__name__) or 0
+        acts["nest.params"].trigger()
+        app.processEvents()
+        assert win.shell.host.current == "nest"
+        acts["nav.layer_parameters"].trigger()
+        app.processEvents()
+        assert win.shell.host.current == "process"
+        win.show_workspace("design")
+        acts["craft.kerf"].trigger()                     # nothing selected: the hint, no dialog
+        app.processEvents()
+        assert win.shell.host.current == "process"
+        assert "Select the parts" in win.statusBar().currentMessage()
+        assert win.shell.set_user_mode("service")         # hw.options: Service mode
+        acts["hw.options"].trigger()
+        app.processEvents()
+        assert win.shell.host.current == "machine"
+        assert acts["hw.options"].text() == "Machine setup…"
+    finally:
+        QDialog.exec = monkey
+    assert opened == []
+    # gated like the command: Operator mode
+    assert win.shell.set_user_mode("operator")
+    assert not acts["craft.kerf"].isEnabled() and not acts["nav.layer_parameters"].isEnabled()
+    assert win.shell.set_user_mode("engineer")
+    assert acts["craft.kerf"].isEnabled()

@@ -88,7 +88,9 @@ def _menus(plat: str) -> list[Menu]:
     view = Menu("view", "shell.menu.view", [
         "view.zoom_in", "view.zoom_out", "view.zoom_fit", SEP,
         "view.select_mode", "view.pan_mode", "view.node_edit", SEP,
-        "show.bbox", "show.unclosed_red", "show.index", "show.start", "show.direction", "show.move_path", SEP,
+        "view.fit_table", SEP,
+        "show.toolpath", "show.bbox", "show.unclosed_red", "show.index", "show.start", "show.direction",
+        "show.move_path", SEP,
         "preview.play", "preview.clear", "run.simulate", "sim.speed", "sim.stop", SEP,
         Sub("shell.menu.appearance", id="theme"),          # quick toggle; the editor: Settings › Appearance
         "shell.classic_ribbon",
@@ -103,7 +105,7 @@ def _menus(plat: str) -> list[Menu]:
         "tool.measure",
     ])
     process = Menu("process", "shell.menu.process", [
-        "process.show", "process.library", "process.layer_settings", "process.apply", "process.rates", SEP,
+        "process.show", "process.library", "nav.layer_parameters", "process.apply", "process.rates", SEP,
         Sub("", head="craft.lead", items=["craft.lead_manual", "craft.lead_check", "craft.lead_clear_mark",
                                           "craft.lead_clear", SEP, "cam.lead_place", "cam.lead_check",
                                           "cam.lead_fix", "cam.tip_check", "cam.tip_fix"]),
@@ -193,6 +195,21 @@ def _menus(plat: str) -> list[Menu]:
     return out
 
 
+#: menu entries that go to the one home of a setting (mlaser/ui/homes.py, ia/SETTINGS_MAP.md)
+#: instead of opening the command's own editor: command id (or a menu-only ``nav.*`` id) ->
+#: (value id, needs a part selection, label lang id or "" for the command's own label).
+#: Once a command's handler navigates itself (WORK_ITEMS P-6 / S-6) its entry here is moot.
+NAV: dict[str, tuple[str, bool, str]] = {
+    "nav.layer_parameters": ("layer.GP.CutSpeed", False, "shell.menu.layer_parameters"),
+    "craft.lead": ("craft.lead_in.kind", True, ""),
+    "craft.kerf": ("craft.kerf_width", True, ""),
+    "craft.microjoint": ("craft.micro_joint.count", True, ""),
+    "hw.options": ("cfg:machine.setup", False, ""),
+    "nest.params": ("nest.spacing", False, ""),
+}
+#: the command whose user-mode gate a menu-only entry follows
+NAV_GATE = {"nav.layer_parameters": "process.apply"}
+
 #: menu for commands no menu names explicitly (plugins, new commands), by id prefix
 PREFIX_MENU = {
     "file": "file", "edit": "edit", "select": "edit", "xform": "edit", "geom": "edit",
@@ -278,6 +295,7 @@ def _filter(entries: list[Entry], known: set[str], seen: set[str]) -> list[Entry
 def layout(commands: Iterable[str], plat: str, settings_cmd: Optional[str] = None) -> list[Menu]:
     """The menus for the registered ``commands`` on ``plat`` (see the module docstring)."""
     known = {c for c in commands if not c.startswith(DYNAMIC_PREFIXES)}
+    known |= {c for c in NAV if c.startswith("nav.") and NAV_GATE.get(c, "") in known}
     menus = _menus(plat)
     if settings_cmd and settings_cmd != "app.options":
         # the Settings track's command takes the place of app.options

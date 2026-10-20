@@ -2826,6 +2826,7 @@
   "shell.menu.help": "Help",
   "shell.menu.import_more": "Import and export",
   "shell.menu.labels": "Labels and marking",
+  "shell.menu.layer_parameters": "Layer parameters…",
   "shell.menu.machine": "Machine",
   "shell.menu.machine_setup": "Machine setup…",
   "shell.menu.monitors": "Monitors",
