@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
-from PySide6.QtCore import QElapsedTimer, QPointF, Qt, QTimer, Signal
+from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QGraphicsEllipseItem, QGraphicsItem,
                                QGraphicsPathItem, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
@@ -128,13 +128,58 @@ class PreviewOverlay:
         self._head.setBrush(QBrush(QColor(_c("head"))) if on else QBrush(Qt.NoBrush))
 
 
+class _TimeLabel(QLabel):
+    """The "elapsed / total" label: at least as wide as "00:00 / 00:00" in its own font (no
+    fixed pixel width: a larger font or the macOS / Windows fonts made 110 px too narrow), so
+    the row does not jump while the time runs."""
+
+    TEMPLATE = "00:00 / 00:00"
+
+    def _template_w(self) -> int:
+        m = self.contentsMargins()
+        return self.fontMetrics().horizontalAdvance(self.TEMPLATE) + 2 * self.margin() + m.left() + m.right() + 2
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        return QSize(max(s.width(), self._template_w()), s.height())
+
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().sizeHint()
+        return QSize(max(s.width(), self._template_w()), s.height())
+
+
 class ScrubberWidget(QWidget):
-    """Timeline control (see the module docstring).  ``timeChanged(t)`` on every move."""
+    """Timeline control (see the module docstring).  ``timeChanged(t)`` on every move.
+
+    Its state line wraps; a dock does not lay out by height for width, so the widget's minimum
+    height is what its layout needs at the width it has (it follows resizes and new text):
+    the wrapped line got 30 of 32 px in the macOS runner's Process preview dock."""
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        return QSize(s.width(), max(s.height(), self._hfw_min))
+
+    def _sync_hfw(self) -> None:
+        lay = self.layout()
+        h = lay.totalHeightForWidth(self.width()) if lay is not None and lay.hasHeightForWidth() else 0
+        if h != self._hfw_min:
+            self._hfw_min = h
+            self.updateGeometry()
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self._sync_hfw()
+
+    def event(self, ev) -> bool:
+        if ev.type() == QEvent.LayoutRequest:
+            self._sync_hfw()
+        return super().event(ev)
 
     timeChanged = Signal(float)
 
     def __init__(self, tr: Any, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
+        self._hfw_min = 0                 # the height its wrapped state line needs at its width
         self.tr_ = tr
         self.timeline: Optional[Timeline] = None
         self.t = 0.0
@@ -162,8 +207,7 @@ class ScrubberWidget(QWidget):
         self.slider.setPageStep(1000)
         self.slider.setSingleStep(100)
         row.addWidget(self.slider, 1)
-        self.time_label = QLabel("00:00 / 00:00")
-        self.time_label.setMinimumWidth(110)
+        self.time_label = _TimeLabel("00:00 / 00:00")
         self.time_label.setAlignment(Qt.AlignRight | Qt.AlignVCenter)
         f = QFont(self.time_label.font())
         f.setStyleHint(QFont.Monospace)

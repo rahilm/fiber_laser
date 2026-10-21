@@ -36,6 +36,7 @@ from mlaser.services import units as U
 from mlaser.services.operator import fmt_duration
 from mlaser.ui.units_qt import on_units_changed
 
+from ..responsive import ColumnFitter
 from ..safety_texts import remedy
 from .. import style
 from . import TOUCH_MIN, show_workspace, tr
@@ -318,6 +319,12 @@ class ReportWorkspace(QWidget):
         self.alarms = _table([tr(w, "report.col.time", "Time"), tr(w, "report.col.code", "Code"),
                               tr(w, "report.col.text", "Alarm"), tr(w, "report.col.duration", "Duration"),
                               tr(w, "report.col.job", "Job"), tr(w, "report.col.remedy", "Remedy")], "report_alarms")
+        # no sideways scrolling (docs/dev/RESPONSIVE.md rule 1): the least important columns
+        # hide while a table is narrower than its columns; the key column (None) never does
+        ColumnFitter(self.days, {0: None, 1: 6, 2: 4, 3: 3, 4: 5, 5: 4, 6: 1, 7: 2, 8: 3, 9: 2, 10: 0})
+        ColumnFitter(self.jobs, {0: 5, 1: None, 2: 6, 3: 4, 4: 1, 5: 3, 6: 1, 7: 2, 8: 2, 9: 3, 10: 0}, stretch=1)
+        ColumnFitter(self.per_job, {0: None, 1: 4, 2: 3, 3: 5, 4: 2, 5: 1}, stretch=0)
+        ColumnFitter(self.alarms, {0: 4, 1: 5, 2: None, 3: 3, 4: 2, 5: 1}, stretch=2)
         self.tabs.addTab(self.days, tr(w, "report.tab.days", "Per day"))
         self.tabs.addTab(self.jobs, tr(w, "report.tab.jobs", "Jobs"))
         self.tabs.addTab(self.per_job, tr(w, "report.tab.per_job", "Per job"))

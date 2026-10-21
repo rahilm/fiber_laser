@@ -91,7 +91,16 @@ def test_properties_fold_instead_of_scrolling(win, app, doc):
     assert not pp.verticalScrollBar().isVisible()
     assert not pp.horizontalScrollBar().isVisible()
     by = pp.by_id
-    assert by["leads"].expanded() and by["kerf"].expanded()     # the most used CAM settings
+    # the most used CAM settings: leads (highest priority) open; kerf (next) open whenever it
+    # fits the dock (with the Windows CI fonts it needs 141 px more than a 1280 x 800 window's
+    # dock has, on main as well: then it must be the fold policy that closed it, not a bug)
+    assert by["leads"].expanded()
+    if not by["kerf"].expanded():
+        panel = pp.panel
+        W, H = panel.width() - 2 * panel.margins(), panel.height() - 2 * panel.margins()
+        exp = {id(s): s.expanded() for s in panel.sections if not s.isHidden()}
+        exp[id(by["kerf"])] = True
+        assert not panel._fits(W, H, exp), "kerf fits but was folded"
     folded = [s for s in pp.sections if not s.isHidden() and not s.expanded()]
     assert folded, "a 1280 x 800 window cannot show every section open"
     assert all(s.summary() for s in folded), [s.title() for s in folded if not s.summary()]
@@ -109,7 +118,8 @@ def test_long_titles_are_cut_with_a_tooltip(app):
     s.show()
     pump(app)
     h = s.header
-    assert h.text().endswith("…") and h.full_text() == s.title()
+    # Qt's elision mark: "…" where the font has the glyph, "..." otherwise (the Windows CI font)
+    assert h.text().endswith(("…", "...")) and h.full_text() == s.title()
     assert h.sizeHint().width() <= h.width() + 1             # the shown text fits: not clipped
     assert s.title() in h.toolTip() and h.accessibleName() == s.title()
     s.resize(800, 200)
@@ -378,3 +388,32 @@ def test_docks_settle_at_the_window_minimum(win, app, doc):
     assert len(seen) == 1, seen
     win.resize(1280, 800)
     pump(app, 0.1)
+
+
+def test_properties_minimum_height_is_its_folded_height(win, app, doc):
+    """The Properties dock's minimum height is its sections folded at its width, so the window
+    keeps that room and the panel scrolls only for sections the user opened (at the window's
+    minimum height with the Windows fonts the folded sections were 4-22 px taller than the dock)."""
+    pp = props(win)
+    win.shell.host.activate("design")
+    pump(app, 0.1)
+    need = pp.panel.folded_height(pp.viewport().width()) + 2 * pp.frameWidth()
+    assert pp.minimumSizeHint().height() >= need
+
+
+def test_properties_size_hint_is_asked_now(win, app, doc):
+    """The Properties dock's natural width is the panel's preferred width as it is now, not the
+    first one QScrollArea cached (live resizing ended 45 px wider than it started)."""
+    pp = props(win)
+    win.shell.host.activate("design")
+    pump(app, 0.1)
+    pp.sizeHint()                                     # asked once (QScrollArea caches that)
+    sec = next(s for s in pp.panel.sections if not s.isHidden())
+    title = sec.title()
+    try:
+        sec.setTitle(title + " with a much longer title than before")
+        pump(app)
+        want = max(pp.panel.sizeHint().width() + 2 * pp.frameWidth(), pp.minimumSizeHint().width())
+        assert pp.sizeHint().width() == want
+    finally:
+        sec.setTitle(title)

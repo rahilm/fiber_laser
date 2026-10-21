@@ -51,7 +51,19 @@ class Rig:
             for a, v in enumerate((x_counts, y_counts)):
                 ax = self.sim.state.axes[a]
                 ax.pos, ax.target, ax.vel, ax.mode = float(v), None, 0.0, 0
-        time.sleep(0.15)
+        # until the controller's polled status shows the new position (a condition, not a
+        # sleep: on the macOS runners a 0.15 s sleep sometimes ended before the next poll and
+        # a mark took the old head position)
+        want = (x_counts / 1000.0, y_counts / 1000.0)
+        t_end = time.monotonic() + 10.0
+        while time.monotonic() < t_end:
+            st = self.ctl.state()
+            if abs(st.x - want[0]) < 1e-6 and abs(st.y - want[1]) < 1e-6:
+                break
+            time.sleep(0.01)
+        else:
+            raise AssertionError(f"the polled status never showed {want}")
+        time.sleep(0.05)
 
     def run(self, fn):
         # the requests sent from here on, by position in the log: on Windows before Python 3.13

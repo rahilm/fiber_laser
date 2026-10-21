@@ -33,8 +33,8 @@ or "two columns of the widest section no longer fit".
 
 | Helper | Use |
 |---|---|
-| `FlowLayout(uniform=…, justify=…)` | Buttons that wrap to the next row. `uniform=True` gives an auto-fit grid of equal columns. It reports `heightForWidth`. |
-| `ResponsiveForm` | Puts the label beside the field while the widest label plus the widest field minimum fit, and above it otherwise. `addRow(widget)` spans both columns; `set_row_visible(field, on)` hides a row (it takes no room). |
+| `FlowLayout(uniform=…, justify=…)` | Buttons that wrap to the next row. `uniform=True` gives an auto-fit grid of equal columns. It reports `heightForWidth`. It sizes and places the widgets' own rectangles, not the style's layout-item rectangles, because the macOS style's bezels lie outside those. |
+| `ResponsiveForm` | Puts the label beside the field while the widest label plus the widest field minimum fit, and above it otherwise. `addRow(widget)` spans both columns; `set_row_visible(field, on)` hides a row (it takes no room). Its `heightForWidth` is the height of the arrangement that width gets, before the form is resized to it. |
 | `CollapsibleSection(title, body, collapsible, priority, fit_title=False)` | A titled section. The header is a button with an arrow, so keyboard and screen readers can use it. `fit_title`: a long title ends in "…" in a narrow panel (full text in the tooltip), and a folded section shows `set_summary(text)` after its title ("in: Line 3 mm · out: None"). `open_by_user()`: open it as the user would ("Edit in …"). |
 | `ElidedToolButton` | A tool button whose text ends in "…" when it is narrower than the text (full text in the tooltip). Section titles, the source chip of an inherited value. |
 | `ColumnsPanel(max_columns, grow=…, scroll_overflow=…)` | Arranges sections in 1–3 columns. Default: as many columns as the width allows. `grow=True`: one column until the height runs out, then more columns, asking the parent for the width. `add_pinned` widgets (STOP) are always shown in full. `column_min`: a callable giving the width a column needs before a second one is used (forms pass the width their labels need beside the fields). `scroll_overflow=True` (a panel in a scroll area: Properties, the technology form): the section the user opened last is never folded again, what does not fit then scrolls; its minimum is the folded height at its width (headers side by side when wide), and after folding it reopens the sections that still fit (`refill`). `fold=False`: nothing folds (a list). |
@@ -81,6 +81,9 @@ or "two columns of the widest section no longer fit".
 
   A minimum height can grow when the window gets narrower, because rows that wrap need more
   height. The page wrapper reports this and the window follows.
+  A workspace switch keeps the window's size when the new page fits it. The page's minimum is
+  first asked for before its wrapper knows the screen's room, and the window used to grow to
+  that uncapped need and stay there.
   The run bar sets the floor of the width: every button shows its full text and nothing goes to
   an overflow menu. The rail sets the floor of the height: it switches to icon-only buttons
   before any workspace can disappear. A larger font raises these minimums. The harness
@@ -113,6 +116,31 @@ each tab of a tabbed workspace, each dock of a tabbed dock group, and each Machi
 The audit (`tests/layout_audit.py`) reports four kinds of violation: `hscroll`, `vscroll` (on
 a form or control panel), `clipped` (smaller than its minimum, text cut, or cut by a parent),
 and `overlap` (siblings drawn over each other).
+
+* Qt's own sub-controls are not judged by their size hints: the dock title bar's float and
+  close buttons and a tool bar's extension button are placed by `QDockWidgetLayout` and
+  `QToolBarLayout` from the style's metrics (the macOS style draws the dock buttons 18 px wide
+  against a 20 px hint). The dock buttons are still checked for being cut by their parent. A
+  *visible* extension button is a violation: the tool bar's actions do not fit and hide behind
+  the chevron. A workspace tool bar goes icon-only first, and the page's minimum width is the
+  icon-only tool bar's, so the window's minimum follows instead.
+* On a window server, a sample larger than the screen is not reachable: the window server keeps
+  the window smaller than its minimum (the macOS runner's windows are at most 649 px high).
+  Such samples are listed as "not reachable on this screen" in the report, not audited, and the
+  sweep's heights stop at the screen. `test_fits_this_screen` checks the screen itself. On a
+  screen smaller than the smallest supported window (1280 × 800; the runners have 1024 × 768),
+  the page wrapper scrolling its page is the documented fallback (rule 6), and a window
+  minimum larger than that screen is reported but does not fail (the minimum is still held to
+  1280 × 800 by `test_minimum_size_fits_the_smallest_sample`). Nothing else may scroll or clip
+  there.
+* `.github/workflows/native-check.yml` samples the sweeps on macOS with a 160 px step on pushes
+  and pull requests, since that window server answers every resize asynchronously and the full
+  sweep takes about 40 minutes. The nightly run and local runs use the full 40 px step.
+* Screenshot file names replace the characters that Windows and artifact uploads refuse
+  (`: * ? " < > |`) with `_`.
+* The 2× scale run uses the offscreen platform, so it is skipped under the macOS and Windows 11
+  styles. Those styles need their own window server. The CI test job runs it under the default
+  style.
 
 `MLASER_LAYOUT_SHOTS=<dir>` writes the reports (`*.json`, `*.md`) and screenshots of every view
 at every sample size. `MLASER_LAYOUT_STYLE=<style>` runs under a Qt style: `macos`,

@@ -75,7 +75,9 @@ jobs:
         env:
           MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
-        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15
+        # faulthandler_timeout: a test running over 10 min dumps every thread's stack (a hang
+        # shows where it hangs instead of the job's 40 min cancellation)
+        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15 -o faulthandler_timeout=600
 
       # the project's own plugins (plugins/<name>/, published by package.yml): each one installed
       # editable without dependencies (the app environment provides them, as the plugin manager

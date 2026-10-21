@@ -104,6 +104,14 @@ class DockPolicy(QObject):
         self.prefs.clear()
         self.vprefs.clear()
 
+    @staticmethod
+    def _shown(group: list) -> QDockWidget:
+        """The tab on top of a tab group (the one whose area is drawn), else the first."""
+        for d in group:
+            if not d.visibleRegion().isEmpty():
+                return d
+        return group[0]
+
     # ------------------------------------------------------------------ policy
     def targets(self) -> dict[QDockWidget, int]:
         """Width per visible side dock: remembered or natural, shrunk in proportion (down to the
@@ -127,7 +135,10 @@ class DockPolicy(QObject):
                     groups.append([d])
             want[area] = [max(self.prefs.get(d.objectName(), self.natural_width(d)) for d in g) for g in groups]
             low[area] = [max(self.min_width(d) for d in g) for g in groups]
-            cols[area] = [g[0] for g in groups]
+            # a tab group is measured and resized through the tab on top: a tab behind it keeps
+            # a stale geometry (its width already "at the target" left the shown tab unsized:
+            # the Properties dock stayed 63 px narrower until the window was resized)
+            cols[area] = [self._shown(g) for g in groups]
         central = self.w.centralWidget()
         avail = (central.width() if central is not None else 0) + sum(
             g.width() for gs in cols.values() for g in gs)

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
                                QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
@@ -121,6 +121,10 @@ class WorkspacePage(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(0)
+        self._toolbar_need = 0            # the tool bar's width with icons only (fit_toolbar)
+        self._user_split = False          # the user dragged the canvas / page splitter
+        self._fitting_split = False
+        self._wide_need: Optional[int] = None    # fit_split widened the page: its narrow need
         self.toolbar = QToolBar()
         self.toolbar.setObjectName("shell_ws_toolbar")
         self.toolbar.setIconSize(QSize(20, 20))
@@ -176,6 +180,8 @@ class WorkspacePage(QWidget):
                 self.splitter.setStretchFactor(0, 3)
                 self.splitter.setStretchFactor(1, 2)
                 self.splitter.setSizes([600, 400])
+                self._user_split = False
+                self.splitter.splitterMoved.connect(self._split_moved)
             self.body_lay.addWidget(self.splitter)
         else:
             if own is None:
@@ -265,12 +271,68 @@ class WorkspacePage(QWidget):
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
         self.fit_toolbar()
+        self.fit_split()
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.StyleChange, QEvent.FontChange):
+            # the tool bar's width (and so this page's minimum) changes with the style and the
+            # font: measured again now, not at the next resize (after a theme switch the page
+            # kept the old minimum until the window was resized, and the docks beside it took
+            # their widths from that stale value)
+            self.fit_toolbar()
+
+    def _split_moved(self, _pos: int, _index: int) -> None:
+        if not self._fitting_split:
+            self._user_split = True          # the user's split stays (until a reset)
+
+    def fit_split(self) -> None:
+        """The page beside the canvas gets the width its content asks for (its size hint) and,
+        if that is not enough for the height it has, more, until it fits or the canvas is down
+        to CANVAS_MIN; the canvas takes the rest.  A fixed share (40 %) left the Process page
+        so narrow that its wrapped rows pushed the window taller than the screen with the
+        Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
+        sp = self.splitter
+        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+            return
+        own = sp.widget(1)
+        total = sp.width() - sp.handleWidth()
+        if total <= 0 or own is None:
+            return
+        most = max(total - CANVAS_MIN, own.minimumSizeHint().width())
+        pw = min(max(own.sizeHint().width(), own.minimumSizeHint().width()), most)
+        areas = [own] if isinstance(own, FitArea) else own.findChildren(FitArea)
+        area = next((a for a in areas if a.isVisibleTo(own)), None)
+        if area is not None:
+            # a page whose minimum height (sections folded at its width, wrapped rows) does not
+            # fit the height it has gets every pixel the canvas can spare: wider, it folds into
+            # fewer rows (its own minimum follows its width once it is laid out)
+            avail = sp.height() - (own.height() - area.viewport().height())
+            chrome_w = own.width() - area.viewport().width()
+            if self._wide_need is not None and avail >= self._wide_need:
+                self._wide_need = None        # the height its narrow minimum needs is back
+            if self._wide_need is None and own.width() < most:
+                need = area.need(own.width() - chrome_w).height()
+                if need > avail:
+                    self._wide_need = need    # remembered: back to the hint once this fits
+            if self._wide_need is not None:
+                pw = most
+        sizes = [total - pw, pw]
+        if sp.sizes() != sizes:
+            self._fitting_split = True
+            try:
+                sp.setSizes(sizes)
+            finally:
+                self._fitting_split = False
 
     def fit_toolbar(self) -> None:
         """Labels beside the icons when they fit, icons only (labels in the tooltips and the
         accessible names) when the page is too narrow, so nothing hides behind the overflow."""
         tb = self.toolbar
         if not tb.actions():
+            if self._toolbar_need:
+                self._toolbar_need = 0
+                self.updateGeometry()
             return
         def apply(style) -> None:
             tb.setToolButtonStyle(style)
@@ -278,11 +340,23 @@ class WorkspacePage(QWidget):
                 btn = tb.widgetForAction(act)
                 if isinstance(btn, QToolButton) and act.icon().isNull():
                     btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            if tb.layout() is not None:
+                tb.layout().invalidate()     # its size hint is cached until the next layout pass
+        # icons only is the narrowest the tool bar gets: the page never goes below that width
+        # (the window's minimum follows), so no action hides behind the extension button
+        apply(Qt.ToolButtonIconOnly)
+        need = tb.sizeHint().width() if tb.isVisibleTo(self) else 0
         apply(Qt.ToolButtonTextBesideIcon)
         if tb.sizeHint().width() > max(self.width(), 1):
             apply(Qt.ToolButtonIconOnly)
         if tb.layout() is not None:
             tb.layout().invalidate()
+        if need != self._toolbar_need:
+            self._toolbar_need = need
+            self.updateGeometry()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        return super().minimumSizeHint().expandedTo(QSize(self._toolbar_need, 0))
 
     def show_canvas(self, canvas: QWidget) -> None:
         if self.canvas_slot is None:
@@ -485,6 +559,9 @@ class WorkspaceHost:
             return True
         prev = self.specs.get(self.current)
         page = self.pages[ws_id]
+        win = self.w
+        before = win.size() if (win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen))) \
+            else None
         canvas = self.canvas_widget()
         if spec.canvas and canvas is not None:
             page.show_canvas(canvas)
@@ -496,9 +573,28 @@ class WorkspaceHost:
         self.current = ws_id
         self.rail_actions[ws_id].setChecked(True)
         self._apply_docks(prev, spec, hide=False)
+        if before is not None:
+            # the new page's minimum is first asked for before its wrapper knows the room around
+            # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
+            # its real minimum the window goes back to the size the user had, if that fits.
+            # Settled here, synchronously (the pending layout requests first): no timer, so the
+            # result does not depend on how soon a loaded machine runs it
+            for _ in range(4):
+                QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
+            self._keep_size(before)
         for fn in list(self.listeners):
             fn(ws_id)
         return True
+
+    def _keep_size(self, before: QSize) -> None:
+        win = self.w
+        if not win.isVisible() or win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen):
+            return
+        size = win.size()
+        if size.width() > before.width() or size.height() > before.height():
+            want = before.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
+            if want != size and want.width() <= size.width() and want.height() <= size.height():
+                win.resize(want)
 
     def resolve(self, ws_id: str) -> str:
         return self.aliases.get(ws_id, ws_id)

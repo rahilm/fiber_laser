@@ -29,6 +29,8 @@ from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, Q
 
 import layout_audit as A
 
+#: the smallest window the application supports (docs/dev/RESPONSIVE.md)
+SUPPORTED_MIN = (1280, 800)
 SAMPLES = [(1280, 800), (1440, 900), (1512, 875), (1800, 1169), (1920, 1080)]
 SWEEP_HEIGHTS = (800, 875, 1169)
 STEP = int(os.environ.get("MLASER_LAYOUT_STEP", "40") or 40)
@@ -148,12 +150,100 @@ def _fit(win, app, size) -> QSize:
         if win.size() != s:
             win.resize(s)
             stable = 0
-        _pump(app, settle, rounds=8)
+        _pump(app, settle, rounds=2)
+        at_rest(win, app)         # the minimum is read once the relayout has run its course
         if win.size() == want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize()):
             stable += 1
             if stable >= 2:
                 break
     return win.size()
+
+
+def settle(win, app) -> None:
+    """Make the view deterministic before it is audited: every periodic refresh of the window
+    (the active repeating timers in its tree: the Machine page's 200 ms tick, the Run screen's
+    status refresh, ...) runs once now, then the events they post.  Otherwise whether a refresh
+    had changed a label's text before the audit depended on how loaded the machine was (a
+    test_larger_font failure seen once in a full xdist run, never alone)."""
+    from PySide6.QtCore import QTimer
+    for t in win.findChildren(QTimer):
+        if t.isActive() and not t.isSingleShot() and t.interval() > 0:
+            t.timeout.emit()
+    # then until the layout is at rest: a page that grows (the Nest options opened) reaches the
+    # window's minimum through a chain of layout requests and zero-delay syncs, one event-loop
+    # turn each; a fixed number of turns ran out on a loaded worker
+    at_rest(win, app)
+    if real_screen():
+        # a window server applies a grown minimum asynchronously (X11: a round trip to the
+        # window manager): wait for that condition, not for a time
+        t_end = time.monotonic() + 5.0
+        while time.monotonic() < t_end:
+            m = win.minimumSizeHint().expandedTo(win.minimumSize())
+            frame = win.frameGeometry().size() - win.size()
+            want = m.boundedTo(_screen_size(win) - frame)
+            if win.width() >= want.width() and win.height() >= want.height():
+                break
+            _pump(app, 0.01)
+        _pump(app, rounds=3)
+
+
+def at_rest(win, app) -> None:
+    """Pump until nothing is pending: the document's plan delivered, no relayout timer of the
+    window's columns panels, column fitters or dock policy armed, no page wrapper sync queued,
+    and the layout signature unchanged for three event-loop turns (at most 60 turns)."""
+    from PySide6.QtCore import QTimer
+    jobs = getattr(win, "jobs", None)
+    t = getattr(jobs, "preview", None)
+    if jobs is not None and (getattr(jobs, "pending", None) or (t is not None and not t.done_event.is_set())):
+        # the document's plan in flight (a selection or a new document starts one, in another
+        # process): delivered now, not whenever it happens to arrive (it fills the Process
+        # page's estimate card and the preview, so the page's minimum depends on it); a plan
+        # already delivered is left alone
+        jobs.settle(timeout=60.0)
+    from mlaser.ui.responsive import ColumnFitter, ColumnsPanel
+    from mlaser.ui.shell.dock_policy import DockPolicy
+    layout_timers = [t for t in win.findChildren(QTimer)
+                     if isinstance(t.parent(), (ColumnsPanel, ColumnFitter, DockPolicy))]
+    last, same = None, 0
+    for _ in range(60):
+        _pump(app, rounds=1)
+        sig = _layout_signature(win)
+        same = same + 1 if sig == last else 0
+        last = sig
+        armed = any(t.isActive() for t in layout_timers if t.isSingleShot())
+        if same >= 3 and not sig[-1] and not armed:
+            break
+
+
+def _layout_signature(win) -> tuple:
+    """The sizes that change while a relayout travels between a page and the window; the last
+    item: a page wrapper still has a sync queued."""
+    from mlaser.ui.responsive import FitArea
+    m = win.minimumSizeHint()
+    out: list = [win.width(), win.height(), m.width(), m.height()]
+    st = win.shell.host.stack
+    out += [st.width(), st.height(), st.minimumSizeHint().width(), st.minimumSizeHint().height()]
+    queued = False
+    for fa in win.findChildren(FitArea):
+        if fa.isVisible():
+            n = fa.need(fa.viewport().width())
+            m2 = fa.minimumSizeHint()
+            out += [fa.width(), fa.height(), n.width(), n.height(), fa.widget().width(), fa.widget().height(),
+                    m2.width(), m2.height()]
+            queued = queued or bool(getattr(fa, "_sync_queued", False))
+    return (*out, queued)
+
+
+def unreachable(win) -> bool:
+    """On a window server, the window ended up smaller than its own minimum: the screen is
+    smaller than this sample (the macOS runner's 1024 × 768 screen keeps windows at most 649
+    px high, its window server refuses more).  The content is then squeezed by the screen, not
+    by a layout, and the sample is reported as not reachable instead of audited; every size the
+    screen can hold is audited as usual, and test_fits_this_screen checks the screen itself."""
+    if not real_screen():
+        return False
+    m = win.minimumSizeHint().expandedTo(win.minimumSize())
+    return win.width() < m.width() or win.height() < m.height()
 
 
 def views(win, app, deep: bool = True):
@@ -281,17 +371,31 @@ class Report:
         self.dir = Path(d) / tag if d else None
         self.style = style
         self.rows: list[dict] = []
+        self.notes: list[str] = []
 
-    def add(self, kind: str, size, label: str, violations) -> None:
+    def unreachable(self, kind: str, size, label: str) -> None:
+        self.rows.append({"run": kind, "size": f"{size.width()}x{size.height()}", "view": label,
+                          "style": self.style, "unreachable": True, "violations": []})
+
+    def check(self, kind: str, size, label: str, win) -> None:
+        """Audit the window as it is now, after :func:`settle` (see :func:`unreachable`)."""
+        settle(win, QApplication.instance())
+        if unreachable(win):
+            self.unreachable(kind, size, label)
+        else:
+            self.add(kind, size, label, A.audit(win))
+
+    def add(self, kind: str, size, label: str, violations, allowed=lambda v: "") -> None:
+        """``allowed(v)``: a reason the violation is expected here (reported, not failed)."""
         self.rows.append({"run": kind, "size": f"{size.width()}x{size.height()}", "view": label,
                           "style": self.style,
                           "violations": [{"kind": v.kind, "path": v.path, "detail": v.detail,
-                                          "owner": _owned_elsewhere(v)} for v in violations]})
+                                          "owner": _owned_elsewhere(v) or allowed(v)} for v in violations]})
 
     def shot(self, win, size, label: str) -> None:
         if self.dir is None:
             return
-        p = self.dir / "shots" / f"{size.width()}x{size.height()}" / f"{label}.png"
+        p = self.dir / "shots" / f"{size.width()}x{size.height()}" / f"{shot_name(label)}.png"
         p.parent.mkdir(parents=True, exist_ok=True)
         win.grab().save(str(p))
 
@@ -311,6 +415,14 @@ class Report:
         for r in self.rows:
             for v in r["violations"]:
                 uniq.setdefault((v["kind"], v["path"], v["owner"]), []).append(f'{r["size"]} {r["view"]}')
+        skipped = sorted({r["size"] for r in self.rows if r.get("unreachable")})
+        if skipped:
+            lines.append(f"not reachable on this screen (window below its minimum): {', '.join(skipped)}")
+            lines.append("")
+        for n in self.notes:
+            lines.append(f"note: {n}")
+        if self.notes:
+            lines.append("")
         lines.append(f"distinct violations: {len(uniq)}")
         lines.append("")
         for (kind, path, owner), where in sorted(uniq.items()):
@@ -319,7 +431,19 @@ class Report:
         (self.dir / f"{name}.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def shot_name(label: str) -> str:
+    """A view label as a portable relative path: the label's ``/`` keep their sub-folders, and
+    every character that a Windows file name or an artifact upload refuses (``: * ? " < > |``,
+    e.g. the Machine section "Axes: common drive settings") becomes ``_``."""
+    bad = set('\\:*?"<>|')
+    parts = ["".join("_" if (c in bad or ord(c) < 32) else c for c in part).strip(" .") or "_"
+             for part in label.split("/")]
+    return "/".join(parts)
+
+
 def _fail_text(rows) -> str:
+    if rows and all(r.get("unreachable") for r in rows):
+        return "no sample size was reachable on this screen: nothing was audited"
     out = []
     for r in rows:
         for v in r["violations"]:
@@ -353,20 +477,20 @@ def test_panels_with_a_selection(win, app):
                     if s.height() > size[1]:
                         grew.append(f"{theme} {ws} {size}: window {s.width()}x{s.height()}")
                     _pump(app, 0.02)
-                    rep.add("selection", s, f"{theme}_{ws}", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}", win)
                     rep.shot(win, s, f"selection_{theme}_{ws}")
                     if ws != "process":
                         continue
                     pp = win.extension("ext_process").properties
                     pp.pick_contour(1)                      # a hole of the plate: its own values
                     _pump(app)
-                    rep.add("selection", s, f"{theme}_{ws}_contour", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}_contour", win)
                     pp.pick_contour(None)
                     pw = win.extension("ext_process").workspace
                     pw.show_page(1)
                     _pump(app)
                     s = _fit(win, app, size)
-                    rep.add("selection", s, f"{theme}_{ws}_library", A.audit(win))
+                    rep.check("selection", s, f"{theme}_{ws}_library", win)
                     rep.shot(win, s, f"selection_{theme}_library")
                     pw.show_page(0)
                     _pump(app)
@@ -395,8 +519,7 @@ def test_sample_sizes(win, app):
         s = _fit(win, app, size)
         _pump(app, 0.05)
         for label in views(win, app):
-            v = A.audit(win)
-            rep.add("sample", s, label, v)
+            rep.check("sample", s, label, win)
             rep.shot(win, s, label)
     rep.write("sample_sizes")
     text = _fail_text(rep.rows)
@@ -417,6 +540,15 @@ def test_fits_this_screen(win, app):
     mp = pytest.MonkeyPatch()
     mp.setattr(FitArea, "_cap", win.real_fitarea_cap)          # the real screen cap
     avail = _screen_size(win)
+    # a screen smaller than the smallest supported window (the CI runners' 1024 × 768): the page
+    # wrapper scrolling its page is the documented fallback there (docs/dev/RESPONSIVE.md rule
+    # 6); nothing else may scroll or clip
+    small = avail.width() < SUPPORTED_MIN[0] or avail.height() < SUPPORTED_MIN[1]
+
+    def below(v: A.Violation) -> str:
+        if small and v.kind in ("vscroll", "hscroll") and v.path.endswith("FitArea#shell_ws_scroll"):
+            return f"screen {avail.width()}x{avail.height()} below the supported {SUPPORTED_MIN[0]}x{SUPPORTED_MIN[1]}"
+        return ""
     rep = Report()
     bad = []
     for ws in CORE:
@@ -424,10 +556,17 @@ def test_fits_this_screen(win, app):
         _pump(app, rounds=8)
         frame = win.frameGeometry().size() - win.size()
         m = win.minimumSizeHint().expandedTo(win.minimumSize())
-        if m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height():
+        over = m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height()
+        if over and small:
+            # the window's minimum (at most 1280 x 800: test_minimum_size_fits_the_smallest_sample)
+            # is larger than an unsupported screen: reported, not failed
+            rep.notes.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()} "
+                             f"(below the supported {SUPPORTED_MIN[0]}x{SUPPORTED_MIN[1]})")
+        elif over:
             bad.append(f"{ws}: minimum {m.width()}x{m.height()} > screen {avail.width()}x{avail.height()}")
         s = _fit(win, app, (avail.width() - frame.width(), avail.height() - frame.height()))
-        rep.add("screen", s, ws, A.audit(win))
+        settle(win, app)
+        rep.add("screen", s, ws, A.audit(win), allowed=below)
         rep.shot(win, s, f"screen_{ws}")
     mp.undo()
     rep.write("this_screen")
@@ -445,7 +584,7 @@ def test_imperial_sample_sizes(win, app):
         for size in SAMPLES:
             s = _fit(win, app, size)
             for label in views(win, app):
-                rep.add("imperial", s, label, A.audit(win))
+                rep.check("imperial", s, label, win)
                 if size == (1512, 875):
                     rep.shot(win, s, f"imperial_{label}")
     finally:
@@ -487,6 +626,12 @@ def _sweep_sizes(win):
     m = win.minimumSizeHint().expandedTo(win.minimumSize())
     w0 = max(m.width(), 1)
     heights = sorted({max(m.height(), h) for h in (m.height(), *SWEEP_HEIGHTS)})
+    if real_screen():
+        # a window server keeps a window within its screen: heights above that are the same
+        # size again (the macOS runner: every height was 649, and each was swept)
+        frame = win.frameGeometry().size() - win.size()
+        top = _screen_size(win).height() - frame.height()
+        heights = sorted({min(h, max(top, m.height())) for h in heights})
     widths = list(range(w0, MAX_W + 1, STEP))
     if widths[-1] != MAX_W:
         widths.append(MAX_W)
@@ -503,14 +648,14 @@ def test_width_and_height_sweep(win, app):
     for ws in host.visible_ids():
         host.activate(ws)
         _pump(app)
-        last = None
+        seen: set[tuple[int, int]] = set()
         for h in heights:
             for wd in widths:
                 s = _fit(win, app, (wd, h))
-                if s == last:
-                    continue
-                last = QSize(s)
-                rep.add("sweep", s, ws, A.audit(win))
+                if (s.width(), s.height()) in seen:
+                    continue          # the same size again (a screen that holds less)
+                seen.add((s.width(), s.height()))
+                rep.check("sweep", s, ws, win)
                 bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws}")
     rep.write("sweep")
     text = _fail_text(rep.rows)
@@ -537,7 +682,7 @@ def test_dock_width_sweep(win, app):
                     win.resizeDocks([d], [wd], Qt.Horizontal)
                     _pump(app)
                     _pump(app)
-                    rep.add("docks", s, f"{ws}:{d.objectName()}={d.width()}", A.audit(win))
+                    rep.check("docks", s, f"{ws}:{d.objectName()}={d.width()}", win)
             win.shell.reset_layout()
             _pump(app)
     rep.write("dock_sweep")
@@ -558,18 +703,43 @@ def test_live_resize_recovers(win, app):
         s0 = _fit(win, app, (1512, 875))
         _pump(app, 0.05)
         before = _geometry(win)
+        report0 = _dock_report(win)
         for wd in [*reversed(widths), *widths, 1512]:
             s = _fit(win, app, (wd, 875))
-            rep.add("live", s, ws, A.audit(win))
+            rep.check("live", s, ws, win)
         _fit(win, app, (s0.width(), s0.height()))
         _pump(app, 0.05)
         after = _geometry(win)
         diff = {k: (before.get(k), after.get(k)) for k in set(before) | set(after)
                 if not _same(before.get(k), after.get(k))}
-        assert not diff, (ws, diff)
+        assert not diff, (ws, diff, "before:", report0, "after:", _dock_report(win))
     rep.write("live_resize")
     text = _fail_text(rep.rows)
     assert not text, text
+
+
+def _dock_report(win) -> dict:
+    """Why a dock has its width (a failed recovery's message): natural and minimum widths,
+    the user's remembered width, the panel's hint."""
+    pol = getattr(win.shell, "dock_policy", None) or getattr(win, "dock_policy", None)
+    out = {}
+    for d in win.shell.host.docks():
+        if d.isVisible() and not d.isFloating():
+            inner = d.widget()
+            out[d.objectName()] = {
+                "w": d.width(), "min": d.minimumSizeHint().width(),
+                "hint": inner.sizeHint().width() if inner is not None else None,
+                "pref": pol.prefs.get(d.objectName()) if pol is not None else None,
+                "tabbed": [x.objectName() for x in win.tabifiedDockWidgets(d)],
+                "parts": [(type(c).__name__, c.sizeHint().width()) for c in
+                          (inner.findChildren(QWidget, options=Qt.FindDirectChildrenOnly) if inner is not None else [])
+                          if c.isVisible()][:6]}
+    c = win.centralWidget()
+    out["window"] = {"size": (win.width(), win.height()),
+                     "central": (c.width(), c.minimumSizeHint().width()) if c is not None else None,
+                     "page_min": win.shell.host.stack.minimumSizeHint().width(),
+                     "targets": {d.objectName(): t for d, t in pol.targets().items()} if pol is not None else None}
+    return out
 
 
 def _same(a, b, tol: int = 4) -> bool:
@@ -584,6 +754,8 @@ def _geometry(win) -> dict:
     out = {}
     for d in win.shell.host.docks():
         if d.isVisible() and not d.isFloating():
+            if win.tabifiedDockWidgets(d) and d.visibleRegion().isEmpty():
+                continue      # a tab behind another: its geometry is not shown (nor kept current)
             out[f"dock:{d.objectName()}"] = (d.width(), d.height())
     for w in win.findChildren(QWidget):
         state = w.property("responsive_state")
@@ -604,7 +776,7 @@ def test_larger_font(win, app):
         for size in ((1512, 875), (1920, 1080)):
             s = _fit(win, app, size)
             for label in views(win, app):
-                rep.add("font125", s, label, A.audit(win))
+                rep.check("font125", s, label, win)
                 rep.shot(win, s, f"font125_{label}")
     finally:
         app.setFont(f0)
@@ -666,6 +838,10 @@ w.close()
 
 #: the user's MacBook Pro 14" screen: 3024 × 1964 pixels at 2x = 1512 × 982 points (offscreen
 #: platform screen; QT_SCALE_FACTOR=2 gives the widgets their 2x backing store)
+#: Qt styles that only work on their own platform plugin (cocoa, windows): the macOS style under
+#: the offscreen platform crashed the 2x child with SIGSEGV on the macOS runner
+NATIVE_ONLY_STYLES = ("macos", "windows11", "windowsvista")
+
 SCREEN_2X = {"screens": [{"name": "mbp14", "x": 0, "y": 0, "width": 3024, "height": 1964,
                           "logicalDpi": 96, "dpr": 1}]}
 
@@ -674,18 +850,25 @@ def test_scale_2x_and_first_start_geometry(tmp_path):
     """2x device pixel ratio (Retina, 200 % on Windows) on a 1512 × 982 screen: the same layout
     in logical pixels; the first start fills the available screen; a saved geometry larger than
     the screen comes back inside it."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "").lower()
+    if style in NATIVE_ONLY_STYLES:
+        pytest.skip(f"the offscreen platform cannot host the {style} style (it needs its own window "
+                    "server); the 2x run is the CI job's, under the default style")
     cfg = tmp_path / "screen.json"
     cfg.write_text(json.dumps(SCREEN_2X), encoding="utf-8")
-    env = dict(os.environ, QT_QPA_PLATFORM=f"offscreen:configfile={cfg}",
+    # a path relative to the child's working directory: the platform arguments are split at
+    # ":", so a Windows drive letter ("D:\\...") cut the file name and the child crashed
+    # (0xC0000409) before it printed anything
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen:configfile=screen.json",
                MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
                MLASER_DATA_DIR=str(tmp_path / "data"))
     env.pop("_MLASER_CONFIG_AUTO", None)
     env["QT_SCALE_FACTOR"] = "2"
     d = os.environ.get("MLASER_LAYOUT_SHOTS", "")
     if d:
-        env["MLASER_LAYOUT_SHOTS_2X"] = str(Path(d) / (os.environ.get("MLASER_LAYOUT_TAG", "") or "run") / "shots_2x")
-    r = subprocess.run([sys.executable, "-c", SCALE_SCRIPT, str(Path(__file__).parent)], env=env,
-                       capture_output=True, text=True, timeout=600)
+        env["MLASER_LAYOUT_SHOTS_2X"] = str(Path(d).resolve() / (os.environ.get("MLASER_LAYOUT_TAG", "") or "run") / "shots_2x")
+    r = subprocess.run([sys.executable, "-c", SCALE_SCRIPT, str(Path(__file__).parent.resolve())], env=env,
+                       capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
     assert r.returncode == 0, r.stderr[-3000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert res["dpr"] == 2.0 and res["grab_dpr"] == 2.0

@@ -32,8 +32,8 @@ from typing import Callable, Iterable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import (QFrame, QGridLayout, QLabel, QLayout, QLayoutItem, QScrollArea, QSizePolicy,
-                               QStackedWidget, QStyle, QToolButton, QVBoxLayout, QWidget, QWidgetItem)
+from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QLabel, QLayout, QLayoutItem, QScrollArea, QSizePolicy,
+                               QStackedWidget, QStyle, QStyleOptionButton, QToolButton, QVBoxLayout, QWidget, QWidgetItem)
 
 #: property names used by the helpers and read by the layout harness
 STATE_PROP = "responsive_state"
@@ -119,6 +119,11 @@ class FlowLayout(QLayout):
 
     def addWidget(self, w: QWidget) -> None:  # noqa: N802 - Qt API
         self.addChildWidget(w)
+        # sizes and geometry in widget rectangles, not the style's "layout item" rectangles:
+        # the macOS style's buttons, combos and check boxes have layout item margins (the
+        # bezel's shadow), and rows sized from the smaller item rects left them shorter than
+        # their minimum (28 of 32 px) and spilling out of the flow's box (native-check, macOS)
+        w.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
         self.addItem(QWidgetItem(w))
         self.invalidate()
 
@@ -307,6 +312,21 @@ def _hidden(w: QWidget) -> bool:
     return w.isHidden() and w.testAttribute(Qt.WA_WState_ExplicitShowHide)
 
 
+class _FormGrid(QGridLayout):
+    """A ResponsiveForm's grid.  It reports the form's height for a width: a parent layout asks
+    a child widget's *layout* for its height for width (QWidgetItem), never the widget itself."""
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return isinstance(self.parentWidget(), ResponsiveForm)
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        form = self.parentWidget()
+        return form.heightForWidth(width) if isinstance(form, ResponsiveForm) else -1
+
+    def minimumHeightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        return self.heightForWidth(width)
+
+
 class ResponsiveForm(QWidget):
     """Rows of (label, field): the label beside the field when the widest label plus the widest
     field minimum fit the width, above it otherwise.  Its minimum width is the stacked one, so a
@@ -314,7 +334,7 @@ class ResponsiveForm(QWidget):
 
     def __init__(self, parent: Optional[QWidget] = None):
         super().__init__(parent)
-        self._grid = QGridLayout(self)
+        self._grid = _FormGrid(self)
         self._grid.setContentsMargins(0, 0, 0, 0)
         # the minimum is the stacked one (minimumSizeHint), not the grid's side-by-side one
         self._grid.setSizeConstraint(QLayout.SetNoConstraint)
@@ -399,6 +419,75 @@ class ResponsiveForm(QWidget):
         w = max(self._label_w(), self._field_min(), self._span_min()) + m.left() + m.right()
         return QSize(w, super().minimumSizeHint().height())
 
+    def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        """What it wants: labels beside the fields, whatever arrangement it has now.  The grid's
+        own hint is the current arrangement's, so a form stacked in a narrow dock asked for
+        less, the dock stayed narrow and the form stacked (live resizing ended with the
+        Properties dock 63 px wider than it started, macOS CI)."""
+        m = self._grid.contentsMargins()
+        hs = self._grid.horizontalSpacing()
+        hs = hs if hs >= 0 else _spacing(self)
+        fields = [max(f.sizeHint().width(), f.minimumSizeHint().width(), f.minimumWidth())
+                  for lab, f in self._rows if not _hidden(f) and lab is not None]
+        spans = [max(f.sizeHint().width(), f.minimumSizeHint().width(), f.minimumWidth())
+                 for lab, f in self._rows if not _hidden(f) and lab is None]
+        w = max(self._label_w() + hs + max(fields, default=0), max(spans, default=0)) + m.left() + m.right()
+        return QSize(w, self._height(w, True))
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return True
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        """The height at ``width`` in the arrangement that width gets (beside or above), not in
+        the current one: the form switches only when it is resized, and a parent that sized it
+        from the current arrangement left it short once it stacked (a spin box 22 of 24 px
+        high in Run Control's DO section on the X11 and Windows runners)."""
+        return self._height(width, width >= self.needed_beside())
+
+    def _row_gap(self, upper: list, lower: list) -> int:
+        """The grid's spacing between two rows: its own, or (-1) the style's spacing for the
+        controls involved, as QGridLayout asks it (under macOS 10 px between a label and the
+        field below it, 6 px elsewhere)."""
+        vs = self._grid.verticalSpacing()
+        if vs >= 0:
+            return vs
+
+        def types(ws):
+            t = QSizePolicy.ControlType.DefaultType
+            for w in ws:
+                t |= w.sizePolicy().controlType()
+            return t
+        gap = self.style().combinedLayoutSpacing(types(upper), types(lower), Qt.Vertical, None, self)
+        return gap if gap >= 0 else _spacing(self, False)
+
+    def _height(self, width: int, beside: bool) -> int:
+        g = self._grid
+        hs = g.horizontalSpacing()
+        hs = hs if hs >= 0 else _spacing(self)
+        m = g.contentsMargins()
+        inner = max(width - m.left() - m.right(), 1)
+
+        def h(x: Optional[QWidget], w: int) -> int:
+            if x is None or _hidden(x):
+                return 0
+            hfw = x.heightForWidth(w) if x.hasHeightForWidth() else -1
+            return max(hfw, x.sizeHint().height(), x.minimumSizeHint().height(), x.minimumHeight())
+        field_w = max(inner - self._label_w() - hs, 1) if beside else inner
+        rows: list[tuple[int, list]] = []         # (height, the widgets in that grid row)
+        for lab, f in self._rows:
+            if _hidden(f):
+                continue
+            if lab is None:
+                rows.append((h(f, inner), [f]))
+            elif beside:
+                rows.append((max(h(lab, self._label_w()), h(f, field_w)), [lab, f]))
+            else:
+                rows.append((h(lab, inner), [lab]))
+                rows.append((h(f, inner), [f]))
+        total = sum(r[0] for r in rows)
+        total += sum(self._row_gap(rows[i][1], rows[i + 1][1]) for i in range(len(rows) - 1))
+        return total + m.top() + m.bottom()
+
     def _place(self) -> None:
         self._placing = True
         try:
@@ -438,6 +527,80 @@ class ResponsiveForm(QWidget):
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         self.set_beside(ev.size().width() >= self.needed_beside())
         super().resizeEvent(ev)
+
+
+# --------------------------------------------------------------------------- wrapping check box
+class WrapCheckBox(QCheckBox):
+    """A check box whose text wraps onto more lines when it is narrower than the text (a long
+    option in a narrow form: "Stay down on short moves" made the technology form scroll
+    sideways at 220 px with the macOS fonts).  It still carries its own text (DESIGN.md §3);
+    its minimum width is the indicator plus the longest word, its height follows its width."""
+
+    def _parts(self, width: int) -> tuple[QRect, QRect]:
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        opt.rect = QRect(0, 0, width, max(self.height(), 1))
+        ind = self.style().subElementRect(QStyle.SE_CheckBoxIndicator, opt, self)
+        gap = self.style().pixelMetric(QStyle.PM_CheckBoxLabelSpacing, opt, self)
+        text = QRect(ind.right() + 1 + gap, 0, max(1, width - ind.right() - 1 - gap), opt.rect.height())
+        return ind, text
+
+    def _text_h(self, width: int) -> int:
+        _ind, text = self._parts(width)
+        r = self.fontMetrics().boundingRect(QRect(0, 0, text.width(), 1 << 16), int(Qt.TextWordWrap),
+                                            self.text().replace("&&", "\0").replace("&", "").replace("\0", "&"))
+        return r.height()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        full = super().minimumSizeHint()
+        words = self.text().replace("&", "").split() or [""]
+        longest = max(self.fontMetrics().horizontalAdvance(w) for w in words)
+        ind, text = self._parts(full.width())
+        w = min(full.width(), text.x() + longest + 2)
+        # one line high: the wrapped height comes through height for width, so a check box
+        # that has room is exactly as tall as a plain one
+        return QSize(w, full.height())
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        return True
+
+    def _one_line(self, width: int) -> bool:
+        return self.fontMetrics().horizontalAdvance(self.text().replace("&", "")) <= self._parts(width)[1].width()
+
+    def heightForWidth(self, width: int) -> int:  # noqa: N802 - Qt API
+        one = super().sizeHint().height()
+        if self._one_line(width):
+            return one
+        pad = max(0, one - self.fontMetrics().height())
+        return max(one, self._text_h(width) + pad)
+
+    def hitButton(self, pos) -> bool:  # noqa: N802 - Qt API
+        return self.rect().contains(pos)
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        from PySide6.QtGui import QPainter
+        if self._one_line(self.width()):
+            super().paintEvent(ev)           # one line: exactly the style's own check box
+            return
+        opt = QStyleOptionButton()
+        self.initStyleOption(opt)
+        ind, text = self._parts(self.width())
+        p = QPainter(self)
+        o = QStyleOptionButton(opt)
+        o.rect = QRect(ind.x(), (self.height() - ind.height()) // 2 if self.height() < 2 * ind.height() else ind.y(),
+                       ind.width(), ind.height())
+        self.style().drawPrimitive(QStyle.PE_IndicatorCheckBox, o, p, self)
+        t = QStyleOptionButton(opt)
+        t.rect = text
+        self.style().drawItemText(p, text, int(Qt.AlignLeft | Qt.AlignVCenter | Qt.TextWordWrap), self.palette(),
+                                  self.isEnabled(), self.text().replace("&", ""), QPalette.WindowText)
+        if self.hasFocus():
+            from PySide6.QtWidgets import QStyleOptionFocusRect
+            fr = QStyleOptionFocusRect()
+            fr.initFrom(self)
+            fr.rect = text
+            self.style().drawPrimitive(QStyle.PE_FrameFocusRect, fr, p, self)
+        p.end()
 
 
 # --------------------------------------------------------------------------- collapsible section
@@ -774,6 +937,16 @@ def set_compact(root: QWidget, on: bool, ratio: float = 0.5) -> None:
                 w.setToolButtonStyle(Qt.ToolButtonIconOnly)
             elif w.property("comfortable_style") is not None:
                 w.setToolButtonStyle(Qt.ToolButtonStyle(int(w.property("comfortable_style"))))
+    # the layouts' cached sizes (a box layout's height for width, a parent's cached item sizes)
+    # are stale until their next layout pass, and a panel measures its sections right after
+    # this: drop the caches now, innermost first, so the next measure sees the new spacing
+    # (Run Control was laid out with the compact heights once comfortable again: the jog pad
+    # 2 px and the DO form 3-5 px short on the X11, Windows and macOS runners)
+    for w in reversed([root, *root.findChildren(QWidget)]):
+        lay = w.layout()
+        if lay is not None:          # only containers: their sizes follow their layouts'
+            lay.invalidate()
+            w.updateGeometry()
 
 
 class CompactWhenNarrow(QObject):
@@ -840,6 +1013,8 @@ class ColumnsPanel(QWidget):
         self.sections: list[CollapsibleSection] = []
         self.pinned: list[QWidget] = []     # widgets on top, always shown in full (e.g. STOP)
         self._busy = False
+        self._comfortable_hint: Optional[QSize] = None
+        self._comfortable_min_w = 0
         self._last: Optional[tuple] = None
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -893,6 +1068,20 @@ class ColumnsPanel(QWidget):
         lo = self._col_min()
         return max(lo, self.column_min()) if self.column_min is not None else lo
 
+    def _exp_min(self, expanded: dict) -> int:
+        """The column width the column count is computed from, for this expansion: when every
+        section is folded only their headers need room, so they sit side by side (Process's
+        technology form: six folded headers stacked one per row kept the page taller than a
+        1280 x 800 window with the Windows fonts)."""
+        shown = [s for s in self.sections if not s.isHidden()]
+        if any(expanded.get(id(s), True) for s in shown):
+            # a section open: the columns are those of the open panel (they do not change
+            # while sections fold one by one, so folding stays monotonic)
+            return self._count_min()
+        ws = [s.header.minimumSizeHint().width() for s in shown]
+        ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
+        return max(ws, default=0)
+
     def _col_min(self) -> int:
         ws = [s.min_width() for s in self.sections if not s.isHidden()]
         ws += [max(p.minimumSizeHint().width(), p.minimumWidth()) for p in self.pinned if not p.isHidden()]
@@ -909,6 +1098,15 @@ class ColumnsPanel(QWidget):
         return sum(self._widget_h(p, width) + self.spacing() for p in self.pinned if not p.isHidden())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = self._min_now()
+        if bool(self.property("compact")) and self._comfortable_min_w:
+            # compact saves height, not width: a minimum width that shrank with the compact
+            # paddings let the dock narrow, which made the panel comfortable again, which
+            # widened it... (at the window's minimum the canvas alternated by 2 px)
+            s.setWidth(max(s.width(), self._comfortable_min_w))
+        return s
+
+    def _min_now(self) -> QSize:
         m = 2 * self.margins()
         w = self._col_min()
         if self.scroll_overflow and self.width() > 0:
@@ -925,12 +1123,35 @@ class ColumnsPanel(QWidget):
     #: sections' own preferred widths ask for that much), so rows of buttons need fewer lines
     COMFORT = 1.6
 
+    @staticmethod
+    def _section_want(s: "CollapsibleSection") -> int:
+        """The width a section asks for: its body's preferred width in the frame, or its whole
+        title.  Not the header row's hint: a folded section's summary ("in: Line 3 mm ...") and
+        an elided title made the panel's preferred width depend on how it was folded and how
+        narrow it had been (live resizing ended with the Properties dock 7-45 px wider)."""
+        fl = s.frame.layout()
+        m = fl.contentsMargins()
+        body = s.body.sizeHint().width() if s.body is not None else 0
+        w = body + m.left() + m.right() + 2 * s.frame.frameWidth()
+        h = s.header
+        title = h.hint_for(s.title()).width() if isinstance(h, ElidedToolButton) else h.sizeHint().width()
+        return max(w, title, s.min_width())
+
     def comfortable_width(self) -> int:
         lo = self._col_min()
-        want = max((s.sizeHint().width() for s in self.sections if not s.isHidden()), default=lo)
+        want = max((self._section_want(s) for s in self.sections if not s.isHidden()), default=lo)
         return max(lo, self._count_min(), min(want, int(lo * self.COMFORT)))
 
     def sizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        if bool(self.property("compact")) and self._comfortable_hint is not None:
+            # the size it wants is the comfortable one: compact is what it does when it gets
+            # less.  Measured compact, the hint was smaller, a dock sized from it stayed narrow,
+            # and the panel stayed compact after the window grew again (live resize ended with
+            # Run Control 23 px narrower and compact, X11 and macOS)
+            return self._comfortable_hint
+        return self._hint_now()
+
+    def _hint_now(self) -> QSize:
         m = 2 * self.margins()
         w = self.comfortable_width()
         if self.grow and self._hint_cols > 1:
@@ -945,7 +1166,7 @@ class ColumnsPanel(QWidget):
         columns, default: as many as the width allows)."""
         sp = self.spacing()
         secs = [s for s in self.sections if not s.isHidden()]
-        n = n or columns_for(W, self._count_min(), sp, self.max_columns)
+        n = n or columns_for(W, self._exp_min(expanded), sp, self.max_columns)
         n = max(1, min(n, len(secs))) if secs else 1
         cw = (W - (n - 1) * sp) // n
         top = self._pinned_h(W)
@@ -990,7 +1211,7 @@ class ColumnsPanel(QWidget):
 
     def _cols(self, W: int, H: int, exp: dict) -> int:
         """Columns to use: all the width allows, or (``grow``) the fewest that fit the height."""
-        most = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
+        most = columns_for(W, self._exp_min(exp), self.spacing(), self.max_columns)
         if not self.grow:
             return most
         for n in range(1, most + 1):
@@ -1022,6 +1243,11 @@ class ColumnsPanel(QWidget):
             if bool(self.property("compact")):
                 set_compact(self, False)
                 W, H = self.width() - 2 * self.margins(), self.height() - 2 * self.margins()
+            # comfortable: what sizeHint reports while compact (the same value it reports now,
+            # so no geometry update: an extra relayout pass here moved the canvas under a test's
+            # mouse clicks)
+            self._comfortable_hint = self._hint_now()
+            self._comfortable_min_w = self._min_now().width()
             if not self._fits(W, H, exp):
                 set_compact(self, True)
                 compact = True
@@ -1075,7 +1301,7 @@ class ColumnsPanel(QWidget):
         secs = [s for s in self.sections if not s.isHidden()]
         exp = {id(s): not s.collapsible for s in secs}
         W = max(1, width - 2 * self.margins())
-        n = columns_for(W, self._count_min(), self.spacing(), self.max_columns)
+        n = columns_for(W, self._exp_min(exp), self.spacing(), self.max_columns)
         return self._plan(W, 1 << 20, exp, n)[2] - self.spacing() + 2 * self.margins()
 
     def needed_height(self, width: int) -> int:
@@ -1229,6 +1455,7 @@ class FitArea(QScrollArea):
         self.setWidget(widget)
         self._need = QSize(0, 0)
         self._hint = QSize(0, 0)
+        self._sync_queued = False
         widget.installEventFilter(self)
 
     def _cap(self, size: QSize) -> QSize:
@@ -1279,9 +1506,17 @@ class FitArea(QScrollArea):
             w.resize(size)
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
-        if obj is self.widget() and ev.type() == QEvent.LayoutRequest:
-            QTimer.singleShot(0, self, self.sync)      # cancelled if the area goes first
+        if obj is self.widget() and ev.type() == QEvent.LayoutRequest and not self._sync_queued:
+            # with this area as the timer's context: Qt drops the call if the area is deleted
+            # first (a window disposed of with a layout request queued), instead of calling
+            # ``sync`` on a deleted wrapper
+            self._sync_queued = True
+            QTimer.singleShot(0, self, self._queued_sync)
         return False
+
+    def _queued_sync(self) -> None:
+        self._sync_queued = False
+        self.sync()
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
@@ -1302,5 +1537,5 @@ class FitArea(QScrollArea):
         return w.sizeHint() if w is not None else super().sizeHint()
 
 
-__all__ = ["TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
+__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
            "CompactWhenNarrow", "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]
