@@ -39,7 +39,9 @@ class Host:
 
 @pytest.fixture
 def ctl():
-    c = simrig.simulator_controller("card", time_scale=2.0)   # 4x underran the FIFO on a slow CI runner
+    # real time: the streamer keeps its full 1.2 s buffer ahead of the simulated card (2x still
+    # underran the FIFO when a macOS runner stalled the streaming process; the fault was correct)
+    c = simrig.simulator_controller("card", time_scale=1.0)
     yield c
     try:
         if c.sim is not None:
@@ -121,6 +123,7 @@ def test_frame_lesson_skips_loading_an_open_sheet(ctl):
     assert [r.outcome for r in lesson.history if r.step == "load"] == ["skipped"]
 
 
+@pytest.mark.flaky(reruns=1)            # real-time cut on a shared runner (one rerun, like the other timing tests)
 def test_first_cut_lesson(ctl):
     svc, _ = service()
     host = Host()
@@ -131,6 +134,7 @@ def test_first_cut_lesson(ctl):
     assert svc.progress["first_cut"].passed and svc.progress["first_cut"].best_s > 0
 
 
+@pytest.mark.flaky(reruns=1)            # real-time cut on a shared runner (one rerun, like the other timing tests)
 def test_hold_lesson(ctl):
     svc, _ = service()
     lesson = svc.begin("hold", ctl, Host(PR.practice_document()), task_timeout_s=40)
@@ -188,6 +192,7 @@ def test_alarm_lesson_trips_the_estop_only_once_the_card_cuts(ctl, monkeypatch):
     ctl.stop(wait=True)
 
 
+@pytest.mark.flaky(reruns=1)            # real-time cut on a shared runner (one rerun, like the other timing tests)
 def test_resume_lesson(ctl):
     svc, _ = service()
     lesson = svc.begin("resume", ctl, Host(PR.practice_document()), task_timeout_s=40)
