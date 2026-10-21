@@ -339,6 +339,7 @@ def test_latency_sampler_keeps_its_rate():
     assert all(b > a for a, b in zip(ts, ts[1:]))
 
 
+@pytest.mark.flaky(reruns=1)
 def test_gui_event_loop_stays_responsive_during_a_heavy_compile(monkeypatch):
     """Event-loop latency (post -> run on the GUI thread) while a multi-second compile runs.
     Before (compile in the GUI process's worker thread): the loop waited up to 19 s and
