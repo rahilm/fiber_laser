@@ -180,7 +180,11 @@ def test_simulator_wait_and_follower_model():
             t0 = time.monotonic()
             mc.fifo_start()
             time.sleep(0.15)
-            assert sim.position(0) == 0                     # held by the 300 ms delay
+            held = sim.position(0)
+            # held by the 300 ms delay: checkable only while inside it (a macOS runner's 0.15 s
+            # sleep took longer than the delay once, and the step had run by then)
+            if time.monotonic() - t0 < 0.28:
+                assert held == 0
             assert sim.state.zf_state == 3                  # follow-on reached, zf wait passed
             end = time.monotonic() + 3
             while sim.state.fifo_running and time.monotonic() < end:
