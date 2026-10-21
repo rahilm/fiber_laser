@@ -881,6 +881,59 @@ def test_scale_2x_and_first_start_geometry(tmp_path):
     assert not bad, "\n".join(bad)
 
 
+SMALL_SCRIPT = r"""
+import json, sys
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+app = QApplication([])
+QDialog.exec = lambda self, *a: 0
+for n in ("information", "warning", "critical", "question"):
+    setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
+from wiring import real_window
+w = real_window()
+w.shell.fit_to_screen()
+w.show()
+for _ in range(10):
+    app.processEvents()
+avail = w.screen().availableGeometry()
+seen = []
+for ws in w.shell.host.visible_ids():
+    w.shell.host.activate(ws)
+    for _ in range(5):
+        app.processEvents()
+    w.shell._clamp_to_screen()
+    for _ in range(3):
+        app.processEvents()
+    g = w.frameGeometry()
+    seen.append([ws, g.x(), g.y(), g.width(), g.height()])
+print(json.dumps({"avail": [avail.x(), avail.y(), avail.width(), avail.height()], "seen": seen}))
+w.close()
+"""
+
+
+def test_a_screen_below_the_supported_size_keeps_the_window_on_it(tmp_path):
+    """A 1024 × 768 screen (below the supported 1280 × 800; the macOS CI runner's): the window
+    is never placed partly off the screen (macOS showed the rail and the run bar's left end cut
+    off); the workspace page scrolls instead."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "").lower()
+    if style in NATIVE_ONLY_STYLES:
+        pytest.skip(f"the offscreen platform cannot host the {style} style")
+    cfg = tmp_path / "screen.json"
+    cfg.write_text(json.dumps({"screens": [{"name": "small", "x": 0, "y": 0, "width": 1024, "height": 768,
+                                            "logicalDpi": 96, "dpr": 1}]}), encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen:configfile=screen.json",
+               MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
+               MLASER_DATA_DIR=str(tmp_path / "data"))
+    env.pop("_MLASER_CONFIG_AUTO", None)
+    r = subprocess.run([sys.executable, "-c", SMALL_SCRIPT, str(Path(__file__).parent.resolve())], env=env,
+                       capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr[-3000:]
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    ax, ay, aw, ah = res["avail"]
+    off = [s for s in res["seen"] if s[1] < ax or s[2] < ay or s[1] + s[3] > ax + aw or s[2] + s[4] > ay + ah]
+    assert not off, (res["avail"], off)
+
+
 def test_pending_still_needed(win, app):
     """An entry of PENDING that no longer matches anything goes (the owner fixed it)."""
     if not PENDING:

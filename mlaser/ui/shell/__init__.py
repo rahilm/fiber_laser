@@ -55,6 +55,10 @@ SETTINGS = [
 LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
 
+#: the smallest supported screen (docs/dev/RESPONSIVE.md); below it pages may scroll
+SUPPORTED_SCREEN = QSize(1280, 800)
+
+
 class _WindowWatch(QObject):
     """First show: initial dock sizes (or the saved layout); resize: palette placement."""
 
@@ -388,6 +392,9 @@ class Shell:
             self.w.hooks.emit("workspace_changed", ws_id)
         except KeyError:
             pass
+        if getattr(self, "_fit_screen", False) and self.w.isVisible():
+            # a workspace with a taller minimum must not push the window past a small screen
+            QTimer.singleShot(0, self._clamp_to_screen)
 
     # ------------------------------------------------------------------ user mode
     def request_mode(self, target: str) -> bool:
@@ -696,12 +703,24 @@ class Shell:
         frame = w.frameGeometry()
         extra_w = max(frame.width() - w.width(), 0)
         extra_h = max(frame.height() - w.height(), 0)
-        size = w.size().boundedTo(avail.size() - QSize(extra_w, extra_h))
+        room = avail.size() - QSize(extra_w, extra_h)
+        # a screen smaller than the content's minimum (below the supported 1280x800): the
+        # window still fits the screen and the workspace page scrolls (docs/dev/RESPONSIVE.md);
+        # otherwise the minimum wins over the resize and the window hangs off the screen
+        need = w.minimumSizeHint().expandedTo(w.minimumSize())
+        small = avail.width() < SUPPORTED_SCREEN.width() or avail.height() < SUPPORTED_SCREEN.height()
+        if small or need.width() >= room.width() or need.height() >= room.height():
+            # an explicit minimum: Qt's layouts keep it, so a workspace with a taller page cannot
+            # raise the window past the screen (FitArea's screen cap alone crept by the frame
+            # margins on every relayout); that page scrolls instead
+            w.setMinimumSize(need.boundedTo(room))
+        size = w.size().boundedTo(room)
         if size != w.size():
             w.resize(size)
         frame = w.frameGeometry()
-        x = min(max(frame.x(), avail.x()), avail.right() - frame.width() + 1)
-        y = min(max(frame.y(), avail.y()), avail.bottom() - frame.height() + 1)
+        # the top-left (title bar, menus, rail) always on the screen
+        x = max(min(frame.x(), avail.right() - frame.width() + 1), avail.x())
+        y = max(min(frame.y(), avail.bottom() - frame.height() + 1), avail.y())
         if (x, y) != (frame.x(), frame.y()):
             w.move(x, y)
 
