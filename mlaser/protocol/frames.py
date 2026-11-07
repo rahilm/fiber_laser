@@ -66,6 +66,7 @@ ERR_DECODE_BASE = 2000      # 2000 + decoder error (2004 = transaction-id mismat
 ERR_EXCEPTION_BASE = 500    # 500 + exception code from an 0x80 reply (log: 502 = code 2)
 ERR_MISMATCH = 603          # reply func/addr does not match the request (0x25b)
 ERR_TIMEOUT = 10060         # WSAETIMEDOUT, also used when select() times out
+ERR_HOST_UNREACHABLE = 10065  # WSAEHOSTUNREACH: the send or receive failed (link down; rebuild only)
 
 
 class FrameError(ValueError):

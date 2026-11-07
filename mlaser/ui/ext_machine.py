@@ -571,6 +571,10 @@ class MachineExtension:
 
         def run():
             ctl.startup_homing(confirm=confirm, normal_exit=normal)
+        import threading
+        if threading.current_thread() is not threading.main_thread():
+            self.bridge.call.emit(run)       # connected from a worker (background connect, #5)
+            return
         try:
             from PySide6.QtCore import QTimer
             QTimer.singleShot(0, run)

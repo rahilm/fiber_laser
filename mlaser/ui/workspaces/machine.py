@@ -600,9 +600,13 @@ class MachineWorkspace(QWidget):
         if not isinstance(ctl, UiController) or ctl.is_simulator():
             ctl = UiController(machine=self.w.machine, cam_params=self.w.cam_params)
             self.w.set_controller(ctl)
-        ok = bool(ctl.connect(self.host.text().strip(), self.port.value()))
-        self.ctx.log("mf165" if ok else "mf166")
-        return ok
+        # in the background: a switched-off card makes the connect wait out its retries (#5)
+        if not hasattr(self, "_connecting"):
+            from mlaser.ui.qtbridge import BackgroundCall
+            self._connecting = BackgroundCall(self, "mlaser-connect")
+        host, port = self.host.text().strip(), self.port.value()
+        return self._connecting.start(lambda: bool(ctl.connect(host, port)),
+                                      lambda ok, err: self.ctx.log("mf165" if ok and err is None else "mf166"))
 
     def disconnect(self) -> None:
         self.ctx.controller.disconnect()

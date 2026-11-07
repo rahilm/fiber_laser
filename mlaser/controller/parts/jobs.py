@@ -404,8 +404,8 @@ class JobRunnerPart:
         the FIFO start, off 0.2 s after the end).  Best effort: a failure is logged, never fatal;
         a guarded (laser) port is never switched by this."""
         n = int(self.output_map.get("process", 0) or 0)
-        if not n or self._mc is None:
-            return
+        if not n or self._mc is None or not self._sup.link_ok:
+            return                  # link lost: the halt (retried by the monitor) covers outputs
         if on and self._port_guarded(n):
             self._log(f"process signal: output {n} is a guarded laser output, not switched", logging.WARNING)
             return
@@ -419,8 +419,8 @@ class JobRunnerPart:
         the original: [9999, 4, 1, 0] right after 103 := 3, with MGP.RatioO2 = DA port 2).  A DA
         value of 0 is a halt-class command; a failure is logged, never fatal."""
         pc = getattr(self.machine, "process", None)
-        if self._mc is None or pc is None:
-            return
+        if self._mc is None or pc is None or not self._sup.link_ok:
+            return                  # link lost: each write would wait out the retry policy
         for port in sorted({int(p) for p in getattr(pc, "ratio_da", ()) or () if p in (1, 2)}):
             self._try("gas pressure off", self._mc.set_da, port, 0)
 

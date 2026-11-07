@@ -511,9 +511,23 @@ class MotionController:
             self._drain()
             for s_try in range(sends):
                 self.last_sent = time.monotonic()
-                self._send(frame)
+                try:
+                    self._send(frame)
+                except OSError as e:
+                    # the card's link is down (macOS: EHOSTDOWN / ENETUNREACH at once when the
+                    # card loses power, e.g. an e-stop): a "no reply" like a timeout, after the
+                    # usual pause, never an unexpected exception or a tight retry loop (#5)
+                    last = F.ERR_HOST_UNREACHABLE
+                    log.debug("MC-SendErr %s Try-Times(S):%d", e, s_try + 1)
+                    time.sleep(max(self.cfg.send_interval_ms, 10) / 1000)
+                    continue
                 for r_try in range(recvs):
-                    data = self._recv(tmo)
+                    try:
+                        data = self._recv(tmo)
+                    except OSError as e:        # ICMP unreachable reported on the receive
+                        last = F.ERR_HOST_UNREACHABLE
+                        log.debug("MC-RecvErr %s Try-Times(R/S):%d/%d", e, r_try + 1, s_try + 1)
+                        break
                     if data is None:
                         last = F.ERR_TIMEOUT
                         log.debug("MC-RecvErr_selectFunc ErrCode:10060 Try-Times(R/S):%d/%d",

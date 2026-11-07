@@ -106,6 +106,7 @@ def test_controller_monitor_ui(app, tmp_path, monkeypatch):
         sim.set_input(1, True)
         mon = ext.mon_controller()
         mon.refresh(True)
+        assert mon.io.wait(30)                # the read runs off the GUI thread (#5)
         assert mon.tables["RO"].rowCount() == 36 and mon.tables["AxisRW"].rowCount() == 70
         assert "background" in mon.di[0].styleSheet()
         # read-only: the DO button does not switch the output
@@ -127,6 +128,7 @@ def test_controller_monitor_ui(app, tmp_path, monkeypatch):
         # FTC monitor without an on-board follower: shows the card error, no exception
         fm = ext.mon_ftc()
         fm.refresh()
+        assert fm.io.wait(30)
         assert "not available" in fm.info.text()
         fm.close()
         # device report reads 1050 + mileage and stores the counters
@@ -151,6 +153,7 @@ def test_follower_monitor_with_card(app, tmp_path, monkeypatch):
         ext = SimpleNamespace(w=win, settings={}, device_settings=None)
         m = X.DeviceMonitor(ext, "zf")
         m.refresh()
+        assert m.io.wait(30)
         names = [m.table.item(i, 1).text() for i in range(m.table.rowCount())]
         assert "signal_height_mm" in names and "homed" in names
         m.read_props()

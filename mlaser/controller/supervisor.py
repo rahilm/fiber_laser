@@ -357,7 +357,9 @@ class SafetySupervisor:
               ms=round(res.duration_s * 1000, 1),
               failed=[n for n, ok, _e in res.steps if not ok] or None)
         if not res.ok and mc is not None and not pause:
-            self._retry = (reason, pause)          # the monitor repeats it until it succeeds
+            # the monitor repeats it until it succeeds (under the original reason: the repeat's
+            # own " (repeat)" suffix used to be stored and grew on every round)
+            self._retry = (reason.removesuffix(" (repeat)"), pause)
         elif res.ok:
             self._retry = None
         return res

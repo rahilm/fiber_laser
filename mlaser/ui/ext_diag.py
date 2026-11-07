@@ -40,6 +40,8 @@ import time
 from typing import Callable, Optional
 
 from PySide6.QtCore import Qt, QTimer, QUrl
+
+from .qtbridge import BackgroundCall
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
@@ -293,6 +295,8 @@ class ControllerMonitor(QDialog):
         self.tabs.addTab(self._axis_page(), _tr(w, "ss13", "Axis"))
         self.tabs.addTab(self._da_page(), "DA / PWM")
         self.snapshot = R.ControllerSnapshot()
+        self.io = BackgroundCall(self, "mlaser-monitor")   # the reads never block the GUI (#5)
+        self._want_params = False
         self._timer = QTimer(self)
         self._timer.timeout.connect(lambda: self.refresh(False))
         self._timer.start(500)
@@ -427,11 +431,21 @@ class ControllerMonitor(QDialog):
             self.status.setText(str(e))
 
     def refresh(self, params: bool = False) -> None:
+        """Read the card in the background (:class:`BackgroundCall`) and show the result when it
+        arrives; a refresh while one runs only remembers whether the parameters were asked."""
         mc = _mc(self.ext.w)
         if mc is None:
             self.status.setText(_tr(self.ext.w, "ss1", "Hardware is not connected"))
             return
-        snap = R.read_snapshot(mc, params=params or not self.snapshot.sys_rw)
+        self._want_params = self._want_params or params or not self.snapshot.sys_rw
+        want = self._want_params
+        if self.io.start(lambda: R.read_snapshot(mc, params=want), lambda snap, err: self._show(mc, snap, err)):
+            self._want_params = False
+
+    def _show(self, mc, snap, err) -> None:
+        if err is not None or snap is None:
+            self.status.setText(str(err))
+            return
         if not snap.sys_rw:
             snap.sys_rw, snap.axis_rw = self.snapshot.sys_rw, self.snapshot.axis_rw
         self.snapshot = snap
@@ -640,7 +654,14 @@ class DeviceMonitor(QDialog):
         return True
 
     def refresh(self) -> None:
-        raw, err = R.read_device(self.kind, _mc(self.ext.w), self.client)
+        """Read the device in the background (:class:`BackgroundCall`, issue #5)."""
+        if not hasattr(self, "io"):
+            self.io = BackgroundCall(self, "mlaser-device-monitor")
+        mc, client = _mc(self.ext.w), self.client
+        self.io.start(lambda: R.read_device(self.kind, mc, client), lambda res, err: self._show(res, err))
+
+    def _show(self, res, exc) -> None:
+        raw, err = res if exc is None and res is not None else ([], str(exc))
         if err:
             if not self.info.text() or self.info.text().startswith(("error", "not")):
                 self.info.setText(f"not available: {err}")

@@ -717,6 +717,7 @@
   "main.failed_to_create_qr_code": "Failed to create QR code",
   "main.fill_circle": "Fill circle",
   "main.filling_failure": "Filling failure",
+  "main.hardware_connecting": "Connecting to the motion card at {host}...",
   "main.hardware_reconnected": "Hardware reconnected",
   "main.hardware_reconnection_failed": "Hardware reconnection failed",
   "main.home_ref_parameters": "Park point parameters",
@@ -4154,6 +4155,9 @@
   "craft.msg.kerf": [
    "n",
    "where"
+  ],
+  "main.hardware_connecting": [
+   "host"
   ],
   "craft.msg.leads": [
    "n",
