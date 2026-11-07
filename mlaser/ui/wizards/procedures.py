@@ -5,13 +5,14 @@ from __future__ import annotations
 import copy
 from typing import Any, Optional
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QCheckBox, QFormLayout, QHBoxLayout,
                                QHeaderView, QLabel, QLineEdit, QPushButton, QTableWidget, QTableWidgetItem,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import units as U
 from mlaser.services.procedures import commissioning as CM
+from mlaser.services.procedures import commissioning_live as CL
 from mlaser.services.procedures import edge_seek as ES
 from mlaser.services.procedures import engine as PE
 from mlaser.services.procedures import simrig
@@ -21,6 +22,7 @@ from mlaser.services.procedures.laser_test import LaserTestParams, LaserTestProc
 
 from .. import icons
 from ..units_qt import spin_for_unit
+from . import commissioning_live as CLV
 from .base import WizardDialog
 from .common import MIN_TARGET, JogPad, OutlineView, T
 
@@ -313,47 +315,57 @@ class LaserWizard(WizardDialog):
 # =========================================================================== commissioning
 #: checklist details whose values are lengths in mm (shown in the display units; the report
 #: file keeps the numbers in mm)
-LENGTH_VALUES = {"wizard.comm.home_ok": ("x", "y"), "wizard.comm.jog_moved": ("moved", "step"),
-                 "wizard.comm.jog_position": ("moved", "step")}
+LENGTH_VALUES = CLV.LENGTH_VALUES
 
 
 def _detail_values(detail: str, values: dict) -> dict:
-    out = {k: v for k, v in values.items() if not isinstance(v, dict)}
-    u = U.current()
-    for k in LENGTH_VALUES.get(detail, ()):
-        if isinstance(out.get(k), (int, float)):
-            out[k] = u.number(float(out[k]), "length", u.decimals("small_length"), trim=True)
-    out.setdefault("unit", u.suffix("length"))
-    return out
+    return CLV.detail_values(None, detail, values)
 
 
-STATUS_TEXT = {CM.PASS: ("✓", "wizard.comm.s_pass", icons.GREEN), CM.WARN: ("!", "wizard.comm.s_warn", icons.AMBER),
-               CM.FAIL: ("✗", "wizard.comm.s_fail", icons.RED), CM.SKIP: ("–", "wizard.comm.s_skip", None),
-               CM.PENDING: ("…", "wizard.comm.s_pending", None)}
+LIVE_PERIOD_MS = 250                 # the live rows follow the controller's published state
 
 
 class CommissioningWizard(WizardDialog):
+    """The checklist steps, with the live status of every check below them
+    (:mod:`.commissioning_live`): it follows the card while the operator works on the machine
+    (the poll results the controller publishes: no traffic of its own), asks for each sensor
+    to be triggered and offers the fix of every failing check."""
+
     def __init__(self, window: Any, ext: Any, parent: Optional[QWidget] = None) -> None:
         self.ext = ext
+        self.live = CL.LiveStatus()
         super().__init__(window, lambda m, dry: CM.CommissioningProcedure(
             m, config=getattr(ext.ctx, "config", None), ops=ext.ops if not dry else None, dry_run=dry,
             log_fn=ext.log), parent)
-        self.checklist = _table([T(self.w, "wizard.comm.c_item"), T(self.w, "wizard.comm.c_status"),
-                                 T(self.w, "wizard.comm.c_detail")])
-        self.right.insertWidget(4, self.checklist, 1)
+        self.panel = CLV.LiveStatusPanel(self.w, self.run_fix, self.fix_enabled)
+        self.right.insertWidget(4, self.panel, 1)
         self.right.setStretchFactor(self.stack, 0)
-        self.resize(980, 760)
+        self.resize(1040, 780)
+        self.timer = QTimer(self)
+        self.timer.setInterval(LIVE_PERIOD_MS)
+        self.timer.timeout.connect(self.update_live)
+        self.timer.start()
         self.refresh()
+
+    @property
+    def config(self) -> Any:
+        return getattr(self.ext.ctx, "config", None)
 
     def make_rig(self) -> Any:
         rig = simrig.simulator_controller("card", heartbeat_output=7)
         self._rig_interlocks(rig)
         return rig
 
+    def _make(self, dry: bool) -> PE.Procedure:
+        live = getattr(self, "live", None)
+        if live is not None:                     # another machine (the dry-run rig): test again
+            live.reset_tests()
+        return super()._make(dry)
+
     def _rig_interlocks(self, rig: Any) -> None:
         """Dry run: the private simulator gets the configured interlock inputs (the wiring test
         then toggles its inputs); its heartbeat stays on output 7."""
-        cfg = getattr(self.ext.ctx, "config", None)
+        cfg = self.config
         if rig is None or cfg is None:
             return
         from mlaser.services import safety_io
@@ -362,19 +374,117 @@ class CommissioningWizard(WizardDialog):
                                     source="operator", reason="commissioning dry run"):
             raise RuntimeError("the dry-run simulator refused the interlock configuration")
 
-    def configure_safety_io(self) -> None:
-        """The Safety I/O dialog from the checklist, then the interlock check again."""
+    # ------------------------------------------------------------------ live status
+    def update_live(self) -> dict:
+        """Recompute the live rows (a timer tick; tests call it directly)."""
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        try:
+            rows = self.live.update(self.machine(), self.config, p, dry_run=p.dry_run)
+        except Exception as e:  # noqa: BLE001 - a controller being replaced: next tick
+            self.ext.log(f"commissioning live status: {type(e).__name__}: {e}")
+            return {}
+        before = p.items["interlocks"].status
+        p.record_live_tests(self.live.results())
+        self.panel.set_rows(rows)
+        if p.items["interlocks"].status != before:
+            self.status.setText(self.status_text())
+        return rows
+
+    def fix_enabled(self, fix: str) -> tuple[bool, str]:
+        """(enabled, why not) of a fix button."""
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        kind = fix.partition(":")[0]
+        if p.busy():
+            return False, T(self.w, "wizard.running")
+        if kind in ("adopt_scaling", "fix_limits", "reverse") and (p.dry_run or (kind == "fix_limits" and p.ops is None)):
+            return False, T(self.w, "wizard.comm.fix.dry_run")
+        if kind == "simulate" and self.rig is None:
+            return False, T(self.w, "wizard.comm.fix.dry_run_only")
+        cmd = FIX_COMMANDS.get(kind)
+        if cmd is not None and not self._command_ok(cmd) and not (kind == "clear_alarms" and self.rig is not None):
+            return False, T(self.w, "wizard.comm.fix.unavailable")
+        return True, ""
+
+    def _command_ok(self, cmd: str) -> bool:
+        cmds = getattr(self.w, "commands", None)
+        if cmds is None or cmds.get(cmd) is None:
+            return False
+        shell = getattr(self.w, "shell", None)
+        return shell is None or bool(shell.allows(cmd))
+
+    def _command(self, cmd: str) -> Any:
+        if not self._command_ok(cmd):
+            return None
+        return self.w.commands.run(cmd)
+
+    def run_fix(self, row: str, fix: str) -> Any:
+        """A fix button: go to the one place that fixes ``row`` (the existing commands and
+        dialogs), or apply the fix the checklist offers.  Nothing here moves or fires."""
+        ok, _why = self.fix_enabled(fix)
+        if not ok:
+            return None
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        kind, _, arg = fix.partition(":")
+        self.ext.log(f"commissioning: fix {fix} for {row}")
+        r: Any = None
+        if kind == "clear_alarms" and self.rig is not None:
+            self.rig.clear_alarms()                  # the dry run's private simulator
+        elif kind in FIX_COMMANDS:
+            r = self._command(FIX_COMMANDS[kind])
+            if kind == "import_params":
+                p.recheck_scaling()
+        elif kind == "adopt_scaling":
+            r = p.adopt_card_scaling()
+        elif kind == "safety_io":
+            r = self.configure_safety_io(arg or None)
+        elif kind == "fix_limits":
+            r = p.fix_soft_limits()
+        elif kind == "reverse":
+            r = p.fix_axis_direction(arg)
+        elif kind == "simulate":
+            r = self.simulate(arg)
+        self.refresh()
+        return r
+
+    def simulate(self, src: str) -> bool:
+        """Dry run only: play the operator's part on the private simulator (toggle the sensor)."""
+        sim = getattr(self.rig, "sim", None)
+        if sim is None:
+            return False
+        if src == "estop":
+            on = not bool(sim.state.estop)
+            sim.set_estop(on)
+            return on
+        from mlaser.services import safety_io as S
+        cur = S.current(self.rig)
+        if cur is None or not cur.configured(src):
+            return False
+        level = bool(getattr(cur.interlocks, S.INTERLOCKS[src][1]))
+        alarm = src not in (getattr(self.rig.interlocks, "active", None) or {})
+        sim.set_input(cur.input_of(src), level if alarm else not level)
+        return alarm
+
+    def configure_safety_io(self, focus: Optional[str] = None) -> bool:
+        """The Safety I/O dialog (the one home of the inputs) from the checklist, at the input of
+        ``focus``; then the interlock check again."""
         from ..safety_io import SafetyIODialog
         d = SafetyIODialog(self.w, self)
-        if d.exec() or getattr(self, "_test_accept_safety_io", False):
+        if focus:
+            d.focus_source(focus)
+        self.last_safety_io = d
+        saved = bool(d.exec() or getattr(self, "_test_accept_safety_io", False))
+        if saved:
             self._rig_interlocks(self.rig)
             p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
             p.recheck_interlocks()
         self.refresh()
+        return saved
 
+    # ------------------------------------------------------------------ pages
     def page(self, step: PE.Step) -> QWidget:
         w = QWidget()
         lay = QHBoxLayout(w)
+        lay.setContentsMargins(0, 0, 0, 0)
         if step.id in ("interlocks", "interlock_test"):
             b = QPushButton(T(self.w, "wizard.comm.fix_safety_io"))
             b.setObjectName("configure_safety_io")
@@ -413,21 +523,8 @@ class CommissioningWizard(WizardDialog):
 
     def refresh(self) -> None:
         super().refresh()
-        t = getattr(self, "checklist", None)
-        if t is None:
-            return
-        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
-        t.setRowCount(len(p.items))
-        for i, it in enumerate(p.items.values()):
-            sym, key, color = STATUS_TEXT[it.status]
-            cells = (T(self.w, CM.TITLES[it.id]), f"{sym} {T(self.w, key)}",
-                     T(self.w, it.detail, **_detail_values(it.detail, it.values)) if it.detail else "")
-            for j, v in enumerate(cells):
-                cell = QTableWidgetItem(v)
-                if j == 1 and color:
-                    from PySide6.QtGui import QColor
-                    cell.setForeground(QColor(color))
-                t.setItem(i, j, cell)
+        if getattr(self, "timer", None) is not None:
+            self.update_live()
 
     def status_text(self) -> str:
         p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
@@ -436,6 +533,16 @@ class CommissioningWizard(WizardDialog):
             return T(self.w, "wizard.comm.report", path=str(p.report_path), passed=s[CM.PASS], warned=s[CM.WARN],
                      failed=s[CM.FAIL])
         return super().status_text()
+
+    def on_close(self) -> None:
+        t = getattr(self, "timer", None)
+        if t is not None:
+            t.stop()
+
+
+#: fix actions that run an existing command (the one place that fixes it)
+FIX_COMMANDS = {"netcheck": "app.netcheck", "reconnect": "hw.reconnect", "import_params": "shell.import_params",
+                "clear_alarms": "card.clear_alarms"}
 
 
 __all__ = ["EdgeSeekWizard", "FollowerWizard", "FocusWizard", "LaserWizard", "CommissioningWizard"]

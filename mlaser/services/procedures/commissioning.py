@@ -69,6 +69,7 @@ class CommissioningProcedure(Procedure):
         self.items: dict[str, CheckItem] = {i: CheckItem(i) for i in ITEMS}
         self.report_path: Optional[Path] = None
         self.jog_moved: dict[str, float] = {}
+        self.live_tests: dict[str, str] = {}          # sensor -> phase of the live "test it" (UI)
         super().__init__(machine, **kw)
 
     def build_steps(self) -> list[Step]:
@@ -139,6 +140,56 @@ class CommissioningProcedure(Procedure):
         _interlocks(self)
         return self.items["interlocks"]
 
+    def recheck_scaling(self) -> CheckItem:
+        """Compare the card's scaling with the parameters again (after an import or adopting
+        the card's values); no card traffic: ``ctl.scaling`` was read at connect."""
+        _scaling(self)
+        return self.items["scaling"]
+
+    def adopt_card_scaling(self) -> Optional[dict]:
+        """Store the card's scaling (pulses/rev, lead per axis, interpolation period) as the PC's
+        machine parameters: the fix of a scaling mismatch when the card is right.  Only the
+        ConfigService changes (nothing is written to the card).  None in a dry run, without a
+        config or without a usable card scaling."""
+        from .commissioning_live import card_scaling_values
+        sc = self.machine.scaling
+        if self.dry_run or self.config is None or sc is None:
+            return None
+        vals = card_scaling_values(sc)
+        if not vals:
+            return None
+        for k, v in vals.items():
+            self.config.set(k, v)
+        self.log("commissioning: adopted the card's scaling " + ", ".join(f"{k}={v}" for k, v in vals.items()))
+        self.recheck_scaling()
+        return vals
+
+    def record_live_tests(self, phases: dict) -> None:
+        """The live "test it" results (sensor -> phase, :class:`.commissioning_live.SensorTest`).
+        Once every wired interlock was seen to trip (refused by the guard) and clear, the
+        interlock item passes as the wiring test would (same observation: the monitor went
+        active and cleared); a failed or running wiring test is left to the test."""
+        from mlaser.services.safety_io import INTERLOCKS
+        self.live_tests = {k: str(v) for k, v in phases.items()}
+        it = self.items["interlocks"]
+        if it.status != PENDING or self.busy() or not it.values.get("wired"):
+            return
+        cur, _declared = _safety_io(self)
+        if cur is None:
+            return
+        wired = [s for s in INTERLOCKS if cur.configured(s)]
+        if wired and all(self.live_tests.get(s) == "tested" for s in wired):
+            vals = {k: v for k, v in it.values.items() if k not in ("name", "input")}
+            vals.update(results={s: "ok" for s in wired}, failed="", tested=_names(wired))
+            it.values.clear()
+            if vals.get("missing"):
+                self.set_item("interlocks", WARN, "wizard.comm.ilk_tested_partial", fix="wizard.comm.fix_safety_io",
+                              **vals)
+            else:
+                self.set_item("interlocks", PASS, "wizard.comm.ilk_tested", **vals)
+            self.interlock_results = {s: "ok" for s in wired}
+            self.log("commissioning: every wired interlock tested live: " + _names(wired))
+
     def fix_soft_limits(self) -> bool:
         if self.dry_run or self.ops is None:
             return False
@@ -167,7 +218,7 @@ class CommissioningProcedure(Procedure):
                 "dry_run": self.dry_run, "simulator": bool(self.machine.is_simulator()),
                 "endpoint": list(self.machine.endpoint() or ()),
                 "items": [asdict(it) for it in self.items.values()], "summary": self.summary(),
-                "history": [asdict(h) for h in self.history]}
+                "history": [asdict(h) for h in self.history], "live_tests": dict(self.live_tests)}
 
     def save_report(self) -> Optional[Path]:
         d = self.report_dir
@@ -215,11 +266,8 @@ def _network(p: CommissioningProcedure) -> dict:
     return {"ok": status != FAIL}
 
 
-def _rel(a: float, b: float) -> float:
-    return abs(a - b) / max(abs(b), 1e-9)
-
-
 def _scaling(p: CommissioningProcedure) -> dict:
+    from .commissioning_live import compare_scaling
     sc = p.machine.scaling
     if sc is None:
         p.set_item("scaling", FAIL if p.machine.state().connected else SKIP, "wizard.comm.scale_unread")
@@ -231,18 +279,11 @@ def _scaling(p: CommissioningProcedure) -> dict:
     else:
         from mlaser.nc.machine import Machine
         m = Machine()
-    card_x, card_y = sc.step_ppm(sc.x_axis), sc.step_ppm(sc.y_axis)
-    vals = {"card_x": round(card_x, 6), "card_y": round(card_y, 6), "par_x": m.pulses_per_mm_x,
-            "par_y": m.pulses_per_mm_y, "card_period_ms": sc.period_ms, "par_period_ms": m.period_ms}
-    bad = []
-    if _rel(card_x, m.pulses_per_mm_x) > SCALE_TOL:
-        bad.append("X")
-    if _rel(card_y, m.pulses_per_mm_y) > SCALE_TOL:
-        bad.append("Y")
-    if abs(sc.period_ms - m.period_ms) > 1e-6:
-        bad.append("period")
+    bad, vals = compare_scaling(sc, m, SCALE_TOL)
+    p.items["scaling"].values.clear()
     if bad:
-        p.set_item("scaling", FAIL, "wizard.comm.scale_mismatch", which=", ".join(bad), **vals)
+        p.set_item("scaling", FAIL, "wizard.comm.scale_mismatch", fix="wizard.comm.fix.import_params",
+                   which=", ".join(bad), **vals)
     else:
         p.set_item("scaling", PASS, "wizard.comm.scale_ok", **vals)
     return vals
