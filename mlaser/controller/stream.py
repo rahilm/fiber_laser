@@ -394,8 +394,13 @@ class JobStreamer(FifoStreamer):
                     if idle_polls >= 2:       # drained and idle: done
                         # the original stops the FIFO at the end of every job (103 := 3): the
                         # card keeps reporting the job as active (status low byte 1) until then
+                        # then PWM off as the original does after every job (owner's capture:
+                        # 103 := 3, [9999, 3, freq, 0, 0], [9999, 17, freq, 0, 0])
                         if hasattr(mc, "fifo_stop"):
-                            mc.fifo_stop()
+                            if not self._safe_laser_off():
+                                raise StreamFault("laser_off_failed",
+                                                  "end of job: the FIFO stop / PWM off was not "
+                                                  "acknowledged: " + "; ".join(self.laser_off_errors[-3:]), idx)
                         break
                 else:
                     raise StreamFault("unexpected_idle",

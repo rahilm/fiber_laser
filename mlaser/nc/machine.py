@@ -164,6 +164,9 @@ class Machine:
                                ("jog_fast_speed", "MC.JogFastSpeed", float),
                                ("move_speed", "MC.XFastMoveSpeed", float),
                                ("move_acc", "MC.XFastMoveAcc", float),
+                               # Frame (mp58) speed, pd528 (O: the owner's original framed at its
+                               # 133.3 mm/s setting; the rebuild used a fixed 100 mm/s)
+                               ("frame_speed", "MC.BoundSpeed", float),
                                ("jog_stop_factor", "MP.JogStopDccFactor", int),
                                ("max_acc", "FCP.MaxAcc", float),
                                ("pt_laser_freq", "LC.PtLaserFreq", int)):

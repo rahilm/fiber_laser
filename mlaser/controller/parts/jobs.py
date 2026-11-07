@@ -322,6 +322,7 @@ class JobRunnerPart:
                 # ProcessStreamer.startup_s, and the card has nothing of this job before it)
                 self._sup.child_seen = 0.0
                 self._sup.streaming = "process" if self._use_process() else "thread"
+                self._process_signal(True)
                 streamer.run_job(job, progress, self._cancel, lambda: self._paused)
                 if self._cancel.is_set():
                     reason = self._stop_reason or ("paused" if self._pausing else "stopped")
@@ -369,6 +370,11 @@ class JobRunnerPart:
                         self._set_breakpoint(self._bp_job, idx, f"fault: {self.fsm.fault}")
                     except Exception:  # noqa: BLE001
                         logging.getLogger("mlaser.controller").exception("breakpoint after fault")
+                # the process-signal output (DO.ManuSignal) goes off 200 ms after a normal end,
+                # at once otherwise (owner's capture: [9999, 2, 1, 0] 0.2 s after 103 := 3)
+                if ok and not self._cancel.is_set():
+                    time.sleep(0.2)
+                self._process_signal(False)
                 with self._slock:
                     self._s.outputs["laser"] = False
                     if self._s.mode in (mode, "pause") and self.breakpoint is None:
@@ -390,6 +396,22 @@ class JobRunnerPart:
         self._worker = threading.Thread(target=work, name="mlaser-job", daemon=True)
         self._worker.start()
         return True
+
+    def _process_signal(self, on: bool) -> None:
+        """The "process signal" output (DO.ManuSignal: a tower light, a dust extractor...): on
+        while any job runs, Frame included, as the original does ([9999, 2, 1<<p, v<<p] right after
+        the FIFO start, off 0.2 s after the end).  Best effort: a failure is logged, never fatal;
+        a guarded (laser) port is never switched by this."""
+        n = int(self.output_map.get("process", 0) or 0)
+        if not n or self._mc is None:
+            return
+        if on and self._port_guarded(n):
+            self._log(f"process signal: output {n} is a guarded laser output, not switched", logging.WARNING)
+            return
+        if self._try("process signal", self._mc.set_output, n, bool(on)):
+            with self._slock:
+                if "process" in self._s.outputs:
+                    self._s.outputs["process"] = bool(on)
 
     def _stream_event(self, kind, *a) -> None:
         if kind == "underrun":

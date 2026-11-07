@@ -137,3 +137,48 @@ def test_a_job_runs_to_the_end_and_is_stopped_like_the_original():
             assert not mc.read_status().program_active
     finally:
         sim.stop()
+
+
+def test_frame_speed_comes_from_the_machine_setting():
+    """MC.BoundSpeed (pd528): the owner's original framed at its 133.3 mm/s setting while the
+    rebuild always used 100 mm/s."""
+    from mlaser.formats.params import MachineParams, param_defs
+    from mlaser.nc.machine import Machine
+    mp = MachineParams.defaults()
+    assert Machine.from_params(mp).frame_speed == 100.0                 # the parameter's default
+    d = next(x for x in param_defs() if x.key == "MC.BoundSpeed")
+    st = mp.hard if d.file == "HardPara.xml" else mp.manu
+    st.set(d, 133.333)
+    assert abs(Machine.from_params(mp).frame_speed - 133.333) < 1e-3
+
+
+def test_frame_raises_the_process_signal_and_ends_like_the_original():
+    """Owner's capture of the original's Frame: output 'process signal' (DO.ManuSignal) on while
+    the job runs, PWM off with the configured frequency after the FIFO stop, the signal off 0.2 s
+    after the end."""
+    import time
+    from mlaser import ops
+    from mlaser.controller.ui_adapter import UiController
+    ctl = UiController(poll_s=0.02, output_map={"process": 1, "red_light": 6})
+    assert ctl.connect_simulator(time_scale=4.0)
+    sim = ctl.sim
+    try:
+        n0 = len(sim.state.commands)
+        seen_on = []
+        ctl.frame(ops.demo_document())
+        t = time.monotonic()
+        while time.monotonic() - t < 30:
+            seen_on.append(bool(sim.state.outputs & 1))
+            if ctl.wait_job(0.05):
+                break
+        cmds = sim.state.commands[n0:]
+        # the job reset leads the FIFO sequence (the process signal may come first: the rebuild
+        # switches it just before the job, the original ~60 ms after the FIFO start)
+        assert [c for c in cmds if c[1] != F.SYS_OUTPUTS][0] == [F.OP_SYS, F.SYS_JOB_RESET]
+        assert [F.OP_SYS, F.SYS_AXIS_CFG, 0x66800003, 0] in cmds
+        assert any(seen_on)                                   # on while the frame ran
+        pwm = [c for c in cmds if c[:2] in ([F.OP_SYS, F.SYS_PWM], [F.OP_SYS, F.SYS_PWM_BUS])]
+        assert pwm and all(c[3] == 0 for c in pwm)             # duty 0 at the end
+        assert not sim.state.outputs & 1                       # process signal off afterwards
+    finally:
+        ctl.disconnect()

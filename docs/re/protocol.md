@@ -827,6 +827,16 @@ FAULT with a breakpoint (instead of the plain pause); reset, arm, Resume.
   second Frame after ~1 s ("unexpected_idle").  Rebuild: `MCStatus.running` = bit 9,
   `MCStatus.program_active` = low byte 1, the streamer's end = drained and not executing, then
   103 := 3; the simulator reports the same pattern.
+* **Rest of the owner's Frame capture compared (2026-11-07):** geometry identical (221.795 ×
+  158.644 mm, closing 1 pulse short in Y in both). Fixed: the Frame speed is `MC.BoundSpeed`
+  (pd528; the original cruised at 133.3 mm/s, the rebuild used a fixed 100); the process-signal
+  output `DO.ManuSignal` is on during every job (`[9999, 2, 1<<p, 1<<p]`) and off 0.2 s after the
+  end; after the end-of-job FIFO stop the PWM goes off (`[9999, 3, freq, 0, 0]`, `[9999, 17, …]`).
+  **Open:** the original reaches cruise in ~100 ms vs ~140 ms in the rebuild with default
+  parameters, and has 31 empty settle steps before motion vs 39 — both need the owner's
+  parameter files to attribute; the original also writes `[9999, 4, 1, 0]` (DA channel 1 := 0)
+  at the end of a job, not reproduced until the channel's role is known; the rebuild switches the
+  process signal just before the job, the original ~60 ms after the FIFO start.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
 * Rebuild `controller/stream.py` (changed in Wave 2, docs/SAFETY.md §6): `JobStreamer` keeps at most
   `max_buffer_ms` (1200 ms) of motion in the FIFO, prefill included (it used to fill the whole FIFO,
