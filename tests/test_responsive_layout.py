@@ -934,6 +934,81 @@ def test_a_screen_below_the_supported_size_keeps_the_window_on_it(tmp_path):
     assert not off, (res["avail"], off)
 
 
+AT_REST_SCRIPT = r"""
+import json, os, sys, time
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+app = QApplication([])
+QDialog.exec = lambda self, *a: 0
+for n in ("information", "warning", "critical", "question"):
+    setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
+from mlaser.ui import responsive as R
+passes = {}
+_relayout = R.ColumnsPanel._relayout
+def counted(self, W, H):
+    k = self.objectName() or type(self).__name__
+    passes[k] = passes.get(k, 0) + 1
+    return _relayout(self, W, H)
+R.ColumnsPanel._relayout = counted
+from wiring import real_window
+w = real_window()
+mode = sys.argv[2]
+if mode == "maximized":
+    w.showMaximized()
+else:
+    w.resize(1400, 900)
+    w.show()
+    assert w.connect_simulator(time_scale=1.0)
+def pump(sec):
+    t = time.monotonic()
+    while time.monotonic() - t < sec:
+        app.processEvents()
+pump(1.5)
+out = {}
+for ws in ("design", "run"):
+    w.shell.host.activate(ws)
+    pump(1.0)
+    passes.clear()
+    pump(0.8)
+    out[ws] = dict(passes)
+print(json.dumps({"state": int(w.windowState().value), "size": [w.width(), w.height()], "passes": out}))
+sys.stdout.flush()
+os._exit(0)
+"""
+
+
+@pytest.mark.parametrize("mode", ["maximized", "connected"])
+def test_window_at_rest_does_not_relayout(tmp_path, mode):
+    """Issue #4: a maximized window (the 1280 x 800 screen, the smallest supported) and a
+    1400 x 900 window connected to the simulator come to rest: no panel lays itself out again
+    and again.  Run Control, compact at that height, used to be laid out 75 times a second for
+    ever (each pass measures it comfortable and turns it compact again, which invalidated every
+    layout in it and so posted the requests of the next pass): the panel jittered in a
+    maximized window on macOS and ``processEvents`` could stay busy without returning."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "").lower()
+    if style in NATIVE_ONLY_STYLES:
+        pytest.skip(f"the offscreen platform cannot host the {style} style")
+    cfg = tmp_path / "screen.json"
+    screen = (1280, 800) if mode == "maximized" else (800, 600)
+    cfg.write_text(json.dumps({"screens": [{"name": "s", "x": 0, "y": 0, "width": screen[0], "height": screen[1],
+                                            "logicalDpi": 96, "dpr": 1}]}), encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen:configfile=screen.json",
+               MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
+               MLASER_DATA_DIR=str(tmp_path / "data"))
+    env.pop("_MLASER_CONFIG_AUTO", None)
+    root = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = os.pathsep.join([root, env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    r = subprocess.run([sys.executable, "-c", AT_REST_SCRIPT, str(Path(__file__).parent.resolve()), mode], env=env,
+                       capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr[-3000:]
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    if mode == "maximized":
+        assert res["state"] & Qt.WindowMaximized.value, res
+    # at rest: at most a pass or two (a periodic refresh may change a label), never a stream
+    busy = {ws: {k: n for k, n in p.items() if n > 3} for ws, p in res["passes"].items()}
+    assert not any(busy.values()), res
+
+
 def test_pending_still_needed(win, app):
     """An entry of PENDING that no longer matches anything goes (the owner fixed it)."""
     if not PENDING:

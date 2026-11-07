@@ -1042,18 +1042,33 @@ class ColumnsPanel(QWidget):
         return 2 if self.property("compact") else 4
 
     def schedule(self) -> None:
+        """Lay out again (soon), whatever the last layout was."""
         self._last = None
+        if not self._timer.isActive():
+            self._timer.start(0)
+
+    def _content_changed(self) -> None:
+        """A section or pinned widget asked for a new layout: lay out again if what it needs
+        changed (:meth:`_content_key`).  Not unconditionally: a layout pass of a compact panel
+        measures it comfortable and turns it compact again (:func:`set_compact`), which
+        invalidates every layout in it, so each pass posted the layout requests of the next
+        one, for ever: Run Control, compact in a maximized 1280 x 800 window, was laid out 75
+        times a second and moved back and forth (issue #4), and ``processEvents`` could stay
+        busy without returning."""
         if not self._timer.isActive():
             self._timer.start(0)
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
         if ev.type() == QEvent.LayoutRequest and not self._busy:
-            self.schedule()
+            self._content_changed()
         return False
 
     def event(self, ev) -> bool:
-        if ev.type() in (QEvent.LayoutRequest, QEvent.FontChange, QEvent.StyleChange) and not self._busy:
-            self.schedule()
+        if not self._busy:
+            if ev.type() == QEvent.LayoutRequest:
+                self._content_changed()
+            elif ev.type() in (QEvent.FontChange, QEvent.StyleChange):
+                self.schedule()
         return super().event(ev)
 
     def section_chosen(self, s: CollapsibleSection) -> None:
@@ -1189,18 +1204,46 @@ class ColumnsPanel(QWidget):
         assert best is not None
         return n, best[1], top + best[0]
 
+    def _content_key(self, W: int) -> tuple:
+        """What the layout depends on besides the size and the user's choices: the pinned
+        widgets' and the sections' sizes at the column widths the panel may use.  Measured in
+        the state the last layout left (compact or not), so a request the panel's own layout
+        pass caused finds it unchanged."""
+        sp = self.spacing()
+        widths = sorted({max(1, (W - (n - 1) * sp) // n) for n in range(1, self.max_columns + 1)})
+        out: list = [len(self.pinned), len(self.sections)]
+        for p in self.pinned:
+            if p.isHidden():
+                out.append(None)
+                continue
+            out.append((p.minimumSizeHint().toTuple(), p.minimumSize().toTuple(), p.sizeHint().toTuple(),
+                        tuple(self._widget_h(p, x) for x in widths)))
+        for s in self.sections:
+            if s.isHidden():
+                out.append(None)
+                continue
+            out.append((s.min_width(), s.header.minimumSizeHint().width(), s.collapsed_height(),
+                        self._section_want(s), tuple(s.height_for(x, True) for x in widths)))
+        return tuple(out)
+
+    def _key(self) -> tuple:
+        W = self.width() - 2 * self.margins()
+        H = self.height() - 2 * self.margins()
+        return (W, H, tuple((id(s), s.user_choice, s.isHidden()) for s in self.sections), self.font().key(),
+                self.fold, bool(self.property("compact")), self._content_key(W))
+
     def relayout(self) -> None:
         if self._busy:
             return
-        W = self.width() - 2 * self.margins()
-        H = self.height() - 2 * self.margins()
-        key = (W, H, tuple((id(s), s.user_choice, s.isHidden()) for s in self.sections), self.font().key(),
-               self.fold)
-        if key == self._last:
+        if self._key() == self._last:
             return
         self._busy = True
+        key = None
         try:
-            self._relayout(W, H)
+            self._relayout(self.width() - 2 * self.margins(), self.height() - 2 * self.margins())
+            # the key of the state this pass leaves (its compact margins and sizes): the
+            # requests the pass itself posted find nothing to do
+            key = self._key()
         finally:
             self._busy = False
         self._last = key
