@@ -15,12 +15,14 @@ def test_pessimistic_simulator_keeps_running_and_holds_the_beam():
     sim = CardSimulator(pessimistic=True, halt_lag_ms=50).start()
     try:
         with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
+            mc.fifo_job_reset()
             mc.fifo_clear()
             st = mc.read_status()
             frames = F.build_fifo_frames([F.encode_step(10, 0, 5000, 100, 5000) for _ in range(2000)],
                                          st.fifo_seq + 1)
             for fr in frames[:10]:
                 mc.fifo_write_frame(fr)
+            mc.fifo_step_format()        # [9999, 1, mask|0x66800000, 0] as on a real card
             mc.fifo_start()
             time.sleep(0.2)
             mc.fifo_stop()

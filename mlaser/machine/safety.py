@@ -111,6 +111,11 @@ def classify_sys(sub: int, p: Sequence[int], guarded_outputs: int) -> Cmd:
         return Cmd.HALT
     if sub in (F.SYS_ZERO, F.SYS_AXIS_CFG):
         return Cmd.MOTION
+    if sub == F.SYS_JOB_RESET:
+        # the first command of a job (observed before the FIFO clear): like FIFO start, motion
+        # class (refused under a latched fault), never the always-allowed halt class, because its
+        # effect is only known from a capture
+        return Cmd.MOTION
     return Cmd.CONFIG
 
 

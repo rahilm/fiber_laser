@@ -835,6 +835,18 @@ class MotionController:
             self.command([F.OP_FOLLOW, 5, 0])
 
     # ------------------------------------------------------------------ FIFO
+    def fifo_job_reset(self) -> None:
+        """[9999, 16]: the original's first command of every job, before the FIFO clear (observed
+        on a real MCC100; without it the card's frame identification stays at the last job's)."""
+        self.write_regs(F.REG_MAILBOX, [F.OP_SYS, F.SYS_JOB_RESET])
+
+    def fifo_step_format(self, axis_mask: int = 0x3) -> None:
+        """[9999, 1, mask | 0x66800000, 0] (FUN_10051e70): the step-item format of the FIFO data,
+        written after the prefill and before FIFO start 103 := 2.  Without it a real card rejects
+        the first frame with alarm 9001 "interpolation data content length is abnormal"."""
+        self.write_regs(F.REG_MAILBOX, [F.OP_SYS, F.SYS_AXIS_CFG,
+                                        (int(axis_mask) & 0xFFFF) | F.STEP_FORMAT_STEP_CARD, 0])
+
     def fifo_clear(self) -> None:
         self.write_reg(F.REG_FIFO_CTRL, F.FIFO_CLEAR)      # FUN_10051bf0
 
@@ -994,6 +1006,7 @@ class FifoStreamer:
         """Clear FIFO, send all frames with flow control, start, optionally wait for idle."""
         wire = self.encode(items)
         mc = self.mc
+        mc.fifo_job_reset()                 # the original's job start (JobStreamer.run_job)
         mc.fifo_clear()
         st = mc.read_status()
         frames = F.build_fifo_frames(wire, st.fifo_seq + 1)
@@ -1019,11 +1032,13 @@ class FifoStreamer:
                 i += 1
                 sent += 1
             if start and not started and (i >= len(frames) or sent == 0):
+                mc.fifo_step_format()
                 mc.fifo_start()
                 started = True
             if sent == 0:
                 time.sleep(poll_s)
         if start and not started:
+            mc.fifo_step_format()
             mc.fifo_start()
         if wait_done:
             while time.monotonic() < deadline:

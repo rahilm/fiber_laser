@@ -194,6 +194,8 @@ class JobStreamer(FifoStreamer):
                  pwm_freq: int = 5000, keep_samples: bool = False, **kw):
         super().__init__(mc, **kw)
         self.executed = 0.0
+        #: axes of the step items (X|Y): the mask of the step-format command (0x66800003 observed)
+        self.axis_mask = 0x3
         self.max_buffer_ms = max_buffer_ms
         if prefill_ms is not None and max_buffer_ms is not None:
             prefill_ms = min(prefill_ms, max_buffer_ms)
@@ -278,6 +280,10 @@ class JobStreamer(FifoStreamer):
         hold = hold or (lambda: False)
         total_bytes = cum[-1] if cum else 0
         total_ms = ctime[-1] if ctime else 0.0
+        # the original's job start on a real MCC100 (owner's capture 2026-11-07):
+        # [9999, 16], 103 := 1, the prefill frames from seq 1, [9999, 1, mask|0x66800000, 0], 103 := 2
+        if hasattr(mc, "fifo_job_reset"):
+            mc.fifo_job_reset()
         mc.fifo_clear()
         st = mc.read_status()
         capacity = st.fifo_free
@@ -370,6 +376,8 @@ class JobStreamer(FifoStreamer):
                 full = sent == 0 or i >= len(frames)
                 if full or (target is not None and bms >= target):
                     self.buf.prefill_ms = bms
+                    if hasattr(mc, "fifo_step_format"):
+                        mc.fifo_step_format(self.axis_mask)     # the data format, then start
                     mc.fifo_start()
                     started = True
                     grace = 2

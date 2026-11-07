@@ -74,6 +74,8 @@ class SimState:
     fifo_bytes: int = 0
     fifo_seq: int = 0
     fifo_running: bool = False
+    #: the step-format word set by [9999, 1, mask|0x66800000, 0] since the last [9999, 16] / clear
+    step_format: int = 0
     laser: bool = False
     laser_power: int = 0
     step_left_s: float = 0.0
@@ -180,6 +182,7 @@ class CardSimulator:
                  starvation_alarm: bool = False, sheet: Optional[SimSheet] = None,
                  pessimistic: bool = False, halt_lag_ms: float = 30.0,
                  accept_start_in_alarm: Optional[bool] = None, card_soft_limits: Optional[dict] = None,
+                 lenient_step_format: bool = False,
                  homed: bool = False):
         self.host, self.port, self.transport = host, port, transport
         self.version = version
@@ -199,6 +202,8 @@ class CardSimulator:
         self.halt_lag_s = halt_lag_ms / 1000.0 if pessimistic else 0.0
         # the original simulator accepted a FIFO start while an alarm was latched; keep that
         self.accept_start_in_alarm = True if accept_start_in_alarm is None else accept_start_in_alarm
+        # True: a FIFO start without the step format is accepted (tests of the raw FIFO only)
+        self.lenient_step_format = lenient_step_format
         self.faults = SimFaults()
         self._rng = random.Random(self.faults.seed)
         self.state = SimState()
@@ -547,6 +552,13 @@ class CardSimulator:
             elif v == F.FIFO_START:
                 if self._motion_blocked() and not self.accept_start_in_alarm:
                     return                    # an alarm is latched: the start is ignored
+                if st.fifo and not st.fifo_running and not self.lenient_step_format and \
+                        (st.step_format & 0xFFF00000) != F.STEP_FORMAT_STEP_CARD:
+                    # like the real MCC100 (owner's machine, 2026-11-07): FIFO data started without
+                    # the step format is rejected with alarm 9001, nothing moves
+                    from . import alarms as A
+                    st.alarm_w2 |= 1 << A.AlarmWord2Bit.INTERP_LENGTH
+                    return
                 st.fifo_running = True
                 st.lag_left_s = 0.0
                 st.pwm_off_latched = False
@@ -593,6 +605,11 @@ class CardSimulator:
                 ax.pos = 0.0
         elif sub == F.SYS_INIT:
             self.reset_alarms()
+        elif sub == F.SYS_JOB_RESET:
+            st.fifo_seq = 0
+            st.step_format = 0
+        elif sub == F.SYS_AXIS_CFG:
+            st.step_format = int(p[0]) if p else 0
         # SYS_INIT, SYS_AXIS_CFG, SYS_9, SYS_18: accepted, no visible effect
 
     def _mailbox(self, w: list[int]) -> None:

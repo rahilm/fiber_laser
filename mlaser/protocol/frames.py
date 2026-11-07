@@ -434,6 +434,11 @@ SYS_ZERO = SysCmd.ZERO  # [8, x] then clears per-axis offsets (FUN_100314b0)    
 SYS_9 = SysCmd.SYS_9    # [9, 0xffff, 0] written to reg 5001 before outputs are reset (FUN_10031180)
 SYS_OUTPUTS_EXT = SysCmd.OUTPUTS_EXT  # [13, mask16, value16] outputs 11..26 (extended IO)
 SYS_PWM_BUS = SysCmd.PWM_BUS  # [17, frequency, duty, enable] bus-card variant of SYS_PWM
+SYS_JOB_RESET = SysCmd.JOB_RESET  # [9999, 16] before the job's FIFO clear (O: owner's capture of the
+#   original on an MCC100, 2026-11-07); INFERRED: resets the card's FIFO frame / interpolation
+#   state (RO[15] frame identification reads 0 afterwards, the first frame is seq 1)
+#: the step-format word of [9999, 1, mask | STEP_FORMAT_STEP_CARD, 0] (FUN_10051e70) before 103 := 2
+STEP_FORMAT_STEP_CARD = 0x66800000
 SYS_LASER_SYNC = SysCmd.LASER_SYNC  # FIFO [18, src] around every cut block (ManuItem class 1 sub 8, MainApp
                         # FUN_004590a0(1)/(0)); src 1000 fiber, 1001 bus card, CO2 DO port 9/10,
                         # 0 = off.  O values, I meaning "gate the laser with the step items"

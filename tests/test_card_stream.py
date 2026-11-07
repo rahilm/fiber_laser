@@ -174,10 +174,12 @@ def test_simulator_wait_and_follower_model():
             items = [F.fifo_item(104, 2000, 1000), F.wait_zf(3, 500), F.wait_ms(300),
                      F.encode_step(10, 0), F.encode_wait(F.WAIT_INPUT, b=2, c=1, timeout_ms=200),
                      F.encode_step(10, 0)]
+            mc.fifo_job_reset()
             mc.fifo_clear()
             for fr in F.build_fifo_frames(items, mc.read_status().fifo_seq + 1):
                 mc.fifo_write_frame(fr)
             t0 = time.monotonic()
+            mc.fifo_step_format()        # [9999, 1, mask|0x66800000, 0] as on a real card
             mc.fifo_start()
             time.sleep(0.15)
             held = sim.position(0)

@@ -810,6 +810,15 @@ FAULT with a breakpoint (instead of the plain pause); reset, arm, Resume.
   the capacity as RO[16] right after 103 := 1 (simulator default 64 KiB ≈ 5.4 s of 1 ms steps).
 * Start (mcCoreProcess `FUN_10058030`): one fillFifo (≤ 20 frames ≈ 2000 step items ≈ 2 s at 1 ms)
   then `[9999, 1, mask|0x66800000, 0]` and 103 := 2.
+* **Job start on a real card (O, owner's captures of the original on an MCC100, 2026-11-07):**
+  `[9999, 16]` → 103 := 1 (clear) → the prefill frames numbered **from 1** → `[9999, 1, 0x66800003,
+  0]` (step format, axes X|Y) → 103 := 2.  `[9999, 16]` (sub-command 16, not in the decompiled
+  modules) puts the card's frame identification RO[15] back to 0 (I).  Without the step-format
+  command the card rejects the first frame with **alarm 9001** "interpolation data content length
+  is abnormal" and nothing moves; this is what the rebuild did on its first real Frame (it sent
+  neither command).  Rebuild: `MotionController.fifo_job_reset` / `fifo_step_format`, sent by
+  `JobStreamer.run_job` and `FifoStreamer.stream`; the simulator raises 9001 the same way
+  (`lenient_step_format=False`), tests/test_card_job_start.py.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
 * Rebuild `controller/stream.py` (changed in Wave 2, docs/SAFETY.md §6): `JobStreamer` keeps at most
   `max_buffer_ms` (1200 ms) of motion in the FIFO, prefill included (it used to fill the whole FIFO,

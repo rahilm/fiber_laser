@@ -66,9 +66,11 @@ def test_step_pulses_vs_position_counts(sim_mc):
     sim, mc = sim_mc
     mc.pulses_per_mm = 1000
     items = [F.encode_step(10, -5) for _ in range(100)]       # 1000 x -500 step pulses
+    mc.fifo_job_reset()
     mc.fifo_clear()
     for fr in F.build_fifo_frames(items, mc.read_status().fifo_seq + 1):
         mc.fifo_write_frame(fr)
+    mc.fifo_step_format()        # [9999, 1, mask|0x66800000, 0] as on a real card
     mc.fifo_start()
     assert sim.wait_idle(5)
     x, y = mc.position_mm()[:2]

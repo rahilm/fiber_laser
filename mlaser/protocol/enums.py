@@ -68,6 +68,7 @@ class SysCmd(IntEnum):
     OUTPUTS_EXT = 13            # outputs 11..26
     PWM_BUS = 17                # bus-card PWM
     LASER_SYNC = 18             # [18, src] around every cut block
+    JOB_RESET = 16              # [9999, 16]: first command of every job (observed on a real card)
 
 
 class WaitMode(IntEnum):
