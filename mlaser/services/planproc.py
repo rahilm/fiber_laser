@@ -244,10 +244,10 @@ def run_compile(r: dict, progress: Callable[[float], None],
     with ctx:
         if r["mode"] == "frame":
             placed = placed_document(r["document"])
-            items = list(frame_items(placed.bbox(), r["machine"].frame_speed))
+            items = list(frame_items(placed.bbox()))
             start = (float(r["start"][0]), float(r["start"][1]))
             on_toolpath(items, placed)
-            job = compile_items(items, r["machine"], start, dry_run=True, progress=progress)
+            job = compile_items(items, r["machine"].frame_machine(), start, dry_run=True, progress=progress)
         else:
             placed, prm, items = plan_toolpath(r["document"], r["cam_params"], r["start"], r["layers"])
             start = prm.origin

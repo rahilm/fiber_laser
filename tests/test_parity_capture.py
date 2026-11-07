@@ -222,11 +222,11 @@ def test_recording_survives_a_streamer_stall(setup, monkeypatch):
 
 
 def test_frame_kind(setup):
-    from mlaser.nc import compile_items, frame_items
+    from mlaser.nc import compile_frame
     from mlaser.nc.compiler import placed_document
     m = setup["machine"]
     bb = placed_document(C.load_drawing(setup["dxf"])).bbox()
-    job = compile_items(frame_items(bb, m.frame_speed), m, START, dry_run=True)
+    job = compile_frame(bb, m, START)
     res = _run(setup, S.to_messages(S.record_job(job, START)), "frame.pcap", replace(setup["inp"], kind="frame"))
     assert res.comparison.verdict.startswith("IDENTICAL"), R.text_report(res)
 

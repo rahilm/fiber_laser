@@ -182,3 +182,58 @@ def test_frame_raises_the_process_signal_and_ends_like_the_original():
         assert not sim.state.outputs & 1                       # process signal off afterwards
     finally:
         ctl.disconnect()
+
+
+def _steps(job):
+    out = []
+    for it in job.wire:
+        if (it[0] & 0xFFFF) == F.OP_STEP:
+            dx, dy = it[1] & 0xFF, (it[1] >> 8) & 0xFF
+            out.append((dx - 256 if dx > 127 else dx, dy - 256 if dy > 127 else dy))
+    return out
+
+
+def test_frame_stops_at_every_corner_with_the_original_s_curve():
+    """Owner's capture of the original's Frame (221.8 x 158.6 mm, MC.BoundSpeed 133.3 mm/s,
+    MC.XFastMoveAcc 6000, MC.EmptyMoveAccTime 250 ms, period 0.25 ms): four single-axis runs,
+    a stop at each corner, 24 512 steps; the rebuild matches it to 1 pulse.  It used to plan the
+    rectangle as a cut with rounded corners at the default layer's acceleration."""
+    import dataclasses
+    from mlaser.nc import compile_frame
+    from mlaser.nc.machine import Machine
+    m = dataclasses.replace(Machine(), pulses_per_mm_x=8000 / 31.079, pulses_per_mm_y=257.57761135402114,
+                            period_ms=0.25, frame_speed=400 / 3, move_acc=6000.0, frame_acc_time=0.25)
+    assert m.frame_machine().rapid_jerk == pytest.approx(48000.0)
+    st = _steps(compile_frame((0, 0, 57092 / m.pulses_per_mm_x, 40864 / m.pulses_per_mm_y), m))
+    assert len(st) == 24512
+    assert not any(dx and dy for dx, dy in st)                  # never both axes: sharp corners
+    runs, cur = [], None
+    for dx, dy in st:
+        d = (dx > 0) - (dx < 0), (dy > 0) - (dy < 0)
+        if d != (0, 0) and d != cur:
+            runs.append(d)
+            cur = d
+    assert runs == [(1, 0), (0, 1), (-1, 0), (0, -1)]
+    assert abs(sum(dx for dx, _ in st)) <= 1 and abs(sum(dy for _, dy in st) - 1) <= 1
+
+
+def test_the_gas_pressure_da_goes_to_zero_after_a_job():
+    """Owner's capture: [9999, 4, 1, 0] (DA port 2 = MGP.RatioO2's proportional valve) right
+    after the end-of-job FIFO stop.  A zero DA is a halt-class command."""
+    import dataclasses
+    from mlaser import ops
+    from mlaser.controller.ui_adapter import UiController
+    from mlaser.machine.safety import Cmd, classify_mailbox
+    from mlaser.nc.machine import Machine
+    assert classify_mailbox(F.mailbox_sys(F.SYS_DA, 1, 0)) == Cmd.HALT
+    m = Machine()
+    m.process = dataclasses.replace(m.process, ratio_da=(0, 2, 0))
+    ctl = UiController(machine=m, poll_s=0.02)
+    assert ctl.connect_simulator(time_scale=4.0)
+    try:
+        n0 = len(ctl.sim.state.commands)
+        ctl.frame(ops.demo_document())
+        assert ctl.wait_job(30)
+        assert [F.OP_SYS, F.SYS_DA, 1, 0] in ctl.sim.state.commands[n0:]
+    finally:
+        ctl.disconnect()

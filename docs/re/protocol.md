@@ -832,11 +832,17 @@ FAULT with a breakpoint (instead of the plain pause); reset, arm, Resume.
   (pd528; the original cruised at 133.3 mm/s, the rebuild used a fixed 100); the process-signal
   output `DO.ManuSignal` is on during every job (`[9999, 2, 1<<p, 1<<p]`) and off 0.2 s after the
   end; after the end-of-job FIFO stop the PWM goes off (`[9999, 3, freq, 0, 0]`, `[9999, 17, …]`).
-  **Open:** the original reaches cruise in ~100 ms vs ~140 ms in the rebuild with default
-  parameters, and has 31 empty settle steps before motion vs 39 — both need the owner's
-  parameter files to attribute; the original also writes `[9999, 4, 1, 0]` (DA channel 1 := 0)
-  at the end of a job, not reproduced until the channel's role is known; the rebuild switches the
-  process signal just before the job, the original ~60 ms after the FIFO start.
+  **With the owner's parameter files (same day):** the original's Frame is four stop-to-stop
+  jerk-limited S-curves at `MC.BoundSpeed`, jerk 2·A/T = 48 000 mm/s³ (A = 6000, T = 250 ms:
+  `MC.XFastMoveAcc` / `MC.EmptyMoveAccTime`, INFERRED pair — `MC.ManuAcc` / `MC.AccTime` hold the
+  same values there), no settle time at the corners; the rebuild had planned it as a cut with
+  blended corners at the default layer's acceleration.  Now `compile_frame` /
+  `Machine.frame_machine`: 24 512 steps like the capture, every position within 1 pulse.  The
+  end-of-job `[9999, 4, 1, 0]` is DA port 2 = the O₂ proportional valve (`MGP.RatioO2 = 2`): the
+  rebuild now zeroes the `ratio_da` ports after every job.  **Still different:** the original
+  ends the Frame with a 3001 marker item (not emitted by the rebuild's dry-run frame; the card
+  accepts the job without it); the rebuild switches the process signal just before the job, the
+  original ~60 ms after the FIFO start.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
 * Rebuild `controller/stream.py` (changed in Wave 2, docs/SAFETY.md §6): `JobStreamer` keeps at most
   `max_buffer_ms` (1200 ms) of motion in the FIFO, prefill included (it used to fill the whole FIFO,

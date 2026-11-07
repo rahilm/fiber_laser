@@ -865,13 +865,22 @@ def placed_document(doc: Document) -> Document:
     return out
 
 
-def frame_items(bbox: tuple[float, float, float, float], speed: float) -> list:
-    """'Frame' (mp58): rapid to the bbox corner, then trace the rectangle with the laser off."""
+def frame_items(bbox: tuple[float, float, float, float], speed: Optional[float] = None) -> list:
+    """'Frame' (mp58): to the bbox corner, then the rectangle, laser off, each edge a stop-to-stop
+    move (the original stops at every corner; owner's capture).  The speed and profile come from
+    :meth:`Machine.frame_machine` (:func:`compile_frame`); ``speed`` is accepted for old callers."""
     x0, y0, x1, y1 = bbox
     pts = [(x0, y0), (x1, y0), (x1, y1), (x0, y1), (x0, y0)]
-    out: list = [I.Rapid((x0, y0), (x0, y0))]
-    out += [I.CutLine(a, b, speed, 1, False) for a, b in zip(pts, pts[1:]) if math.dist(a, b) > 1e-9]
+    out: list = [I.Rapid((x0, y0), (x0, y0), False)]
+    out += [I.Rapid(a, b, False) for a, b in zip(pts, pts[1:]) if math.dist(a, b) > 1e-9]
     return out
+
+
+def compile_frame(bbox: tuple[float, float, float, float], machine: Optional[Machine] = None,
+                  start: Point = (0.0, 0.0), progress: Optional[Callable[[float], None]] = None) -> "Job":
+    """The Frame job: :func:`frame_items` with the Frame's speed and S-curve (dry run)."""
+    m = (machine or Machine()).frame_machine()
+    return compile_items(frame_items(bbox), m, start, dry_run=True, progress=progress)
 
 
 def with_layers(doc: Document, layers) -> Document:

@@ -197,8 +197,8 @@ class JobRunnerPart:
         if bb == (0, 0, 0, 0):
             self._log("mp78: graphic data is empty, cannot go frame")
             return
-        from ...nc import compile_items, frame_items
-        job = compile_items(frame_items(bb, self.machine.frame_speed), self.machine, head, dry_run=True)
+        from ...nc import compile_frame
+        job = compile_frame(bb, self.machine, head)
         if self._refuse(self.preflight("frame", job=job, emits=False)):
             return
         if not self._start_gate("frame", job=job, generation=gen):
@@ -372,6 +372,7 @@ class JobRunnerPart:
                         logging.getLogger("mlaser.controller").exception("breakpoint after fault")
                 # the process-signal output (DO.ManuSignal) goes off 200 ms after a normal end,
                 # at once otherwise (owner's capture: [9999, 2, 1, 0] 0.2 s after 103 := 3)
+                self._gas_da_off()
                 if ok and not self._cancel.is_set():
                     time.sleep(0.2)
                 self._process_signal(False)
@@ -412,6 +413,16 @@ class JobRunnerPart:
             with self._slock:
                 if "process" in self._s.outputs:
                     self._s.outputs["process"] = bool(on)
+
+    def _gas_da_off(self) -> None:
+        """Proportional gas valve DA(s) to 0 after every job, Frame included (owner's capture of
+        the original: [9999, 4, 1, 0] right after 103 := 3, with MGP.RatioO2 = DA port 2).  A DA
+        value of 0 is a halt-class command; a failure is logged, never fatal."""
+        pc = getattr(self.machine, "process", None)
+        if self._mc is None or pc is None:
+            return
+        for port in sorted({int(p) for p in getattr(pc, "ratio_da", ()) or () if p in (1, 2)}):
+            self._try("gas pressure off", self._mc.set_da, port, 0)
 
     def _stream_event(self, kind, *a) -> None:
         if kind == "underrun":

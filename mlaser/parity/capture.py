@@ -669,7 +669,7 @@ def compile_rebuild(inp: RebuildInputs, machine, start_mm: tuple[float, float], 
     would stream it, with ``doc.extra["job_offset"]`` = ``offset_mm``."""
     from ..cam.toolpath import CamParams
     from ..model import Document
-    from ..nc import compile_items, compile_job, frame_items
+    from ..nc import compile_frame, compile_items, compile_job
     from ..nc.compiler import placed_document
     doc = doc if doc is not None else load_drawing(inp.drawing)
     extra = dict(doc.extra)
@@ -684,7 +684,7 @@ def compile_rebuild(inp: RebuildInputs, machine, start_mm: tuple[float, float], 
         layers = MachineParams.load_dir(inp.params_dir)
     if inp.kind == "frame":
         bb = placed_document(doc).bbox()
-        return compile_items(frame_items(bb, machine.frame_speed), machine, start_mm, dry_run=True)
+        return compile_frame(bb, machine, start_mm)
     cam = {k: v for k, v in (inp.cam or {}).items() if k in CamParams.__dataclass_fields__}
     return compile_job(doc, cam, machine, start=start_mm, dry_run=dry_run, layers=layers)
 

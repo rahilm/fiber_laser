@@ -43,6 +43,7 @@ class Machine:
     rapid_vel: float = 500.0            # mm/s, INFERRED
     rapid_acc: float = 5000.0           # mm/s², INFERRED
     rapid_acc_time: float = 0.1         # s, INFERRED (jerk = f(acc, acc_time) as for cuts)
+    rapid_jerk: Optional[float] = None  # mm/s³ when set (the Frame, frame_machine); None = f(acc, acc_time)
     jump_add_time_ms: float = 200.0     # observed (JumpAddTime.txt); emitted as a settle dwell
     cut: PlannerParams = field(default_factory=PlannerParams)   # CVelocityPlanning defaults
     corner_tol: float = 0.05            # INFERRED corner rounding tolerance (docs/re/motion.md §5)
@@ -53,7 +54,12 @@ class Machine:
     emit_layer_commands: bool = False   # emit DA/PWM FIFO items at LayerChange (INFERRED, off by default)
     gas_output: Optional[int] = None    # legacy: one output for every gas type (overrides process.gas_valves)
     process: ProcessConfig = field(default_factory=ProcessConfig.bench)  # process items (pierce/gas/ZF)
-    frame_speed: float = 100.0          # mm/s for "Frame" (pd528, default unverified)
+    frame_speed: float = 100.0          # mm/s for "Frame" (MC.BoundSpeed, pd528)
+    # Frame motion (O, the owner's capture of the original's Frame, fitted to 1 pulse): four
+    # stop-to-stop S-curves at frame_speed with jerk 2·A/T, no settle time at the corners.  A/T
+    # are MC.XFastMoveAcc (move_acc) / MC.EmptyMoveAccTime (INFERRED pair: MC.ManuAcc / MC.AccTime
+    # had the same values, 6000 / 250 ms, in that file)
+    frame_acc_time: float = 0.25        # MC.EmptyMoveAccTime, s
     # manual motion (O, MainApp jog FUN_005bdae0 / move FUN_005c97f0 / stop FUN_10038de0;
     # defaults = the ParaModule defaults of the named parameters)
     jog_speed: float = 50.0             # MC.JogSlowSpeed (+0x4810), mm/s
@@ -111,7 +117,7 @@ class Machine:
         f, b = self.fparam, (lambda k, d: bool(self.iparam(k, int(d))))
         return MotionConfig(cut=PlannerParams(**{**self.cut.__dict__, "period_ms": self.period_ms}),
                             rapid_vel=self.rapid_vel, rapid_acc=self.rapid_acc,
-                            rapid_acc_time=self.rapid_acc_time,
+                            rapid_acc_time=self.rapid_acc_time, rapid_jerk=self.rapid_jerk,
                             jump_add_time_ms=self.jump_add_time_ms, corner_tol=self.corner_tol,
                             period_ms=self.period_ms, smooth=self.smooth,
                             micro_link_redrill=b("GP.IsDrillInMicoLink", 0),
@@ -123,6 +129,13 @@ class Machine:
                             scan_circle_pwm_delay=f("FCP.FlycutCirclePwmDelayTime", 0.0),
                             scan_line_open_pwm=f("FCP.FlycutLineOpenPwmForwardCycle", -10.0),
                             scan_line_close_pwm=f("FCP.FlycutLineColsePwmForwardCycle", -10.0))
+
+    def frame_machine(self) -> "Machine":
+        """This machine with the rapid profile of the original's Frame (see ``frame_acc_time``)."""
+        from dataclasses import replace
+        a, t = float(self.move_acc), max(float(self.frame_acc_time), 1e-3)
+        return replace(self, rapid_vel=float(self.frame_speed), rapid_acc=a, rapid_acc_time=t,
+                       rapid_jerk=2.0 * a / t, jump_add_time_ms=0.0)
 
     def process_config(self) -> ProcessConfig:
         """``process`` with the legacy ``gas_output`` applied to all six gas valves."""
@@ -167,6 +180,7 @@ class Machine:
                                # Frame (mp58) speed, pd528 (O: the owner's original framed at its
                                # 133.3 mm/s setting; the rebuild used a fixed 100 mm/s)
                                ("frame_speed", "MC.BoundSpeed", float),
+                               ("frame_acc_time", "MC.EmptyMoveAccTime", lambda v: v / 1000.0),
                                ("jog_stop_factor", "MP.JogStopDccFactor", int),
                                ("max_acc", "FCP.MaxAcc", float),
                                ("pt_laser_freq", "LC.PtLaserFreq", int)):

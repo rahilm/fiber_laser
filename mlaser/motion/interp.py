@@ -82,6 +82,7 @@ class MotionConfig:
     rapid_vel: float = 500.0
     rapid_acc: float = 5000.0
     rapid_acc_time: float = 0.1
+    rapid_jerk: float | None = None            # explicit jerk (mm/s³) instead of f(acc, acc_time): Frame
     jump_add_time_ms: float = 200.0
     corner_tol: float = 0.05
     small_circle_limit: bool = False           # CInterpMrg+0x18, MP.EnableSmallCircleSpeedLimit
@@ -234,6 +235,8 @@ def _rapid_profile(r: Rapid, cfg: MotionConfig) -> Profile | None:
     L = math.dist(r.start, r.end)
     if L <= 1e-9:
         return None
+    if cfg.rapid_jerk is not None:
+        return make_profile(L, 0.0, cfg.rapid_vel, 0.0, cfg.rapid_acc, cfg.rapid_jerk, 2)
     rp = PlannerParams(max_acc=cfg.rapid_acc, acc_time=cfg.rapid_acc_time, max_vel=cfg.rapid_vel)
     return make_profile(L, 0.0, cfg.rapid_vel, 0.0, cfg.rapid_acc, rp.clamped().jerk(), 2)
 
