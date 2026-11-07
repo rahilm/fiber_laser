@@ -107,8 +107,8 @@ the laser source off (key switch) first.
 
 | Check | Pass when | Fix offered |
 |---|---|---|
-| Network and connection | the self-test has no failure and the card is connected | – |
-| Card scaling | the card's pulses/mm (X, Y) and interpolation period equal the machine parameters | – |
+| Network and connection | the self-test has no failure and the card is connected | Network check..., Connect again |
+| Card scaling | the card's pulses/mm (X, Y) and interpolation period equal the machine parameters | Import parameters... (an original install's `dat` folder), or Adopt the card's values (pulses/rev, lead and period stored as the PC's parameters; nothing is written to the card) |
 | Soft limits | the card's soft limits equal the axis strokes (`MAC.SoftLimitMaxLen`) | write the soft limits |
 | Interlocks | every interlock is wired or declared "not fitted"; then the **wiring test**: trigger each wired sensor when the checklist asks (open the door, close the gas supply, set the source alarm) and release it; the interlock monitor must see it go active and clear within 30 s each (a dry run toggles the simulator's inputs) | Configure safety I/O... |
 | Homing | Home X/Y finishes and the axes report homed | – |
@@ -117,6 +117,19 @@ the laser source off (key switch) first.
 
 The report (`commissioning/commissioning-<date>.json` in the data folder) lists every check
 with the measured values.
+
+Below the steps, the **live status** shows every check as the machine reports it now, updated a
+few times a second from the status the controller already reads (it sends nothing to the card
+itself): the connection, card alarms, the scaling against the parameters, the emergency stop,
+each interlock input, homing and the heartbeat.  Every row has a status chip with a symbol and a
+word (✓ pass, ! warning, ✗ fail, … to do, – skipped).  For each wired sensor it asks you to test
+it ("Open the door now"): the row passes when the input changes and the guard refuses what that
+interlock blocks (cutting jobs, arming...), then asks you to release it.  Testing every wired
+interlock this way completes the Interlocks check like the wiring test.  A failing row carries
+the button that fixes it, which opens the one place that does (Safety I/O at that input, the
+network check, the parameter import, Clear Alarm).  In a dry run the rows offer **Simulate the
+sensor** instead, and never change the parameters.  Sections with nothing to fix fold first
+when the window is short.
 
 ## Import from my Mlaser installation
 

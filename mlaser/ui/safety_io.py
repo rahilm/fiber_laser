@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from typing import Any, Optional
 
+from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
                                QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout)
 
@@ -220,6 +221,15 @@ class SafetyIODialog(QDialog):
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)
         self.refresh_states()
+
+    def focus_source(self, source: str) -> Optional[QSpinBox]:
+        """Put the keyboard focus on the input number of ``source`` (an interlock or
+        ``heartbeat``): the commissioning checklist opens the dialog at the input to fix."""
+        sp = self.hb_output if source == "heartbeat" else self.inputs.get(source)
+        if sp is not None:
+            sp.setFocus(Qt.OtherFocusReason)
+            sp.selectAll()
+        return sp
 
     def refresh_states(self) -> None:
         """The live state of each wired input (the controller's interlock monitor)."""

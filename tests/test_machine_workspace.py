@@ -182,11 +182,19 @@ def test_commissioning_wizard_checklist(app, win):
     d.dry.setChecked(True)
     drive(app, d)
     assert d.proc.state == PE.DONE
-    assert d.checklist.rowCount() == 8
-    texts = [d.checklist.item(i, 1).text() for i in range(8)]
+    # the checklist results (the report) and the live rows that show them
+    items = d.proc.items
+    assert len(items) == 8
     # 6 pass; soft limits and the interlocks (none configured: flagged) warn
-    assert sum("pass" in t for t in texts) == 6, [(d.checklist.item(i, 0).text(), t, d.checklist.item(i, 2).text())
-                                                   for i, t in enumerate(texts)]
+    assert sum(it.status == "pass" for it in items.values()) == 6, [(k, it.status, it.detail) for k, it in items.items()]
+    rows = d.update_live()
+    texts = {rid: r.status_text() for rid, r in d.panel.rows.items()}
+    assert all(texts.values()), texts
+    for rid in ("connection", "alarms", "scaling", "homing", "jog_x", "jog_y"):
+        assert rows[rid].status == "pass" and texts[rid].startswith("✓"), (rid, rows[rid])
+    assert rows["soft_limits"].status == "warn"
+    for src in ("door", "gas", "laser"):                       # not configured: flagged, with the fix
+        assert rows[f"ilk.{src}"].status == "warn" and rows[f"ilk.{src}"].fixes == (f"safety_io:{src}",)
     assert d.proc.report_path is not None and d.proc.report_path.exists()
     d.done(0)
 

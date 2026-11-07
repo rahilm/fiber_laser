@@ -3803,7 +3803,7 @@
   "wizard.comm.relay_title": "Watchdog relay",
   "wizard.comm.report": "Report saved: {path} ({passed} passed, {warned} warnings, {failed} failed).",
   "wizard.comm.reverse_set": "{key} set to {value}; it takes effect when the parameters are written to the card (reconnect). Repeat this check.",
-  "wizard.comm.s_fail": "Fail",
+  "wizard.comm.s_fail": "fail",
   "wizard.comm.s_pass": "pass",
   "wizard.comm.s_pending": "to do",
   "wizard.comm.s_skip": "skipped",
@@ -4127,7 +4127,69 @@
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
-  "ws.run": "Run"
+  "ws.run": "Run",
+  "wizard.comm.live.connection": "Connection",
+  "wizard.comm.live.alarms": "Card alarms",
+  "wizard.comm.live.estop": "Emergency stop",
+  "wizard.comm.live.ilk_door": "Door / guard interlock",
+  "wizard.comm.live.ilk_gas": "Gas-low interlock",
+  "wizard.comm.live.ilk_laser": "Laser-source alarm interlock",
+  "wizard.comm.live.sec_safety": "Safety inputs (live)",
+  "wizard.comm.live.sec_link": "Connection and parameters (live)",
+  "wizard.comm.live.sec_motion": "Motion",
+  "wizard.comm.live.summary": "Live status of the machine: {counts}",
+  "wizard.comm.live.not_connected": "Not connected to the card at {host}:{port}. Run the network check, or connect again.",
+  "wizard.comm.live.link_slow": "Connected to {host}:{port}, but the last status read was late or lost.",
+  "wizard.comm.live.connected": "Connected to the card at {host}:{port}; its status is read continuously.",
+  "wizard.comm.live.connected_sim": "Connected to the simulator at {host}:{port} (no machine moves).",
+  "wizard.comm.live.needs_connection": "Waits for the connection to the card.",
+  "wizard.comm.live.run_step": "Not checked yet: run its step.",
+  "wizard.comm.live.alarms_none": "No card alarm is active.",
+  "wizard.comm.live.alarms_active": "Card alarm active: {alarms}. Motion is refused until it is cleared.",
+  "wizard.comm.live.estop_held": "The emergency stop is pressed (card alarm): the guard refuses every motion. Release it and clear the alarm to test it.",
+  "wizard.comm.live.estop_ready": "Released. Not tested yet.",
+  "wizard.comm.live.estop_prompt": "Press the emergency stop now.",
+  "wizard.comm.live.estop_seen": "Emergency stop seen: the card reports the alarm and the guard refuses every motion.",
+  "wizard.comm.live.estop_release": "Release it now, then clear the alarm.",
+  "wizard.comm.live.estop_tested": "Tested: the emergency stop was seen pressed and released.",
+  "wizard.comm.live.ilk_unconfigured": "No card input is configured: this interlock is not monitored. Set its input in Safety I/O, or declare that this machine has no such sensor.",
+  "wizard.comm.live.ilk_not_fitted": "Declared not fitted on this machine.",
+  "wizard.comm.live.ilk_tested": "Tested on input {input}: it tripped (the guard refused {refused}) and cleared.",
+  "wizard.comm.live.door_held": "Input {input} reports the door open now: close it to start the test.",
+  "wizard.comm.live.door_ready": "Input {input}: door closed. Not tested yet.",
+  "wizard.comm.live.door_prompt": "Open the door now.",
+  "wizard.comm.live.door_seen": "Input {input}: door open seen. The guard refuses {refused}.",
+  "wizard.comm.live.door_release": "Close the door again.",
+  "wizard.comm.live.gas_held": "Input {input} reports low gas pressure now: restore the supply to start the test.",
+  "wizard.comm.live.gas_ready": "Input {input}: gas pressure normal. Not tested yet.",
+  "wizard.comm.live.gas_prompt": "Close the gas supply now (or trip the pressure switch).",
+  "wizard.comm.live.gas_seen": "Input {input}: low gas pressure seen. The guard refuses {refused}.",
+  "wizard.comm.live.gas_release": "Open the gas supply again.",
+  "wizard.comm.live.laser_held": "Input {input} reports a laser-source alarm now: clear it at the source to start the test.",
+  "wizard.comm.live.laser_ready": "Input {input}: no laser-source alarm. Not tested yet.",
+  "wizard.comm.live.laser_prompt": "Set the laser source's alarm now (e.g. its interlock loop). The laser stays disarmed.",
+  "wizard.comm.live.laser_seen": "Input {input}: laser-source alarm seen. The guard refuses {refused}.",
+  "wizard.comm.live.laser_release": "Clear the alarm at the laser source again.",
+  "wizard.comm.live.refuse_cut": "cutting jobs",
+  "wizard.comm.live.refuse_frame": "frame and dry runs",
+  "wizard.comm.live.refuse_arm": "arming",
+  "wizard.comm.live.refuse_move": "moves",
+  "wizard.comm.live.homed": "Homed; the head is at ({x}, {y}) {unit}.",
+  "wizard.comm.live.not_homed": "Not homed yet: run the Homing step.",
+  "wizard.comm.live.hb_unconfigured": "No heartbeat output is configured: the watchdog relay cannot work. Set its output in Safety I/O.",
+  "wizard.comm.live.hb_held": "Output {output}: held for the relay test.",
+  "wizard.comm.live.hb_measuring": "Output {output} at {hz} Hz: measuring...",
+  "wizard.comm.live.hb_live": "Output {output} at {hz} Hz: toggles {rate} times/s, the heartbeat runs.",
+  "wizard.comm.live.hb_slow": "Output {output} toggles only {rate} times/s ({hz} Hz): check the PC load and the setting.",
+  "wizard.comm.fix.netcheck": "Network check...",
+  "wizard.comm.fix.reconnect": "Connect again",
+  "wizard.comm.fix.import_params": "Import parameters...",
+  "wizard.comm.fix.adopt_scaling": "Adopt the card's values",
+  "wizard.comm.fix.clear_alarms": "Clear alarm",
+  "wizard.comm.fix.simulate": "Simulate the sensor (dry run)",
+  "wizard.comm.fix.dry_run": "Not in a dry run: nothing is applied to the machine or its parameters.",
+  "wizard.comm.fix.dry_run_only": "Only in a dry run (the private simulator).",
+  "wizard.comm.fix.unavailable": "Not available in this window or user mode."
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -5250,6 +5312,84 @@
   ],
   "settings.elsewhere_more": [
    "n"
+  ],
+  "wizard.comm.live.summary": [
+   "counts"
+  ],
+  "wizard.comm.live.not_connected": [
+   "host",
+   "port"
+  ],
+  "wizard.comm.live.link_slow": [
+   "host",
+   "port"
+  ],
+  "wizard.comm.live.connected": [
+   "host",
+   "port"
+  ],
+  "wizard.comm.live.connected_sim": [
+   "host",
+   "port"
+  ],
+  "wizard.comm.live.alarms_active": [
+   "alarms"
+  ],
+  "wizard.comm.live.ilk_tested": [
+   "input",
+   "refused"
+  ],
+  "wizard.comm.live.door_held": [
+   "input"
+  ],
+  "wizard.comm.live.door_ready": [
+   "input"
+  ],
+  "wizard.comm.live.door_seen": [
+   "input",
+   "refused"
+  ],
+  "wizard.comm.live.gas_held": [
+   "input"
+  ],
+  "wizard.comm.live.gas_ready": [
+   "input"
+  ],
+  "wizard.comm.live.gas_seen": [
+   "input",
+   "refused"
+  ],
+  "wizard.comm.live.laser_held": [
+   "input"
+  ],
+  "wizard.comm.live.laser_ready": [
+   "input"
+  ],
+  "wizard.comm.live.laser_seen": [
+   "input",
+   "refused"
+  ],
+  "wizard.comm.live.homed": [
+   "x",
+   "y",
+   "unit"
+  ],
+  "wizard.comm.live.hb_held": [
+   "output"
+  ],
+  "wizard.comm.live.hb_measuring": [
+   "output",
+   "hz"
+  ],
+  "wizard.comm.live.hb_live": [
+   "output",
+   "rate",
+   "hz"
+  ],
+  "wizard.comm.live.hb_slow": [
+   "output",
+   "rate",
+   "hz"
   ]
  },
  "legacy": {

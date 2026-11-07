@@ -283,6 +283,7 @@ panel's Leads, Kerf and Micro-joint sections.
 | mlaser/ui/wizards/procedures.py | `EdgeSeekWizard` angle texts | angle | angle | not converted |
 | mlaser/ui/wizards/procedures.py | `CommissioningWizard` checklist `home_ok`, `jog_moved`, `jog_position` | home position, jog distances | length | converted (`_detail_values`; the report file keeps mm numbers) |
 | mlaser/ui/wizards/procedures.py | `CommissioningWizard` `scale_ok` / `scale_mismatch` / `scaling_text` "p/mm" | pulses per mm | - | allowlisted: card calibration constant |
+| mlaser/ui/wizards/commissioning_live.py | live status `homed` (head position), checklist details shown in the live rows | home position, jog distances | length | converted (`detail_values`) |
 | mlaser/ui/wizards/procedures.py | `LaserWizard` duration (ms), pause (s), duty %, power W | time, %, W | - | not a unit to convert |
 | mlaser/ui/wizards/procedures.py | `FollowerWizard` quality text (points, span) | follower curve | - | not converted: raw follower counts |
 | mlaser/ui/ext_machine.py | `_apply_edge` log angle | angle | angle | not a unit |

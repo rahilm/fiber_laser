@@ -12,6 +12,15 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Added
 
+- Interactive commissioning checklist (issue #6): below the steps, a live status row per check
+  (connection, card alarms, scaling against the parameters, soft limits, emergency stop, each
+  interlock input, homing, heartbeat, jog directions) follows the status the controller already
+  reads, with a symbol-and-word chip per row. Each wired sensor has a "test it" prompt ("Open
+  the door now") that passes when the input changes and the guard refuses (the guard's own
+  classification; nothing is armed, moved or started); testing every wired interlock completes
+  the Interlocks check. Every failing row has a fix button that opens the one place that fixes
+  it: Safety I/O at that input, the network check, Import parameters..., Adopt the card's
+  values (scaling stored as the PC's parameters, never in a dry run), Clear Alarm.
 - Plugin manager (Options+ > Plugins, `app.plugin_manager`; `mlaser plugin list | search |
   info | install | uninstall | update | enable | disable | hosts | repo ...`): plugins from
   repositories (an index URL or `github:owner/repo`), a wheel URL or file; every install is
