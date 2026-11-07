@@ -295,6 +295,8 @@ class CapturedJob:
         for e in self.events:
             if self.start_ts is not None and e.ts < self.start_ts:
                 continue
+            if self.end_ts is not None and e.ts >= self.end_ts:
+                break                       # after the card drained: the normal end (103 := 3)
             if not started:
                 if (e.kind == "mailbox" and e.words and e.words[0] == F.OP_STOP_AXES) or e.kind == "fifo_stop":
                     started = True
@@ -515,7 +517,10 @@ def _fill_job(an: CaptureAnalysis, job: CapturedJob, evs: list[Event]) -> None:
     if job.start_ts is not None:
         job.frames_before_start = sum(1 for f in job.frames if f.ts < job.start_ts)
         for s in an.ro_samples:
-            if s.ts > max(t_last, job.start_ts) and s.ts < job.end_window_ts and s.ro.get(19) == 0:
+            # done = the card no longer executes (processing status bit 9 clear: a real card
+            # reports 0x001, not 0, until the FIFO stop 103 := 3; the simulator used to report 0)
+            if s.ts > max(t_last, job.start_ts) and s.ts < job.end_window_ts and 19 in s.ro \
+                    and not (s.ro[19] & F.PROC_EXECUTING):
                 job.end_ts = s.ts
                 break
         if job.end_ts is not None:
@@ -1096,7 +1101,7 @@ def compare_job(cap_job: CapturedJob, cap_start: tuple[int, int], reb_job, reb_s
     info.update(capture_step_time_s=t_c, rebuild_step_time_s=t_r,
                 rebuild_total_time_s=float(getattr(reb_job, "total_time_s", t_r)),
                 capture_wall_s=cap_job.wall_s)
-    wall = f", capture wall clock {cap_job.wall_s:.2f} s (103 := 2 → RO[19] = 0)" if cap_job.wall_s is not None else ""
+    wall = f", capture wall clock {cap_job.wall_s:.2f} s (103 := 2 → RO[19] no longer executing)" if cap_job.wall_s is not None else ""
     cmp.checks.append(Check("job time", PASS if cs.n == rs.n and info["capture_wait_ms"] == info["rebuild_wait_ms"] else FAIL,
                             f"step replay capture {t_c:.3f} s, rebuild {t_r:.3f} s; timed waits "
                             f"{info['capture_wait_ms']} / {info['rebuild_wait_ms']} ms; rebuild estimate "

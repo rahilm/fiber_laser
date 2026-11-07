@@ -819,6 +819,14 @@ FAULT with a breakpoint (instead of the plain pause); reset, arm, Resume.
   neither command).  Rebuild: `MotionController.fifo_job_reset` / `fifo_step_format`, sent by
   `JobStreamer.run_job` and `FifoStreamer.stream`; the simulator raises 9001 the same way
   (`lenient_step_format=False`), tests/test_card_job_start.py.
+* **RO[19] "processing status" is a bit field (O, same capture):** 0 idle → 0x100 after the first
+  frames (FIFO data) → **0x301** while the job runs → 0x001 once the FIFO drained → 0 after the
+  FIFO stop 103 := 3, which the original sends at the end of every job.  The original reads it as
+  a char (FUN_10039500: low byte == 1 → machine state 4); bit 9 (0x200) is the card executing
+  (I).  The rebuild's earlier `== 1` test read a running job as idle and halted the owner's
+  second Frame after ~1 s ("unexpected_idle").  Rebuild: `MCStatus.running` = bit 9,
+  `MCStatus.program_active` = low byte 1, the streamer's end = drained and not executing, then
+  103 := 3; the simulator reports the same pattern.
 * Underrun: the card raises **RO[7] bit 5 "FIFO starvation"**; MainApp then pauses like for any alarm.
 * Rebuild `controller/stream.py` (changed in Wave 2, docs/SAFETY.md §6): `JobStreamer` keeps at most
   `max_buffer_ms` (1200 ms) of motion in the FIFO, prefill included (it used to fill the whole FIFO,

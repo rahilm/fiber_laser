@@ -799,7 +799,12 @@ RO_INPUTS = 4            # inputs 1..12 bitmask (FUN_1002b820)
 RO_OUTPUTS = 5           # outputs 1..10 bitmask (FUN_1002b760 / FUN_100390f0)
 RO_FIFO_SEQ = 15         # last FIFO frame sequence accepted (FUN_10052e90 uses +1)
 RO_FIFO_FREE = 16        # free FIFO space in bytes (needs frame_bytes + 2000)
-RO_RUNNING = 19          # ==1 -> machine state 4 "running program" (FUN_10039500)
+RO_RUNNING = 19          # "processing status": a bit field on the real card (owner's capture
+#   2026-11-07): 0 idle, 0x100 frames loaded, 0x301 running, 0x001 drained until 103 := 3.  The
+#   original reads it as a char (FUN_10039500): low byte == 1 -> machine state 4 "running program"
+PROC_ACTIVE_MASK = 0xFF  # low byte == 1: a job was started and not stopped yet
+PROC_FIFO_DATA = 0x100   # the FIFO holds data (I: set before the start, cleared when drained)
+PROC_EXECUTING = 0x200   # the card executes the FIFO (I: set only between start and drained)
 RO_INPUTS_EXT = 21       # inputs 13..28 (extended IO)
 RO_OUTPUTS_EXT = 22      # outputs 11..26 (extended IO)
 

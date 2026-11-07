@@ -98,3 +98,42 @@ def test_simulator_rejects_a_start_without_the_step_format_like_the_card():
 def test_the_job_reset_is_never_an_always_allowed_halt():
     assert S.classify_mailbox([F.OP_SYS, F.SYS_JOB_RESET]) == S.Cmd.MOTION
     assert S.classify_mailbox([F.OP_SYS, F.SYS_AXIS_CFG, 0x66800003, 0]) == S.Cmd.MOTION
+
+
+def _status(ro19: int):
+    from mlaser.controller.client import MCStatus
+    st = MCStatus.__new__(MCStatus)
+    st.ro = [0] * 36
+    st.ro[F.RO_RUNNING] = ro19
+    st.axes = []
+    return st
+
+
+@pytest.mark.parametrize("ro19,executing,active,state", [
+    (0, False, False, 0),          # idle
+    (0x100, False, False, 0),      # frames loaded, not started
+    (0x301, True, True, 4),        # running (the owner's card reported 769 during the job)
+    (0x001, False, True, 4),       # drained, until the FIFO stop
+])
+def test_processing_status_is_a_bit_field_like_the_real_card(ro19, executing, active, state):
+    """The owner's second Frame was halted as "unexpected_idle" after ~1 s: the rebuild tested
+    RO[19] == 1 for "running", but the card reports 0x301 while it runs.  The original reads the
+    word as a char (low byte == 1, FUN_10039500)."""
+    st = _status(ro19)
+    assert st.running is executing and st.program_active is active and st.machine_state() == state
+
+
+def test_a_job_runs_to_the_end_and_is_stopped_like_the_original():
+    sim = CardSimulator(time_scale=4.0).start()
+    try:
+        with Recording(config=TransportConfig(host="127.0.0.1", port=sim.port)) as mc:
+            seen = []
+            js = JobStreamer(mc, prefill_ms=200)
+            js.on_status = lambda st: seen.append(st.ro[F.RO_RUNNING])
+            js.run_job(_job(3000), timeout_s=30)           # no StreamFault on a bit-field status
+            assert sim.position(0) == 3000 * 10
+            assert 0x301 in seen                           # the card's running pattern was seen
+            assert mc.read_status().ro[F.RO_RUNNING] == 0   # 103 := 3 sent at the end
+            assert not mc.read_status().program_active
+    finally:
+        sim.stop()

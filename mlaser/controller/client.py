@@ -149,7 +149,16 @@ class MCStatus:
 
     @property
     def running(self) -> bool:
-        return self.ro[F.RO_RUNNING] == 1
+        """The card executes the FIFO (processing status bit 9).  The word is a bit field on the
+        real card (0x301 while a job runs): the earlier ``== 1`` test read a running job as idle
+        and the streamer halted it ("unexpected_idle", owner's machine 2026-11-07)."""
+        return bool(self.ro[F.RO_RUNNING] & F.PROC_EXECUTING)
+
+    @property
+    def program_active(self) -> bool:
+        """A job was started and not stopped yet (FUN_10039500 reads the word as a char: low byte
+        == 1); stays true after the FIFO drained until FIFO stop 103 := 3."""
+        return (self.ro[F.RO_RUNNING] & F.PROC_ACTIVE_MASK) == 1
 
     @property
     def alarm_word1(self) -> int:
@@ -183,7 +192,7 @@ class MCStatus:
 
     def machine_state(self) -> int:
         """FUN_10039500: 4 running FIFO, 1 homing, 2 manual motion, 0 idle (names INFERRED)."""
-        if self.ro[F.RO_RUNNING] == 1:
+        if self.program_active:                 # the original's char compare (low byte == 1)
             return 4
         for a in self.axes:
             if a.mode == 2 and a.busy:

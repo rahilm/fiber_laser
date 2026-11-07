@@ -392,6 +392,10 @@ class JobStreamer(FifoStreamer):
                 if i >= len(frames) and st.fifo_free >= capacity:
                     idle_polls += 1
                     if idle_polls >= 2:       # drained and idle: done
+                        # the original stops the FIFO at the end of every job (103 := 3): the
+                        # card keeps reporting the job as active (status low byte 1) until then
+                        if hasattr(mc, "fifo_stop"):
+                            mc.fifo_stop()
                         break
                 else:
                     raise StreamFault("unexpected_idle",

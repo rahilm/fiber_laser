@@ -76,6 +76,8 @@ class SimState:
     fifo_running: bool = False
     #: the step-format word set by [9999, 1, mask|0x66800000, 0] since the last [9999, 16] / clear
     step_format: int = 0
+    #: a job was started (103 := 2) and not stopped / cleared: processing status low byte 1
+    program_active: bool = False
     laser: bool = False
     laser_power: int = 0
     step_left_s: float = 0.0
@@ -436,7 +438,9 @@ class CardSimulator:
         if i == F.RO_FIFO_FREE:
             return max(0, self.fifo_capacity - st.fifo_bytes)
         if i == F.RO_RUNNING:
-            return 1 if st.fifo_running else 0
+            # the real card's bit field (owner's capture): 0x100 data, 0x200 executing, 1 active
+            return ((1 if st.program_active else 0) | (F.PROC_FIFO_DATA if st.fifo else 0)
+                    | (F.PROC_EXECUTING if st.fifo_running else 0))
         if i == 6:
             return self.alarm_word1()
         if i == 7:
@@ -545,6 +549,7 @@ class CardSimulator:
                 st.fifo.clear()
                 st.fifo_bytes = 0
                 st.fifo_running = False
+                st.program_active = False
                 self._finish_step()
                 st.marks = st.steps_since_mark = 0
                 st.min_fifo_bytes = None
@@ -560,9 +565,11 @@ class CardSimulator:
                     st.alarm_w2 |= 1 << A.AlarmWord2Bit.INTERP_LENGTH
                     return
                 st.fifo_running = True
+                st.program_active = True
                 st.lag_left_s = 0.0
                 st.pwm_off_latched = False
             elif v == F.FIFO_STOP:
+                st.program_active = False
                 self._halt_fifo()
             else:
                 raise ValueError(v)
