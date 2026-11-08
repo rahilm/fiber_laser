@@ -152,13 +152,35 @@ def test_plan_snapshot_of_a_large_drawing_is_cheap(big):
     assert docs.plan_misses == misses + 1
 
 
-def test_select_all_edit_undo_redo_copies_once(big):
+def test_select_all_edit_undo_redo_copies_once(big, monkeypatch):
+    """A select-all edit copies every part once for undo, with the fast copier and a memo of
+    the part's own records (no whole-table memo, no fallback to ``copy.deepcopy`` for the
+    model's objects: what made a 2,700-part copy quadratic); undo and redo copy nothing.
+
+    The decisive checks are those counts; the time bound is a backstop with CI headroom
+    (macOS runners are 2-3x slower and the edit also moves every part), relative to the old
+    copies measured in this process."""
+    from mlaser import ops
+    from mlaser.services import undo as U
     doc = copy.deepcopy(big)
     docs = DocumentService(doc)
     docs.plan_snapshot()
     misses = docs.plan_misses
-    from mlaser import ops
+    counts = {"copy_part": 0, "memo": 0, "deepcopy": 0}
+    real_part, real_memo, real_deep = U.RoundTripTable.copy_part, U.RoundTripTable.memo, U.copy.deepcopy
+
+    def count(name, fn):
+        def wrapped(*a, **k):
+            counts[name] += 1
+            return fn(*a, **k)
+        return wrapped
+    monkeypatch.setattr(U.RoundTripTable, "copy_part", count("copy_part", real_part))
+    monkeypatch.setattr(U.RoundTripTable, "memo", count("memo", real_memo))
+    monkeypatch.setattr(U.copy, "deepcopy", count("deepcopy", real_deep))
     t_edit = timed(lambda: docs.edit(lambda d: ops.translate(d, 1.0, 0.0, list(d.parts)), "nudge"))
+    monkeypatch.undo()
+    assert counts == {"copy_part": len(doc.parts), "memo": 0, "deepcopy": 0}, counts
+    assert set(docs.stack._undo[-1].swap) == {p.uid for p in doc.parts}
     docs.plan_snapshot()
     assert docs.plan_misses == misses + len(doc.parts)       # every part changed: copied once
     before = docs.plan_misses
@@ -166,10 +188,12 @@ def test_select_all_edit_undo_redo_copies_once(big):
         step()
         assert docs.plan_snapshot() == docs.snapshot()
     assert docs.plan_misses == before                        # undo / redo reuse the copies
-    # the edit (its undo copies) is far cheaper than the old whole-table-memo copies
+    # backstop: the edit (undo copies plus moving every part) stays within a few times the
+    # old per-part deepcopy alone (it was several times slower than that with the
+    # whole-table memo per part)
     shared = docs.blobs.ids()
     t_old = timed(lambda: [copy.deepcopy(p, dict(shared)) for p in doc.parts])
-    assert t_edit < t_old, (t_edit, t_old)
+    assert t_edit < 3 * t_old, (t_edit, t_old)
 
 
 def test_changed_parts_are_reported_to_listeners(big):
