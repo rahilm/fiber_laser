@@ -10,7 +10,7 @@
   Run workspace, whose state block shows the alarm once with *Reset alarm*;
 * the **run bar** (bottom toolbar, never inside a scroll area): state pill, Start (F5),
   Hold (Space), Stop (Esc / F12), Frame (F6), Dry run, Arm, progress and ETA, 56 px targets;
-  one row, or two (the break after Stop) in a narrow window, every control in full.  On the Run
+  one row, or two (the break after Stop or later) in a narrow window, every control in full.  On the Run
   workspace only the pill, the progress and the times: the Run screen has the one set of run
   controls there, in the same order;
 * **global keys** while a job runs: Space = Hold/continue (not while typing in a text field),
@@ -574,10 +574,12 @@ class AlarmBanner(QWidget):
 
 
 class _RunStrip(QWidget):
-    """The run bar's controls in their order, in one row while it fits and in two rows when
-    the window is narrower (a half-screen window): every control keeps its full text and its
-    size, nothing goes into an overflow menu, the order (and so the keyboard order) is the
-    same.  The row break is after Stop; the width the bar needs is that of the wider row."""
+    """The run bar's controls in their order: one row while it fits, two rows when the window
+    is narrower (a half-screen window), three when even two do not fit (a larger font).  Every
+    control keeps its full text and its size, nothing goes into an overflow menu, the order
+    (and so the keyboard order) is the same, and the state, Start, Hold and Stop are always on
+    the first row.  The breaks are placed where the widest row is narrowest (:meth:`plan`);
+    the width the bar needs is that of the widest row of three."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -586,53 +588,79 @@ class _RunStrip(QWidget):
         self._v = QVBoxLayout(self)
         self._v.setContentsMargins(0, 0, 0, 0)
         self._v.setSpacing(style.SP1)
-        self._rows = (QHBoxLayout(), QHBoxLayout())
+        self._rows = (QHBoxLayout(), QHBoxLayout(), QHBoxLayout())
         for r in self._rows:
             r.setContentsMargins(0, 0, 0, 0)
             r.setSpacing(style.SP1)
             self._v.addLayout(r)
         self.items: list[QWidget] = []
-        self.first_row = 0          # how many items the first row holds when wrapped
+        self.first_row = 0          # the first row holds at least this many items (to Stop)
         self.one_row_need = 0
-        self.wrapped = False
+        self.wrapped = False        # more than one row
+        self._breaks: Optional[tuple] = None
 
     def add(self, w: QWidget, stretch: int = 0) -> None:
         w.setProperty("run_strip_stretch", stretch)
         self.items.append(w)
         self._rows[0].addWidget(w, stretch)
 
-    def row_needs(self) -> tuple[int, int, int]:
-        """(one row, first row, second row): the minimum widths of the arrangements."""
+    def _need(self, ws: list[QWidget]) -> int:
         sp = self._rows[0].spacing()
+        shown = [w for w in ws if not w.isHidden()]
+        return sum(max(w.minimumWidth(), w.minimumSizeHint().width()) for w in shown) + sp * max(len(shown) - 1, 0)
 
-        def need(ws: list[QWidget]) -> int:
-            shown = [w for w in ws if not w.isHidden()]
-            return sum(max(w.minimumWidth(), w.minimumSizeHint().width()) for w in shown) + sp * max(len(shown) - 1, 0)
-        k = self.first_row
-        return need(self.items), need(self.items[:k]), need(self.items[k:])
+    def _width(self, breaks: tuple) -> int:
+        bounds = [0, *breaks, len(self.items)]
+        return max(self._need(self.items[a:b]) for a, b in zip(bounds, bounds[1:]))
 
-    def set_wrapped(self, on: bool) -> None:
-        if on == self.wrapped:
+    def plan(self, rows: int) -> tuple:
+        """The row breaks (indices where a row starts) of ``rows`` rows: the first after Stop
+        at the earliest, the widest row as narrow as it gets (then the earliest breaks)."""
+        n = len(self.items)
+        lo = min(max(self.first_row, 1), n - 1) if n > 1 else n
+        if rows <= 1 or n < 2:
+            return ()
+        if rows == 2:
+            cands = [(k,) for k in range(lo, n)]
+        else:
+            cands = [(k1, k2) for k1 in range(lo, n - 1) for k2 in range(k1 + 1, n)]
+        return min(cands, key=lambda b: (self._width(b), b), default=())
+
+    def row_needs(self) -> tuple[int, int, int]:
+        """(one row, two rows, three rows): the minimum widths of the arrangements."""
+        return self._need(self.items), self._width(self.plan(2)), self._width(self.plan(3))
+
+    def _place(self, breaks: tuple) -> None:
+        if breaks == self._breaks:
             return
-        self.wrapped = on
-        k = self.first_row if on else len(self.items)
+        self._breaks = breaks
+        self.wrapped = bool(breaks)
         for r in self._rows:
             while r.count():
                 r.takeAt(0)
-        for i, w in enumerate(self.items):
-            self._rows[0 if i < k else 1].addWidget(w, int(w.property("run_strip_stretch") or 0))
+        bounds = [0, *breaks, len(self.items)]
+        for row, (a, b) in enumerate(zip(bounds, bounds[1:])):
+            for w in self.items[a:b]:
+                self._rows[row].addWidget(w, int(w.property("run_strip_stretch") or 0))
         self._v.invalidate()
         self.updateGeometry()
 
+    def set_wrapped(self, on: bool) -> None:
+        self._place(self.plan(2) if on else ())
+
     def fit(self) -> None:
-        self.set_wrapped(self.width() < self.one_row_need)
+        width = self.width()
+        if width >= self.one_row_need:
+            self._place(())
+        else:
+            two = self.plan(2)
+            self._place(two if width >= self._width(two) else self.plan(3))
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
-        # the width of the wrapped arrangement whichever is shown: the window may narrow to it
-        # (it then wraps); the height of the arrangement shown
+        # the width of the narrowest arrangement whichever is shown: the window may narrow to
+        # it (it then wraps); the height of the arrangement shown
         s = super().minimumSizeHint()
-        _one, first, second = self.row_needs()
-        return QSize(max(first, second), s.height())
+        return QSize(self.row_needs()[2], s.height())
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
@@ -752,11 +780,11 @@ class RunBar(QToolBar):
             QStyle.PM_ToolBarItemMargin, None, self)
         if self.isMovable():
             chrome += st.pixelMetric(QStyle.PM_ToolBarHandleExtent, None, self)
-        one, first, second = self.strip.row_needs()
+        one, _two, three = self.strip.row_needs()
         # one row while the strip has the width every control needs side by side; the bar's
-        # minimum is the wider of the two rows (a half-screen window wraps it)
+        # minimum is the widest row of three (a half-screen window with a large font)
         self.strip.one_row_need = one
-        self.setMinimumWidth(max(first, second) + chrome)
+        self.setMinimumWidth(three + chrome)
         self.strip.fit()
 
     def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API

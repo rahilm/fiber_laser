@@ -29,6 +29,16 @@ LENGTH_COLS = (4, 5, 6)
 C_NAME, C_PN, C_MAT, C_SHEET, C_TP, C_TV, C_TL, C_QTY, C_MADE, C_CUT, C_PROC, C_FACE, C_STATUS, C_NOTES = range(len(COLS))
 
 
+def _check(text: str) -> Any:
+    """A check box whose text wraps in a narrow (half-screen) window: the host's
+    WrapCheckBox, or a plain QCheckBox (older host)."""
+    try:
+        from mlaser.ui.responsive import WrapCheckBox
+    except ImportError:
+        return QCheckBox(text)
+    return WrapCheckBox(text)
+
+
 def _flow_layout() -> Any:
     """The host's wrapping button row (mlaser.ui.responsive.FlowLayout), or None (older host)."""
     try:
@@ -294,7 +304,7 @@ class OnshapeWorkspace(QWidget):
         self.slot_lay.setContentsMargins(0, 0, 0, 0)
         self.slot_checks: dict[str, QCheckBox] = {}
         f.addRow("Properties that count", self.slot_box)
-        self.after = QCheckBox("Include parts whose laser step comes after another process")
+        self.after = _check("Include parts whose laser step comes after another process")
         f.addRow(self.after)
         note = QLabel("Onshape does not know which steps are done: such a part is either always or never "
                       "included.  Enter what was already made in the parts table (Made).")
@@ -322,7 +332,9 @@ class OnshapeWorkspace(QWidget):
     def _materials_tab(self) -> QWidget:
         w = QWidget()
         lay = QVBoxLayout(w)
-        lay.addWidget(QLabel("Onshape material -> technology database material (the sheet material of Orders and Nest)"))
+        heading = QLabel("Onshape material -> technology database material (the sheet material of Orders and Nest)")
+        heading.setWordWrap(True)                # a narrow window: more lines
+        lay.addWidget(heading)
         self.mat_table = QTableWidget(0, 3)
         self.mat_table.setHorizontalHeaderLabels(("Onshape material", "Thickness in the name", "Technology material"))
         self.mat_table.horizontalHeader().setStretchLastSection(True)
@@ -363,7 +375,7 @@ class OnshapeWorkspace(QWidget):
         self.tol = QuantitySpinBox("small_length", decimals=2)
         self.tol.setRange(0.0, 5.0)           # mm
         f.addRow("Thickness tolerance", self.tol)
-        self.xcheck = QCheckBox("Cross-check the thickness with mass properties (one more call per part)")
+        self.xcheck = _check("Cross-check the thickness with mass properties (one more call per part)")
         f.addRow(self.xcheck)
         clear = QPushButton("Clear the download cache")
         clear.clicked.connect(self.clear_cache)
