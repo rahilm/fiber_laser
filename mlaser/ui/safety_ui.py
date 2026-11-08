@@ -4,12 +4,15 @@
 
 * the **event dispatcher** (:mod:`.qtbridge`): controller events reach the GUI thread;
 * the **state banner** (top, always visible): ``FAULT`` (with the reason and *Reset*), ``ARMED``
-  (red, *Disarm*), ``DRY-RUN``, ``SIMULATOR``, ``DISARMED`` (*Arm*), ``OFFLINE``;
+  (amber, *Disarm*), ``DRY-RUN``, ``SIMULATOR``, ``DISARMED`` (*Arm*), ``OFFLINE`` (*Connect…*);
 * the **alarm banner** (top, shown while card alarms or a fault are active): alarm text, time,
-  a remedy (:mod:`.safety_texts`), *Reset* and *Details* (the alarm list dialog);
+  a remedy (:mod:`.safety_texts`), *Reset* and *Details* (the alarm list dialog); not on the
+  Run workspace, whose state block shows the alarm once with *Reset alarm*;
 * the **run bar** (bottom toolbar, never inside a scroll area): state pill, Start (F5),
   Hold (Space), Stop (Esc / F12), Frame (F6), Dry run, Arm, progress and ETA, 56 px targets;
-  one row, or two (the break after Stop) in a narrow window, every control in full;
+  one row, or two (the break after Stop) in a narrow window, every control in full.  On the Run
+  workspace only the pill, the progress and the times: the Run screen has the one set of run
+  controls there, in the same order;
 * **global keys** while a job runs: Space = Hold/continue (not while typing in a text field),
   Esc and F12 = Stop.  An application event filter, so they work whatever has the focus;
 * the **pre-flight dialog** before Start / Frame / Dry run / Resume: errors block, warnings must
@@ -22,6 +25,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Mapping
 from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
@@ -43,32 +47,28 @@ log = logging.getLogger("mlaser.ui.safety")
 
 JOB_MODES = ("process", "dry_run", "frame", "pause")
 
-# style-lint: colour table
-#: the safety colour table: (background, text) of every machine and safety state, the same in
-#: every theme (docs/SAFETY.md: the state is always written out too, never colour alone).  The
-#: state banner, the top-bar chips, the run bar's pill and the Run screen all read it.
-COLORS = {
-    "FAULT": ("#7f0000", "#ffffff"),
-    "ALARM": ("#b71c1c", "#ffffff"),
-    "ARMED": ("#d50000", "#ffffff"),
-    "DRY-RUN": ("#ff8f00", "#000000"),
-    "SIMULATOR": ("#283593", "#ffffff"),
-    "DISARMED": ("#455a64", "#ffffff"),
-    "OFFLINE": ("#616161", "#ffffff"),
-    "READY": ("#1565c0", "#ffffff"),
-    "RUNNING": ("#2e7d32", "#ffffff"),
-    "HOLD": ("#ff8f00", "#000000"),
-}
-# style-lint: end
-#: the state banner's text per state: (catalogue id, English default)
-TEXTS = {
-    "FAULT": ("safety.banner.fault", "FAULT"),
-    "ARMED": ("safety.banner.armed", "ARMED: laser emission enabled"),
-    "DRY-RUN": ("safety.banner.dry_run", "DRY-RUN: laser output disabled"),
-    "SIMULATOR": ("safety.banner.simulator", "SIMULATOR: no machine"),
-    "DISARMED": ("safety.banner.disarmed", "DISARMED: the laser cannot fire"),
-    "OFFLINE": ("safety.banner.offline", "OFFLINE"),
-}
+class _StateColors(Mapping):
+    """The safety colour table: (background, text) of every machine and laser state in the
+    theme shown now (:data:`mlaser.ui.shell.theme.STATE_TOKENS`: neutral normal states, amber
+    ARMED, red ALARM, dark red FAULT; docs/SAFETY.md: the state is always written out too, never
+    colour alone).  The state banner, the top-bar chips, the run bar's pill and the Run screen
+    all read it."""
+
+    def _table(self) -> dict:
+        from .shell import theme as T
+        return T.STATE_TOKENS.get(style.current_theme(), T.STATE_TOKENS[T.LIGHT])
+
+    def __getitem__(self, kind: str) -> tuple[str, str]:
+        return self._table()[kind]
+
+    def __iter__(self):
+        return iter(self._table())
+
+    def __len__(self) -> int:
+        return len(self._table())
+
+
+COLORS: Mapping[str, tuple[str, str]] = _StateColors()
 
 
 def _trn(window, base: str, n: int, **values) -> str:
@@ -253,62 +253,110 @@ class PreflightDialog(QDialog):
 
 # ============================================================================== widgets
 class StateBanner(QWidget):
+    """The state banner: the laser axis (``Laser: ARMED / DISARMED / DRY RUN``) while connected,
+    the machine axis when that is what matters (``Machine: OFFLINE`` with *Connect…*,
+    ``Machine: FAULT`` with *Reset*), each as an icon, the axis name and the state's word on the
+    theme's state colours, with a plain description beside it (UX audit W1, W2, O2).  Its height
+    never changes with the state (no layout jump)."""
+
     def __init__(self, ui: "SafetyUI"):
         super().__init__()
         # the style-sheet background only paints on a plain QWidget with WA_StyledBackground;
         # without it the white banner text sat on the window colour (invisible in light themes)
         self.setAttribute(Qt.WA_StyledBackground, True)
+        self.setObjectName("safety_state_banner")
         self.ui = ui
         h = style.hbox(self)
-        h.setContentsMargins(style.SP2, 0, style.SP2, 0)
+        h.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
+        from .state_display import StateBadge
+        self.badge = StateBadge("safety_state_badge", role="title", icon_px=style.ICON_L)
+        h.addWidget(self.badge)
         self.label = QLabel()
         self.label.setObjectName("safety_state")
-        style.set_font(self.label, "title")
+        style.set_font(self.label, "label_strong")
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         h.addWidget(self.label, 1)
         self.btn = QPushButton()
+        self.btn.setObjectName("safety_state_action")
         self.btn.setMinimumHeight(style.TARGET)
         self.btn.clicked.connect(self._action)
         h.addWidget(self.btn)
         self.kind = ""
+        self.action = ""                # what the button does: reset / disarm / arm / connect
         self._style = ""
+        self._fit_height()
+
+    def _fit_height(self) -> None:
+        """One fixed height for every state: the badge (caption + word) or the button, whichever
+        is taller (O2: the OFFLINE banner used to jump when its button appeared)."""
+        m = self.layout().contentsMargins()
+        bm = self.badge.layout().contentsMargins()
+        # from the fonts, not from the text shown: the same for every state
+        badge = (self.badge.caption.fontMetrics().height() + self.badge.text_label.fontMetrics().height()
+                 + bm.top() + bm.bottom())
+        need = max(badge, self.badge.icon_px + bm.top() + bm.bottom(), self.btn.sizeHint().height(), style.TARGET)
+        self.setFixedHeight(need + m.top() + m.bottom())
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "badge", None) is not None:
+            self._fit_height()
 
     def _action(self) -> None:
-        k = self.kind
-        if k == "FAULT":
+        a = self.action
+        if a == "reset":
             self.ui.reset_fault()
-        elif k == "ARMED":
+        elif a == "disarm":
             self.ui.disarm()
-        elif k in ("DISARMED", "SIMULATOR"):
+        elif a == "arm":
             self.ui.arm()
+        elif a == "connect":
+            self.ui.open_connection()
 
-    def refresh(self, st) -> None:
+    def refresh(self, st, ms=None) -> None:
+        from . import state_display as SD
         kind = st.banner if st is not None else "OFFLINE"
         self.kind = kind
-        bg, fg = COLORS.get(kind, COLORS["OFFLINE"])
         w = self.ui.w
-        key, default = TEXTS.get(kind, ("", kind))
-        text = _tr(w, key, default) if key else kind
+        connected = bool(ms is not None and getattr(ms, "connected", False)) if ms is not None else (
+            st is not None and getattr(getattr(st, "state", None), "value", "offline") != "offline")
         if kind == "FAULT":
+            axis, state = "machine", "fault"
             text = _tr(w, "safety.banner.fault_latched", "FAULT (latched): {fault}", fault=st.fault)
-        elif st is not None and st.simulator and kind != "SIMULATOR":
+            action = "reset"
+        elif not connected and not (st is not None and st.armed):
+            axis, state = "machine", "offline"
+            text = _tr(w, "safety.banner.offline", "Not connected")
+            action = "connect"
+        else:
+            axis, state = "laser", SD.laser_state(st)
+            key, default = {"armed": ("safety.banner.armed", "Emission enabled: the beam fires on Start"),
+                            "dry_run": ("safety.banner.dry_run", "Laser output disabled (dry-run mode)")}.get(
+                state, ("safety.banner.disarmed", "The laser cannot fire"))
+            text = _tr(w, key, default)
+            action = {"armed": "disarm", "disarmed": "arm"}.get(state, "")
+        if st is not None and st.simulator and kind != "FAULT":
             text = _tr(w, "safety.banner.with_simulator", "{state}  · simulator", state=text)
-        if st is not None and kind == "SIMULATOR":
-            text = _tr(w, "safety.banner.simulator_disarmed", "SIMULATOR: disarmed") if not st.armed else text
+        word = SD.machine_label(w, state) if axis == "machine" else SD.laser_label(w, state)
+        caption = SD.axis_label(w, axis)
+        self.badge.set_state(state, SD.colour_key(axis, state), word, caption)
         if self.label.text() != text:
             self.label.setText(text)
-        qss = f"background:{bg}; color:{fg};"
+            self.label.setAccessibleName(text)
+        bg, fg = COLORS.get(SD.colour_key(axis, state), COLORS["OFFLINE"])
+        qss = f"QWidget#safety_state_banner{{background:{bg};}} QLabel#safety_state{{color:{fg};background:transparent;}}"
         if qss != self._style:                 # re-polishing is expensive: only on a change
             self._style = qss
             self.setStyleSheet(qss)
-            self.label.setStyleSheet(f"color:{fg}; background:transparent;")
-        label = {"FAULT": _tr(w, "safety.banner.reset", "Reset"),
-                 "ARMED": _tr(w, "run.btn.disarm", "Disarm laser"),
-                 "DISARMED": _tr(w, "safety.banner.arm", "Arm laser…"),
-                 "SIMULATOR": _tr(w, "safety.banner.arm", "Arm laser…")}.get(kind)
-        self.btn.setVisible(label is not None)
+        self.action = action
+        label = {"reset": _tr(w, "safety.banner.reset", "Reset"),
+                 "disarm": _tr(w, "run.btn.disarm", "Disarm laser"),
+                 "arm": _tr(w, "safety.banner.arm", "Arm laser…"),
+                 "connect": _tr(w, "safety.banner.connect", "Connect…")}.get(action)
         if label:
             self.btn.setText(label)
+        # hidden without changing the banner's height (fixed): no jump between states
+        self.btn.setVisible(label is not None)
 
 
 class AlarmBanner(QWidget):
@@ -338,8 +386,10 @@ class AlarmBanner(QWidget):
         self.details.clicked.connect(self.ui.alarm_details)
         h.addWidget(self.reset)
         h.addWidget(self.details)
-        bg, fg = COLORS["ALARM"]
-        self.setStyleSheet(f"background:{bg}; color:{fg};")
+        self.setObjectName("safety_alarm_banner")
+        # the theme's ALARM colours (red, white text), following a theme switch
+        style.styled(self, lambda: "QWidget#safety_alarm_banner{{background:{0};}} QWidget#safety_alarm_banner QLabel"
+                     "{{color:{1};background:transparent;}}".format(*COLORS["ALARM"]))
         self.shown_key = None
 
     def refresh(self, alarms: list, st, since: dict) -> bool:
@@ -449,12 +499,11 @@ class RunBar(QToolBar):
         self.setIconSize(QSize(style.ICON_L, style.ICON_L))
         w = ui.w
         tr = getattr(w, "tr_", None)
-        # the pill shows the machine's run state (READY, RUNNING, HOLD, ALARM, FAULT, OFFLINE):
-        # the safety state (ARMED, SIMULATOR, ...) is the banner's and the chips' (UI audit D-3)
-        self.pill = QLabel(" " + _tr(w, "run.state.offline", "OFFLINE") + " ")  # i18n: ok (padding)
-        self.pill.setObjectName("run_state")
-        self.pill.setAlignment(Qt.AlignCenter)
-        style.set_font(self.pill, "label_strong")
+        # the pill shows the machine axis (Machine: OFFLINE, NOT HOMED, READY, RUNNING, HOLD,
+        # ALARM, FAULT; state_display): the laser axis (ARMED, DISARMED, DRY RUN) is the banner's
+        # (UI audit D-3, UX audit W2)
+        from .state_display import StateBadge
+        self.pill = StateBadge("run_state", role="label_strong", icon_px=style.ICON_M)
         self.buttons: dict[str, QPushButton] = {}
         self.strip = _RunStrip()
         self.strip.add(self.pill)
@@ -479,9 +528,19 @@ class RunBar(QToolBar):
                 more.setToolTip(_tr(w, "run.start_more", "More ways to start"))
                 more.setAccessibleName(_tr(w, "run.start_options", "Start options"))
                 menu = QMenu(more)
+                # with a queue waiting: what Start runs (the drawing) and the queue's next job,
+                # both named (UX audit W18); Start itself still runs the drawing
+                self.start_drawing_act = menu.addAction("")
+                self.start_drawing_act.setObjectName("run_start_drawing")
+                self.start_drawing_act.triggered.connect(lambda _=False: ui.start())
+                self.start_queue_act = menu.addAction("")
+                self.start_queue_act.setObjectName("run_start_queue")
+                self.start_queue_act.triggered.connect(lambda _=False: ui.run_queue())
                 act = menu.addAction(_tr(w, "run.start_selection", "Start selection only"))
                 act.setObjectName("run_start_selection")
                 act.triggered.connect(lambda _=False: ui.start_selection())
+                menu.aboutToShow.connect(self._start_menu_show)
+                self._start_menu_show()
                 more.menu_ = menu
                 more.clicked.connect(lambda _=False, m=menu, b=more: m.popup(b.mapToGlobal(b.rect().bottomLeft())))
                 keep_min_size(more, QSize(MIN_TARGET // 3, MIN_TARGET))
@@ -519,11 +578,16 @@ class RunBar(QToolBar):
             pad = b.sizeHint().width() - bfm.horizontalAdvance(b.text())
             keep_min_size(b, QSize(max(MIN_TARGET + (style.STOP_EXTRA if key == "stop" else 0), text_w + pad),
                                    MIN_TARGET))
-        pfm = self.pill.fontMetrics()
-        self.pill.setMinimumWidth(max(pfm.horizontalAdvance(f" {t} ") for t in self._pill_texts())
-                                  + 2 * fm.horizontalAdvance("M"))
+        # the pill keeps one width whatever the state (no jump): its widest word
+        pfm = self.pill.text_label.fontMetrics()
+        word = max(pfm.horizontalAdvance(t) for t in self._pill_texts() + [self.pill.caption.text()])
+        m = self.pill.layout().contentsMargins()
+        self.pill.setMinimumWidth(word + self.pill.icon_px + self.pill.layout().spacing() + m.left() + m.right()
+                                  + fm.horizontalAdvance("M"))
         self.progress.setMinimumWidth(fm.horizontalAdvance("100 %") * 2)
-        self.eta.setMinimumWidth(fm.horizontalAdvance("00:00:00") + fm.horizontalAdvance("M"))
+        # "Elapsed 0:00:00" over "ETA 0:00:00" (two lines: the bar is 56 px tall)
+        self.eta.setMinimumWidth(max(fm.horizontalAdvance(t) for t in self._times_text("0:00:00", "0:00:00").split("\n"))
+                                 + fm.horizontalAdvance("M"))
         lay = self.layout()
         st = self.style()
         chrome = 0
@@ -546,61 +610,90 @@ class RunBar(QToolBar):
         if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "_alt", None) is not None:
             self.fit()
 
-    #: run state -> (catalogue id, default, colour key of COLORS)
-    PILL = {"offline": ("run.state.offline", "OFFLINE", "OFFLINE"), "ready": ("run.state.ready", "READY", "READY"),
-            "running": ("run.state.running", "RUNNING", "RUNNING"), "hold": ("run.state.hold", "HOLD", "HOLD"),
-            "alarm": ("run.state.alarm", "ALARM", "ALARM"), "fault": ("run.state.fault", "FAULT", "FAULT")}
-
     def _pill_texts(self) -> list[str]:
-        return [_tr(self.ui.w, k, d) for k, d, _c in self.PILL.values()]
+        from .state_display import MACHINE_TEXT
+        return [_tr(self.ui.w, k, d) for k, d, _c in MACHINE_TEXT.values()]
+
+    def _times_text(self, elapsed: str, eta: str) -> str:
+        return _tr(self.ui.w, "run.times.bar", "Elapsed {elapsed}\nETA {eta}", elapsed=elapsed, eta=eta)
 
     def run_state(self, st, ms) -> str:
-        """offline / ready / running / hold / alarm / fault: the machine's run state."""
-        if st is not None and st.banner == "FAULT":
-            return "fault"
-        if ms is not None and ms.alarms:
-            return "alarm"
-        if ms is None or not ms.connected:
-            return "offline"
-        if ms.mode == "pause":
-            return "hold"
-        if ms.mode in ("process", "dry_run", "frame"):
-            return "running"
-        return "ready"
+        """The machine axis (state_display.machine_state): offline / not_homed / ready /
+        running / hold / alarm / estop / fault."""
+        from .state_display import machine_state
+        ctl = _ctl(self.ui.w)
+        return machine_state(st, ms, list((ctl.active_alarms if ctl is not None else None) or []), ctl)
 
-    def refresh(self, st, ms, running: bool, eta: str) -> None:
-        kind = st.banner if st is not None else "OFFLINE"
+    def set_controls_shown(self, on: bool) -> None:
+        """The run controls (Start .. Arm) shown, or only the state, the progress and the times:
+        the Run workspace has its own large set in the same order (UX audit W4: one set of run
+        controls per screen).  STOP stays on screen either way (the Run screen's)."""
+        if on == (not self.buttons["stop"].isHidden()):
+            return
+        # the bar keeps its height (no window resize on a workspace switch: a small screen's
+        # window would grow and stay grown)
+        self.strip.setMinimumHeight(0 if on else self.strip.height())
+        for k, b in self.buttons.items():
+            (b.parentWidget() if k == "start" else b).setVisible(on)
+        self.fit()
+
+    def _start_menu_show(self) -> None:
+        """The Start menu: with a queue waiting, "Start drawing: <name>" (what Start runs) and
+        "Run queue: job n of N" (UX audit W18)."""
+        q = self.ui.queue_waiting()
+        self.start_drawing_act.setVisible(q is not None)
+        self.start_queue_act.setVisible(q is not None)
+        if q is not None:
+            self.start_drawing_act.setText(_tr(self.ui.w, "run.start_drawing", "Start drawing: {name}",
+                                               name=self.ui.start_target_name()))
+            self.start_queue_act.setText(_tr(self.ui.w, "run.start_queue", "Run queue: job {n} of {total} ({name})",
+                                             n=q[0], total=q[1], name=q[2]))
+
+    def refresh(self, st, ms, running: bool, eta: str, status=None) -> None:
+        from . import state_display as SD
+        w = self.ui.w
         rs = self.run_state(st, ms)
-        key, default, col = self.PILL[rs]
-        label = _tr(self.ui.w, key, default)
-        # READY while armed shows the ARMED colour (the laser fires on Start: never the calm blue)
-        if rs == "ready" and getattr(st, "armed", False):
+        label = SD.machine_label(w, rs)
+        col = SD.colour_key("machine", rs)
+        armed = bool(getattr(st, "armed", False))
+        name = ""
+        # READY while armed shows the ARMED colour (the laser fires on Start: never the calm look)
+        if rs == "ready" and armed:
             col = "ARMED"
-        bg, fg = COLORS[col]
-        if self.pill.text() != f" {label} ":
-            self.pill.setText(f" {label} ")
-            self.pill.setAccessibleName(label)
-        qss = (f"background:{bg}; color:{fg}; padding:{style.SP1}px {style.SP2}px; "
-               f"border-radius:{style.SP1}px;")
-        if qss != self._style:
-            self._style = qss
-            self.pill.setStyleSheet(qss)
-        connected = bool(ms is not None and ms.connected)
-        fault = kind == "FAULT"
+            name = _tr(w, "run.state.ready_armed", "Machine: {state}, laser armed", state=label)
+        self.pill.set_state(rs, col, label, SD.axis_label(w, "machine"), name)
         paused = ms is not None and ms.mode == "pause"
-        for k, on, why in run_enabled(self.ui.w, st, ms, running):
+        for k, on, why in run_enabled(w, st, ms, running):
+            if k == "hold" and on and paused:
+                # held: Start is the one "Continue"; Hold stays Hold, disabled (UX audit W4)
+                on, why = False, _tr(w, "run.why.held", "Held: Start continues the job")
             b = self.buttons[k]
             if b.isEnabled() != on or b.property("disabled_reason") != ("" if on else why):
                 style.set_enabled(b, on, why)
-        tr = getattr(self.ui.w, "tr_", None)
-        self._text(self.buttons["start"], style.run_text("start", tr, alt=paused))
-        self._text(self.buttons["hold"], style.run_text("hold", tr, alt=paused))
-        armed = bool(getattr(st, "armed", False))
+        tr = getattr(w, "tr_", None)
+        # Start continues a held job (paused, or at a breakpoint): the one "Continue" (W4)
+        held = paused or getattr(_ctl(w), "breakpoint", None) is not None
+        self._text(self.buttons["start"], style.run_text("start", tr, alt=held))
+        self._text(self.buttons["hold"], style.run_text("hold", tr))
         self._text(self.buttons["arm"], style.run_text("arm", tr, alt=armed))
-        del connected, fault
-        p = float(getattr(ms, "progress", 0.0) or 0.0) if running else 0.0
-        self.progress.setValue(int(p * 1000))
-        self.progress.setFormat(f"{p * 100:.0f} %" if running else "")
+        # a job running or held (also at a breakpoint): the whole job's progress (one RunStatus)
+        active = running or bool(getattr(status, "mode", ""))
+        p = float(getattr(status, "progress", 0.0) or 0.0) if active else 0.0
+        self.progress.setValue(int(round(p * 1000)))
+        if active:
+            fmt = f"{p * 100:.0f} %"
+        else:
+            # what Start will run (UX audit W18): "Start: gear.dxf"
+            fmt = _tr(w, "run.start_target", "Start: {name}", name=self.ui.start_target_name())
+            fmt = self.progress.fontMetrics().elidedText(fmt, Qt.ElideMiddle, max(self.progress.width() - style.SP3, 40))
+        if self.progress.format() != fmt:
+            self.progress.setFormat(fmt)
+            self.progress.setAccessibleName(fmt)
+        tip = _tr(w, "run.start_target", "Start: {name}", name=self.ui.start_target_name())
+        b = self.buttons["start"]
+        if b.property("start_target") != tip:
+            b.setProperty("start_target", tip)
+            b.setAccessibleDescription(tip)
         self.eta.setText(eta)
 
 
@@ -706,6 +799,9 @@ class SafetyUI(QObject):
         self._ctl = None
         self._alarm_since: dict = {}
         self._job_t0 = 0.0
+        from ..services.operator import JobClock
+        self.clock = JobClock()             # elapsed / whole-job progress: run bar and Run screen
+        self.status = None                  # the RunStatus the run bar shows (services.operator)
         self._spoken_alarm: object = None      # the alarm / fault last announced (F7)
         self._spoken_state: Optional[str] = None
         self._spoken_running = False
@@ -742,6 +838,8 @@ class SafetyUI(QObject):
         hooks = getattr(window, "hooks", None)
         if hooks is not None:                 # services.plugins.Hooks: no method wrapping
             hooks.add("controller_changed", self.attach, "safety_ui")
+            # the run bar's controls hide on the Run workspace at once (its own set: W4)
+            hooks.add("workspace_changed", lambda _ws: self.refresh(), "safety_ui")
         else:  # pragma: no cover - a window without the services layer
             orig = getattr(window, "set_controller", None)
             if callable(orig):
@@ -827,7 +925,10 @@ class SafetyUI(QObject):
         self.w.statusBar().showMessage(self._busy_text)
 
     def _job_started(self, ev) -> None:
-        self._job_t0 = time.monotonic()
+        now = time.monotonic()
+        if not getattr(ev, "resume", False) or not self._job_t0:
+            self._job_t0 = now
+        self.clock.started(bool(getattr(ev, "resume", False)), now)
         self._set_filter(True)
 
     def _app_state(self, state) -> None:
@@ -836,6 +937,87 @@ class SafetyUI(QObject):
             panel = getattr(self.w, "control", None)
             if panel is not None and hasattr(panel, "release_jogs"):
                 panel.release_jogs("focus lost")
+
+    # ------------------------------------------------------------------ shared figures
+    def run_status(self, ms=None, st=None, alarms=None):
+        """The RunStatus of this moment (services.operator): the Run workspace's when it is
+        loaded (``hooks.provider("run_status")``: it knows the plan being run), else one built
+        here on the same :class:`~mlaser.services.operator.JobClock`."""
+        hooks = getattr(self.w, "hooks", None)
+        fn = hooks.provider("run_status") if hooks is not None else None
+        if fn is not None:
+            try:
+                return fn()
+            except Exception:  # noqa: BLE001 - a broken plugin never hides the run bar
+                log.exception("run_status provider failed")
+        from ..services.operator import run_status
+        ctl = self.w.ctl
+        try:
+            return run_status(ms if ms is not None else ctl.state(), st if st is not None else _safety(ctl),
+                              list(alarms if alarms is not None else (ctl.active_alarms or [])),
+                              getattr(self.w, "plan", None), 0.0, ctl.breakpoint, clock=self.clock)
+        except Exception:  # noqa: BLE001
+            return None
+
+    def _current_workspace(self) -> str:
+        host = getattr(getattr(self.w, "shell", None), "host", None)
+        return str(getattr(host, "current", "") or "")
+
+    def start_target_name(self) -> str:
+        """What Start runs: the open drawing's name (UX audit W18)."""
+        path = getattr(self.w, "path", None)
+        if path:
+            import os
+            return os.path.basename(path)
+        return _tr(self.w, "run.untitled", "(untitled)")
+
+    def queue_waiting(self) -> Optional[tuple[int, int, str]]:
+        """(n, total, name) of the queue's next job when the queue is idle with a job waiting;
+        None otherwise (the Run workspace's queue, ``hooks.provider("queue")``)."""
+        hooks = getattr(self.w, "hooks", None)
+        if hooks is None:
+            return None
+        qf, rf = hooks.provider("queue"), hooks.provider("queue_runner")
+        try:
+            q = qf() if qf is not None else None
+            r = rf() if rf is not None else None
+            if q is None or (r is not None and r.state != "idle"):
+                return None
+            nxt = q.next_entry()
+            if nxt is None:
+                return None
+            entries = list(q)
+            return entries.index(nxt) + 1, len(entries), nxt.name
+        except Exception:  # noqa: BLE001
+            return None
+
+    def run_queue(self) -> None:
+        """Start's menu: run the queue (the Run workspace: load the first sheet, then confirm)."""
+        hooks = getattr(self.w, "hooks", None)
+        rf = hooks.provider("queue_runner") if hooks is not None else None
+        r = rf() if rf is not None else None
+        if r is None or r.state != "idle":
+            return
+        show = getattr(self.w, "show_workspace", None)
+        if callable(show):
+            show("run")
+        r.begin()
+        self.refresh()
+
+    def open_connection(self) -> None:
+        """The OFFLINE banner's *Connect…*: Machine › Connection (UX audit O2)."""
+        show = getattr(self.w, "show_workspace", None)
+        if callable(show):
+            show("machine")
+        ext = self.w.extension("ext_machine") if hasattr(self.w, "extension") else None
+        ws = getattr(ext, "workspace", None)
+        if ws is not None:
+            ws.show_section("connection")
+
+    def open_safety_io(self) -> None:
+        """The interlock chip: the Safety I/O settings (UX audit W15)."""
+        from .safety_io import open_dialog
+        open_dialog(self.w)
 
     # ------------------------------------------------------------------ refresh
     def refresh(self) -> None:
@@ -847,7 +1029,7 @@ class SafetyUI(QObject):
             ms = ctl.state()
         except Exception:  # noqa: BLE001
             ms = None
-        self.banner.refresh(st)
+        self.banner.refresh(st, ms)
         alarms = list(ctl.active_alarms or [])
         now = time.time()
         codes = {getattr(a, "code", str(a)) for a in alarms}
@@ -857,18 +1039,27 @@ class SafetyUI(QObject):
             if c not in codes:
                 del self._alarm_since[c]
         show = self.alarm.refresh(alarms, st, self._alarm_since)
-        if show != self.alarm_bar.isVisible():
-            self.alarm_bar.setVisible(show)
+        # the Run screen shows the alarm once, in its state block with Reset alarm (UX audit
+        # W11): the banner would repeat it there
+        on_run = self._current_workspace() == "run" and self.w.extension("run") is not None \
+            if hasattr(self.w, "extension") else False
+        visible = show and not on_run
+        if visible != self.alarm_bar.isVisible():
+            self.alarm_bar.setVisible(visible)
         running = job_running(self.w)
         self._announce(st, alarms, show, running)
         self._set_filter(running)
         keep_awake(running)                 # no idle system sleep while a job runs (macOS, Windows)
+        # one RunStatus for the run bar and the Run screen (UX audit W10): the Run workspace's
+        # (it knows the plan being run) when it is loaded, else one from the same clock
+        status = self.run_status(ms, st, alarms)
+        self.status = status
         eta = ""
-        if running and ms is not None and ms.progress > 0.02 and self._job_t0:
-            el = time.monotonic() - self._job_t0
-            left = el * (1.0 - ms.progress) / ms.progress
-            eta = f"{int(el // 60)}:{int(el % 60):02d} / ETA {int(left // 60)}:{int(left % 60):02d}"
-        self.run_bar.refresh(st, ms, running, eta)
+        if status is not None and (running or status.mode):
+            from ..services.operator import fmt_duration
+            eta = self.run_bar._times_text(fmt_duration(status.elapsed_s), fmt_duration(status.eta_s))
+        self.run_bar.set_controls_shown(self._current_workspace() != "run")
+        self.run_bar.refresh(st, ms, running, eta, status)
         self._status_override(st, alarms, ms)
         panel = getattr(self.w, "control", None)
         if panel is not None and hasattr(panel, "safety_refresh"):

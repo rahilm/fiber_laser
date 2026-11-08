@@ -691,9 +691,10 @@ class MainWindow(QMainWindow):
                         ("st_cursor", self.st_da)):
             w.setObjectName(name)
         self.st_pd.hide()
-        for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd):
-            sb.addWidget(w)
-        sb.addPermanentWidget(self.st_da)
+        # permanent widgets: a transient message (showMessage) never hides or overprints the
+        # machine's state or the head position (UX audit W13); it takes the room on the left
+        for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd, self.st_da):
+            sb.addPermanentWidget(w)
         self._status_fit = _StatusFit(sb, [self.st_mc, self.st_zf, self.st_lf, self.st_pd],
                                       [self.st_xy, self.st_cv, self.st_da])
         self.tr_.bind(self.st_da, "status.cursor_tip", self.st_da.setToolTip)
@@ -1306,12 +1307,22 @@ class MainWindow(QMainWindow):
         else:
             super().dropEvent(ev)
 
-    def _status_position(self, st) -> None:
-        """Machine position and speed in the status bar, in the display units."""
+    _ever_connected = False
+
+    def _status_position(self, st, stale: bool = False) -> None:
+        """Machine position and speed in the status bar, in the display units; ``stale``: the
+        link is lost, the last known position, greyed and marked."""
         self._last_status = st
         u = _units.current()
-        self.st_xy.setText(self.tr_.format("status.head", x=u.number(st.x, 'length'), y=u.number(st.y, 'length'),
-                                           z=u.number(st.z, 'length'), unit=u.suffix('length')))
+        text = self.tr_.format("status.head", x=u.number(st.x, 'length'), y=u.number(st.y, 'length'),
+                               z=u.number(st.z, 'length'), unit=u.suffix('length'))
+        if stale:
+            text = self.tr_.format("status.last_known", value=text)
+        if self.st_xy.text() != text:
+            self.st_xy.setText(text)
+        if bool(self.st_xy.property("stale")) != stale:
+            self.st_xy.setProperty("stale", stale)
+            style.styled(self.st_xy, (lambda: f"color:{style.css('muted')};") if stale else (lambda: ""))
         self.st_cv.setText(self.tr_.format("status.speed_value", speed=u.fmt(st.speed, "speed", decimals=1)))
 
     def _show_mouse_xy(self, x: float, y: float) -> None:
@@ -1772,9 +1783,16 @@ class MainWindow(QMainWindow):
         self.st_mc.show_state(t("status.dev.motion"), t(self._MC.get(st.mode, "mp22")), st.mode == "offline")
         self.st_zf.show_state(t("status.dev.follower"), t(self._ZF.get(st.ftc, "mp23")), st.ftc == "offline")
         self.st_zf.setVisible(st.ftc != "offline")         # no follower reporting: no chip
-        self.st_lf.show_state(t("status.dev.laser"), t("mp25" if st.laser == "ready" else "mp24"),
-                              st.laser != "ready")
-        self._status_position(st)
+        # the laser source's own state (its power / ready signal), named so it is not read as
+        # "the laser may fire" (UX audit W2); on a lost link: the last known value, muted
+        if st.connected:
+            self._ever_connected = True
+        stale = not st.connected and self._ever_connected
+        src = t("status.laser_source.on" if st.laser == "ready" else "status.laser_source.off")
+        if stale:
+            src = self.tr_.format("status.last_known", value=src)
+        self.st_lf.show_state(t("status.dev.laser_source"), src, st.laser != "ready" or not st.connected)
+        self._status_position(st, stale)
         if not self.canvas.simulation_running():
             self.canvas.set_head_position(st.x, st.y)
         if st.mode in ("process", "dry_run", "frame"):

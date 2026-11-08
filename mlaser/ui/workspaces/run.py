@@ -36,7 +36,7 @@ from typing import Any, Optional
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
-                               QHeaderView, QLabel, QListWidget, QListWidgetItem, QMessageBox,
+                               QHeaderView, QLabel, QMessageBox,
                                QProgressBar, QPushButton, QSizePolicy, QSpinBox, QTableWidget,
                                QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -58,10 +58,6 @@ from . import trn
 
 log = logging.getLogger("mlaser.ui.run")
 
-#: background, text of each run state: the safety colour table (safety_ui.COLORS), the same as
-#: the run bar's pill and the banner (colour is never the only cue: text + icon too)
-STATE_COLORS = {k: style.state_colors(k.upper()) for k in
-                ("offline", "ready", "running", "hold", "fault", "alarm", "armed")}
 STATE_TEXT = {"offline": ("run.state.offline", "OFFLINE"), "ready": ("run.state.ready", "READY"),
               "running": ("run.state.running", "RUNNING"), "hold": ("run.state.hold", "HOLD"),
               "fault": ("run.state.fault", "FAULT"), "alarm": ("run.state.alarm", "ALARM")}
@@ -336,8 +332,10 @@ class RunCanvas(QWidget):
                 p.setBrush(pal.color(QPalette.AlternateBase))
                 p.drawRect(QRectF(x0, y0, x1 - x0, y1 - y0))
             p.setBrush(Qt.NoBrush)
-            done_pen = QPen(pal.color(QPalette.Mid), 0)
-            cur_col = QColor(CANVAS_COLORS["track"])
+            # done parts grey, the part being cut in the accent colour (never the alarm red:
+            # UX audit O8), the rest in their layer colour
+            done_pen = QPen(self.done_color(), 0)
+            cur_col = self.current_color()
             for i, layer, path in self._paths:
                 if i in self.done:
                     p.setPen(done_pen)
@@ -356,8 +354,39 @@ class RunCanvas(QWidget):
                 p.setPen(QPen(pal.color(QPalette.Base), 1.5 / s))
                 p.setBrush(QColor(CANVAS_COLORS["head"]))
                 p.drawEllipse(QPointF(*self.head), r, r)
+            p.resetTransform()
+            self._legend(p)
         finally:
             p.end()
+
+    @staticmethod
+    def done_color() -> QColor:
+        return style.color("muted")
+
+    @staticmethod
+    def current_color() -> QColor:
+        return style.color("accent")
+
+    def legend_items(self) -> list[tuple[str, QColor]]:
+        w = self.window()
+        return [(tr(w, "run.legend.done", "Done"), self.done_color()),
+                (tr(w, "run.legend.current", "Cutting now"), self.current_color()),
+                (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text))]
+
+    def _legend(self, p: QPainter) -> None:
+        """A small legend in the bottom-left corner: what grey, the accent and the layer
+        colours mean (O8)."""
+        fm = p.fontMetrics()
+        x, y = style.SP2, self.height() - style.SP2 - fm.height()
+        pal = self.palette()
+        for text, col in self.legend_items():
+            sw = style.SP3
+            p.setPen(QPen(col, 3))
+            p.drawLine(x, y + fm.height() // 2, x + sw, y + fm.height() // 2)
+            x += sw + style.SP1
+            p.setPen(pal.color(QPalette.Text))
+            p.drawText(x, y + fm.ascent(), text)
+            x += fm.horizontalAdvance(text) + style.SP3
 
 
 # ============================================================================== queue panel
@@ -550,26 +579,51 @@ class OperatorScreen(QWidget):
         self.setObjectName("run_workspace")
         root = style.vbox(self, "dense")
 
-        # --- header: state, reason, counters, progress, times
+        # --- header: the state block (the machine state with its icon, the reason, and while an
+        # alarm or a fault is active its remedy with Reset alarm and Details: never below the
+        # fold, UX audit W11), counters, progress, times
         head = QFrame()
         head.setObjectName("run_header")
         hl = QGridLayout(head)
         hl.setContentsMargins(0, 0, 0, 0)
-        self.state = QLabel()
-        self.state.setObjectName("run_state_big")
-        self.state.setAlignment(Qt.AlignCenter)
-        self.state.setMinimumSize(220, 72)
-        style.set_font(self.state, "display_run")
-        hl.addWidget(self.state, 0, 0, 2, 1)
+        from ..state_display import StateBadge
+        self.state_block = QFrame()
+        self.state_block.setObjectName("run_state_block")
+        self.state_block.setAttribute(Qt.WA_StyledBackground, True)
+        sb = style.hbox(self.state_block, "tight")
+        self.state = StateBadge("run_state_big", role="display_run", icon_px=style.ICON_L + style.SP2)
+        self.state.setMinimumWidth(style.SP5 * 6)
+        sb.addWidget(self.state)
+        texts = QVBoxLayout()
+        texts.setContentsMargins(0, 0, 0, 0)
+        texts.setSpacing(style.SP1)
         self.reason = QLabel()
         self.reason.setObjectName("run_reason")
         self.reason.setWordWrap(True)
         style.set_font(self.reason, "title")
-        hl.addWidget(self.reason, 0, 1, 1, 2)
+        texts.addWidget(self.reason)
+        self.remedy = QLabel()
+        self.remedy.setObjectName("run_remedy")
+        self.remedy.setWordWrap(True)
+        self.remedy.setVisible(False)
+        texts.addWidget(self.remedy)
+        sb.addLayout(texts, 1)
+        self.reset_btn = _big(QPushButton(tr(w, "run.btn.reset", "Reset alarm")), TOUCH_MIN)
+        self.reset_btn.setObjectName("run_reset")
+        self.reset_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.reset_btn.clicked.connect(lambda: self._ui("reset_fault"))
+        self.details_btn = _big(QPushButton(tr(w, "run.btn.details", "Details")), TOUCH_MIN, role="body")
+        self.details_btn.setObjectName("run_details")
+        self.details_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+        self.details_btn.clicked.connect(lambda: self._ui("alarm_details"))
+        for x in (self.reset_btn, self.details_btn):
+            x.setVisible(False)
+            sb.addWidget(x, 0, Qt.AlignVCenter)
+        hl.addWidget(self.state_block, 0, 0, 1, 3)
         self.counters = QLabel()
         self.counters.setObjectName("run_counters")
         style.set_font(self.counters, "title")
-        hl.addWidget(self.counters, 1, 1)
+        texts.addWidget(self.counters)          # in the block: the header is as tall as before
         self.monitor_chip = QLabel()
         self.monitor_chip.setObjectName("run_monitor_chip")
         style.chip(self.monitor_chip, "warning")
@@ -583,7 +637,7 @@ class OperatorScreen(QWidget):
         chips.addStretch(1)
         chips.addWidget(self.api_chip)
         chips.addWidget(self.monitor_chip)
-        hl.addLayout(chips, 1, 2)
+        hl.addLayout(chips, 1, 0, 1, 3)
         self.progress = QProgressBar()
         self.progress.setObjectName("run_progress")
         self.progress.setRange(0, 1000)
@@ -629,32 +683,6 @@ class OperatorScreen(QWidget):
         style.set_font(self.values, "title")
         self.values.setWordWrap(True)
         left.addWidget(self.values)
-        self.alarm_box = QFrame()
-        self.alarm_box.setObjectName("run_alarms")
-        self.alarm_box.setFrameShape(QFrame.StyledPanel)
-        ab = QVBoxLayout(self.alarm_box)
-        self.alarm_title = QLabel()
-        self.alarm_title.setObjectName("run_alarm_title")
-        style.set_font(self.alarm_title, "title")
-        style.styled(self.alarm_title, lambda: f"color:{style.css('danger')};")
-        ab.addWidget(self.alarm_title)
-        self.alarm_list = QListWidget()
-        self.alarm_list.setObjectName("run_alarm_list")
-        self.alarm_list.setWordWrap(True)
-        self.alarm_list.setMaximumHeight(150)
-        ab.addWidget(self.alarm_list)
-        arow = QHBoxLayout()
-        self.reset_btn = _big(QPushButton(tr(w, "run.btn.reset", "Reset alarm")), TOUCH_MIN)
-        self.reset_btn.setObjectName("run_reset")
-        self.reset_btn.clicked.connect(lambda: self._ui("reset_fault"))
-        self.details_btn = _big(QPushButton(tr(w, "run.btn.details", "Details")), TOUCH_MIN, role="body")
-        self.details_btn.setObjectName("run_details")
-        self.details_btn.clicked.connect(lambda: self._ui("alarm_details"))
-        arow.addWidget(self.reset_btn)
-        arow.addWidget(self.details_btn)
-        ab.addLayout(arow)
-        self.alarm_box.setVisible(False)            # refresh() shows it while alarms are active
-        left.addWidget(self.alarm_box)
         body.addLayout(left, 1)
 
         # --- right: the big targets (ui/responsive.py ColumnsPanel): STOP, Hold / Start,
@@ -694,8 +722,10 @@ class OperatorScreen(QWidget):
                 lay.addWidget(x)
             return box
 
+        # the run bar's order (Start | Hold | STOP | Frame | Dry run | Arm), also for the keyboard;
+        # the run bar shows only its state and progress here: one set of run controls (W4)
+        self.controls.add_pinned(row(run("start", int(TOUCH * 1.2), "title"), run("hold", int(TOUCH * 1.2), "title")))
         self.controls.add_pinned(run("stop", int(TOUCH * 1.4), "display"))
-        self.controls.add_pinned(row(run("hold", int(TOUCH * 1.2), "title"), run("start", int(TOUCH * 1.2), "title")))
         self.controls.add_pinned(row(run("frame", TOUCH, "label_strong"), run("dry_run", TOUCH, "label_strong")))
         self.controls.add_pinned(run("arm", TOUCH, "label_strong"))
         resume = row(add("resume_here", "run.btn.resume_here", "Here", lambda: self.resume("exact"), TOUCH_MIN,
@@ -787,23 +817,31 @@ class OperatorScreen(QWidget):
         w = self.ws.window
         s = self.ws.status()
         self.status = s
-        # state
-        key, default = STATE_TEXT[s.kind]
-        if s.kind == "ready" and s.armed:
-            label = tr(w, "run.state.label_armed", "{icon}  {state}  ·  {armed}", icon=s.icon,
-                       state=tr(w, key, default), armed=tr(w, "shell.chip.armed", "ARMED"))
-        else:
-            label = tr(w, "run.state.label", "{icon}  {state}", icon=s.icon, state=tr(w, key, default))
-        if self.state.text() != label:
-            self.state.setText(label)
-        # READY while armed shows the ARMED colour (the laser can fire: never the calm blue)
-        look = "armed" if s.kind == "ready" and s.armed else s.kind
-        if look != self._kind:
-            bg, fg = STATE_COLORS[look]
-            self.state.setStyleSheet(f"background:{bg};color:{fg};border-radius:{style.SP2}px;"
-                                     f"padding:{style.SP1}px {style.SP3}px;")
-            self._kind = look
-        self.reason.setText(self.ws.reason_text(s))
+        # state: the machine axis (state_display), with its icon, on the state colours
+        from .. import state_display as SD
+        ms = self.ws.machine_state()
+        ctl = w.ctl
+        kind = SD.machine_state(ctl.safety(), ms, s.alarms, ctl)
+        if kind not in ("not_homed", "estop"):
+            kind = s.kind                      # the RunStatus's state (its reason matches it)
+        word = SD.machine_label(w, kind)
+        if kind == "ready" and s.armed:
+            word = tr(w, "run.state.label_armed", "{state}  ·  {armed}", state=word,
+                      armed=SD.laser_label(w, "armed"))
+        # READY while armed shows the ARMED colour (the laser can fire: never the calm look)
+        look = "ARMED" if kind == "ready" and s.armed else SD.colour_key("machine", kind)
+        self.state.set_state(kind, look, word, SD.axis_label(w, "machine"))
+        bg, fg = style.state_colors(look)
+        qss = (f"QFrame#run_state_block{{background:{bg};border-radius:{style.SP2}px;}}"
+               f"QFrame#run_state_block QLabel{{color:{fg};background:transparent;}}")
+        if qss != self._kind:
+            self.state_block.setStyleSheet(qss)
+            self._kind = qss
+        reason = self.ws.reason_text(s)
+        if kind == "not_homed":
+            reason = tr(w, "run.reason.not_homed", "Not homed: home X and Y before you start")
+        if self.reason.text() != reason:
+            self.reason.setText(reason)
         b = getattr(w, "safety_io", None)
         note = b.notice_text() if b is not None else ""
         if note != self.safety_notice.text():
@@ -820,12 +858,14 @@ class OperatorScreen(QWidget):
             bits.append(tr(w, "run.count.part", "part {n}/{total}", n=s.part, total=s.parts))
         if s.contours:
             bits.append(tr(w, "run.count.contour", "contour {n}/{total}", n=s.contour, total=s.contours))
-        self.counters.setText("  ·  ".join(bits) or self.ws.job_name())
         running = s.kind in ("running", "hold") or s.mode != ""
+        # idle: what Start will run (UX audit W18)
+        self.counters.setText("  ·  ".join(bits) or tr(w, "run.start_target", "Start: {name}", name=self.ws.job_name()))
         p = s.progress if running else 0.0
         self.progress.setValue(int(round(p * 1000)))
         self.progress.setFormat(f"{p * 100:.0f} %" if running else "")
-        self.times.setText(tr(w, "run.times", "elapsed {elapsed}   ETA {eta}",
+        # the run bar's figures (one RunStatus, one clock: UX audit W10)
+        self.times.setText(tr(w, "run.times", "Elapsed {elapsed}   ETA {eta}",
                               elapsed=fmt_duration(s.elapsed_s) if running else "-",
                               eta=fmt_duration(s.eta_s) if running else "-"))
         # process values
@@ -838,12 +878,20 @@ class OperatorScreen(QWidget):
                 tr(w, "run.val.height", "Height {v}", v=u.fmt(s.height_mm, "length", missing=dash)),
                 tr(w, "run.val.position", "X {x}  Y {y}  Z {z} {unit}", x=u.number(s.x, "length"),
                    y=u.number(s.y, "length"), z=u.number(s.z, "length"), unit=u.suffix("length"))]
-        self.values.setText("    ".join(vals))
+        connected = bool(ms is not None and ms.connected)
+        text = "    ".join(vals)
+        stale = not connected and self.ws.ever_connected
+        if stale:
+            # the link is lost: the last values the card reported, greyed and marked (W2)
+            text = tr(w, "run.val.last_known", "{values}   (last known)", values=text)
+        if self.values.text() != text:
+            self.values.setText(text)
+        if bool(self.values.property("stale")) != stale:
+            self.values.setProperty("stale", stale)
+            style.styled(self.values, (lambda: f"color:{style.css('muted')};") if stale else (lambda: ""))
         # alarms
         self._alarms(s)
         # buttons (the same rules as the run bar)
-        ms = self.ws.machine_state()
-        connected = bool(ms is not None and ms.connected)
         fault = s.kind == "fault"
         job = self.ws.job_running()
         paused = ms is not None and ms.mode == "pause"
@@ -928,31 +976,31 @@ class OperatorScreen(QWidget):
                                  (s.x, s.y) if connected else None)
 
     def _alarms(self, s: RunStatus) -> None:
+        """The alarm or fault, once, in the state block: the reason line is its title, the
+        remedy below it, Reset alarm and Details (the full list) beside it: never below the
+        fold (UX audit W11)."""
         w = self.ws.window
         ctl = w.ctl
         st = ctl.safety()
         alarms = list(ctl.active_alarms or [])
-        items: list[str] = []
         tr_obj = getattr(w, "tr_", None)
+        rem = ""
         if st.banner == "FAULT":
-            items.append(tr(w, "run.alarm.fault_item", "FAULT: {fault}\nRemedy: {remedy}", fault=st.fault,
-                            remedy=remedy(st.fault, tr_obj)))
-        for a in alarms:
-            text = a.text(tr_obj) if hasattr(a, "text") else str(a)
-            since = self.ws.alarm_since.get(getattr(a, "code", str(a)))
-            t = time.strftime("%H:%M:%S", time.localtime(since)) if since else ""
-            items.append(tr(w, "run.alarm.alarm_item", "ALARM {code}: {text}   {time}\nRemedy: {remedy}",
-                            code=getattr(a, "code", ""), text=text, time=t, remedy=remedy(a, tr_obj)))
-        show = bool(items)
-        self.alarm_box.setVisible(show)
+            rem = remedy(st.fault, tr_obj)
+        elif alarms:
+            rem = remedy(alarms[0], tr_obj)
+            if len(alarms) > 1:
+                rem = tr(w, "run.alarm.more", "{remedy}\n(+{n} more: see Details)", remedy=rem, n=len(alarms) - 1)
+        show = st.banner == "FAULT" or bool(alarms)
+        text = tr(w, "safety.alarm.remedy", "Remedy: {text}", text=rem) if show else ""
+        if self.remedy.text() != text:
+            self.remedy.setText(text)
+        for x in (self.remedy, self.reset_btn, self.details_btn):
+            if x.isVisibleTo(self) != show:
+                x.setVisible(show)
         if show:
-            self.alarm_title.setText(trn(w, "run.alarm.title", len(items)))
-            cur = [self.alarm_list.item(i).text() for i in range(self.alarm_list.count())]
-            if cur != items:
-                self.alarm_list.clear()
-                for text in items:
-                    QListWidgetItem(text, self.alarm_list)
             self.reset_btn.setEnabled(True)
+        style.set_enabled(self.details_btn, bool(alarms) or st.banner == "FAULT", "")
 
 
 # ============================================================================== workspace
@@ -994,6 +1042,7 @@ class RunWorkspace:
         self._sheet_doc: Any = None
         self._entry_docs: dict = {}          # path -> (mtime, document): the next sheet's picture
         self.alarm_since: dict = {}
+        self.ever_connected = False          # a lost link shows the last values as "last known"
         self._unsub: list = []
         self._attached: Any = None
         self.screen = OperatorScreen(self)
@@ -1005,6 +1054,7 @@ class RunWorkspace:
         ctx.provide("intake", lambda: self.intake)
         ctx.provide("remnants", lambda: self.remnants)
         ctx.provide("queue_runner", lambda: self.runner)
+        ctx.provide("run_status", self.status)     # the run bar's figures (safety_ui.run_status)
         ctx.on_controller_changed(lambda _c: self.attach())
         ctx.on_close(self.close)
         self.attach()
@@ -1086,10 +1136,15 @@ class RunWorkspace:
             self.alarm_since.setdefault(c, now)
         for c in [c for c in self.alarm_since if c not in codes]:
             del self.alarm_since[c]
+        if ms is not None and ms.connected:
+            self.ever_connected = True
         running = ms is not None and (ms.mode in ("process", "dry_run", "frame", "pause") or ctl.breakpoint is not None)
         plan = self._run_plan if running and self._run_plan is not None else getattr(self.window, "plan", None)
         elapsed = now - self._job_t0 if running and self._job_t0 else 0.0
-        return run_status(ms, st, alarms, plan, elapsed, ctl.breakpoint)
+        # the safety UI's clock: the run bar and this screen show the same elapsed time and the
+        # whole job's progress (it never goes backwards after Continue: UX audit W10)
+        clock = getattr(getattr(self.window, "safety_ui", None), "clock", None)
+        return run_status(ms, st, alarms, plan, elapsed, ctl.breakpoint, clock=clock)
 
     def reason_text(self, s: RunStatus) -> str:
         default = REASONS.get(s.reason, s.reason)

@@ -9,11 +9,14 @@ job markers, and the live process values of the layer being cut.
 from __future__ import annotations
 
 import math
+import time
 from dataclasses import dataclass, field
 from typing import Any, Optional
 
 GAS_NAMES = {0: "Air", 1: "O2", 2: "N2", 3: "Air HP", 4: "O2 HP", 5: "N2 HP"}
 KINDS = ("offline", "ready", "running", "hold", "fault", "alarm")
+#: text glyphs of the states for the LAN monitor's HTML page only; the Qt UI draws SVG icons
+#: (:data:`mlaser.ui.icons.STATE_ICONS`, UX audit O7: font glyphs rendered as missing or as emoji)
 ICONS = {"offline": "○", "ready": "●", "running": "▶", "hold": "⏸", "fault": "⚠", "alarm": "⚠"}
 
 
@@ -55,6 +58,36 @@ class RunStatus:
         return self.kind == "running"
 
 
+class JobClock:
+    """Elapsed time and whole-job progress of the job being run: the one source of the run
+    bar's and the Run screen's figures (UX audit W10).
+
+    A held job continues as a new job from its breakpoint (``JobStarted.resume``) whose own
+    progress starts at 0 again: the clock keeps the start time and maps the resumed job's
+    progress onto what was left, so the whole job's progress never goes backwards."""
+
+    def __init__(self) -> None:
+        self.t0 = 0.0                 # monotonic start of the job (0: none yet)
+        self.offset = 0.0             # the whole job's progress when the resumed part started
+        self.last = 0.0               # the highest whole-job progress shown
+
+    def started(self, resume: bool, now: float) -> None:
+        if resume and self.t0:
+            self.offset = self.last
+        else:
+            self.t0, self.offset, self.last = now, 0.0, 0.0
+
+    def whole(self, progress: float) -> float:
+        """The whole job's progress (0..1) for the running part's ``progress``; never lower
+        than what was shown before within the same job."""
+        p = max(0.0, min(1.0, float(progress or 0.0)))
+        self.last = max(self.last, self.offset + (1.0 - self.offset) * p)
+        return self.last
+
+    def elapsed(self, now: float) -> float:
+        return max(0.0, now - self.t0) if self.t0 else 0.0
+
+
 def marker_position(plan: Any, k: int) -> tuple[int, int, int, int, int, tuple]:
     """``(contour, contours, part ordinal, parts, part index, done parts)`` for marker ``k``
     of ``plan.job.markers`` (``(wire index, part, contour)`` per contour)."""
@@ -91,9 +124,11 @@ def estimate_remaining(progress: float, elapsed_s: float, estimate_s: float) -> 
 
 
 def run_status(ms: Any, st: Any, alarms: list, plan: Any = None, elapsed_s: float = 0.0,
-               breakpoint: Any = None) -> RunStatus:
+               breakpoint: Any = None, clock: Optional[JobClock] = None, now: Optional[float] = None) -> RunStatus:
     """The operator view of one moment.  ``ms``: ``MachineState`` (or None), ``st``:
-    ``SafetyStatus`` (or None), ``plan``: the PlannedJob being run (or the preview)."""
+    ``SafetyStatus`` (or None), ``plan``: the PlannedJob being run (or the preview).  With a
+    ``clock`` (:class:`JobClock`) the elapsed time is the clock's (at ``now``, monotonic) and the
+    progress is the whole job's."""
     r = RunStatus()
     if st is not None:
         r.armed = bool(getattr(st, "armed", False))
@@ -135,6 +170,9 @@ def run_status(ms: Any, st: Any, alarms: list, plan: Any = None, elapsed_s: floa
         r.mode = mode if running else ("process" if breakpoint is None else getattr(breakpoint, "mode", "process"))
         r.progress = float(getattr(ms, "progress", 0.0) or 0.0) if ms is not None else 0.0
         r.elapsed_s = max(0.0, elapsed_s)
+        if clock is not None:
+            r.progress = clock.whole(r.progress)
+            r.elapsed_s = clock.elapsed(time.monotonic() if now is None else now)
         est = 0.0
         if plan is not None:
             try:
@@ -176,5 +214,5 @@ def fmt_duration(s: Optional[float]) -> str:
     return f"{h}:{m:02d}:{x:02d}" if h else f"{m}:{x:02d}"
 
 
-__all__ = ["RunStatus", "run_status", "marker_position", "estimate_remaining", "fmt_duration",
+__all__ = ["RunStatus", "JobClock", "run_status", "marker_position", "estimate_remaining", "fmt_duration",
            "GAS_NAMES", "KINDS", "ICONS"]

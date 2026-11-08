@@ -17,8 +17,10 @@ palette.  A theme decides
   layer colours adjusted for contrast against the canvas background
   (:func:`.contrast.adjust_palette`: at least 3:1, WCAG 1.4.11, and still distinguishable).
 
-The choice is persisted in the ConfigService (``shell.theme``).  The safety banners keep their
-own fixed colours in every theme (docs/SAFETY.md): they always carry the state as text too.
+The choice is persisted in the ConfigService (``shell.theme``).  The machine and laser state
+colours (:data:`STATE_TOKENS`: neutral for normal states, amber ARMED, red ALARM, dark red FAULT)
+have a light, a dark and a high-contrast set; the state is always written out with an icon too
+(docs/SAFETY.md).
 """
 from __future__ import annotations
 
@@ -99,6 +101,46 @@ THEMES: dict[str, dict[str, str]] = {
         "c_lead_in": "#ff40ff", "c_lead_out": "#c9a0ff", "c_kerf": "#ffd740", "c_pierce": "#ff40ff",
     },
 }
+#: the machine and laser state colours, (fill, text) per state and theme (ISA-101 style, UX audit
+#: W1): normal states (offline, not homed, ready, running, hold, disarmed, dry run, simulator) are
+#: neutral greys and slates; ARMED is the amber hazard colour; ALARM / E-STOP red; FAULT dark red.
+#: Red is never a normal state, and the only red control is STOP (``danger_fill``).  Every text
+#: colour reads at >= 4.5:1 on its fill (tests/test_state_display.py); the state is always written
+#: out with an icon too, never colour alone.
+_NEUTRAL = {LIGHT: ("#e3e7ed", "#1d2127"), DARK: ("#353a42", "#e6e8eb"), HIGH_CONTRAST: ("#000000", "#ffffff")}
+STATE_TOKENS: dict[str, dict[str, tuple[str, str]]] = {
+    LIGHT: {
+        "READY": _NEUTRAL[LIGHT], "DISARMED": _NEUTRAL[LIGHT], "DRY-RUN": _NEUTRAL[LIGHT],
+        "SIMULATOR": _NEUTRAL[LIGHT], "HOLD": _NEUTRAL[LIGHT], "NOT-HOMED": _NEUTRAL[LIGHT],
+        "OFFLINE": ("#c9ced6", "#1d2127"), "RUNNING": ("#3d4450", "#ffffff"),
+        "ARMED": ("#f5b400", "#1d2127"), "ALARM": ("#c62828", "#ffffff"), "E-STOP": ("#c62828", "#ffffff"),
+        "FAULT": ("#7f0000", "#ffffff"),
+    },
+    DARK: {
+        "READY": _NEUTRAL[DARK], "DISARMED": _NEUTRAL[DARK], "DRY-RUN": _NEUTRAL[DARK],
+        "SIMULATOR": _NEUTRAL[DARK], "HOLD": _NEUTRAL[DARK], "NOT-HOMED": _NEUTRAL[DARK],
+        "OFFLINE": ("#2a2e34", "#c4c9d1"), "RUNNING": ("#4b5568", "#ffffff"),
+        "ARMED": ("#ffb300", "#000000"), "ALARM": ("#c62828", "#ffffff"), "E-STOP": ("#c62828", "#ffffff"),
+        "FAULT": ("#8e0000", "#ffffff"),
+    },
+    HIGH_CONTRAST: {
+        "READY": _NEUTRAL[HIGH_CONTRAST], "DISARMED": _NEUTRAL[HIGH_CONTRAST], "DRY-RUN": _NEUTRAL[HIGH_CONTRAST],
+        "SIMULATOR": _NEUTRAL[HIGH_CONTRAST], "HOLD": _NEUTRAL[HIGH_CONTRAST], "NOT-HOMED": _NEUTRAL[HIGH_CONTRAST],
+        "OFFLINE": ("#000000", "#d0d0d0"), "RUNNING": ("#ffffff", "#000000"),
+        "ARMED": ("#ffd400", "#000000"), "ALARM": ("#d50000", "#ffffff"), "E-STOP": ("#d50000", "#ffffff"),
+        "FAULT": ("#7f0000", "#ffffff"),
+    },
+}
+#: the states that are not normal operation (they get a colour; every other state is neutral)
+ABNORMAL_STATES = ("ARMED", "ALARM", "E-STOP", "FAULT")
+
+
+def state_tokens(theme: str, kind: str) -> tuple[str, str]:
+    """(fill, text) of the machine / laser state ``kind`` (``READY``, ``ARMED``...) in ``theme``."""
+    t = STATE_TOKENS.get(effective(theme), STATE_TOKENS[LIGHT])
+    return t.get(kind, t["OFFLINE"])
+
+
 #: minimum contrast of the layer colours against the canvas (WCAG 1.4.11 asks 3:1; the high
 #: contrast theme asks more)
 LAYER_MIN_CONTRAST = {LIGHT: 3.0, DARK: 3.0, HIGH_CONTRAST: 4.5}

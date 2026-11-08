@@ -360,8 +360,9 @@ def test_chips_carry_text(win, app):
     assert win.ctl.arm()
     win.safety_ui.refresh()
     sh._poll()
-    # ARMED is the banner's; the second state (on the simulator) is a chip
-    assert banner.kind == "ARMED" and chips["ARMED"].isHidden() and not chips["SIMULATOR"].isHidden()
+    # ARMED is the banner's, and so is "· simulator" in its text: no chip repeats them (W2)
+    assert banner.kind == "ARMED" and chips["ARMED"].isHidden() and chips["SIMULATOR"].isHidden()
+    assert "simulator" in banner.label.text()
     assert chips["DISARMED"].isHidden()
     win.ctl.raise_fault("test fault")
     win.safety_ui.refresh()

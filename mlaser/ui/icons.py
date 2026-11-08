@@ -135,6 +135,17 @@ COMMAND_COLORS: dict[str, str] = {
 }
 
 
+#: the machine and laser states (state banner, run bar pill, top-bar chips, Run screen): an SVG
+#: icon with the state's text, never a font glyph (UX audit O7: "⏸" rendered as a missing glyph
+#: or an emoji) and never colour alone
+STATE_ICONS: dict[str, str] = {
+    "offline": "plug-connected-x", "not_homed": "home-question", "ready": "circle-dot",
+    "running": "player-play", "hold": "player-pause", "alarm": "alert-triangle", "estop": "alert-triangle",
+    "fault": "circle-x", "armed": "triangle", "disarmed": "bolt-off", "dry_run": "route",
+    "simulator": "device-desktop", "interlock": "alert-triangle",
+}
+
+
 #: an icon file of a plugin (the manifest's ``icon``, ``ctx.icon``) is read up to this size
 MAX_ICON_FILE = 512 * 1024
 
@@ -243,7 +254,7 @@ def command_icon(cmd: str, name: Optional[str] = None) -> QIcon:
 def used_icon_names() -> set[str]:
     """Every icon name referenced by the UI (the set vendored in resources/icons/tabler)."""
     from . import ribbon_spec
-    names = set(COMMAND_ICONS.values())
+    names = set(COMMAND_ICONS.values()) | set(STATE_ICONS.values())
     for tab in ribbon_spec.TABS:
         for grp in tab.groups:
             names.update(b.icon for b in grp.buttons if b.icon)

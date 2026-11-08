@@ -4,7 +4,7 @@ from __future__ import annotations
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, Signal
+from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
@@ -407,6 +407,80 @@ class PartListPanel(QTreeWidget):
 
 
 # --------------------------------------------------------------------------- control
+#: the manual laser fires only after its button was held this long (UX audit W9)
+HOLD_TO_FIRE_S = 0.5
+
+
+class HoldToFireButton(QPushButton):
+    """"Fire laser (hold)": held for :data:`HOLD_TO_FIRE_S` (a bar fills along its bottom edge
+    meanwhile) it calls ``fire(True)``; released, ``fire(False)`` when it had fired.  A short
+    press does nothing.  Its own row and look, apart from the routine output toggles; the
+    enabling (armed only) is the panel's."""
+
+    def __init__(self, fire: Callable[[bool], None], parent=None) -> None:
+        super().__init__(parent)
+        self._fire = fire
+        self.fired = False
+        self._t0 = 0.0
+        self.progress = 0.0                  # 0..1 while held
+        self.setIcon(self._icon())
+        self.setIconSize(QSize(style.ICON_M, style.ICON_M))
+        from .responsive import keep_min_size
+        keep_min_size(self, QSize(0, style.TARGET_TOUCH))
+        self._timer = QTimer(self)
+        self._timer.setInterval(20)
+        self._timer.timeout.connect(self._tick)
+        self.pressed.connect(self._pressed)
+        self.released.connect(self._released)
+
+    @staticmethod
+    def _icon() -> QIcon:
+        from .icons import icon
+        return icon("bolt")
+
+    def _pressed(self) -> None:
+        self.cancel()
+        self._t0 = time.monotonic()
+        self._timer.start()
+
+    def _tick(self) -> None:
+        if not self.isDown() and not self.fired:
+            self.cancel()
+            return
+        self.progress = min(1.0, (time.monotonic() - self._t0) / HOLD_TO_FIRE_S)
+        if self.progress >= 1.0 and not self.fired:
+            self._timer.stop()
+            self.fired = True
+            self._fire(True)
+        self.update()
+
+    def _released(self) -> None:
+        self.cancel()
+
+    def cancel(self) -> None:
+        """Stop holding: the beam goes off when it had fired (release, disarm, focus loss)."""
+        self._timer.stop()
+        was = self.fired
+        self.fired = False
+        self.progress = 0.0
+        self.update()
+        if was:
+            self._fire(False)
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(ev)
+        if self.progress <= 0.0:
+            return
+        from PySide6.QtGui import QPainter
+        p = QPainter(self)
+        try:
+            h = style.SP1
+            p.fillRect(0, self.height() - h, int(self.width() * self.progress), h,
+                       style.color("danger" if self.fired else "warning"))
+        finally:
+            p.end()
+
+
 class ControlPanel(QWidget):
     """Machine control (mf141 "Run Control"); see facade.py for the lang keys of each button.
 
@@ -473,20 +547,24 @@ class ControlPanel(QWidget):
         iv = QVBoxLayout(io)
         iv.setContentsMargins(0, 0, 0, 0)
         outs = []
-        for name, key in (("follow", "mp41"), ("gas", "mp42"), ("shutter", "mp49"),
-                          ("red_light", "mp50"), ("laser", "mp51")):
-            if name == "laser":
-                # 激光 is a push button (CManuPanel +0x2153, FUN_005ad9f0): press = laser on
-                # (FUN_005b05c0), release = laser off when MC.PtLaserTime_ms is 0 (FUN_005b0630)
-                b = self._text_button(key, None)
-                b.pressed.connect(lambda: self.ctl.set_output("laser", True))
-                b.released.connect(lambda: self.ctl.set_output("laser", False))
-            else:
-                b = self._text_button(key, None, checkable=True)
-                b.toggled.connect(lambda on, nm=name: self.ctl.set_output(nm, on))
+        for name, key in (("follow", "mp41"), ("gas", "mp42"), ("shutter", "mp49"), ("red_light", "mp50")):
+            b = self._text_button(key, None, checkable=True)
+            b.toggled.connect(lambda on, nm=name: self.ctl.set_output(nm, on))
             self.buttons[f"out_{name}"] = b
             outs.append(b)
         iv.addWidget(flow(outs, uniform=True))
+        # 激光 is a push button (CManuPanel +0x2153, FUN_005ad9f0): press = laser on (FUN_005b05c0),
+        # release = laser off when MC.PtLaserTime_ms is 0 (FUN_005b0630).  Here it is apart from
+        # the output toggles, its own shape, "Fire laser (hold)", and it fires only after it was
+        # held for HOLD_TO_FIRE_S with the progress shown (UX audit W9); only while armed
+        fire = HoldToFireButton(lambda on: self.ctl.set_output("laser", on))
+        fire.setObjectName("mp51")
+        tr.bind(fire, "panel.fire_laser", fire.setText)
+        tr.bind(fire, "panel.fire_laser", fire.setAccessibleName)
+        tr.bind(fire, "panel.fire_laser.hint", fire.setAccessibleDescription)
+        self.buttons["mp51"] = fire
+        self.buttons["out_laser"] = fire
+        iv.addWidget(fire)
         self.gas_type = QComboBox()
         for k in GAS_KEYS:
             self.gas_type.addItem(tr.tr(k))
@@ -680,13 +758,17 @@ class ControlPanel(QWidget):
         armed = bool(getattr(st, "armed", False))
         b = self.buttons.get("out_laser")
         if b is not None:
-            # the fire button shows the danger role while it can fire; disabled, it says why
+            # the fire button shows the ARMED hazard look while it can fire; disabled, it says why
+            if not armed and getattr(b, "fired", False):
+                b.cancel()                   # disarmed while held: the beam goes off
             style.set_enabled(b, armed, self.tr_.tr("panel.laser_needs_arm"))
             style.set_tooltip(b, self.tr_.tr("panel.laser_fires") if armed else "")
             if bool(b.property("armed_look")) != armed:
                 b.setProperty("armed_look", armed)
-                style.styled(b, (lambda: f"QPushButton{{color:{style.css('danger')};font-weight:bold;"
-                                         f"border:2px solid {style.css('danger')};}}") if armed else (lambda: ""))
+                style.styled(b, (lambda: "QPushButton{{background:{0};color:{1};font-weight:bold;border-radius:{2}px;"
+                                         "border:2px solid {1};}}".format(*style.state_colors("ARMED"), style.SP2))
+                             if armed else (lambda: ""))
+        self._dock_enabling(st, ms)
         if ms is not None:
             for name in ("gas", "shutter", "red_light", "follow"):
                 bt = self.buttons.get(f"out_{name}")
@@ -697,9 +779,51 @@ class ControlPanel(QWidget):
                         bt.setChecked(on)
                         bt.blockSignals(False)
 
+    #: the panel's machine controls by what they need (UX audit W8): motion (jog, origin, home,
+    #: mark / return, set origin, step along the path), the outputs, Clear alarm, Simulate
+    MOTION = ("mp29", "mp29_1", "mp30", "mp39", "af10", "mf514", "mp61", "mp62")
+    OUTPUTS = ("out_follow", "out_gas", "out_shutter", "out_red_light")
+
+    def _dock_enabling(self, st, ms) -> None:
+        """The run bar's kind of rules, with the reason as the tooltip: nothing that talks to
+        the card while offline, nothing that moves or switches while a fault is latched (only
+        Clear alarm), no motion while a job runs (held: stepping along the path is allowed).
+        Only ever stricter than the controller's own checks."""
+        t = self.tr_.tr
+        connected = bool(ms is not None and getattr(ms, "connected", False))
+        fault = st is not None and getattr(st, "banner", "") == "FAULT"
+        mode = getattr(ms, "mode", "") if ms is not None else ""
+        running = mode in ("process", "dry_run", "frame")
+        no_conn, why_fault, why_running = t("panel.why.offline"), t("run.why.fault"), t("run.why.running")
+
+        def why(*checks: tuple[bool, str]) -> str:
+            for bad, text in checks:
+                if bad:
+                    return text
+            return ""
+        motion = why((not connected, no_conn), (fault, why_fault), (running, why_running))
+        rules = {k: motion for k in self.MOTION}
+        rules.update({f"jog_{k}": motion for k in self.jog.buttons})
+        rules.update({k: why((not connected, no_conn), (fault, why_fault)) for k in self.OUTPUTS})
+        rules["mf21"] = why((not connected, no_conn))
+        rules["mp59"] = why((running, why_running))
+        if motion and self.jog.held():
+            self.release_jogs("disabled")
+        for k, reason in rules.items():
+            b = self.buttons.get(k)
+            if b is None:
+                continue
+            on = not reason
+            if b.isEnabled() != on or (b.property("disabled_reason") or "") != reason:
+                style.set_enabled(b, on, reason)
+
     def release_jogs(self, reason: str = "") -> None:
-        """Dead-man: stop every held jog (focus loss, Stop, window hidden)."""
+        """Dead-man: stop every held jog (focus loss, Stop, window hidden); a held laser fire
+        button goes off too."""
         self.jog.release_all(reason)
+        b = self.buttons.get("out_laser")
+        if b is not None and hasattr(b, "cancel"):
+            b.cancel()
 
     def hideEvent(self, ev) -> None:  # noqa: N802 - Qt API
         self.release_jogs("panel hidden")

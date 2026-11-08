@@ -131,8 +131,16 @@ def test_run_bar_wraps_with_every_control_whole_and_reachable(win, app):
         win.resize(*HALF)
         settle(app, 0.2)
         assert win.width() == HALF[0], (ws, win.minimumSize(), wide_ones(win.centralWidget()))
-        assert rb.strip.wrapped and rb.height() > one_row
         top = win.rect()
+        if ws == "run":
+            # one set of run controls there, the Run screen's (UX audit W4)
+            scr = win.extension("run").screen
+            for key in RUN_KEYS:
+                assert not rb.buttons[key].isVisible(), (ws, key)
+                if key in scr.buttons:
+                    assert scr.buttons[key].isVisible(), (ws, key)
+            continue
+        assert rb.strip.wrapped and rb.height() > one_row
         for key in RUN_KEYS:
             b = rb.findChild(QPushButton, f"run_{key}")
             assert b is rb.buttons[key] and b.isVisible(), (ws, key)

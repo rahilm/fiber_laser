@@ -147,9 +147,21 @@ def test_run_screen_on_the_simulator(win, app):
         assert scr.status.kind == "hold"
         assert scr.buttons["resume_here"].isEnabled() and scr.buttons["resume_contour"].isEnabled()
         assert "CONTINUE" in scr.buttons["start"].text().upper()
+        # exactly one Continue on the screen, Hold disabled; the run bar shows no second set
+        # of run controls on the Run workspace (UX audit W4)
+        assert not scr.buttons["hold"].isEnabled() and "CONTINUE" not in scr.buttons["hold"].text().upper()
+        win.safety_ui.refresh()
+        conts = [b for b in win.findChildren(QPushButton) if b.isVisible() and "continue" in b.text().lower()]
+        assert conts == [scr.buttons["start"]], [b.objectName() for b in conts]
+        held_p = scr.status.progress
         shot(host, "run_hold_sim_1280x800.png")
         scr.resume("contour")                         # resume from the contour start
         assert wait(app, lambda: ctl.state().mode == "process", 15)
+        pump(app, 0.2)
+        scr.refresh()
+        # the whole job's progress: never back to 0 after Continue (UX audit W10)
+        assert scr.status.progress >= held_p - 1e-9 and scr.status.progress > 0
+        assert win.safety_ui.status is not None and abs(win.safety_ui.status.elapsed_s - scr.status.elapsed_s) < 1.0
         scr.buttons["stop"].click()
         assert wait(app, lambda: not ctl.job_active() and ctl.state().mode == "ready", 15)
         scr.refresh()
@@ -159,8 +171,10 @@ def test_run_screen_on_the_simulator(win, app):
         scr.refresh()
         assert scr.status.kind == "fault" and "FAULT" in scr.state.text()
         assert "link lost" in scr.reason.text()
-        assert scr.alarm_box.isVisible() and scr.alarm_list.count() == 1
-        assert "Remedy" in scr.alarm_list.item(0).text() and "network cable" in scr.alarm_list.item(0).text()
+        # the fault once, in the state block: its remedy and Reset alarm beside it (UX audit W11)
+        assert scr.remedy.isVisible() and "Remedy" in scr.remedy.text() and "network cable" in scr.remedy.text()
+        assert scr.reset_btn.isVisible() and scr.state_block.isAncestorOf(scr.reset_btn)
+        assert scr.details_btn.isVisible()
         assert not scr.buttons["start"].isEnabled() and scr.buttons["stop"].isEnabled()
         shot(host, "run_fault_sim_1280x800.png")
         scr.reset_btn.click()

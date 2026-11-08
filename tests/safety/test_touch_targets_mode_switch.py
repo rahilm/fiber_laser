@@ -44,8 +44,14 @@ def _pump(app, n: int = 5) -> None:
 def _check(win, label: str) -> list[str]:
     bad = []
     bar = win.findChild(QWidget, "run_bar")
+    on_run = win.shell.host.current == "run"
     for key in SAFETY:
         b = bar.findChild(QPushButton, f"run_{key}")
+        if on_run:
+            # one set of run controls on the Run workspace, the Run screen's (UX audit W4)
+            if b is None or b.isVisible():
+                bad.append(f"{label}: run bar {key} beside the Run screen's")
+            continue
         if b is None or not b.isVisible():
             bad.append(f"{label}: run bar {key} hidden")
             continue

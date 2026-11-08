@@ -184,7 +184,7 @@ ACRONYMS = {"FTC", "API", "LED", "PWM", "LAN", "PIN", "PLC", "VFD", "PDF", "SMTP
             "STL", "PTFE", "HMI", "ASCII", "UTF", "HSV", "WCAG", "CMYK", "GUI", "UI", "IPS", "QR", "SQL",
             "NFC", "HTML", "CSS", "WAN", "DNS", "DHCP", "MQTT", "OPC", "UA", "RTU", "UDP", "IPV", "MTU"}
 #: the state pill / chip words and STOP: capitals by design
-STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE", "SIMULATOR", "DRY", "RUN",
+STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE", "SIMULATOR", "DRY", "RUN", "NOT", "HOMED",
                "RUNNING", "STOP"}
 #: safety emphasis kept in capitals (a warning badge, an inverted-logic note)
 CAPS_OK_IDS = {"tech.example_badge", "labels.msg.fallback", "wizard.comm.hb_relay_fail", "safety.io.level_off",
@@ -202,7 +202,7 @@ def test_capitals_only_for_state_words_and_stop():
         for tok in re.findall(r"\b[A-Z]{3,}\b", plain):
             if tok in ACRONYMS:
                 continue
-            if tok in STATE_WORDS and (k.startswith(("run.state.", "run.alarm.", "shell.chip.", "ws.machine.a_",
+            if tok in STATE_WORDS and (k.startswith(("run.state.", "state.", "run.alarm.", "shell.chip.", "ws.machine.a_",
                                                       "wizard.chip", "run.btn.stop", "practice.", "run.reason.",
                                                       "shell.welcome.", "safety.banner.", "safety.alarm.",
                                                       "status.motion_"))):

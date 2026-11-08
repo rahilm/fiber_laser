@@ -21,18 +21,18 @@ from PySide6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QLineEdit, QSizeP
 from mlaser.services import usermodes as um
 
 from .. import style
-from ..icons import icon
-from ..safety_ui import COLORS
+from ..icons import STATE_ICONS, icon
+from ..state_display import StateBadge
 
-#: chip kind -> (lang id, symbol, colour key of safety_ui.COLORS)
+#: chip kind -> (lang id, state icon (icons.STATE_ICONS), colour key of the theme's state tokens)
 CHIPS = {
-    "FAULT": ("shell.chip.fault", "✖", "FAULT"),
-    "ALARM": ("shell.chip.alarm", "!", "FAULT"),
-    "ARMED": ("shell.chip.armed", "▲", "ARMED"),
-    "DISARMED": ("shell.chip.disarmed", "●", "DISARMED"),
-    "DRY-RUN": ("shell.chip.dry_run", "◌", "DRY-RUN"),
-    "SIMULATOR": ("shell.chip.simulator", "◆", "SIMULATOR"),
-    "OFFLINE": ("shell.chip.offline", "–", "OFFLINE"),
+    "FAULT": ("shell.chip.fault", "fault", "FAULT"),
+    "ALARM": ("shell.chip.alarm", "alarm", "ALARM"),
+    "ARMED": ("shell.chip.armed", "armed", "ARMED"),
+    "DISARMED": ("shell.chip.disarmed", "disarmed", "DISARMED"),
+    "DRY-RUN": ("shell.chip.dry_run", "dry_run", "DRY-RUN"),
+    "SIMULATOR": ("shell.chip.simulator", "simulator", "SIMULATOR"),
+    "OFFLINE": ("shell.chip.offline", "offline", "OFFLINE"),
 }
 ORDER = ("FAULT", "ALARM", "ARMED", "DISARMED", "DRY-RUN", "SIMULATOR", "OFFLINE")
 
@@ -46,6 +46,8 @@ def covered(st, alarms) -> set[str]:
     out = {st.banner}
     if st.banner == "SIMULATOR" and not st.armed:
         out.add("DISARMED")
+    if st.simulator and st.banner != "FAULT":
+        out.add("SIMULATOR")                 # the banner says "· simulator" (UX audit W2)
     if alarms:
         out.add("ALARM")
     return out
@@ -144,24 +146,37 @@ class TopBar(QWidget):
         cb = QHBoxLayout(self.chip_box)
         cb.setContentsMargins(0, 0, 0, 0)
         cb.setSpacing(style.SP1)
-        self.chips: dict[str, QLabel] = {}
+        self.chips: dict[str, StateBadge] = {}
         for kind in ORDER:
-            key, sym, col = CHIPS[kind]
-            lab = QLabel()
-            lab.setObjectName(f"chip_{kind.lower().replace('-', '_')}")
+            key, state, col = CHIPS[kind]
+            lab = StateBadge(f"chip_{kind.lower().replace('-', '_')}", role="label_strong", icon_px=style.ICON_S,
+                             caption=False)
             lab.setProperty("chip", True)
-            bg, fg = COLORS[col]
-            lab.setStyleSheet(f"background:{bg}; color:{fg}; border-radius:{style.SP2}px; "
-                              f"padding:0 {style.SP2}px; font-weight:bold;")
 
-            def setter(t, lab=lab, sym=sym):
-                lab.setText(f"{sym} {t}")
-                lab.setAccessibleName(t)
+            def setter(t, lab=lab, state=state, col=col):
+                lab.set_state(state, col, t)
             tr.bind(lab, key, setter)
             tr.bind(lab, key + ".tip", lab.setToolTip)
             lab.hide()
             cb.addWidget(lab)
             self.chips[kind] = lab
+        # interlocks that are not configured: a persistent chip in every workspace that opens
+        # Safety I/O (UX audit W15; it used to show only on the Run screen)
+        self.interlocks = QToolButton()
+        self.interlocks.setObjectName("chip_interlocks")
+        self.interlocks.setProperty("chip", True)
+        self.interlocks.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        self.interlocks.setIcon(icon(STATE_ICONS["interlock"], style.css("on_warning")))
+        self.interlocks.setFocusPolicy(Qt.StrongFocus)
+        style.styled(self.interlocks, lambda: (
+            f"QToolButton#chip_interlocks{{background:{style.css('warning_fill')};color:{style.css('on_warning')};"
+            f"border:1px solid {style.css('warning')};border-radius:{style.SP2}px;padding:0 {style.SP2}px;"
+            f"font-weight:bold;}}"))
+        tr.bind(self.interlocks, "shell.chip.interlocks.tip", self.interlocks.setToolTip)
+        self.interlocks.clicked.connect(self._open_safety_io)
+        self.interlocks.hide()
+        self._interlocks_n = 0
+        cb.addWidget(self.interlocks)
         h.addWidget(self.chip_box)
         self.mode_combo = QComboBox()
         self.mode_combo.setObjectName("shell_mode")
@@ -215,6 +230,9 @@ class TopBar(QWidget):
         banner's: SIMULATOR while ARMED, DRY-RUN...)."""
         hide = covered(st, alarms)
         kinds = tuple(k for k in chip_kinds(st, alarms) if k not in hide)
+        for k in kinds:                      # the theme's colours (a theme switch included)
+            _key, state, col = CHIPS[k]
+            self.chips[k].set_state(state, col, self.chips[k].text())
         if kinds == self._shown:
             return
         self._shown = kinds
@@ -222,6 +240,47 @@ class TopBar(QWidget):
             lab.setVisible(k in kinds)
         if st is not None and st.banner == "FAULT" and getattr(st, "fault", ""):
             self.chips["FAULT"].setToolTip(self.shell.tr.format("shell.chip.fault.tip_reason", fault=st.fault))
+
+    def refresh_interlocks(self, n: int) -> None:
+        """"Interlocks: N not configured" while any safety input or the heartbeat is unset."""
+        if n == self._interlocks_n and self.interlocks.isHidden() == (n == 0):
+            return
+        self._interlocks_n = n
+        self._interlocks_text()
+        self.interlocks.setVisible(n > 0)
+
+    #: below this top-bar width the interlock chip shows only its icon and count (its full text
+    #: is its accessible name and tooltip): a half-screen window keeps its search field
+    COMPACT_W = 1100
+
+    def _interlocks_text(self) -> None:
+        n = self._interlocks_n
+        if not n:
+            return
+        full = self.shell.tr.plural("shell.chip.interlocks", n)
+        text = full if self._wide() else str(n)
+        if self.interlocks.text() != text:
+            self.interlocks.setText(text)
+        if self.interlocks.accessibleName() != full:
+            self.interlocks.setAccessibleName(full)
+
+    def _wide(self) -> bool:
+        return self.width() >= self.COMPACT_W
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self._interlocks_text()
+        # narrow: the state chips show their icon on their colour; the word stays their
+        # accessible name and tooltip (the banner beside them names the main state in full)
+        wide = self._wide()
+        for lab in self.chips.values():
+            if lab.text_label.isHidden() == wide:
+                lab.text_label.setVisible(wide)
+
+    def _open_safety_io(self) -> None:
+        ui = getattr(self.shell.w, "safety_ui", None)
+        if ui is not None:
+            ui.open_safety_io()
 
 
 __all__ = ["TopBar", "chip_kinds", "covered", "CHIPS"]

@@ -58,6 +58,8 @@ def test_home_is_homing_and_the_centre_is_go_to_origin(win):
     assert dock.centre is not None and "origin" in dock.centre.toolTip().lower()
     assert "home" not in dock.centre.toolTip().lower()
     assert set(dock.home_buttons) == {"mp29_1", "mp30"}
+    win.ctl.connect()                     # the dock's machine controls need a connection (W8)
+    win.safety_ui.refresh()
     homed = []
     win.control.confirm_fn = lambda key: True
     orig = win.control.ctl.home

@@ -85,7 +85,8 @@ def test_state_banner_follows_the_safety_state(win, app):
     assert st.kind == "SIMULATOR"
     assert win.ctl.arm()
     _pump(app)
-    assert st.kind == "ARMED" and "ARMED" in st.label.text()
+    assert st.kind == "ARMED" and "ARMED" in st.badge.text() and st.badge.state == "armed"
+    assert st.badge.accessibleName().startswith("Laser")      # the laser axis, named (W2)
     win.ctl.raise_fault("test fault")
     _pump(app)
     assert st.kind == "FAULT" and "test fault" in st.label.text()

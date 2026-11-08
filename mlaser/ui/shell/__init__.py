@@ -619,6 +619,12 @@ class Shell:
         alarms = list(ctl.active_alarms or [])
         if self.topbar is not None and self.topbar.isVisible():
             self.topbar.refresh_chips(st, alarms)
+            sio = getattr(self.w, "safety_io", None)
+            try:
+                n = len(sio.notices()) if sio is not None else 0
+            except Exception:  # noqa: BLE001 - a broken binding never hides the other chips
+                n = 0
+            self.topbar.refresh_interlocks(n)
         if self.native is not None:
             from .. import safety_ui
             running = safety_ui.job_running(self.w)
