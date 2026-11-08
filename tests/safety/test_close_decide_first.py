@@ -115,7 +115,12 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     assert head_known(), (ctl.state(), head_mm(ctl.sim))
     plans = []
     w.hooks.add("plan", plans.append, "test")
+    # a real edit (the arrow keys move the selection; with nothing selected they do nothing and
+    # no new plan comes: macOS CI then saw only a re-plan that had arrived before this point)
+    w.run("select.all")
+    x0 = w.document.parts[0].bbox()[0]
     w.nudge(1, 0)
+    assert w.document.parts[0].bbox()[0] > x0, "the nudge did not move the drawing"
     t_end = time.monotonic() + 30
     while not plans and time.monotonic() < t_end:
         _pump(0.02)
@@ -129,6 +134,7 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     # accepted (with that job running): halts the machine, then the hooks and NormalExit=1
     sim = ctl.sim
     ctl.disconnect = (lambda orig=ctl.disconnect: (lambda *a, **k: orig(*a, keep_sim=True, **k)))()
+    w.shell.mark_saved()                        # the nudge above: only the job question here
     w._test_no_dialogs = False
     # the halt's time and travel count from the operator's Yes: while the question is up the
     # job rightly runs on (decide first), for as long as the runner takes to show and answer it
