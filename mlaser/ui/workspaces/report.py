@@ -265,7 +265,11 @@ class ReportWorkspace(QWidget):
         top_w.setObjectName("report_controls")
         top = FlowLayout(top_w, justify=False)
 
-        def pair(label: QWidget, field: QWidget) -> QWidget:
+        def pair(label: QLabel, field: QWidget) -> QWidget:
+            # the label names the field for assistive tech on every platform (Windows does not
+            # take a neighbouring label's text by itself)
+            label.setBuddy(field)
+            field.setAccessibleName(label.text())
             box = QWidget()
             h = QHBoxLayout(box)
             h.setContentsMargins(0, 0, 0, 0)
