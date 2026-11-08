@@ -98,6 +98,19 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - Machine › Connection (UX audit O9): "Demo (no card)" only for the demo controller ("Not
   connected" for a card controller without a card), the safety state in words, Connect /
   Disconnect enabled by the connection state.
+- UX audit (workflow and visuals): a layer without a technology opens on *Choose technology…*
+  with *Use for layer N* and its values folded until one is chosen; the layer table shows up
+  to four rows in full; the Library has *Use for layer N* / *Assign to layer…*. The empty canvas
+  offers Open, Import, the sample and practice. The welcome sheet has a *Connect your machine*
+  path to the commissioning checklist (Service mode said in place, the switch offered, also
+  for any machine command that needs a higher mode). The commissioning step list shows each
+  step's result (✓ ! ✗ – …), Back says why it is off, and homing can be left for later (the
+  jog checks that start from home are then skipped, never run unhomed). On Fusion, fields and
+  check boxes get a boundary of at least 3:1 in every theme (the platforms' own styles are
+  untouched). Process fields show "100 mm/s" (every decimal while editing); Properties with
+  nothing selected shows the hint and the drawing's extent; Nest's sheet fields have labels,
+  its texts real plurals and one utilisation rounding; the Run screen's selected tab is marked;
+  the plugin log message names the real menu (Tools › Plugins).
 - **Safety** (issue #5, UI evaluation F1): with the card switched off (e-stop) no operator command
   blocks the window any more (measured before: jog release 29 s, Gas 7 s, Clear alarm 6 s, fault
   Reset 3.5-6.6 s per press, Disconnect 10 s, window close 3.6 s). Panel commands given on the

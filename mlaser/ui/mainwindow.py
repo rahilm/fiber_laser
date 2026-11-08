@@ -332,6 +332,12 @@ class MainWindow(QMainWindow):
         self.idle_pause.add(self._timer, keep=lambda: getattr(self, "_last_mode", None) in _JOB_MODES,
                             on_resume=self._poll)
         self.docs.subscribe(self._document_changed)
+        # the canvas's empty state: the ways to get a drawing (UX audit O1)
+        from .canvas_empty import CanvasEmptyState
+        self.canvas_empty = CanvasEmptyState(self.canvas, self.tr_, self.run, self.open_sample,
+                                             allowed=self._empty_state_allows)
+        self.docs.subscribe(lambda _kind: self.canvas_empty.update_state(self.docs.document))
+        self.canvas_empty.update_state(self.docs.document)
         # undo steps are named after the command that made them; Edit > Undo says which
         # ("Undo Move", ui/undo_names.py)
         from . import undo_names
@@ -397,7 +403,7 @@ class MainWindow(QMainWindow):
     def _load_entry_points(self) -> list:
         """The ``mlaser.plugins`` entry points: every one is listed in :attr:`plugin_catalog`
         (``[info, status]``), only those the allowlist enables (``plugins.allowlist``, Service
-        mode, Options+ > Plugins) are imported.  Status: ``loaded`` / ``failed`` / ``disabled``
+        mode, Plugin manager) are imported.  Status: ``loaded`` / ``failed`` / ``disabled``
         / ``changed`` (enabled for another target: needs enabling again)."""
         # the plugin manager's site directory goes at the END of sys.path first (core modules
         # always win), so the plugins it installed appear as ordinary entry points
@@ -415,11 +421,13 @@ class MainWindow(QMainWindow):
                 else:
                     st = "loaded" if self._register(info) else "failed"
             elif st == "changed":
-                self.log(self.tr_.format("main.plugin.changed", name=info.name, target=info.target))
+                self.log(self.tr_.format("main.plugin.changed", name=info.name, target=info.target,
+                                         where=self.plugins_menu_path()))
             self.plugin_catalog.append([info, st])
         found = [i.name for i, s in self.plugin_catalog if s in ("disabled", "changed")]
         if found:
-            self.log(self.tr_.format("main.plugin.not_enabled", names=", ".join(found)))
+            self.log(self.tr_.format("main.plugin.not_enabled", names=", ".join(found),
+                                     where=self.plugins_menu_path()))
         return self.plugin_catalog
 
     def extension(self, name: str):
@@ -886,6 +894,31 @@ class MainWindow(QMainWindow):
             act.trigger()
         else:
             self._dispatch(cmd)
+
+    def plugins_menu_path(self) -> str:
+        """Where third-party plugins are enabled (the Plugin manager, ``app.plugin_manager``), as
+        this platform's menu bar shows it (UX audit O15): "Tools › Plugins" on Windows and Linux,
+        "mlaser › Plugins…" (the application menu) on macOS (shell/menu_spec.py)."""
+        from . import style
+        from PySide6.QtWidgets import QApplication
+        t = self.tr_.tr
+        if style.is_mac():
+            menu, item = QApplication.applicationName() or "mlaser", t("shell.menu.plugins")
+        else:
+            menu, item = t("shell.menu.tools"), t("plugins.title")
+        return self.tr_.format("main.plugin.where", menu=style.menu_text(menu), item=style.menu_text(item))
+
+    def open_sample(self) -> None:
+        """The canvas's *Try the sample*: the sample drawing as a new, untitled document."""
+        from . import docops
+        self.set_document(docops.demo_document())
+
+    def _empty_state_allows(self, cmd: str) -> bool:
+        """A command the canvas's empty state offers: one that exists and the user mode allows."""
+        if self.ribbon.actions.get(cmd) is None and self.commands.get(cmd) is None:
+            return False
+        shell = getattr(self, "shell", None)
+        return shell.allows(cmd) if shell is not None else True
 
     def not_implemented(self, cmd: str) -> None:
         self.log_panel.log(self.tr_.format("main.not_implemented", cmd=cmd))

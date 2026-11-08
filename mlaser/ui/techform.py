@@ -46,6 +46,31 @@ from mlaser.services.units import kind_for_unit
 from .units_qt import QuantitySpinBox
 
 
+class TrimmedDoubleSpinBox(QDoubleSpinBox):
+    """A QDoubleSpinBox (a value without a unit kind) that shows no trailing zeros while it is
+    not being edited, like :meth:`QuantitySpinBox.setTrimZeros` (UX audit O12)."""
+
+    def textFromValue(self, v: float) -> str:  # noqa: N802 - Qt API
+        s = super().textFromValue(v)
+        if self.hasFocus():
+            return s
+        dp = self.locale().decimalPoint()
+        if dp in s:
+            s = s.rstrip("0").rstrip(dp)
+        return s
+
+    def focusInEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().focusInEvent(ev)
+        le = self.lineEdit()                # every decimal while editing
+        le.setText(self.prefix() + super().textFromValue(self.value()) + self.suffix())
+        le.selectAll()
+
+    def focusOutEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().focusOutEvent(ev)
+        le = self.lineEdit()
+        le.setText(self.prefix() + self.textFromValue(self.value()) + self.suffix())
+
+
 def shrinkable(w: QWidget, chars: int = 7) -> QWidget:
     """Let a spin box shrink to its content instead of to the text of its largest value (a
     range of ±1e6 asks ~170 px and forces a narrow dock to scroll sideways): the minimum width
@@ -256,10 +281,11 @@ class TechField:
         elif kind is not None:
             lo, hi = (d.min, d.max) if d.max > d.min else (-1e6, 1e6)
             w = QuantitySpinBox(kind, minimum=lo, maximum=hi, decimals=3)   # as stored: no rounding
+            w.setTrimZeros(True)          # "100 mm/s", not "100.000 mm/s" (UX audit O12)
             w.setKeyboardTracking(False)
             w.valueChanged.connect(lambda _v: on_change())
         else:
-            w = QDoubleSpinBox()
+            w = TrimmedDoubleSpinBox()
             w.setDecimals(3)
             w.setRange(d.min if d.max > d.min else -1e9, d.max if d.max > d.min else 1e9)
             w.setKeyboardTracking(False)

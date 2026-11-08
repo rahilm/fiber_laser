@@ -27,7 +27,7 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-                               QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
+                               QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -471,6 +471,7 @@ class LibraryPage(QWidget):
     Next to each other when the page is wide enough, one above the other when not."""
 
     saved = Signal(object)          # a new version / record was stored
+    assign_requested = Signal(object, list)    # (record, layers): "Use for layer N" / "Assign to layer…"
 
     def __init__(self, ctx: Any, store: T.TechnologyStore, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
@@ -515,6 +516,25 @@ class LibraryPage(QWidget):
         self.used_by = QLabel()
         self.used_by.setWordWrap(True)
         rv.addWidget(self.used_by)
+        # the selected record to the drawing's layers (UX audit W7): the layer selected on the
+        # Drawing page, or any layer of the drawing
+        urow = QWidget()
+        ufl = FlowLayout(urow, justify=False, hspacing=style.SP1, vspacing=style.SP1)
+        self.use_btn = QPushButton(t("library.use_for_layer_none"))
+        self.use_btn.setObjectName("library_use_for_layer")
+        self.use_btn.clicked.connect(lambda _c=False: self.use_for_current())
+        ufl.addWidget(self.use_btn)
+        self.assign_menu_btn = QToolButton()
+        self.assign_menu_btn.setObjectName("library_assign_to")
+        self.assign_menu_btn.setText(t("library.assign_to"))
+        self.assign_menu_btn.setAccessibleName(t("library.assign_to"))
+        self.assign_menu_btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+        self.assign_menu_btn.setPopupMode(QToolButton.InstantPopup)
+        self.assign_menu = QMenu(self.assign_menu_btn)
+        self.assign_menu.aboutToShow.connect(self._fill_assign_menu)
+        self.assign_menu_btn.setMenu(self.assign_menu)
+        ufl.addWidget(self.assign_menu_btn)
+        rv.addWidget(urow)
         tabs = QTabWidget()
         tabs.setDocumentMode(True)
         unit = int(ctx.config.get("UN.GasPressureUnit", 0) or 0) if getattr(ctx, "config", None) is not None else 0
@@ -597,6 +617,8 @@ class LibraryPage(QWidget):
         self.split.setStretchFactor(0, 1)
         self.split.setStretchFactor(1, 3)
         self.current_layer: Optional[int] = None      # for "layer vs recipe"
+        #: the layers cannot be changed now (Operator mode, a job running): set by the workspace
+        self.read_only: Callable[[], bool] = lambda: False
         self._all: list[T.Technology] = []
         self.reload()
 
@@ -697,8 +719,59 @@ class LibraryPage(QWidget):
         self.refresh_history()
         self.refresh_diff()
 
+    # ---------------------------------------------------------------- to the drawing's layers
+    def layers_in_use(self) -> list[int]:
+        doc = self.ctx.document
+        return sorted({p.craft.layer for p in doc.parts}) if doc is not None else []
+
+    def refresh_assign(self) -> None:
+        """*Use for layer N* (the layer selected on the Drawing page) and *Assign to layer…*
+        (a menu of the drawing's layers): enabled with a record and a drawing, else a tooltip
+        says why."""
+        tr = self.tr_
+        tech = self.editor.tech
+        layers = self.layers_in_use()
+        cur = self.current_layer if self.current_layer in layers else None
+        self.use_btn.setText(tr.format("library.use_for_layer", n=cur) if cur is not None
+                             else tr.tr("library.use_for_layer_none"))
+        why = (tr.tr("library.assign_why.record") if tech is None else
+               tr.tr("library.assign_why.drawing") if not layers else
+               tr.tr("library.assign_why.locked") if self.read_only() else "")
+        self.use_btn.setEnabled(not why and cur is not None)
+        self.use_btn.setToolTip(why or (tr.tr("library.assign_why.layer") if cur is None
+                                        else tr.tr("layer.assign_tip")))
+        self.assign_menu_btn.setEnabled(not why)
+        self.assign_menu_btn.setToolTip(why or tr.tr("layer.assign_tip"))
+
+    def _fill_assign_menu(self) -> None:
+        tr = self.tr_
+        self.assign_menu.clear()
+        layers = self.layers_in_use()
+        for li in layers:
+            a = self.assign_menu.addAction(tr.format("layer.title", n=li))
+            a.triggered.connect(lambda _c=False, x=li: self.assign_to([x]))
+        if len(layers) > 1:
+            self.assign_menu.addSeparator()
+            a = self.assign_menu.addAction(tr.tr("library.assign_all"))
+            a.triggered.connect(lambda _c=False, xs=list(layers): self.assign_to(xs))
+
+    def use_for_current(self) -> bool:
+        """*Use for layer N*: the selected record to the current layer."""
+        if self.current_layer is None or self.current_layer not in self.layers_in_use():
+            return False
+        return self.assign_to([self.current_layer])
+
+    def assign_to(self, layers: list[int]) -> bool:
+        """Ask the workspace to assign the selected record to ``layers``."""
+        tech = self.editor.tech
+        if tech is None or not layers or self.read_only():
+            return False
+        self.assign_requested.emit(tech, list(layers))
+        return True
+
     def refresh_used_by(self) -> None:
         tech = self.editor.tech
+        self.refresh_assign()
         if tech is None:
             self.used_by.setText("")
             return
@@ -934,7 +1007,12 @@ class ProcessWorkspace(QWidget):
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
         self.layers.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.layers.setTextElideMode(Qt.ElideRight)
+        # the state is read in full ("Not defined: choose a recipe"): it wraps, the row grows
+        self.layers.setWordWrap(True)
+        self.layers.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.layers.verticalHeader().hide()
+        self.layers.setMinimumHeight(self.layers_min_height())
+        self.layers.viewport().installEventFilter(self)
         self.layers.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.layers.setSelectionMode(QAbstractItemView.SingleSelection)
         self.layers.setEditTriggers(QAbstractItemView.NoEditTriggers)
@@ -961,12 +1039,54 @@ class ProcessWorkspace(QWidget):
         # ---- Library page
         self.library = LibraryPage(ctx, store)
         self.library.saved.connect(lambda _t: self.refresh_layers())
+        self.library.assign_requested.connect(self._library_assign)
+        self.library.read_only = self.inspector._read_only
         self.pages.addWidget(self.library)
         self.editor = self.library.editor
         self.diff_mode = self.library.diff_mode
         self.current_layer: Optional[int] = None
         self.show_page(0)
         self.reload()
+
+    #: the layer table shows up to this many rows without scrolling (UX audit W7)
+    LAYER_ROWS = 4
+
+    def layers_min_height(self) -> int:
+        """The layer table's least height: its header and its rows, up to :attr:`LAYER_ROWS`
+        of them (each as tall as its wrapped state text needs)."""
+        tb = self.layers
+        vh = tb.verticalHeader()
+        n = min(max(tb.rowCount(), 1), self.LAYER_ROWS)
+        rows = sum(tb.rowHeight(r) if r < tb.rowCount() else vh.defaultSectionSize() for r in range(n))
+        return tb.horizontalHeader().sizeHint().height() + rows + 2 * tb.frameWidth() + 1
+
+    def _fit_layer_rows(self) -> None:
+        """Rows as tall as their wrapped text at the current column widths; the table's least
+        height follows."""
+        self.layers.resizeRowsToContents()
+        h = self.layers_min_height()
+        if self.layers.minimumHeight() != h:
+            self.layers.setMinimumHeight(h)
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        from PySide6.QtCore import QEvent
+        if ev.type() == QEvent.Resize and hasattr(self, "layers") and obj is self.layers.viewport():
+            # the stretched columns changed width: the wrapped rows' heights follow
+            from PySide6.QtCore import QTimer
+            QTimer.singleShot(0, self._rewrap_layers)
+        return super().eventFilter(obj, ev)
+
+    def _rewrap_layers(self) -> None:
+        try:
+            self._fit_layer_rows()
+        except RuntimeError:          # deleted meanwhile
+            pass
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        from PySide6.QtCore import QEvent
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and hasattr(self, "layers"):
+            self._fit_layer_rows()
 
     # ---------------------------------------------------------------- pages
     def show_page(self, i: int) -> None:
@@ -1073,6 +1193,7 @@ class ProcessWorkspace(QWidget):
             if self._newer(li):
                 outdated.append(li)
         self.layers.blockSignals(False)
+        self._fit_layer_rows()
         self.outdated.setVisible(bool(outdated))
         self.outdated_label.setText(self.tr_.format("process.outdated", layers=", ".join(map(str, outdated))))
         self._outdated = outdated
@@ -1082,6 +1203,7 @@ class ProcessWorkspace(QWidget):
             self.select_layer(used[0])
         else:
             self.current_layer = None
+            self.library.current_layer = None
             self.inspector.set_layer(None)
         self.library.refresh_used_by()
         self.refresh_diff()
@@ -1141,8 +1263,17 @@ class ProcessWorkspace(QWidget):
             if self.layers.item(r, 0).data(Qt.UserRole) == layer:
                 self.layers.selectRow(r)
                 self.current_layer = layer
+                self.library.current_layer = layer
                 self.inspector.set_layer(layer)
+                self.library.refresh_assign()
                 return
+
+    def _library_assign(self, tech: T.Technology, layers: list[int]) -> None:
+        """The Library's *Use for layer N* / *Assign to layer…*: assign, then show the layer on
+        the Drawing page (what it follows now)."""
+        if self.apply(tech, layers):
+            self.select_layer(layers[0])
+            self.show_page(0)
 
     def _layer_selected(self) -> None:
         rows = self.layers.selectionModel().selectedRows() if self.layers.selectionModel() else []
@@ -1150,7 +1281,9 @@ class ProcessWorkspace(QWidget):
             return
         li = self.layers.item(rows[0].row(), 0).data(Qt.UserRole)
         self.current_layer = li
+        self.library.current_layer = li
         self.inspector.set_layer(li)
+        self.library.refresh_assign()
         self.refresh_diff()
 
     def _inspector_changed(self) -> None:

@@ -1,6 +1,7 @@
 """The wizard dialog: shows a :class:`mlaser.services.procedures.Procedure` one step at a time.
 
-Layout: the step list on the left (done ✓ / current ▶ / to do), the step title, instructions
+Layout: the step list on the left (each step's real status: ✓ passed or done, ! warning, ✗ failed,
+– skipped, … to do; ▶ and bold the current one), the step title, instructions
 and safety notes, a step page (form, plot, jog pad: :meth:`WizardDialog.page`), the result line,
 and the buttons Back · Run · Yes / No · Next / Finish · **Abort** (red, always enabled; Esc and
 F12 abort too).  Abort sends ``safe_halt`` in every state (the engine does it).  A "Dry run on
@@ -25,6 +26,10 @@ from mlaser.services.procedures import simrig
 from .. import icons, style
 from ..units_qt import on_units_changed
 from .common import MIN_TARGET, Bridge, JogPad, SafetyNotes, T, unit_values
+
+
+#: the step list's mark per step status (:meth:`Procedure.step_status`)
+STEP_MARKS = {"pass": "✓", "done": "✓", "warn": "!", "fail": "✗", "skipped": "–", "todo": "…"}
 
 
 class WizardDialog(QDialog):
@@ -91,11 +96,14 @@ class WizardDialog(QDialog):
         bl.addWidget(self.b_abort)
         bl.addStretch(1)
         self.b_back = self._button("wizard.back", self.back)
+        self.b_skip = self._button("wizard.skip_later", self.skip)
+        self.b_skip.setToolTip(T(window, "wizard.skip_later_tip"))
+        self.b_skip.setVisible(False)
         self.b_run = self._button("wizard.run", self.run)
         self.b_yes = self._button("wizard.yes", lambda: self.answer(True))
         self.b_no = self._button("wizard.no", lambda: self.answer(False))
         self.b_next = self._button("wizard.next", self.next)
-        for b in (self.b_back, self.b_run, self.b_yes, self.b_no, self.b_next):
+        for b in (self.b_back, self.b_skip, self.b_run, self.b_yes, self.b_no, self.b_next):
             bl.addWidget(b)
         right.addLayout(bl)
         for seq in ("Esc", "F12"):
@@ -210,9 +218,22 @@ class WizardDialog(QDialog):
         vis = p.visible_steps()
         self.steps_list.clear()
         for st in vis:
-            mark = "✓ " if st.id in p.done or st.id in p.answers else ("▶ " if s is not None and st.id == s.id else "   ")
-            it = QListWidgetItem(mark + T(self.w, st.title))
-            if s is not None and st.id == s.id:
+            status = p.step_status(st)
+            current = s is not None and st.id == s.id and p.state not in PE.FINAL
+            # the step's real status (UX audit O4): ✓ passed, ! warning, ✗ failed, – skipped,
+            # … to do; ▶ marks the current step
+            mark = "▶" if current and status == "todo" else STEP_MARKS.get(status, "…")
+            title = T(self.w, st.title)
+            it = QListWidgetItem(f"{mark} {title}")
+            said = T(self.w, f"wizard.status.{status}")
+            it.setToolTip(said)
+            it.setData(Qt.AccessibleTextRole, T(self.w, "wizard.status.item", title=title, status=said))
+            it.setData(Qt.UserRole, status)
+            if status in ("warn", "fail"):
+                it.setForeground(style.color("warning" if status == "warn" else "danger"))
+            elif status in ("skipped", "todo") and not current:
+                it.setForeground(style.color("muted"))
+            if current:
                 f = it.font()
                 f.setBold(True)
                 it.setFont(f)
@@ -235,7 +256,11 @@ class WizardDialog(QDialog):
             self.refresh_page(s, pg)
         self.status.setText(self.status_text())
         busy = p.busy()
-        self.b_back.setEnabled(p.can_back() and not busy)
+        why_back = "wizard.back_why.running" if busy else p.why_not_back()
+        style.set_enabled(self.b_back, not why_back, T(self.w, why_back) if why_back else "")
+        can_skip = p.can_skip() and not busy
+        self.b_skip.setVisible(can_skip)
+        self.b_skip.setEnabled(can_skip)
         is_action = s is not None and s.kind == "action" and not final
         self.b_run.setVisible(is_action)
         if is_action:
@@ -298,6 +323,11 @@ class WizardDialog(QDialog):
 
     def back(self) -> None:
         self.proc.back()
+
+    def skip(self) -> None:
+        """*Skip, do later*: the current skippable action does not run."""
+        if self.proc.skip_current():
+            self.refresh()
 
     def answer(self, value: bool) -> None:
         try:

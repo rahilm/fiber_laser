@@ -159,6 +159,7 @@ class QuantitySpinBox(QAbstractSpinBox):
         self._prefix = ""
         self._units = U.current()
         self._editing = False
+        self._trim = False                # setTrimZeros: no trailing zeros while not edited
         self.setAccelerated(True)
         self.lineEdit().textEdited.connect(self._edited)
         self.editingFinished.connect(self._commit)
@@ -275,7 +276,33 @@ class QuantitySpinBox(QAbstractSpinBox):
     def textFromValue(self, v: float) -> str:
         if self.specialValueText() and v == self._min:
             return self.specialValueText()
-        return self._prefix + self._units.fmt(v, self._kind, decimals=self.decimals())
+        trim = self._trim and not self.hasFocus()
+        return self._prefix + self._units.fmt(v, self._kind, decimals=self.decimals(), trim=trim)
+
+    def setTrimZeros(self, on: bool) -> None:
+        """``on``: the value shows without trailing zeros ("100 mm/s", "0 bar", "0.125 mm"; the
+        units layer's ``trim``) while the field is not being edited; with the focus it shows
+        every decimal it keeps (the stored value is never rounded either way)."""
+        self._trim = bool(on)
+        self._render()
+        self.updateGeometry()
+
+    def trimZeros(self) -> bool:  # noqa: N802 - Qt naming
+        return self._trim
+
+    def focusInEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().focusInEvent(ev)
+        if self._trim:
+            le = self.lineEdit()
+            all_sel = le.hasSelectedText() and le.selectedText() == le.text()
+            self._render()                # every decimal while editing
+            if all_sel:
+                le.selectAll()
+
+    def focusOutEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().focusOutEvent(ev)
+        if self._trim:
+            self._render()
 
     def valueFromText(self, text: str) -> float:
         """Typed text -> internal units (raises ValueError)."""

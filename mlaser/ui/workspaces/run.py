@@ -147,7 +147,23 @@ def card_in_units(data: dict, entry: Any = None) -> dict:
     return d
 
 
+def run_tab_style() -> str:
+    """The Run screen's tab bar (Live view / Queue): touch-sized tabs, and a selected tab that
+    reads as selected in every theme (UX audit O11): bold text on the field colour with a 3 px
+    bar in the highlight colour along its bottom, the others on the button colour.  Palette roles
+    only (the theme's tokens, or the platform's palette): light, dark and high contrast alike."""
+    return (f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP2}px;min-width:{style.SP5 * 4}px;"
+            f"padding:{style.SP1}px {style.SP3}px;"
+            "background:palette(button);color:palette(button-text);"
+            "border:1px solid palette(mid);border-bottom:3px solid palette(button);"
+            "border-top-left-radius:4px;border-top-right-radius:4px;}"
+            "QTabBar::tab:selected{background:palette(base);color:palette(text);font-weight:bold;"
+            "border-bottom:3px solid palette(highlight);}"
+            "QTabBar::tab:!selected:hover{background:palette(midlight);}")
+
+
 # ============================================================================== load card
+
 class LoadSheetCard(QFrame):
     """"Load this sheet": shown while the queue waits for the next sheet.  Material, thickness,
     size, remnant id, sheet n/N in large type, a picture of the sheet with its nest (not the
@@ -459,8 +475,7 @@ class QueuePanel(QWidget):
             if e.id == keep:
                 self.table.selectRow(r)
         t = q.totals()
-        self.totals.setText(tr(w, "queue.totals", "{entries} jobs · {done}/{sheets} sheets · {left} left",
-                               entries=t["entries"], done=t["done"], sheets=t["sheets"],
+        self.totals.setText(trn(w, "queue.totals", t["entries"], done=t["done"], sheets=t["sheets"],
                                left=fmt_duration(t["remaining_s"]) if t["remaining_s"] else "-"))
         self._sync = False
         self._selected()
@@ -613,8 +628,7 @@ class OperatorScreen(QWidget):
         self.tabs.setObjectName("run_tabs")
         self.tabs.tabBar().setMinimumHeight(TOUCH_MIN)
         # touch-sized tabs on the operator screen (a domain screen: the only tab-bar style sheet)
-        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP2}px;min-width:{style.SP5 * 4}px;"
-                                f"padding:{style.SP1}px {style.SP3}px;}}")
+        self.tabs.setStyleSheet(run_tab_style())
         self.canvas = RunCanvas()
         self.tabs.addTab(self.canvas, tr(w, "run.tab.live", "Live view"))
         self.queue_panel = QueuePanel(ws)
@@ -869,8 +883,8 @@ class OperatorScreen(QWidget):
         style.set_enabled(b["resume_contour"], not why_bp, why_bp)
         # queue card
         r = self.ws.runner
-        title = tr(w, "run.queue.title", "Queue: {n} jobs, {left} sheets left",
-                   n=len(self.ws.queue), left=self.ws.queue.totals()["remaining"])
+        title = trn(w, "run.queue.title", len(self.ws.queue),
+                    left=trn(w, "run.queue.left", self.ws.queue.totals()["remaining"]))
         if self.queue_section.title() != title:
             self.queue_section.setTitle(title)
         lines = [_msg(w, r.message)]

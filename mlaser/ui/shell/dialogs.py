@@ -149,7 +149,7 @@ class WelcomeSheet(Dialog):
         content.setObjectName("welcome_sections")
         cv = style.vbox(content, sp=style.SP3)
 
-        def section(title_key: str, text_keys: list[str], actions: list[tuple[str, str]]) -> None:
+        def section(title_key: str, text_keys: list[str], actions: list[tuple[str, str]]) -> QVBoxLayout:
             sec, bl = style.section(tr.tr(title_key))
             for tk in text_keys:
                 lab = QLabel(tr.tr(tk))
@@ -167,10 +167,21 @@ class WelcomeSheet(Dialog):
                     btns.append(b)
                 bl.addWidget(flow(btns, justify=False))
             cv.addWidget(sec)
+            return bl
 
         # one practice section (the simulator and the guided lessons are the same idea)
         section("practice.welcome_title", ["shell.welcome.sim_text", "practice.welcome_text"],
                 [("shell.welcome.sim_button", "hw.connect_sim"), ("practice.welcome_button", "practice.open")])
+        # a real machine: connect it, then commission it (UX audit O3).  The checklist needs
+        # Service mode: said here, and the button switches to it (asking the PIN when one is set)
+        mbl = section("shell.welcome.machine_title", ["shell.welcome.machine_text"],
+                      [("shell.welcome.machine_button", "wizard.commissioning")])
+        self.mode_note = QLabel()
+        self.mode_note.setObjectName("welcome_mode_note")
+        self.mode_note.setWordWrap(True)
+        self.mode_note.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Minimum)
+        mbl.insertWidget(mbl.count() - 1, self.mode_note)       # above the button
+        self.refresh_mode_note()
         section("shell.welcome.import_title", ["shell.welcome.import_text"],
                 [("shell.welcome.import_params", "shell.import_params"),
                  ("shell.welcome.import_lang", "app.import_language")])
@@ -218,7 +229,32 @@ class WelcomeSheet(Dialog):
         return out
 
     def _run(self, cmd: str) -> None:
+        if cmd == "wizard.commissioning":
+            self.open_commissioning()
+            return
         self.shell.w.run(cmd)
+
+    def refresh_mode_note(self) -> None:
+        """Above the commissioning button: the user mode now and that the checklist needs
+        Service mode, which the button switches to first (hidden in Service mode)."""
+        tr = self.shell.tr
+        mode = self.shell.modes.mode
+        self.mode_note.setText(tr.format("shell.welcome.machine_mode", mode=tr.tr(f"shell.mode.{mode}")))
+        self.mode_note.setVisible(mode != um.SERVICE)
+        b = self.actions.get("wizard.commissioning")
+        if b is not None:
+            b.setText(tr.tr("shell.welcome.machine_button") if mode == um.SERVICE
+                      else tr.tr("shell.welcome.machine_button_switch"))
+
+    def open_commissioning(self) -> bool:
+        """The commissioning checklist, in Service mode: switch to it first (the PIN when one
+        protects it; a refusal leaves the mode and the sheet as they are)."""
+        if self.shell.modes.mode != um.SERVICE and not self.shell.request_mode(um.SERVICE):
+            self.refresh_mode_note()
+            return False
+        self.refresh_mode_note()
+        self.shell.w.run("wizard.commissioning")
+        return True
 
     def done(self, r: int) -> None:  # noqa: D401 - QDialog API
         self.shell.config.set("shell.welcome_done", not self.again.isChecked())

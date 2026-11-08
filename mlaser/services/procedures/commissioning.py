@@ -87,17 +87,21 @@ class CommissioningProcedure(Procedure):
                  run=_interlock_test, action_label="wizard.comm.ilk_test_button",
                  skip=lambda p: not p.items["interlocks"].values.get("wired")),
             Step("homing", TITLES["homing"], "wizard.comm.homing_text", "action", run=_homing, motion=True,
-                 safety=("wizard.safety.motion",), action_label="wizard.comm.homing_button"),
+                 safety=("wizard.safety.motion",), action_label="wizard.comm.homing_button", skippable=True),
             Step("heartbeat", TITLES["heartbeat"], "wizard.comm.heartbeat_text", "action", run=_heartbeat,
                  auto=True),
             Step("heartbeat_relay", "wizard.comm.relay_title", "wizard.comm.relay_text", "question",
                  skip=lambda p: p.items["heartbeat"].status in (FAIL, SKIP)),
+            # the jog steps move from the home position: without homing (skipped) they are
+            # skipped too (an axis at an unknown place could be driven into its end stop)
             Step("jog_x", TITLES["jog_x"], "wizard.comm.jog_x_text", "action", run=lambda p: _jog(p, "X"),
-                 motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_x_button"),
-            Step("jog_x_dir", "wizard.comm.jog_x_q_title", "wizard.comm.jog_x_q", "question"),
+                 motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_x_button",
+                 skip=_not_homed),
+            Step("jog_x_dir", "wizard.comm.jog_x_q_title", "wizard.comm.jog_x_q", "question", skip=_not_homed),
             Step("jog_y", TITLES["jog_y"], "wizard.comm.jog_y_text", "action", run=lambda p: _jog(p, "Y"),
-                 motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_y_button"),
-            Step("jog_y_dir", "wizard.comm.jog_y_q_title", "wizard.comm.jog_y_q", "question"),
+                 motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_y_button",
+                 skip=_not_homed),
+            Step("jog_y_dir", "wizard.comm.jog_y_q_title", "wizard.comm.jog_y_q", "question", skip=_not_homed),
             Step("summary", "wizard.comm.summary_title", "wizard.comm.summary_text", "info"),
         ]
 
@@ -126,6 +130,26 @@ class CommissioningProcedure(Procedure):
                 self.set_item(key, PASS, "wizard.comm.jog_ok", axis=axis)
             else:
                 self.set_item(key, FAIL, "wizard.comm.jog_wrong", fix="wizard.comm.fix_reverse", axis=axis)
+
+    def on_skip(self, step: Step) -> None:
+        if step.id == "homing":
+            self.set_item("homing", SKIP, "wizard.comm.home_skipped")
+            for axis in ("x", "y"):
+                self.set_item(f"jog_{axis}", SKIP, "wizard.comm.jog_needs_homing", axis=axis.upper())
+
+    #: the check item a step reports (its status is the item's)
+    STEP_ITEMS = {"interlock_test": "interlocks", "heartbeat_relay": "heartbeat", "jog_x_dir": "jog_x",
+                  "jog_y_dir": "jog_y"}
+
+    def step_status(self, step: Step) -> str:
+        """A check step that ran shows its item's result (pass / warn / fail / skipped; "to do"
+        while the check is still open, e.g. a jog until its direction is confirmed), not only
+        that it was visited; a step not reached yet is "to do"."""
+        base = super().step_status(step)
+        it = self.items.get(self.STEP_ITEMS.get(step.id, step.id))
+        if it is None or base in ("todo", "skipped", "fail"):
+            return base
+        return {PASS: "pass", WARN: "warn", FAIL: "fail", SKIP: "skipped", PENDING: "todo"}.get(it.status, base)
 
     def heartbeat_hold(self, hold: bool) -> None:
         try:
@@ -434,6 +458,11 @@ def _interlock_test(p: CommissioningProcedure) -> dict:
     else:
         p.set_item("interlocks", PASS, "wizard.comm.ilk_tested", **vals)
     return results
+
+
+def _not_homed(p: "CommissioningProcedure") -> bool:
+    """Homing was skipped: the steps that move from the home position are skipped too."""
+    return p.items["homing"].status == SKIP
 
 
 def _homing(p: CommissioningProcedure) -> dict:

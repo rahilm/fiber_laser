@@ -250,6 +250,12 @@
   "camx.tab": "CAM+",
   "canvas.cmd.fit_table": "Fit table",
   "canvas.cmd.toolpath": "Toolpath",
+  "canvas.empty.import": "Import DXF/SVG…",
+  "canvas.empty.open": "Open drawing…",
+  "canvas.empty.practice": "Practice on the simulator",
+  "canvas.empty.sample": "Try the sample",
+  "canvas.empty.text": "Open a drawing or import one to start. The sample drawing and the practice lessons on the simulator let you try things out first.",
+  "canvas.empty.title": "No drawing yet",
   "canvas.fit_drawing": "Fit drawing",
   "canvas.fit_drawing_tip": "Zoom to the drawing (F); the view keeps fitting when the window or a panel is resized, until you zoom or pan",
   "canvas.fit_table": "Fit table",
@@ -937,6 +943,8 @@
   "layer.assign": "Assign recipe",
   "layer.assign_tip": "The layer follows this technology record: its values and the parts' leads and kerf come from it, except what is set on the layer, a part or a contour.",
   "layer.assigned": "Recipe {name} assigned to layer {layers}; {kept} values set on the layers and {parts} parts with their own settings kept",
+  "layer.choose.title": "Choose technology…",
+  "layer.choose.use": "Use for layer {n}",
   "layer.craft_section": "Leads and kerf (layer defaults)",
   "layer.edit.reset": "restore layer value",
   "layer.edit.value": "layer value",
@@ -966,9 +974,17 @@
   "leaddlg.only_closed": "Closed contours only",
   "leaddlg.only_selected": "Selected parts only",
   "leaddlg.only_selected_tip": "Untick to set the leads on every part. With nothing selected they go to every part.",
+  "library.assign_all": "All layers of the drawing",
+  "library.assign_to": "Assign to layer…",
+  "library.assign_why.drawing": "Open a drawing first: its layers get a technology here.",
+  "library.assign_why.layer": "Select a layer on the Drawing page first, or pick one under Assign to layer.",
+  "library.assign_why.locked": "Not while a job runs, and not in Operator mode.",
+  "library.assign_why.record": "Select a technology record first.",
   "library.search": "Search material, thickness, gas…",
   "library.tab.values": "Values",
   "library.unused": "Not used in this drawing",
+  "library.use_for_layer": "Use for layer {n}",
+  "library.use_for_layer_none": "Use for layer",
   "library.used_by": "Used by layers {layers} of this drawing",
   "log.alarms_reset": "Alarms reset",
   "log.arm_refused_alarm": "Arming refused: {alarm} is active. Reset the alarm first.",
@@ -1011,6 +1027,9 @@
   "machine.log.upgrade_done_device": "{what}: done. Please restart the software.",
   "machine.log.upgrade_done_mc": "{what}: done, card restarting (100 := 8888)",
   "machine.log.upgrade_progress": "{what}: {percent}%",
+  "machine.mode_offer": "{what} needs {mode} mode.",
+  "machine.mode_offer_why": "User modes keep machine settings with the people responsible for them. Switching may ask for the mode's PIN.",
+  "machine.mode_switch": "Switch to {mode} mode",
   "machine.restart.confirm": "Restart the motion card now?",
   "machine.upgrade.explanation": "File: {file} ({size} bytes). A wrong file or an interrupted transfer can make the board unusable. Do not switch off the machine or disconnect the network until it has finished.",
   "machine.upgrade.first": "Type {word} first",
@@ -1084,9 +1103,10 @@
   "main.operation": "Operation",
   "main.overspeed": "Overspeed",
   "main.parameters_written_to_the_hardware": "Parameters written to the hardware.",
-  "main.plugin.changed": "plugin {name}: its entry point ({target}) or its permissions changed; not loaded until it is enabled again (Options+ > Plugins, Service mode)",
+  "main.plugin.changed": "plugin {name}: its entry point ({target}) or its permissions changed; not loaded until it is enabled again ({where}, Service mode)",
   "main.plugin.name_taken": "plugin {name}: name already taken, not loaded",
-  "main.plugin.not_enabled": "plugins installed but not enabled: {names} (Options+ > Plugins)",
+  "main.plugin.not_enabled": "plugins installed but not enabled: {names} ({where}, Service mode)",
+  "main.plugin.where": "{menu} › {item}",
   "main.pop_up_prompt": "Pop-up prompt",
   "main.processing_time": "Processing time",
   "main.prompt_cycle_day": "Prompt cycle(day)",
@@ -1203,6 +1223,10 @@
   "nestws.engine.missing": "needs the optional package spyrrow",
   "nestws.engine.raster": "Raster (built-in)",
   "nestws.engine.spyrrow": "Sparrow (spyrrow)",
+  "nestws.field.count": "Count",
+  "nestws.field.height": "Height",
+  "nestws.field.thickness": "Thickness",
+  "nestws.field.width": "Width",
   "nestws.grain.none": "none",
   "nestws.grain.x": "along X",
   "nestws.grain.y": "along Y",
@@ -1216,7 +1240,7 @@
   "nestws.leftover": "  → leftover {size}",
   "nestws.margin": "Edge",
   "nestws.material": "Material",
-  "nestws.msg.done": "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
+  "nestws.msg.done": "Run {n}: {parts} on {sheets}, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
   "nestws.msg.failed": "Nesting failed: {err}",
   "nestws.msg.imported.one": "{n} part from {k} files",
   "nestws.msg.imported.other": "{n} parts from {k} files",
@@ -1226,8 +1250,13 @@
   "nestws.msg.problem": "nest: {problem}",
   "nestws.msg.queued.one": "{n} sheet job added to the queue",
   "nestws.msg.queued.other": "{n} sheet jobs added to the queue",
-  "nestws.msg.recognized": "{n} parts ({k} different) added",
+  "nestws.msg.recognized.one": "{n} part ({k} different) added",
+  "nestws.msg.recognized.other": "{n} parts ({k} different) added",
   "nestws.msg.running": "Nesting...",
+  "nestws.n_parts.one": "{n} part",
+  "nestws.n_parts.other": "{n} parts",
+  "nestws.n_sheets.one": "{n} sheet",
+  "nestws.n_sheets.other": "{n} sheets",
   "nestws.no_result": "No result yet",
   "nestws.opt.accuracy": "Accuracy",
   "nestws.opt.auto": "auto",
@@ -1250,7 +1279,7 @@
   "nestws.options": "Options",
   "nestws.parts": "Parts",
   "nestws.remnant_item": "◩ remnant {label}",
-  "nestws.result_item": "Sheet {n}  {util:.0f} %  ·  {parts} parts\n{sheet}",
+  "nestws.result_item": "Sheet {n}  {util:.1f} %  ·  {parts}\n{sheet}",
   "nestws.results": "Results",
   "nestws.rot.none": "no rotation",
   "nestws.rotation": "Rotation",
@@ -1272,7 +1301,7 @@
   "nestws.tip.joint": "micro-joint",
   "nestws.tip.last": "cut last",
   "nestws.tip_from": "Tip strategy: {strategy} (recipe rule)",
-  "nestws.total": "Total {sheets} sheets · {util:.1f} % · {placed} placed · {unplaced} unplaced",
+  "nestws.total": "Total {sheets} · {util:.1f} % · {placed} placed · {unplaced} unplaced",
   "nestws.undo.to_drawing": "nest result",
   "nestws.why.no_queue": "The job queue is not available",
   "nestws.why.no_result": "Run the nest first",
@@ -2997,6 +3026,8 @@
   "props.cool_info": "{n} cooling points on the selection",
   "props.dialog": "Dialog…",
   "props.do_overcut": "Overcut",
+  "props.drawing_extent.one": "The drawing: {n} part, {w} × {h}.",
+  "props.drawing_extent.other": "The drawing: {n} parts, {w} × {h}.",
   "props.edit.cool": "cooling points",
   "props.edit.cool_clear": "clear cooling points",
   "props.edit.joints": "micro-joints",
@@ -3093,7 +3124,8 @@
   "queue.status.skipped": "skipped",
   "queue.status.stopped": "stopped",
   "queue.status.waiting": "waiting",
-  "queue.totals": "{entries} jobs · {done}/{sheets} sheets · {left} left",
+  "queue.totals.one": "{n} job · {done}/{sheets} sheets · {left} left",
+  "queue.totals.other": "{n} jobs · {done}/{sheets} sheets · {left} left",
   "queue.undo.load": "queue: load sheet",
   "ready.alarms": "No alarm",
   "ready.armed": "Armed",
@@ -3407,11 +3439,14 @@
   "run.monitor.fault": "FAULT: {fault}",
   "run.monitor.queue_item": "{name}  {done}/{quantity}  {status}",
   "run.monitor_on": "LAN monitor ON {host}:{port}",
+  "run.queue.left.one": "{n} sheet left",
+  "run.queue.left.other": "{n} sheets left",
   "run.queue.next": "Next: {name} (sheet {n}/{total})",
   "run.queue.next_on": "Next: {name} (sheet {n}/{total}, {sheet})",
   "run.queue.pending.one": "{n} submitted job waits for approval (Queue tab)",
   "run.queue.pending.other": "{n} submitted jobs wait for approval (Queue tab)",
-  "run.queue.title": "Queue: {n} jobs, {left} sheets left",
+  "run.queue.title.one": "Queue: {n} job, {left}",
+  "run.queue.title.other": "Queue: {n} jobs, {left}",
   "run.reason.alarm": "Alarm {code}: {text}",
   "run.reason.armed": "Ready: ARMED, the laser fires on Start",
   "run.reason.breakpoint": "Held at a breakpoint ({position}): resume here or from the contour start",
@@ -4057,6 +4092,11 @@
   "shell.welcome.import_title": "Your Mlaser parameters and languages",
   "shell.welcome.intro": "An open rebuild of the fiber-laser cutting software. The rail on the left takes you through the work: Design, Process, Nest, Run, Report and Machine.",
   "shell.welcome.keys_button": "Keyboard shortcuts",
+  "shell.welcome.machine_button": "Open the commissioning checklist",
+  "shell.welcome.machine_button_switch": "Switch to Service mode and open the checklist",
+  "shell.welcome.machine_mode": "You are in {mode} mode. The commissioning checklist changes machine settings, so it needs Service mode: the button below switches to it first (it asks for the PIN when one is set).",
+  "shell.welcome.machine_text": "Connecting a real machine? Set its address in Machine › Connection, then go through the commissioning checklist: it checks the motion card, the safety inputs, the axes, homing and the laser, step by step, before the first cut.",
+  "shell.welcome.machine_title": "Connect your machine",
   "shell.welcome.safety_text": "Every connection starts <b>disarmed</b>: the laser cannot fire until you arm it in the state banner or the run bar, and arming asks for confirmation. Start, Frame and Dry run run a pre-flight check first (travel limits, homing, layers, open contours). While a job runs: <b>Space</b> holds, <b>Esc</b> or <b>F12</b> stops, from any screen. A fault latches and halts the machine until you reset it.",
   "shell.welcome.safety_title": "The safety model",
   "shell.welcome.sim_button": "Connect the simulator",
@@ -4336,6 +4376,10 @@
   "wizard.abort": "Abort (Esc)",
   "wizard.aborted_text": "Aborted: the machine was halted (motion stopped, laser off). Close the wizard or start it again.",
   "wizard.back": "Back",
+  "wizard.back_why.action": "Back is not possible here: the step before ran on the machine, and going back would not undo it.",
+  "wizard.back_why.final": "The procedure has ended.",
+  "wizard.back_why.first": "This is the first step.",
+  "wizard.back_why.running": "Wait until the running step has finished.",
   "wizard.check_title": "Check",
   "wizard.chip_dry": "DRY RUN · SIMULATOR",
   "wizard.close": "Close",
@@ -4354,6 +4398,7 @@
   "wizard.comm.heartbeat_text": "Measuring the “PC alive” output (docs/SAFETY.md §11)…",
   "wizard.comm.hold_heartbeat": "Hold heartbeat (test)",
   "wizard.comm.home_ok": "Homed in {seconds} s at ({x}, {y}) {unit}.",
+  "wizard.comm.home_skipped": "Skipped: home the machine before the first cut (Machine › Homing and jog). The jog direction checks need it and were skipped too.",
   "wizard.comm.home_timeout": "Homing did not finish.",
   "wizard.comm.homing_button": "Home X/Y",
   "wizard.comm.homing_text": "Press Home X/Y: the machine moves to its home switches.",
@@ -4381,6 +4426,7 @@
   "wizard.comm.item_scaling": "Card scaling",
   "wizard.comm.item_soft_limits": "Soft limits",
   "wizard.comm.jog_moved": "{axis} moved {moved} {unit} (step {step} {unit}).",
+  "wizard.comm.jog_needs_homing": "Skipped: the {axis} jog check moves from the home position; home the machine and run the checklist again.",
   "wizard.comm.jog_ok": "{axis}+ moves in the right direction.",
   "wizard.comm.jog_position": "{axis} position went {moved} {unit} for a +{step} {unit} jog.",
   "wizard.comm.jog_wrong": "{axis}+ moves the wrong way.",
@@ -4607,9 +4653,18 @@
   "wizard.safety.heading": "Safety",
   "wizard.safety.motion": "The axes move in this step. Stay out of the machine; keep a hand near the emergency stop.",
   "wizard.safety.no_laser": "The laser is not fired in this procedure.",
+  "wizard.skip_later": "Skip, do later",
+  "wizard.skip_later_tip": "Leave this step for later: it does not run and nothing moves. The checklist records it as skipped.",
   "wizard.state_aborted": "Aborted",
   "wizard.state_done": "Finished",
   "wizard.state_failed": "Failed",
+  "wizard.status.done": "Done",
+  "wizard.status.fail": "Failed",
+  "wizard.status.item": "{title}: {status}",
+  "wizard.status.pass": "Passed",
+  "wizard.status.skipped": "Skipped",
+  "wizard.status.todo": "To do",
+  "wizard.status.warn": "Warning",
   "wizard.step_n": "Step {n} of {total}: {title}",
   "wizard.warn.not_homed": "The machine is not homed: positions are relative to where it was switched on.",
   "wizard.yes": "Yes",
@@ -5222,6 +5277,9 @@
   "import.progress.opening_file": [
    "name"
   ],
+  "layer.choose.use": [
+   "n"
+  ],
   "layers.layer_n": [
    "n"
   ],
@@ -5250,6 +5308,9 @@
   "log.stopped_at_fault": [
    "x",
    "y"
+  ],
+  "library.use_for_layer": [
+   "n"
   ],
   "machine.log.autosave_failed": [
    "error"
@@ -5347,6 +5408,13 @@
    "what",
    "percent"
   ],
+  "machine.mode_offer": [
+   "what",
+   "mode"
+  ],
+  "machine.mode_switch": [
+   "mode"
+  ],
   "machine.upgrade.explanation": [
    "file",
    "size"
@@ -5390,13 +5458,19 @@
   ],
   "main.plugin.changed": [
    "name",
-   "target"
+   "target",
+   "where"
   ],
   "main.plugin.name_taken": [
    "name"
   ],
   "main.plugin.not_enabled": [
-   "names"
+   "names",
+   "where"
+  ],
+  "main.plugin.where": [
+   "menu",
+   "item"
   ],
   "main.real_not_connected.text": [
    "host",
@@ -5538,9 +5612,25 @@
   "nestws.msg.queued.other": [
    "n"
   ],
-  "nestws.msg.recognized": [
+  "nestws.msg.recognized.one": [
    "n",
    "k"
+  ],
+  "nestws.msg.recognized.other": [
+   "n",
+   "k"
+  ],
+  "nestws.n_parts.one": [
+   "n"
+  ],
+  "nestws.n_parts.other": [
+   "n"
+  ],
+  "nestws.n_sheets.one": [
+   "n"
+  ],
+  "nestws.n_sheets.other": [
+   "n"
   ],
   "options.plugins.enabled": [
    "names"
@@ -5779,6 +5869,28 @@
    "n",
    "layers"
   ],
+  "props.drawing_extent.one": [
+   "n",
+   "w",
+   "h"
+  ],
+  "props.drawing_extent.other": [
+   "n",
+   "w",
+   "h"
+  ],
+  "queue.totals.one": [
+   "n",
+   "done",
+   "sheets",
+   "left"
+  ],
+  "queue.totals.other": [
+   "n",
+   "done",
+   "sheets",
+   "left"
+  ],
   "repair.done.closed": [
    "n"
   ],
@@ -5965,6 +6077,12 @@
    "quantity",
    "status"
   ],
+  "run.queue.left.one": [
+   "n"
+  ],
+  "run.queue.left.other": [
+   "n"
+  ],
   "run.queue.next_on": [
    "name",
    "n",
@@ -5976,6 +6094,14 @@
   ],
   "run.queue.pending.other": [
    "n"
+  ],
+  "run.queue.title.one": [
+   "n",
+   "left"
+  ],
+  "run.queue.title.other": [
+   "n",
+   "left"
   ],
   "run.state.label": [
    "icon",
@@ -6094,6 +6220,9 @@
    "alarm",
    "remedy"
   ],
+  "shell.welcome.machine_mode": [
+   "mode"
+  ],
   "status.cursor": [
    "x",
    "y",
@@ -6208,6 +6337,9 @@
    "moved",
    "unit",
    "step"
+  ],
+  "wizard.comm.jog_needs_homing": [
+   "axis"
   ],
   "wizard.comm.jog_ok": [
    "axis"
@@ -6367,6 +6499,10 @@
    "setting",
    "error"
   ],
+  "wizard.status.item": [
+   "title",
+   "status"
+  ],
   "wizard.step_n": [
    "n",
    "total",
@@ -6400,7 +6536,7 @@
   ],
   "nestws.msg.done": [
    "n",
-   "placed",
+   "parts",
    "sheets",
    "util",
    "unplaced",
@@ -6441,12 +6577,6 @@
   "queue.note.unreadable": [
    "path"
   ],
-  "queue.totals": [
-   "entries",
-   "done",
-   "sheets",
-   "left"
-  ],
   "remnant.saved": [
    "label"
   ],
@@ -6482,10 +6612,6 @@
    "name",
    "n",
    "total"
-  ],
-  "run.queue.title": [
-   "n",
-   "left"
   ],
   "run.reason.alarm": [
    "code",

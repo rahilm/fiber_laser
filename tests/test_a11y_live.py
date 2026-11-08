@@ -148,6 +148,7 @@ def test_links_follow_a_live_light_to_dark_switch(window):
         w.show_workspace(ws)
         _pump(0.1)
     w.show_workspace("process")
+    w.canvas.select_parts([0])          # Properties shows its links for a selection (UX audit O14)
     _pump(0.2)
     w.config.set("shell.theme", "dark")
     _pump(0.5)
