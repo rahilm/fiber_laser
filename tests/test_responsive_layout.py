@@ -973,7 +973,14 @@ for ws in ("design", "run"):
     out[ws] = dict(passes)
 print(json.dumps({"state": int(w.windowState().value), "size": [w.width(), w.height()], "passes": out}))
 sys.stdout.flush()
-os._exit(0)
+# a clean exit: the window closed (simulator disconnected) and deleted, with every page wrapper
+# and its event filter, before the interpreter goes (os._exit with the window alive crashed on
+# Windows: Qt's teardown in the DLL detach still delivered events to a FitArea's filter)
+R.ColumnsPanel._relayout = _relayout
+from wiring import dispose
+dispose(w)
+del w
+app.processEvents()
 """
 
 
