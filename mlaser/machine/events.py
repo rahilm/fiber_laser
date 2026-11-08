@@ -107,6 +107,9 @@ class StateChanged(Event):
 class Log(Event):
     message: str
     level: int = logging.INFO
+    #: the engineering detail of the line (card words, wire indices, deadlines): the log file
+    #: keeps it, the operator's log panel shows ``message`` only (UX audit W12)
+    detail: str = ""
 
 
 @dataclass(frozen=True)

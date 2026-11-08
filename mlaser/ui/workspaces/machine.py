@@ -550,8 +550,10 @@ class MachineWorkspace(QWidget):
         g.addWidget(QLabel(T(w, "ws.machine.port")), 2, 0)
         g.addWidget(self.port, 2, 1)
         row = QHBoxLayout()
-        row.addWidget(_button(w, "ws.machine.connect", self.connect, "plug-connected", icons.GREEN))
-        row.addWidget(_button(w, "ws.machine.disconnect", self.disconnect, "plug-connected-x"))
+        self.connect_btn = _button(w, "ws.machine.connect", self.connect, "plug-connected", icons.GREEN)
+        self.disconnect_btn = _button(w, "ws.machine.disconnect", self.disconnect, "plug-connected-x")
+        row.addWidget(self.connect_btn)
+        row.addWidget(self.disconnect_btn)
         g.addLayout(row, 3, 0, 1, 2)
         page.add_section(CollapsibleSection(T(w, "ws.machine.connect_box"), box, collapsible=False))
         st = QWidget()
@@ -829,9 +831,12 @@ class MachineWorkspace(QWidget):
             return
         y, n = T(self.w, "wizard.yes"), T(self.w, "wizard.no")
         self.lbl["conn"].setText(T(self.w, "ws.machine.connected") if st.connected else T(self.w, "ws.machine.offline"))
-        self.lbl["kind"].setText(T(self.w, "ws.machine.simulator") if ctl.is_simulator() else
-                                 (T(self.w, "ws.machine.real_card") if ctl.card() is not None else T(self.w, "ws.machine.demo")))
-        self.lbl["safety"].setText(saf.state.value.upper() + (f" – {saf.fault}" if saf.fault else ""))
+        self.lbl["kind"].setText(controller_kind_text(self.w, ctl, st))
+        self.lbl["safety"].setText(safety_state_text(self.w, saf))
+        self.lbl["safety"].setToolTip(saf.fault or "")
+        # Connect while not connected, Disconnect while connected (UX audit O9)
+        style.set_enabled(self.connect_btn, not st.connected, T(self.w, "ws.machine.why_connected"))
+        style.set_enabled(self.disconnect_btn, bool(st.connected), T(self.w, "ws.machine.why_not_connected"))
         ep = ctl.endpoint()
         self.lbl["endpoint"].setText(f"{ep[0]}:{ep[1]}" if ep else "–")
         self.lbl["link"].setText(y if st.link_ok else n)
@@ -863,6 +868,29 @@ class MachineWorkspace(QWidget):
     def hideEvent(self, ev) -> None:
         self.jog.release_all("workspace hidden")
         super().hideEvent(ev)
+
+
+def controller_kind_text(window: Any, ctl: Any, st: Any) -> str:
+    """Machine › Connection "Controller": Simulator, Real motion card, "Not connected" for a
+    card controller without a card, "Demo (no card)" only for the demo controller (UX audit O9)."""
+    if ctl.is_demo():
+        return T(window, "ws.machine.demo")
+    if ctl.is_simulator():
+        return T(window, "ws.machine.simulator")
+    if ctl.card() is not None:
+        return T(window, "ws.machine.real_card")
+    return T(window, "ws.machine.kind_not_connected")
+
+
+def safety_state_text(window: Any, saf: Any) -> str:
+    """The safety state in words ("Disarmed: the laser cannot fire"), a fault with its plain
+    headline (the raw reason is the tooltip), never the enum (UX audit O9)."""
+    from ...machine.fault_text import headline
+    value = getattr(getattr(saf, "state", None), "value", "offline")
+    text = T(window, f"ws.machine.safety_{value}")
+    if getattr(saf, "fault", ""):
+        text = T(window, "ws.machine.safety_with_fault", state=text, fault=headline(saf.fault, getattr(window, "tr_", None)))
+    return text
 
 
 class _AlarmLike:

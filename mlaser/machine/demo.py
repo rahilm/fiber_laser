@@ -47,6 +47,11 @@ class DemoController(_api.ControllerFacade):
     def is_simulator(self) -> bool:
         return True
 
+    def is_demo(self) -> bool:
+        """The protocol-free demo table (no card, no card simulator): Machine › Connection
+        says "Demo (no card)" only for it (UX audit O9)."""
+        return True
+
     def travel_limits(self):
         from .preflight import TravelLimits
         x0, y0, x1, y1 = self.TABLE

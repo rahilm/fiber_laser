@@ -1464,7 +1464,7 @@ class DiagExtension:
             return
         self._attached = ctl
         self.outputs.ctl = ctl
-        ctl.add_log_listener(self._on_log)
+        ctl.add_log_listener(self._on_log, detail=True)
         self.watcher.subscribe(ctl.events)        # typed job events (mlaser.machine.events)
 
     def _on_log(self, msg: str) -> None:

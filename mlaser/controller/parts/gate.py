@@ -103,7 +103,7 @@ class StartGatePart:
         alarms = A.from_status(st)
         if alarms:
             return self._gate_refuse(action, "card alarm active: " + ", ".join(a.text_en for a in alarms[:4])
-                                     + " (Clear Alarm first)")
+                                     + " (Reset alarm first)")
         if job is not None:
             sx, sy = getattr(job, "start_mm", head)
             d = math.dist((float(sx), float(sy)), head)

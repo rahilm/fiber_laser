@@ -88,7 +88,8 @@ def test_state_banner_follows_the_safety_state(win, app):
     assert st.kind == "ARMED" and "ARMED" in st.label.text()
     win.ctl.raise_fault("test fault")
     _pump(app)
-    assert st.kind == "FAULT" and "test fault" in st.label.text()
+    # the plain headline is shown, the raw reason is behind it (tooltip, Details: UX audit W12)
+    assert st.kind == "FAULT" and "test fault" in st.label.toolTip() and "FAULT" in st.label.text()
     assert win.safety_ui.alarm_bar.isVisible() and "Remedy" in win.safety_ui.alarm.remedy.text()
     assert "FAULT" in win.st_mc.text() and "Ready" not in win.st_mc.text()   # never Ready while latched
     win.safety_ui.reset_fault()

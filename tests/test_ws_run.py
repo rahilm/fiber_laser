@@ -158,7 +158,7 @@ def test_run_screen_on_the_simulator(win, app):
         pump(app, 0.3)
         scr.refresh()
         assert scr.status.kind == "fault" and "FAULT" in scr.state.text()
-        assert "link lost" in scr.reason.text()
+        assert "Lost connection to the motion card" in scr.reason.text()     # plain words (UX audit W12)
         assert scr.alarm_box.isVisible() and scr.alarm_list.count() == 1
         assert "Remedy" in scr.alarm_list.item(0).text() and "network cable" in scr.alarm_list.item(0).text()
         assert not scr.buttons["start"].isEnabled() and scr.buttons["stop"].isEnabled()

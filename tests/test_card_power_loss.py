@@ -336,7 +336,9 @@ def test_every_operator_command_is_queued_or_a_reviewed_direct_path():
               "wait_job", "job_active", "state", "snapshot", "is_simulator", "card", "endpoint", "safety",
               "set_plugin_policy", "plugin_policy_check", "start_generation", "heartbeat_status",
               "add_log_listener", "add_alarm_listener", "travel_limits", "homed_xy", "layer_table",
-              "laser_enabled", "require_homed", "raise_fault", "commands_pending", "wait_commands"}
+              "laser_enabled", "require_homed", "raise_fault", "commands_pending", "wait_commands",
+              # no card I/O: the kept resume point is controller state (UX audit W17)
+              "is_demo", "restore_kept_breakpoint", "discard_kept_breakpoint"}
     api = {n for n, v in vars(ControllerFacade).items() if callable(v) and not n.startswith("_")}
     assert not api - queued - direct, f"MachineAPI commands neither queued nor reviewed: {api - queued - direct}"
 

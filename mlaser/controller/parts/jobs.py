@@ -104,7 +104,7 @@ class JobRunnerPart:
             self._log("a job is already running")
             return
         if self.active_alarms:
-            self._log("mp74: cannot start while alarms are active (Clear Alarm first)")
+            self._log("mp74: cannot start while alarms are active (Reset alarm first)")
             return
         if not getattr(document, "parts", None) or (selected_only and not any(p.selected for p in document.parts)):
             self._log("mp74: graphic data is empty, cannot start")
@@ -163,7 +163,7 @@ class JobRunnerPart:
             return self._run_job(job, "frame", f"frame {x1 - x0:.1f} x {y1 - y0:.1f} mm", track=False,
                                  generation=generation)
         if self.active_alarms:
-            self._log("mp74: cannot start while alarms are active (Clear Alarm first)")
+            self._log("mp74: cannot start while alarms are active (Reset alarm first)")
             return False
         src = plan.source if plan.source is not None else plan.document
         for hook in list(self.job_start_hooks):
@@ -292,6 +292,8 @@ class JobRunnerPart:
             streamer.on_event = self._stream_event
         markers = (base_job or job).markers
         f0 = (self._sup.fifo_frames, self._sup.fifo_emitting)
+        if track and not resume:
+            self.kept_breakpoint = None          # a new tracked job: the kept point is history
         self.events.publish(EV.JobStarted(mode, what, resume=resume, tracked=track))
         last_pub = [0.0]
 
@@ -447,7 +449,9 @@ class JobRunnerPart:
         breakpoint), publish the state change.  Callable from any thread."""
         first = self.fsm.raise_fault(reason)
         self._invalidate_starts("fault")
-        self._log(f"FAULT: {reason}" if first else f"(fault already latched) {reason}", logging.ERROR)
+        from ...machine.fault_text import headline
+        self._log(headline(reason), logging.ERROR,
+                  detail=f"FAULT: {reason}" if first else f"(fault already latched) {reason}")
         audit("fault", logging.ERROR, reason=reason, first=first, job=self._busy())
         if self._busy():
             st = self._streamer
@@ -631,7 +635,11 @@ class JobRunnerPart:
                 self._store.save_job_point(job, idx, (self._s.x, self._s.y))
             except OSError as e:
                 self._log(f"AutosaveParam not written: {e}")
-        self._log(f"paused ({why}): breakpoint at wire {idx} ({x:.3f}, {y:.3f})")
+        from ... import i18n
+        self._log(i18n.tr("log.paused_at" if why.startswith("send pause") else "log.stopped_at_fault",
+                          x=f"{x:.1f}", y=f"{y:.1f}"),
+                  detail=f"paused ({why}): breakpoint at wire {idx} ({x:.3f}, {y:.3f})")
+        self.kept_breakpoint = None          # a new resume point replaces a kept one (W17)
         audit("breakpoint", index=idx, x=round(x, 3), y=round(y, 3), why=why[:120])
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
 
@@ -764,6 +772,9 @@ class JobRunnerPart:
                 had_bp = bp is not None
                 self.breakpoint = None
                 if had_bp and not running:      # a paused / faulted job is abandoned
+                    # ... but its resume point is kept, never silently thrown away (UX audit
+                    # W17): "Stopped: resume point kept · Resume · Discard"
+                    self.kept_breakpoint = bp
                     self.events.publish(EV.JobFinished(getattr(bp, "mode", "process"), False, "stopped"))
                 if had_bp or running:
                     self.events.publish(EV.BreakpointChanged(None))
@@ -840,13 +851,35 @@ class JobRunnerPart:
         self._along(abs(float(length_mm)))
 
     @card_command("clear alarm")
-    def clear_alarms(self) -> None:
-        """gp90 Clear Alarm: ``[9999, 5, 0, 0]`` (FUN_100315f0) + local list.  A latched FAULT
-        stays latched (reset it with :meth:`reset_fault`)."""
+    def clear_alarms(self) -> bool:
+        """gp90 Clear Alarm ("Reset alarm"): ``[9999, 5, 0, 0]`` (FUN_100315f0), then the card
+        status is read again and only the alarms the card no longer reports are cleared
+        (docs/SAFETY.md §10, UX audit C2): an alarm whose cause persists (e-stop still pressed)
+        stays active and the reset is reported as refused.  Returns True when no alarm is left.
+        A latched FAULT stays latched (reset it with :meth:`reset_fault`)."""
+        from ... import i18n
         if self._mc is not None and self._s.connected:
-            self._safe("clear alarm", self._mc.reset_alarms)
-        self._s.alarms.clear()
-        self._log("mf21: alarms cleared ([9999, 5, 0, 0])")
+            try:
+                self._mc.reset_alarms()
+                st = self._mc.read_status()
+            except (ControllerError, OSError, CommandRefused) as e:
+                self._log(i18n.tr("log.reset_refused_no_answer"), logging.WARNING, detail=str(e))
+                return False
+            self._apply_status(st)
+        left = list(self.active_alarms or ())
+        with self._slock:
+            keep = {getattr(a, "text_en", str(a)) for a in left}
+            self._s.alarms[:] = [x for x in self._s.alarms if x[0] in keep]
+        if left:
+            a = left[0]
+            self._log(i18n.tr("log.reset_refused_alarm", alarm=getattr(a, "text_en", str(a))), logging.WARNING,
+                      detail="[9999, 5, 0, 0]; still reported: " + ", ".join(
+                          f"{getattr(x, 'text_en', x)} ({getattr(x, 'code', '')})" for x in left))
+            audit("alarm_reset", logging.WARNING, ok=False, left=[getattr(x, "code", None) for x in left])
+            return False
+        self._log(i18n.tr("log.alarms_reset"), detail="[9999, 5, 0, 0]")
+        audit("alarm_reset", ok=True)
+        return True
 
 
 __all__ = ["JobRunnerPart"]

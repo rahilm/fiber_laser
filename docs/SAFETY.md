@@ -28,16 +28,43 @@ hardware watchdog relay (§11) and the machine's own e-stop chain are required.
 ```
 OFFLINE --connect--> DISARMED --arm--> ARMED --start--> RUNNING <--> PAUSED
    ^                    ^  ^  <-disarm-+                   |            |
+   |                    |  |<- e-stop / servo alarm -+     |            |
+   |                    |  |   (idle or held: disarm, run state E-STOP / ALARM until reset)
    |                    |  +------ job end (disarmed) -----+            |
    |                    +--reset (operator; link up, no alarm, no interlock)-- FAULT <-- any
    +------------------- disconnect / close --------------------------------  (latched)
 ```
 
+Run state shown by the run bar (one alarm source, `ctl.active_alarms`, for the run state, the
+banners and the status chips): FAULT > E-STOP (an emergency-stop alarm is active) > ALARM (any
+other card alarm) > OFFLINE > HOLD > RUNNING > NOT HOMED (connected, the policy requires homing
+and X/Y are not homed; the state banner offers *Home axes*) > READY.  It never says READY while
+the card reports an alarm.
+
 * A connection **always starts disarmed** (or in FAULT if a fault is still latched; a fault
   survives a reconnect until it is reset).
-* Arming is an operator action (state banner or run bar, with a confirmation). It is refused in
-  dry-run mode (`--laser-off`), while a fault is latched, while an interlock holds, and while a
-  job runs.
+* Arming is an operator action (state banner or run bar, with a confirmation: *Arm laser* /
+  *Cancel*, Cancel the default). It is refused in dry-run mode (`--laser-off`), while a fault is
+  latched, while an interlock holds, while an emergency-stop or servo alarm is active, and while
+  a job runs.
+* **An emergency-stop or servo alarm disarms the machine in every state** (UX audit C3): during a
+  job it latches a FAULT (below), idle or held at a breakpoint the arming is dropped at once
+  (`ConnectionPart._disarm_on_alarm`, audited, "Laser disarmed: <alarm>" in the log). The run
+  state is E-STOP (or ALARM) while the alarm is active; after the cause is gone and *Reset alarm*
+  succeeded the machine stays **disarmed**: the operator arms again explicitly. Interlock trips
+  latch a FAULT (§8), which disarms as well.
+* **Start while disarmed** (UX audit C1) runs the pre-flight check first, as if armed (an e-stop,
+  a missing technology or a job out of travel refuses before anything is armed); only when it
+  passes one question follows with the arming safety text, *Arm and start* / *Cancel* (Cancel
+  the default, warning icon). When the start is then refused for any reason (compile error, the
+  start gate, the controller's own pre-flight, a Stop meanwhile) the machine is disarmed again
+  and the operator told: a refused start never leaves the machine armed.
+* **Reset alarm** (one name and one path for the banner, the Run screen, the dock and the menu,
+  UX audit C2/W5) sends `[9999, 5, 0, 0]`, reads the card status again and clears only the alarms
+  the card no longer reports. An alarm whose cause persists (e-stop still pressed) stays active
+  and the reset is reported as refused: "Reset refused: <alarm> still active — <remedy>".
+* Start, Frame and Dry run are disabled while a card alarm is active, with the reason "Reset the
+  alarm first: <alarm>" (UX audit C4); the pre-flight check refuses them as well (`alarm`).
 * RUNNING/PAUSED remember whether the job was started armed. Frame, dry run and
   Backward/Forward run disarmed.
 * FAULT is latched: Start, Resume, jog, home, moves and FIFO starts are refused until
@@ -49,6 +76,11 @@ OFFLINE --connect--> DISARMED --arm--> ARMED --start--> RUNNING <--> PAUSED
   Open / New, no queue load, no plugin `replace_document`) until Resume or Stop. The breakpoint
   remembers the document's key (`nc.resume.document_key`): Resume / Start with another open
   document is refused instead of continuing the old job on it.
+* **Stop while held** stays immediate (no question) and ends the job, but the resume point is
+  not silently thrown away (UX audit W17): it is kept (`kept_breakpoint`) and the window shows
+  "Stopped: resume point kept at X…, Y… mm" with *Resume from here* (the breakpoint comes back;
+  Start / Continue resumes with the pre-flight and the start gate) and *Discard*. A new
+  breakpoint or a new tracked job replaces it.
 * The queue disarms the machine when its last sheet is done (`QueueRunner(disarm=)`): the
   machine never stays armed unattended after a queue.
 
@@ -174,7 +206,7 @@ every FAULT, Stop, Pause (without the FIFO part), the jog dead-man fallback.
 With the card switched off (an e-stop that cuts its power) one request waits out the retry
 policy, ~3.5 s. The GUI thread never waits for it:
 
-* operator commands given on the GUI thread (jog, jog release, outputs, laser, Clear alarm,
+* operator commands given on the GUI thread (jog, jog release, outputs, laser, Reset alarm,
   fault reset, home, moves, Start/Resume, ...) are queued on **one** command worker
   (`controller/commands.py`), in order, so they reach the wire in the order given;
 * Stop, Hold, `safe_halt`, a fault halt and the halt of Disconnect / window close never wait in
@@ -214,6 +246,15 @@ first on the document to show the dialog.
 
 The extent of a compiled job is translated to the head: the wire is relative steps, so from a
 head away from the job's start it would run shifted by (head - start).
+
+The dialog (UX audit W6) is titled with the action ("Before Start", "Before Frame", "Before Dry
+run") and lists the issues grouped by kind, each with a severity icon **and** word (Error,
+Warning, Info). Blocking errors offer their fix (*Choose technology…* opens the Process
+workspace, *Home axes*, *Reset alarm*, *Arm laser*) and only *Close*; warnings need
+"<Action> anyway" (*Dry run anyway*), Cancel is the default button. For a laser-off run (Frame,
+Dry run, a move) the cutting-only warnings (`machine.preflight.CUTTING_ONLY`: undefined
+layers, lead collisions, tipping, open contours) are information: shown when the dialog opens
+for another reason, never to acknowledge. Errors are never demoted.
 
 ## 5a. The start gate
 
@@ -332,8 +373,11 @@ the pessimistic mode. A halt completes the step being executed (the 1-pulse resu
 
 ## 10. UI
 
-State banner (FAULT dark red with Reset, ARMED red with Disarm, DRY-RUN amber, SIMULATOR blue,
-DISARMED grey with Arm), alarm banner with remedy texts (`ui/safety_texts.py`) and Details, the
+State banner (FAULT dark red, ARMED red with Disarm laser, DRY-RUN amber, SIMULATOR blue,
+DISARMED grey with Arm laser, *Home axes* while NOT HOMED), alarm banner with remedy texts
+(`ui/safety_texts.py`), the one *Reset alarm* (also for a fault: one banner when a fault and
+alarms are both present) and Details (the raw fault reason and the alarm list: the banners show a
+plain headline, `machine/fault_text.py`, never card words, wire indices or deadlines), the
 status bar never shows Ready while an alarm or fault is latched, a run bar at the bottom (not in
 a scroll area, 56 px targets; one row, or two rows in a narrow window such as a half-screen one,
 the break after Stop: every control keeps its full text, size, order, keys and enabled rules,

@@ -111,7 +111,8 @@ def run_status(ms: Any, st: Any, alarms: list, plan: Any = None, elapsed_s: floa
     held = mode == "pause" or r.breakpoint
     if banner == "FAULT":
         r.kind, r.reason = "fault", "run.reason.fault"
-        r.reason_args = {"fault": getattr(st, "fault", "")}
+        from ..machine.fault_text import headline       # plain words; raw: Details (W12)
+        r.reason_args = {"fault": headline(getattr(st, "fault", ""))}
     elif r.alarms:
         r.kind, r.reason = "alarm", "run.reason.alarm"
         a = r.alarms[0]
