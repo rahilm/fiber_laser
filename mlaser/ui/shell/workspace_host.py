@@ -319,6 +319,18 @@ class WorkspacePage(QWidget):
             if act.icon().isNull():
                 btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
 
+    def _label_order(self) -> list:
+        """The tool bar's actions in the order they get their labels when not all fit: the
+        workspace's ``toolbar_labels`` (its most-used commands) first, then the tool bar's
+        order."""
+        acts = [a for a in self._acts if not a.isSeparator()]
+        first = []
+        for cmd in self.spec.extra.get("toolbar_labels", ()) or ():
+            act = self.host.action(cmd)
+            if act is not None and act in acts and act not in first:
+                first.append(act)
+        return first + [a for a in acts if a not in first]
+
     def toolbar_actions(self) -> list:
         """The tool bar's actions in order, both rows."""
         return list(self._acts)
@@ -427,8 +439,9 @@ class WorkspacePage(QWidget):
             tb.setToolButtonStyle(style)
             for act in tb.actions():         # a command without an icon keeps its text
                 btn = tb.widgetForAction(act)
-                if isinstance(btn, QToolButton) and act.icon().isNull():
-                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+                if isinstance(btn, QToolButton):
+                    # each button too: a label given to it alone (below) stays otherwise
+                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly if act.icon().isNull() else style)
             if tb.layout() is not None:
                 tb.layout().invalidate()     # its size hint is cached until the next layout pass
         # icons only in two rows is the narrowest the tool bar gets: the page never goes
@@ -476,7 +489,22 @@ class WorkspacePage(QWidget):
         if split == len(acts):
             apply(Qt.ToolButtonTextBesideIcon)
             if tb.sizeHint().width() > max(self.width(), 1):
+                # not every label fits: the most-used commands keep theirs, in the order of
+                # the workspace's priority list (its tool bar order by default), the rest
+                # icons only (O6: a wide window showed no label at all)
                 apply(Qt.ToolButtonIconOnly)
+                for act in self._label_order():
+                    btn = tb.widgetForAction(act)
+                    if not isinstance(btn, QToolButton) or act.icon().isNull():
+                        continue
+                    btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                    if tb.layout() is not None:
+                        tb.layout().invalidate()
+                    if tb.sizeHint().width() > max(self.width(), 1):
+                        btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+                        if tb.layout() is not None:
+                            tb.layout().invalidate()
+                        break
         else:
             apply(Qt.ToolButtonIconOnly)
             tb2.setToolButtonStyle(Qt.ToolButtonIconOnly)

@@ -8,7 +8,8 @@ import pytest
 
 pytest.importorskip("PySide6")
 from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, QTabBar  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton, QTabBar,  # noqa: E402
+                               QToolButton)
 
 HALF = (683, 875)
 WIDE = (1512, 875)
@@ -194,3 +195,26 @@ def test_a_workspace_switch_reflows_instead_of_resizing(win, app, size):
         if win.minimumSize().height() <= size[1]:
             assert win.height() == size[1], (ws, seen)                  # back to the user's size
     assert seen["design"] == size, seen
+
+
+def test_tool_bar_labels_most_used_first(win, app):
+    """O6: when not every label fits, the workspace's most-used commands keep theirs (text
+    beside the icon), the rest are icons only; a wide window shows labels in Process too."""
+    from mlaser.services.workspaces import BUILTIN
+    host = win.shell.host
+    for ws, size in (("design", (1512, 875)), ("process", (1920, 1080))):
+        host.activate(ws)
+        win.resize(*size)
+        settle(app)
+        page = host.pages[ws]
+        styles = {b.defaultAction(): b.toolButtonStyle() for b in page.toolbar_buttons()}
+        labelled = [a for a, st in styles.items() if st != Qt.ToolButtonIconOnly]
+        assert labelled, (ws, page.width())
+        first = [host.action(c) for c in BUILTIN[ws].extra["toolbar_labels"]]
+        first = [a for a in first if a in styles]
+        n = len([a for a in labelled if a in first])
+        assert first[:n] == [a for a in first if a in labelled]          # in priority order
+        if len(labelled) < len(styles):
+            assert n == len(first) or not [a for a in labelled if a not in first], ws
+        ext = page.toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
+        assert ext is None or not ext.isVisible()
