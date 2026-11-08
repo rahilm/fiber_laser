@@ -49,6 +49,8 @@ class DockPolicy(QObject):
         self._tried: Optional[tuple] = None      # the last resize asked for (see apply)
         #: folded (see fold): the arrangement to go back to and the width it needs
         self.folded: Optional[dict] = None
+        #: the docks under the page folded into the side docks' tab group (vfold)
+        self.vfolded: Optional[dict] = None
         self.user_arranged = False               # the user moved a dock while folded
         self.room: Optional[QSize] = None        # a screen smaller than the content (update_min)
         self._moving = False
@@ -144,6 +146,7 @@ class DockPolicy(QObject):
         self.vprefs.clear()
         self._tried = None
         self.folded = None
+        self.vfolded = None
         self.user_arranged = False
 
     def _moved(self) -> None:
@@ -165,7 +168,8 @@ class DockPolicy(QObject):
         orientations): the tab groups of each area in order (each a list of docks, the shown
         tab first) and how each group sits next to the one before it."""
         out: list[tuple] = []
-        docks = [d for d in self.docks() if d.isVisible() and not d.isFloating()]
+        moved = self.vfolded["docks"] if self.vfolded is not None else []
+        docks = [d for d in self.docks() if d.isVisible() and not d.isFloating() and d not in moved]
         for area in (*SIDE, Qt.BottomDockWidgetArea):
             ds = [d for d in docks if self.w.dockWidgetArea(d) == area]
             groups: list[list[QDockWidget]] = []
@@ -354,17 +358,107 @@ class DockPolicy(QObject):
             return False
         return self._refold()
 
-    def fit_width(self, width: int) -> None:
+    # ------------------------------------------------------------------ folding: height
+    def _target_height(self) -> int:
+        """The height the window should have: the user's (a page that needed more room may
+        have grown the window meanwhile), else its own."""
+        us = getattr(getattr(getattr(self.w, "shell", None), "host", None), "user_size", None)
+        size = getattr(us, "size", None)
+        h = self.w.height()
+        return min(h, size.height()) if size is not None else h
+
+    def vfold(self) -> bool:
+        """A window too short for the docks under the page (the log, the preview): they join
+        the side docks' largest tab group, remembering where they were (:meth:`vunfold`).
+        Only with side docks to join (a dock column added for them would widen the window)."""
+        arr = self.arrangement()
+        bottom = [x for x in arr if x[0] == Qt.BottomDockWidgetArea]
+        side = [x for x in arr if x[0] in SIDE]
+        if not bottom or not side:
+            return False
+        need = self.w.minimumSizeHint().height()
+        area, big = max(((a, g) for a, gs, _o in side for g in gs), key=lambda x: len(x[1]))
+        head = self._shown(big)
+        shown = [self._shown(g) for _a, gs, _o in bottom for g in gs]
+        self._moving = True
+        try:
+            for _a, gs, _o in bottom:
+                for g in gs:
+                    for d in g:
+                        self.w.addDockWidget(area, d)       # tabify alone leaves it there
+                        self.w.tabifyDockWidget(head, d)
+            head.raise_()                                   # the side panel stays on top
+        finally:
+            self._moving = False
+        self.vfolded = {"arrangement": bottom, "need": need, "shown": shown, "head": head,
+                        "docks": [d for _a, gs, _o in bottom for g in gs for d in g]}
+        self._tried = None
+        return True
+
+    def vunfold(self) -> None:
+        """The docks :meth:`vfold` moved back under the page, as they were."""
+        rec = self.vfolded
+        self.vfolded = None
+        if rec is None:
+            return
+        self._moving = True
+        try:
+            for area, groups, orients in rec["arrangement"]:
+                prev = None
+                for i, g in enumerate(groups):
+                    first = g[0]
+                    if first.isFloating():
+                        continue
+                    if prev is None:
+                        self.w.addDockWidget(area, first)
+                    else:
+                        self.w.addDockWidget(area, first, orients[i - 1])
+                    for d in g[1:]:
+                        if not d.isFloating():
+                            self.w.addDockWidget(area, d)
+                            self.w.tabifyDockWidget(first, d)
+                    prev = first
+            for d in [*rec["shown"], rec["head"]]:
+                if not d.isFloating() and d.isVisible():
+                    d.raise_()
+        finally:
+            self._moving = False
+        self._tried = None
+
+    def _vfold_step(self, height: int) -> bool:
+        """Fold or unfold the docks under the page for ``height``; True when docks moved."""
+        if self.user_arranged:
+            return False
+        if self.vfolded is not None:
+            rec = self.vfolded
+            shown = [d for d in rec["docks"] if d.isVisible() and not d.isFloating()]
+            new = [d for _a, gs, _o in self.arrangement() if _a == Qt.BottomDockWidgetArea
+                   for g in gs for d in g]
+            if height >= rec["need"] or len(shown) < len(rec["docks"]) or new or not rec["head"].isVisible():
+                self.vunfold()
+                if height < self.w.minimumSizeHint().height():
+                    self.vfold()                            # again, with the docks shown now
+                return True
+            return False
+        if height < self.w.minimumSizeHint().height() and not QApplication.closingDown():
+            return self.vfold()
+        return False
+
+    def fit_width(self, width: int, height: Optional[int] = None) -> None:
         """Fold, at once, the docks a workspace switch has just shown when ``width`` is too
-        narrow for them side by side (WorkspaceHost.activate, before the window's minimum
-        follows the new page)."""
+        narrow for them side by side, and the docks under the page when ``height`` is too short
+        for them (WorkspaceHost.activate, before the window's minimum follows the new page)."""
         if not self.enabled or self.user_arranged:
             return
+        if self.vfolded is not None:
+            self.vunfold()
         if self.folded is not None:
             self.unfold()
         hint = self.w.minimumSizeHint().width()
         if width < self.unfolded_need() and self.fold_need() < hint:
             self.fold()
+        if height is not None and height < self.w.minimumSizeHint().height():
+            self.vfold()
         self.update_min()
 
     def _refold(self) -> bool:
@@ -458,7 +552,10 @@ class DockPolicy(QObject):
             self._timer.start(50)          # not while the user drags a separator
             return
         self.watch()
-        if self._fold_step():
+        h = self._target_height()
+        # the docks under the page come back first (they went into the side docks' group
+        # after the side docks folded, and are restored before those unfold)
+        if (self.vfolded is not None and self._vfold_step(h)) or self._fold_step() or self._vfold_step(h):
             self._timer.start(0)             # sized once the docks have their new places
             return
         self.update_min()

@@ -926,7 +926,7 @@ class WorkspaceHost:
         if before is not None and pol is not None:
             # the new workspace's docks fold now if the window is too narrow for them side by
             # side: its minimum must not widen the window first (a switch reflows, W14)
-            pol.fit_width(before.width())
+            pol.fit_width(before.width(), before.height())
         if before is not None:
             # the new page's minimum is first asked for before its wrapper knows the room around
             # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
