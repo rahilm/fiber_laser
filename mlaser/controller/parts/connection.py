@@ -212,10 +212,11 @@ class ConnectionPart:
         return self._disconnect(quiet, keep_sim, None)
 
     def _disconnect(self, quiet: bool, keep_sim: bool, halted) -> None:
-        if halted is not None:
-            halted.wait(10.0)                # the halt went out before the sockets close
-        elif self._sup.connected:
+        if halted is None and self._sup.connected:
             self._sup.safe_halt("disconnect")
+        # every halt given before the disconnect (the window's "main window closed", this
+        # disconnect's own, a Hold) has gone out before the worker joins and the sockets close
+        self._sup.wait_halts(10.0)
         self._stop_reason = "disconnect"
         self._cancel.set()
         st = self._streamer

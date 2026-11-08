@@ -339,3 +339,28 @@ def test_every_operator_command_is_queued_or_a_reviewed_direct_path():
               "laser_enabled", "require_homed", "raise_fault", "commands_pending", "wait_commands"}
     api = {n for n, v in vars(ControllerFacade).items() if callable(v) and not n.startswith("_")}
     assert not api - queued - direct, f"MachineAPI commands neither queued nor reviewed: {api - queued - direct}"
+
+
+def test_the_channels_never_close_under_a_halt_still_on_its_way():
+    """CI (Windows): the window's "main window closed" halt and the disconnect's own halt run
+    from their own threads; the disconnect used to wait only for its own, so the sockets could
+    close (and the disconnect end) before the first one was sent.  Every halt started before
+    the disconnect is sent and recorded before the channels close."""
+    from mlaser.controller.ui_adapter import UiController
+    ctl = UiController(poll_s=0.05)
+    assert ctl.connect_simulator(time_scale=1.0)
+    sent = []
+    try:
+        gate = threading.Event()
+
+        def slow_halt():
+            gate.wait(5)
+            sent.append(ctl._sup.connected)          # still connected when it goes out
+        ev = ctl._sup.send_soon(slow_halt, "mlaser-halt")
+        threading.Timer(0.3, gate.set).start()
+        ctl.disconnect()
+        assert ev.is_set() and sent == [True]
+        assert not ctl._sup.connected
+    finally:
+        gate.set()
+        ctl.disconnect()

@@ -569,13 +569,12 @@ class JobRunnerPart:
             # the GUI's Hold: the hold and the cancel are set above; the pause halt (halt
             # channel: up to ~0.6 s with the card off) and the wait for the worker go on in
             # their own thread at once, never behind the command queue
-            from ..._sched import start_now
             self._sup._mark_halt("pause", True)
 
             def halt_then_finish() -> None:
                 self._sup._send_halt("pause", True)
                 self._pause_finish(bp_job, offset, False)
-            start_now(halt_then_finish, "mlaser-pause")
+            self._sup.send_soon(halt_then_finish, "mlaser-pause")
             return
         self._sup.safe_halt("pause", pause=True)
         self._pause_finish(bp_job, offset, blocking)
