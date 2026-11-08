@@ -95,6 +95,7 @@ def test_ui_runs_job_on_simulator(dxf_path):
         assert ctl.arm()
         app.processEvents()
         win.run("machine.home")                        # UNKNOWN protocol -> logged, no crash
+        assert ctl.wait_commands(30)                   # queued off the GUI thread (issue #5)
         t0 = time.monotonic()                          # the start gate refuses during Go Origin
         while ctl._homing and time.monotonic() - t0 < 10:
             app.processEvents()
@@ -112,7 +113,11 @@ def test_ui_runs_job_on_simulator(dxf_path):
             time.sleep(0.03)
         assert len(positions) > 5, "head marker did not follow the simulator"
         assert ctl.state().mode in ("process", "ready")
-        ctl.pause()
+        ctl.pause()                                    # the pause halt: its own thread (#5)
+        t0 = time.monotonic()
+        while ctl.state().mode != "pause" and time.monotonic() - t0 < 10:
+            app.processEvents()
+            time.sleep(0.02)
         assert ctl.state().mode == "pause"
         ctl.resume()
         assert ctl.stop().wait(10)                      # the stop is asynchronous

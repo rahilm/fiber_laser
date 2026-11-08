@@ -11,6 +11,7 @@ import logging
 from typing import Optional
 
 from ...protocol import frames as F
+from ..commands import card_command
 
 
 class IOPart:
@@ -143,6 +144,7 @@ class IOPart:
         with self._slock:
             self._s.outputs["red_light"] = False
 
+    @card_command("laser off")
     def laser_off(self) -> None:
         """CNCModule +0x170 (FUN_10030f70, O): laser emission off.  CO2 with
         LGP.CO2LaserControlType != 0: LGP.CO2DOLaser off and its DA off; fiber with
@@ -179,6 +181,7 @@ class IOPart:
             return False
         return True
 
+    @card_command("laser", drop_if_stale=True)
     def laser_press(self) -> None:
         """激光 (mp51) pressed: FUN_005b05c0 -> CNCModule +0x168(1, 0) = FUN_10035530 (O).
 
@@ -226,6 +229,7 @@ class IOPart:
             self.laser_test(t_ms / 1000.0)
             self._timed_shot = False
 
+    @card_command("laser off")
     def laser_release(self) -> None:
         """激光 (mp51) released (FUN_005ad9f0 WM_LBUTTONUP -> FUN_005b0630(MC.PtLaserTime_ms != 0),
         O): with MC.PtLaserTime_ms == 0 CNCModule +0x170 = :meth:`laser_off`; with a timed shot
@@ -237,6 +241,7 @@ class IOPart:
             self.laser_off()
 
     # ------------------------------------------------------------------ IO
+    @card_command("output", drop_if_stale=lambda name, on, **_kw: bool(on))
     def set_output(self, name: str, on: bool) -> None:
         if name not in self._s.outputs:
             raise KeyError(name)
@@ -269,6 +274,7 @@ class IOPart:
         self._s.gas_type = gas_type
         self._log(f"gas type {gas_type}: the valve is switched by the job's process items")
 
+    @card_command("laser power")
     def set_laser_power(self, pct: float) -> None:
         """Panel laser power (mp53): DA channel 1.  Sent while armed; otherwise kept and sent on
         arming (a DA value is an emission-class command)."""
@@ -281,9 +287,18 @@ class IOPart:
 
     def _on_armed(self) -> None:
         if self._mc is not None and self._power_dirty:
+            if self._offload():              # armed on the GUI thread: the DA write is queued
+                self._commands.submit("laser power", self._send_power_on_arm, gen=self.start_generation(),
+                                      drop_if_stale=True)
+                return
+            self._send_power_on_arm()
+
+    def _send_power_on_arm(self) -> None:
+        if self._mc is not None and self._power_dirty:
             self._power_dirty = False
             self._safe("laser power", self._mc.set_da, 1, int(round(self._s.laser_power_pct * 100)))
 
+    @card_command("laser test", drop_if_stale=True)
     def laser_test(self, duration_s: float = 0.1, power_pct: Optional[float] = None) -> None:
         """mp51 'Laser': fire the beam in place for ``duration_s`` (zero-motion FIFO steps with the
         laser byte set).  INFERRED: the laser gate is the step item's laser byte.  Needs the

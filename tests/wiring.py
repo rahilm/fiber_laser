@@ -37,6 +37,11 @@ def dispose(w) -> None:
     try:
         w._test_no_dialogs = True
         w.close()
+        # the close's disconnect runs on the controller's command worker (issue #5): let it end
+        # while the window still exists, as the application's exit does (lifecycle atexit)
+        wait = getattr(getattr(w, "ctl", None), "wait_commands", None)
+        if callable(wait):
+            wait(30.0)
         w.deleteLater()
     except RuntimeError:            # already deleted
         return

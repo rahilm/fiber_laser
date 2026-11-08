@@ -296,6 +296,7 @@ def test_window_start_on_the_card_controller_streams_the_plan(app):
         ]
         w.run_job("dry_run")
         w.jobs.settle(w.jobs.last_run, timeout=120)
+        assert w.ctl.wait_commands(30)  # the start runs on the command worker (issue #5)
         assert ran and ran[0][1] == "dry_run" and ran[0][0].dry_run
         w.ctl.stop()
     finally:

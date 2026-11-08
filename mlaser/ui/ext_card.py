@@ -98,8 +98,10 @@ class CardExtension:
         if ctl.breakpoint is not None:
             from .resume import resume
             resume(ctl, "exact", self.w.document)
-        elif not ctl.resume_saved(self.w.document):
-            self.w.log_panel.log("mp64: no breakpoint to continue from")
+        else:
+            from .qtbridge import when_done
+            when_done(ctl.resume_saved(self.w.document),
+                      lambda ok: None if ok else self.w.log_panel.log("mp64: no breakpoint to continue from"))
 
     def params(self) -> None:
         sc = self.w.ctl.scaling

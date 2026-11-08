@@ -52,8 +52,25 @@ def targets() -> list:
         return list(_targets)
 
 
+_sync = threading.local()
+
+
+def synchronous() -> bool:
+    """True while :func:`halt_all` runs on the calling thread: the controllers halt right here
+    (the process may be about to exit, a halt handed to another thread could be lost)."""
+    return bool(getattr(_sync, "depth", 0))
+
+
 def halt_all(path: str, reason: str, fault: bool = False) -> int:
     """``safe_halt`` (or ``raise_fault`` with ``fault``) on every registered controller."""
+    _sync.depth = getattr(_sync, "depth", 0) + 1
+    try:
+        return _halt_all(path, reason, fault)
+    finally:
+        _sync.depth -= 1
+
+
+def _halt_all(path: str, reason: str, fault: bool) -> int:
     n = 0
     calls.append((path, reason))
     del calls[:-50]
@@ -73,6 +90,15 @@ def halt_all(path: str, reason: str, fault: bool = False) -> int:
 
 # ------------------------------------------------------------------------------ hooks
 def _atexit() -> None:
+    # a disconnect handed to a controller's command worker (window closed) gets a moment to
+    # finish (sockets closed, audited); the halt below goes out in any case
+    for ctl in targets():
+        wait = getattr(ctl, "wait_commands", None)
+        if callable(wait):
+            try:
+                wait(2.0)
+            except Exception:  # noqa: BLE001
+                pass
     halt_all("atexit", "interpreter exit")
 
 
@@ -173,4 +199,4 @@ def installed() -> bool:
     return _installed
 
 
-__all__ = ["register", "unregister", "targets", "halt_all", "install", "uninstall", "installed", "calls"]
+__all__ = ["register", "unregister", "targets", "halt_all", "synchronous", "install", "uninstall", "installed", "calls"]

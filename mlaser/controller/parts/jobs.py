@@ -25,6 +25,7 @@ from ...machine.audit import audit
 from ...machine.safety import SafetyState, wire_emits
 from ...protocol import frames as F
 from ..client import ControllerError
+from ..commands import card_command
 from ..supervisor import CommandRefused
 from .motion import CANCEL_CMD
 
@@ -76,12 +77,14 @@ class JobRunnerPart:
         return refused
 
     # ------------------------------------------------------------------ start
+    @card_command("start", drop_if_stale=True)
     def start(self, document, selected_only: bool = False) -> None:
         if self.breakpoint is not None and not self._busy():
             self.resume(document=document)       # refused when it is not the paused job's document
             return
         self._start_doc(document, selected_only, False, "process")
 
+    @card_command("dry run", drop_if_stale=True)
     def dry_run(self, document) -> None:
         self._start_doc(document, False, True, "dry_run")
 
@@ -134,6 +137,7 @@ class JobRunnerPart:
         self.document = document
         self._run_job(job, mode, job.summary(), emits=emits, generation=gen)
 
+    @card_command("start", drop_if_stale=True)
     def start_job(self, job, generation: Optional[int] = None) -> bool:
         """Run a :class:`mlaser.services.jobs.PlannedJob` (the JobSubmitter protocol: the plan
         the canvas shows, compiled off the GUI thread) without recompiling it: connected, idle,
@@ -181,6 +185,7 @@ class JobRunnerPart:
         self.document = src
         return self._run_job(job, plan.mode, job.summary(), emits=emits, generation=generation)
 
+    @card_command("frame", drop_if_stale=True)
     def frame(self, document) -> None:
         """mp58 Frame: trace the job bounding box with the laser off."""
         gen = self.start_generation()
@@ -452,8 +457,17 @@ class JobRunnerPart:
         self._jogging = None
         self._jog_active = False
         if self._sup.connected:
-            self._sup.safe_halt(f"fault: {reason}")
+            self._halt_now(f"fault: {reason}")
 
+    def _halt_now(self, reason: str, pause: bool = False) -> None:
+        """The supervisor halt; on the GUI thread its sequence goes out from its own thread at
+        once (counted and latched here first), never queued behind other commands."""
+        if self._offload():
+            self._sup.safe_halt_soon(reason, pause=pause)
+        else:
+            self._sup.safe_halt(reason, pause=pause)
+
+    @card_command("fault reset")
     def reset_fault(self) -> bool:
         """Operator reset of a latched FAULT: link must answer, the card alarms are cleared
         (``[9999, 5, 0, 0]``) and must stay clear, no interlock may hold.  The machine is
@@ -506,7 +520,7 @@ class JobRunnerPart:
         command independent), and stop the worker without waiting for it."""
         self._invalidate_starts("safe_halt")
         if self._sup.connected:
-            self._sup.safe_halt(reason or "safe_halt")
+            self._halt_now(reason or "safe_halt")
         self._jogging = None
         self._jog_active = False
         if self._busy():
@@ -551,8 +565,23 @@ class JobRunnerPart:
         self._cancel.set()
         if st is not None and hasattr(st, "set_cancel"):
             st.set_cancel()
-        self._sup.safe_halt("pause", pause=True)
+        if not blocking and self._offload():
+            # the GUI's Hold: the hold and the cancel are set above; the pause halt (halt
+            # channel: up to ~0.6 s with the card off) and the wait for the worker go on in
+            # their own thread at once, never behind the command queue
+            from ..._sched import start_now
+            self._sup._mark_halt("pause", True)
 
+            def halt_then_finish() -> None:
+                self._sup._send_halt("pause", True)
+                self._pause_finish(bp_job, offset, False)
+            start_now(halt_then_finish, "mlaser-pause")
+            return
+        self._sup.safe_halt("pause", pause=True)
+        self._pause_finish(bp_job, offset, blocking)
+
+    def _pause_finish(self, bp_job, offset: int, blocking: bool) -> None:
+        """The rest of :meth:`_pause_to_breakpoint` once the pause halt went out."""
         def finish():
             if self._worker is not None:
                 self._worker.join(timeout=10.0)
@@ -607,6 +636,7 @@ class JobRunnerPart:
         audit("breakpoint", index=idx, x=round(x, 3), y=round(y, 3), why=why[:120])
         self.events.publish(EV.BreakpointChanged(self.breakpoint))
 
+    @card_command("resume", drop_if_stale=True)
     def resume(self, mode: str = "exact", document=None) -> None:
         """Continue from the breakpoint: laser-off rapid from the head back to it, the
         contour's start-cut (re-pierce) there, then the rest of the wire.  Refused while a
@@ -665,6 +695,7 @@ class JobRunnerPart:
             self.breakpoint = bp                   # refused by the safety state: keep it
             self.events.publish(EV.BreakpointChanged(bp))
 
+    @card_command("resume", drop_if_stale=True)
     def resume_saved(self, document, autosave_dir: Optional[str] = None, mode: str = "contour") -> bool:
         """BreakCon after a restart: compile ``document`` and continue from the newest
         AutosaveParam record (rebuild index convention, see mlaser.nc.resume)."""
@@ -799,14 +830,17 @@ class JobRunnerPart:
                              after=after, emits=False, generation=gen):
             self.breakpoint = keep
 
+    @card_command("backward", drop_if_stale=True)
     def step_backward(self, length_mm: float) -> None:
         """mp61 Backward along the path (laser off) by ``length_mm`` (mp65) while paused."""
         self._along(-abs(float(length_mm)))
 
+    @card_command("forward", drop_if_stale=True)
     def step_forward(self, length_mm: float) -> None:
         """mp62 Forward along the path (laser off) while paused."""
         self._along(abs(float(length_mm)))
 
+    @card_command("clear alarm")
     def clear_alarms(self) -> None:
         """gp90 Clear Alarm: ``[9999, 5, 0, 0]`` (FUN_100315f0) + local list.  A latched FAULT
         stays latched (reset it with :meth:`reset_fault`)."""
