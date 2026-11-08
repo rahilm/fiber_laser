@@ -75,6 +75,8 @@ UI_MODULES = {
     "test_command_feedback",
     # UI evaluation F8: plural forms, Qt's translations, locale numbers, right to left
     "test_i18n_locale",
+    # UI evaluation F2 / F12: large drawings, idle timers
+    "test_large_drawing", "test_idle_timers",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -86,6 +88,8 @@ SIM_MODULES = {
     "test_machine_workspace", "test_ws_run", "test_ws_cutting_strategy",
     "test_practice",          # lessons on the card simulator (real-time waits)
     "test_plan_process",      # the plan process; GUI event-loop latency during a compile
+    "test_large_drawing",     # GUI-thread time budgets (relative; one worker, as in a serial run)
+    "test_idle_timers",       # timers, a watched folder (real-time waits)
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)

@@ -262,6 +262,7 @@ class PartListPanel(QTreeWidget):
         self.mime_for_selection = None
         self._sync = False
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
+        self._rows: list = []              # the part shown in each row at the last refresh
         self._swatches: dict[int, QIcon] = {}
         self.bbox_hits = self.bbox_misses = 0
         self.itemSelectionChanged.connect(self._sel_changed)
@@ -274,9 +275,13 @@ class PartListPanel(QTreeWidget):
         size = U.current().header(t.tr("sf1").strip(" :："), "length")
         self.setHeaderLabels([t.tr("gp75"), t.tr("np_PartName"), t.tr("gp83"), t.tr("gp76"), size])
 
-    def set_document(self, doc) -> None:
+    def set_document(self, doc, changed=None) -> None:
+        """Show ``doc``; ``changed`` as for ``CanvasView.rebuild`` (the uids of the parts an
+        edit may have changed: a row whose part is the same object and not in it is skipped)."""
+        if doc is not self.document:
+            changed = None
         self.document = doc
-        self.refresh()
+        self.refresh(changed)
 
     def part_bbox(self, p) -> tuple:
         """``p.bbox()``, cached by uid while the part's segment objects are the same."""
@@ -296,9 +301,11 @@ class PartListPanel(QTreeWidget):
             ic = self._swatches[layer] = _swatch(layer_color(layer))
         return ic
 
-    def refresh(self) -> None:
+    def refresh(self, changed=None) -> None:
         self._sync = True
         doc = self.document
+        rows = self._rows if changed is not None else []
+        self._rows = []
         parts = list(doc.parts) if doc is not None else []
         n_items = self.topLevelItemCount()
         if n_items > len(parts):
@@ -312,6 +319,9 @@ class PartListPanel(QTreeWidget):
         new_items = []
         for i, p in enumerate(parts):
             live.add(p.uid)
+            self._rows.append(p)
+            if i < n_items and i < len(rows) and rows[i] is p and p.uid not in changed:
+                continue                     # the same part, unchanged: the row is up to date
             x0, y0, x1, y1 = self.part_bbox(p)
             vals = (str(i + 1), p.name or f"{part_word}{i + 1}", str(p.craft.layer), str(len(p.contours)),
                     f"{u.number(x1 - x0, 'length', dec)}×{u.number(y1 - y0, 'length', dec)}")

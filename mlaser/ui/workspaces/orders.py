@@ -45,6 +45,9 @@ from .. import style
 from . import TOUCH_MIN, show_workspace, tr, trn
 
 OVERRIDE_CODES = (MC.MISMATCH,)
+#: contours up to which the import review analyses at once on the GUI thread; a larger drawing
+#: is analysed on a worker thread (1.5 s at 2,700 contours, UI evaluation F2)
+REVIEW_SYNC_CONTOURS = 300
 
 
 def _preview_color(role: str) -> str:
@@ -520,6 +523,7 @@ class OrdersPlugin:
         contributors.append(self)
         self.overridable = set(OVERRIDE_CODES)
         self.review: Optional[ImportReviewDialog] = None
+        self._review_task: Any = None          # the background import review (see _imported)
         self.last_csv: Optional[O.CsvResult] = None
         self.workspace = OrdersWorkspace(self)
         self.book.subscribe(self.workspace.refresh)
@@ -601,8 +605,35 @@ class OrdersPlugin:
     def _imported(self, path: str, doc: Any) -> None:
         if not bool(self.settings["review_after_import"]):
             return
-        rep = R.analyze(doc, self.repair_options())
-        if rep.ok:
+        opts = self.repair_options()
+        if self._review_task is not None:
+            self._review_task.cancel()
+            self._review_task = None
+        docs = getattr(self.window, "docs", None)
+        if (docs is None or doc is not docs.document
+                or sum(len(p.contours) for p in doc.parts) <= REVIEW_SYNC_CONTOURS):
+            self._reviewed(R.analyze(doc, opts), doc)
+            return
+        # a large drawing: analysed on a worker thread, on a private copy made there from the
+        # planner snapshot (its part copies are never changed, so reading them off the GUI
+        # thread is safe; the replan that follows the open reuses them)
+        from mlaser.services.undo import fast_deepcopy
+        snap = docs.plan_snapshot()
+
+        def work() -> Any:
+            return R.analyze(fast_deepcopy(snap), opts)
+
+        def done(rep: Any) -> None:
+            if task.cancelled or self._review_task is not task:
+                return
+            self._review_task = None
+            self._reviewed(rep, doc)
+
+        task = self.ctx.run_in_background(work, on_done=done)
+        self._review_task = task
+
+    def _reviewed(self, rep: Any, doc: Any) -> None:
+        if rep.ok or doc is not self.window.document:     # another drawing was opened since
             return
         self.ctx.log(tr(self.window, "review.log", "Import review: {what} (command import.review)",
                         what=rep.summary()))

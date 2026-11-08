@@ -485,6 +485,9 @@ class MachineWorkspace(QWidget):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self.tick)
         self._timer.start(200)
+        pause = getattr(self.w, "idle_pause", None)      # display only: stops while minimised
+        if pause is not None:
+            pause.add(self._timer, on_resume=self.tick)
         self.tick()
 
     # ------------------------------------------------------------------ navigation
