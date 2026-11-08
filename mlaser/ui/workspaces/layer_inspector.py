@@ -21,14 +21,15 @@ from dataclasses import replace
 from typing import Any, Optional
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtWidgets import (QComboBox, QInputDialog, QLabel, QMessageBox, QPushButton, QVBoxLayout,
-                               QWidget)
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (QComboBox, QInputDialog, QLabel, QLayout, QMessageBox, QPushButton,
+                               QVBoxLayout, QWidget)
 
 from mlaser.model import LayerParams
 from mlaser.services import inheritance as I
 from mlaser.services import technology as T
 from mlaser.ui.inherited_field import InheritedField
-from mlaser.ui.shell.theme import link_html
+from mlaser.ui.shell.theme import link_html, scaled_font
 from mlaser.ui.techform import quantity
 from mlaser.ui.responsive import FlowLayout
 from mlaser.ui.techform import TechForm
@@ -106,13 +107,12 @@ class LayerInspector(QWidget):
             rows.append((t(label), fld, t(help_), secondary))
         self.form.add_section("layer_craft", t("layer.craft_section"), rows)
         # ---- recipe: the picker and the recipe actions, a section of the form (it folds with
-        # the others when the column is short; open first while the layer has no recipe)
+        # the others when the column is short).  A layer without a technology: choosing one is
+        # the next step (UX audit W7), the section is *Choose technology…*, first and open, and
+        # the value sections stay folded until a technology is chosen (:meth:`set_choosing`)
         body = QWidget()
         bv = QVBoxLayout(body)
         bv.setContentsMargins(0, 0, 0, 0)
-        self.no_recipe = QLabel(t("layer.no_recipe"))
-        self.no_recipe.setWordWrap(True)
-        bv.addWidget(self.no_recipe)
         self.picker = RecipePicker(self.tr_, store)
         bv.addWidget(self.picker)
         self.assign_btn = QPushButton(t("layer.assign"))
@@ -129,8 +129,13 @@ class LayerInspector(QWidget):
             fl.addWidget(b)
             self.action_buttons[key] = b
         bv.addWidget(acts)
+        self.recipe_body = body
         self.recipe_section = self.form.add_widget_section("layer_recipe", t("layer.recipe"), body, at=0,
                                                            priority=15)
+        self._header_font = QFont(self.recipe_section.header.font())
+        self.form.panel.layoutChanged.connect(self._unstale_recipe)
+        self._choosing = False
+        self._folded_for_choice: set[str] = set()
         from mlaser.ui.homes import bind_editor
         for w in (self.picker.material, self.picker.thickness, self.picker.gas, self.picker.nozzle):
             bind_editor(w, f"layer.recipe.{w.accessibleName()}")
@@ -175,11 +180,9 @@ class LayerInspector(QWidget):
         else:
             self.title.setText(title)
             self.recipe_section.set_summary(t.tr("layer.no_recipe_short"))
-        # no recipe: the picker comes first (it is what to do next)
-        self.no_recipe.setVisible(tech is None)
-        self.recipe_section.priority = 15 if tech is not None else 90
-        if tech is None and self.recipe_section.user_choice is False:
-            self.recipe_section.user_choice = None
+        # no recipe: choosing one comes first (it is what to do next)
+        self.assign_btn.setText(t.format("layer.choose.use", n=li) if tech is None else t.tr("layer.assign"))
+        self.set_choosing(tech is None)
         self.form.panel.schedule()
         marks = I.layer_overrides(lp)
         values = T.layer_values(lp) if lp is not None else T.registry_defaults()
@@ -196,6 +199,70 @@ class LayerInspector(QWidget):
             fld.set_state(val, over, t.format("inherit.src.layer", n=li), source,
                           parent_vid=("recipe." + vid) if psrc == "recipe" else None)
         self.setEnabled(not self._read_only())
+
+    def set_choosing(self, on: bool) -> None:
+        """``on``: the layer has no technology.  The Recipe section becomes *Choose
+        technology…* (a larger title, *Use for layer N*), first to stay open, and the value
+        sections the user has not opened fold.  ``off``: the Recipe
+        section and those sections fold automatically again."""
+        if on == self._choosing:
+            return
+        self._choosing = on
+        t = self.tr_.tr
+        sec = self.recipe_section
+        sec.setTitle(t("layer.choose.title") if on else t("layer.recipe"))
+        sec.header.setFont(scaled_font("title", self._header_font) if on else self._header_font)
+        sec.header.updateGeometry()
+        # the section is the first to stay open (the highest priority: it folds only when it
+        # does not fit even with every value section folded; the form never scrolls).  Its
+        # flows forget the width they last had while folded (a stale narrow width made the
+        # section measure too tall to open)
+        sec.priority = 100 if on else 15
+        self._unstale_recipe()
+        if on:
+            if sec.user_choice is False:
+                sec.user_choice = None
+            for sid, other in self.form.sections.items():
+                if sid != "layer_recipe" and other.user_choice is None:
+                    other.user_choice = False
+                    other.set_expanded(False)
+                    self._folded_for_choice.add(sid)
+        else:
+            for sid in self._folded_for_choice:
+                other = self.form.sections.get(sid)
+                if other is not None and other.user_choice is False:
+                    other.user_choice = None
+            self._folded_for_choice.clear()
+        for key in ("layer.push", "layer.reset_all"):     # about a recipe the layer does not have yet
+            self.action_buttons[key].setVisible(not on)
+        # the parameter search and "all parameters" are about values, which come next
+        bar = self.form.search.parentWidget()
+        if bar is not None and bar is not self.form:
+            bar.setVisible(not on)
+        self.form.panel.schedule()
+
+    def _unstale_recipe(self) -> None:
+        """A folded Recipe section measures with the minimum its flows had at the width they
+        were last laid out at (a narrow panel: many rows), too tall to open again in a panel
+        that has the room.  Forget those widths (the panel measures it again)."""
+        sec, body = self.recipe_section, self.recipe_body
+        if sec.expanded() or not self._choosing:
+            return
+        w = max(1, self.form.panel.width() - 4 * style.SP2)
+        if body.minimumSizeHint().height() <= body.heightForWidth(w) + style.SP1:
+            return
+        for fl in body.findChildren(FlowLayout):
+            fl.forget_width()
+        for wd in body.findChildren(QWidget) + [body]:
+            wd.updateGeometry()                  # the layouts' cached minimums up the chain too
+        for lay in body.findChildren(QLayout) + [body.layout()]:
+            lay.invalidate()
+        self.form.panel.schedule()
+
+    @property
+    def choosing(self) -> bool:
+        """True while the layer has no technology (the *Choose technology…* section is shown)."""
+        return self._choosing
 
     # ---------------------------------------------------------------- edits
     def _edit(self, fn, label_key: str) -> None:

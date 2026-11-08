@@ -143,7 +143,7 @@ def plugin_policy(config: Any) -> Callable[[str, str, str], Optional[str]]:
         if name in allow and name in granted:
             return None
         return (f"plugin {name!r} may not {action}: it has no machine authority "
-                "(Options+ > Plugins, Service mode)")
+                "(Plugin manager, Service mode)")
 
     return policy
 

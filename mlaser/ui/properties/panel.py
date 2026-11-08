@@ -334,13 +334,31 @@ class PropertiesPanel(QScrollArea):
         from PySide6.QtCore import QSize
         base = super().sizeHint()
         w = self.panel.sizeHint().width() + 2 * self.frameWidth()
+        w = max(w, self._hidden_widths()[1])
         return QSize(max(w, self.minimumSizeHint().width()), base.height())
+
+    def _shown_sections(self) -> list:
+        """The sections of the mode (Design: no CAM sections), shown or not."""
+        cam = self.mode != "design"
+        return [g for sid, g in self.by_id.items() if cam or sid not in CAM_SECTIONS]
+
+    def _hidden_widths(self) -> tuple[int, int]:
+        """With nothing selected the sections are hidden (O14); the dock keeps the width they
+        need (minimum, preferred), so it does not narrow and widen with every selection."""
+        if getattr(self, "_has_selection", True) or not getattr(self, "by_id", None):
+            return 0, 0
+        from mlaser.ui.responsive import ColumnsPanel
+        secs = self._shown_sections()
+        lo = max((g.min_width() for g in secs), default=0)
+        want = max((ColumnsPanel._section_want(g) for g in secs), default=lo)
+        extra = 2 * self.panel.margins() + 2 * self.frameWidth()
+        return lo + extra, max(lo, min(want, int(lo * ColumnsPanel.COMFORT))) + extra
 
     def minimumSizeHint(self):  # noqa: N802 - Qt API
         """As narrow as the sections can be (never narrower: nothing scrolls sideways or is cut)."""
         from PySide6.QtCore import QSize
         base = super().minimumSizeHint()
-        w = self.panel.minimumSizeHint().width() + 2 * self.frameWidth()
+        w = max(self.panel.minimumSizeHint().width() + 2 * self.frameWidth(), self._hidden_widths()[0])
         if self.verticalScrollBar().isVisible():
             w += self.verticalScrollBar().sizeHint().width()
         # its height: every section folded at its width (like the technology form's FormScroll),
@@ -422,12 +440,19 @@ class PropertiesPanel(QScrollArea):
         """``"design"``: Transform and Layer only, with a link to the CAM settings in Process;
         ``"process"``: every section."""
         self.mode = mode
-        cam = mode != "design"
-        for sid in CAM_SECTIONS:
-            self.by_id[sid].setVisible(cam)
-        self.design_box.setVisible(not cam)
+        self._section_visibility()
         self._update_contours()
         self.panel.schedule()
+
+    def _section_visibility(self) -> None:
+        """The sections show while something is selected (the mode's ones: Design has no CAM
+        sections); with nothing selected only the summary (the hint and the drawing's extent),
+        not disabled placeholder values (UX audit O14)."""
+        cam = self.mode != "design"
+        any_sel = bool(getattr(self, "_has_selection", False))
+        for sid, g in self.by_id.items():
+            g.setVisible(any_sel and (cam or sid not in CAM_SECTIONS))
+        self.design_box.setVisible(not cam and any_sel)
 
     # ---------------------------------------------------------------- contour picker
     def contour_index(self) -> Optional[int]:
@@ -584,8 +609,18 @@ class PropertiesPanel(QScrollArea):
         self._update_contours()
         for g in self.sections:
             g.setEnabled(bool(sel))
+        if bool(sel) != getattr(self, "_has_selection", None):
+            self._has_selection = bool(sel)
+            self._section_visibility()
+            self.updateGeometry()
         if not sel:
-            self.summary.setText(t("props.none"))
+            txt = t("props.none")
+            if doc is not None and doc.parts:
+                x0, y0, x1, y1 = self._selection_bbox(doc, doc.parts)
+                txt += "\n" + self.tr_.plural("props.drawing_extent", len(doc.parts),
+                                              w=u.fmt(x1 - x0, "length", trim=True),
+                                              h=u.fmt(y1 - y0, "length", trim=True))
+            self.summary.setText(txt)
             self.diagram.set_leads(LeadParams(kind=0), LeadParams(kind=0))
             for g in self.sections:
                 g.set_summary("")
@@ -659,15 +694,19 @@ class PropertiesPanel(QScrollArea):
         self.by_id["cool"].set_summary(self.cool_info.text())
         self.by_id["overcut"].set_summary(self.overcut.text())
 
-    def _selection_bbox(self, doc: Document) -> tuple:
-        """``ops.selection_bbox``, with the part boxes from the part list's cache when the
-        window has one (the part list measured the changed parts just before; re-measuring
-        every part of a 2,700-part selection took 0.25 s per refresh, UI evaluation F2)."""
+    def _selection_bbox(self, doc: Document, parts: Optional[list] = None) -> tuple:
+        """``ops.selection_bbox`` (of ``parts``: every part, the drawing's extent), with the
+        part boxes from the part list's cache when the window has one (the part list measured
+        the changed parts just before; re-measuring every part of a 2,700-part selection took
+        0.25 s per refresh, UI evaluation F2)."""
         pl = getattr(self.ctx.window, "part_list", None)
         box = getattr(pl, "part_bbox", None)
         if not callable(box):
+            if parts is not None:
+                from mlaser.ops.document import _bbox
+                return _bbox(list(parts))
             return ops.selection_bbox(doc)
-        bs = [box(p) for p in ops.targets(doc) if p.contours]
+        bs = [box(p) for p in (ops.targets(doc) if parts is None else parts) if p.contours]
         if not bs:
             return (0.0, 0.0, 0.0, 0.0)
         return (min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs))

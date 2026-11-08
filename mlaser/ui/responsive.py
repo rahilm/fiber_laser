@@ -160,6 +160,12 @@ class FlowLayout(QLayout):
                 QTimer.singleShot(0, self._changed)
         self._do(rect, apply=True)
 
+    def forget_width(self) -> None:
+        """Forget the width last laid out at (its rows no longer set the minimum height)
+        until the next layout: for a flow that was hidden while its parent changed width."""
+        self._width = 0
+        self.invalidate()
+
     def _changed(self) -> None:
         try:
             self.invalidate()
@@ -1230,7 +1236,8 @@ class ColumnsPanel(QWidget):
     def _key(self) -> tuple:
         W = self.width() - 2 * self.margins()
         H = self.height() - 2 * self.margins()
-        return (W, H, tuple((id(s), s.user_choice, s.isHidden()) for s in self.sections), self.font().key(),
+        return (W, H, tuple((id(s), s.user_choice, s.isHidden(), s.priority) for s in self.sections),
+                self.font().key(),
                 self.fold, bool(self.property("compact")), self._content_key(W))
 
     def relayout(self) -> None:

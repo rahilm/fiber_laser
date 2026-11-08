@@ -23,7 +23,7 @@ own fixed colours in every theme (docs/SAFETY.md): they always carry the state a
 from __future__ import annotations
 
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
@@ -48,6 +48,9 @@ THEMES: dict[str, dict[str, str]] = {
         "accent": "#1b5fc1", "accent_text": "#ffffff", "tooltip": "#ffffe8", "tooltip_text": "#1d2127",
         "disabled": "#8b929c", "rail": "#e4e7ec", "rail_checked": "#ffffff", "topbar": "#ffffff",
         "focus": "#1b5fc1", "link": "#1b5fc1", "placeholder": "#6b7280",
+        # the boundary of a field / check box drawn by Fusion (>= 3:1 on base and window,
+        # WCAG 1.4.11; :class:`FusionBoundaries`)
+        "control_border": "#7d8590",
         # canvas
         "c_background": "#fbfbfa", "c_table": "#8b9099", "c_axis_x": "#c62828", "c_axis_y": "#2e7d32",
         "c_cut": "#3a3f46", "c_gap": "#c2410c", "c_rapid": "#3b5bdb", "c_track": "#d62828",
@@ -69,7 +72,7 @@ THEMES: dict[str, dict[str, str]] = {
         "muted": "#a3aab4", "button": "#2b2f35", "button_text": "#e6e8eb", "border": "#3d434b",
         "accent": "#4d8ff0", "accent_text": "#0b0d10", "tooltip": "#2b2f35", "tooltip_text": "#e6e8eb",
         "disabled": "#6f7680", "rail": "#181a1d", "rail_checked": "#2f343b", "topbar": "#181a1d",
-        "focus": "#7fb0ff", "link": "#7fb0ff", "placeholder": "#8b929c",
+        "focus": "#7fb0ff", "link": "#7fb0ff", "placeholder": "#8b929c", "control_border": "#747c87",
         "c_background": "#000000", "c_table": "#606060", "c_axis_x": "#c04040", "c_axis_y": "#40c040",
         "c_cut": "#d0d0d0", "c_gap": "#ff8000", "c_rapid": "#8080ff", "c_track": "#ff6060",
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
@@ -88,7 +91,7 @@ THEMES: dict[str, dict[str, str]] = {
         "muted": "#ffffff", "button": "#000000", "button_text": "#ffffff", "border": "#ffffff",
         "accent": "#ffd400", "accent_text": "#000000", "tooltip": "#000000", "tooltip_text": "#ffffff",
         "disabled": "#b0b0b0", "rail": "#000000", "rail_checked": "#ffd400", "topbar": "#000000",
-        "focus": "#00e5ff", "link": "#00e5ff", "placeholder": "#d0d0d0",
+        "focus": "#00e5ff", "link": "#00e5ff", "placeholder": "#d0d0d0", "control_border": "#ffffff",
         "c_background": "#000000", "c_table": "#bdbdbd", "c_axis_x": "#ff5252", "c_axis_y": "#69f0ae",
         "c_cut": "#ffffff", "c_gap": "#ff9100", "c_rapid": "#82b1ff", "c_track": "#ff5252",
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
@@ -316,9 +319,107 @@ def native_style_name(app: QApplication) -> str:
     return str(name)
 
 
+#: the least contrast of a field's boundary against its fill and the window (WCAG 1.4.11)
+BOUNDARY_MIN_CONTRAST = 3.0
+_boundary_cache: dict[tuple, str] = {}
+
+
+def boundary_color(pal: QPalette, theme: Optional[str] = None) -> QColor:
+    """The colour of a field's / check box's boundary on ``pal``: the theme's
+    ``control_border`` token while it reaches :data:`BOUNDARY_MIN_CONTRAST` against the
+    palette's base and window colours, else the text colour blended towards the base just as
+    far as still reaches it (a platform palette the tokens do not know)."""
+    if theme is None:
+        app = QApplication.instance()
+        theme = str(app.property("mlaser_theme") or SYSTEM) if app is not None else SYSTEM
+    base, win, text = (pal.color(QPalette.Base).name(), pal.color(QPalette.Window).name(),
+                       pal.color(QPalette.Text).name())
+    key = (theme, base, win, text)
+    hit = _boundary_cache.get(key)
+    if hit is None:
+        cands = [tokens(theme).get("control_border", "#7d8590")]
+        tb, bb = QColor(text), QColor(base)
+        for i in range(10, -1, -1):            # 100 % .. 0 % of the base mixed in
+            f = i / 10.0
+            cands.append(QColor.fromRgbF(tb.redF() * (1 - f) + bb.redF() * f, tb.greenF() * (1 - f) + bb.greenF() * f,
+                                         tb.blueF() * (1 - f) + bb.blueF() * f).name())
+        hit = next((c for c in cands if contrast(c, base) >= BOUNDARY_MIN_CONTRAST
+                    and contrast(c, win) >= BOUNDARY_MIN_CONTRAST), text)
+        _boundary_cache[key] = hit
+    return QColor(hit)
+
+
+def _fusion_boundaries_class():
+    """:class:`FusionBoundaries`, built on first use (QtWidgets' QProxyStyle)."""
+    global FusionBoundaries
+    if FusionBoundaries is not None:
+        return FusionBoundaries
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainter, QPen
+    from PySide6.QtWidgets import QProxyStyle, QStyle
+
+    framed = {QStyle.PE_FrameLineEdit, QStyle.PE_IndicatorCheckBox, QStyle.PE_IndicatorRadioButton}
+
+    class _FusionBoundaries(QProxyStyle):
+        """Fusion with visible field boundaries (UX audit W16).  Fusion outlines line edits,
+        spin boxes and check / radio indicators in the window colour darkened by 40 %: about
+        1.1:1 on the dark theme, 2:1 on the light one, black on black in high contrast.  This
+        proxy draws Fusion as it is and then the :func:`boundary_color` outline on top (a
+        focused field keeps Fusion's focus outline).  Only installed while the style is Fusion:
+        the native macOS / Windows styles draw their own boundaries."""
+
+        def name(self) -> str:  # noqa: D401 - Qt API (Python callers: the style's name)
+            return self.baseStyle().name()
+
+        @staticmethod
+        def _outline(p, opt, rect, kind: str) -> None:
+            st = opt.state
+            if kind != "check" and st & QStyle.State_HasFocus:
+                return                           # Fusion's focus outline
+            col = boundary_color(opt.palette)
+            if not st & QStyle.State_Enabled:
+                col.setAlphaF(0.5)
+            p.save()
+            p.setRenderHint(QPainter.Antialiasing, True)
+            p.setPen(QPen(col, 1.0))
+            p.setBrush(Qt.NoBrush)
+            r = QRectF(rect).adjusted(0.5, 0.5, -0.5, -0.5)
+            if kind == "radio":
+                p.drawEllipse(r)
+            elif kind == "check":
+                p.drawRect(r)
+            else:
+                p.drawRoundedRect(r, 2.0, 2.0)
+            p.restore()
+
+        def drawPrimitive(self, el, opt, p, w=None) -> None:  # noqa: N802 - Qt API
+            super().drawPrimitive(el, opt, p, w)
+            if el in framed and p is not None:
+                kind = ("check" if el == QStyle.PE_IndicatorCheckBox else
+                        "radio" if el == QStyle.PE_IndicatorRadioButton else "field")
+                self._outline(p, opt, opt.rect, kind)
+
+        def drawComplexControl(self, cc, opt, p, w=None) -> None:  # noqa: N802 - Qt API
+            super().drawComplexControl(cc, opt, p, w)
+            if cc == QStyle.CC_SpinBox and p is not None and getattr(opt, "frame", True):
+                self._outline(p, opt, opt.rect, "field")
+
+    FusionBoundaries = _FusionBoundaries
+    return FusionBoundaries
+
+
+#: the QProxyStyle class (built on first use, see :func:`_fusion_boundaries_class`)
+FusionBoundaries: Any = None
+
+
 def _set_style(app: QApplication, name: str) -> None:
     if app.style().name().lower() != name.lower():
         app.setStyle(name)
+    # Fusion: field boundaries that reach 3:1 (the platforms' own styles draw theirs)
+    if app.style().name().lower() == "fusion":
+        cls = _fusion_boundaries_class()
+        if not isinstance(app.style(), cls):
+            app.setStyle(cls("Fusion"))
 
 
 def _set_scheme(app: QApplication, scheme: Optional["Qt.ColorScheme"]) -> bool:
@@ -476,4 +577,4 @@ def contrast_report(theme: str) -> dict[str, float]:
 __all__ = ["THEME_IDS", "THEMES", "SYSTEM", "LIGHT", "DARK", "HIGH_CONTRAST", "DEFAULT_THEME", "apply",
            "palette", "style_sheet", "effective", "system_is_dark", "native_style_name", "scaled_font",
            "TYPE_SCALE", "canvas_colors", "layer_colors", "apply_canvas_theme",
-           "contrast_report", "tokens"]
+           "contrast_report", "tokens", "boundary_color", "BOUNDARY_MIN_CONTRAST"]

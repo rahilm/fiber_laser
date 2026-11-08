@@ -1,4 +1,4 @@
-"""The Plugin manager dialog (Options+ > Plugins, command ``app.plugin_manager``).
+"""The Plugin manager dialog (Tools › Plugins; macOS: the application menu; command ``app.plugin_manager``).
 
 Tabs:
 

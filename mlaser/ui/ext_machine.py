@@ -254,8 +254,35 @@ class MachineExtension:
                   text=_tr(self.w, "ws.machine.mode_needed", "needs a higher user mode"), mode=need)
         self.log(msg)
         if not getattr(self.w, "_test_no_dialogs", False):
-            QMessageBox.information(self.w, _tr(self.w, "ws.machine.title", "Machine"), msg)
+            return self.offer_mode(cmd, need)
         return False
+
+    def offer_mode(self, cmd: str, need: str) -> bool:
+        """Say in place which user mode ``cmd`` needs and offer the switch (UX audit O3): the
+        shell asks the PIN when one protects that mode.  True when the mode was switched."""
+        shell = getattr(self.w, "shell", None)
+        mode_name = _tr(self.w, f"shell.mode.{need}", need)
+        box = QMessageBox(QMessageBox.Information, _tr(self.w, "ws.machine.title", "Machine"),
+                          _tr(self.w, "machine.mode_offer", "{what} needs {mode} mode.", what=self._label(cmd),
+                              mode=mode_name), QMessageBox.NoButton, self.w)
+        box.setInformativeText(_tr(self.w, "machine.mode_offer_why", ""))
+        switch = None
+        if shell is not None and hasattr(shell, "request_mode"):
+            switch = box.addButton(_tr(self.w, "machine.mode_switch", "Switch to {mode} mode", mode=mode_name),
+                                   QMessageBox.AcceptRole)
+        cancel = box.addButton(QMessageBox.Cancel)
+        box.setDefaultButton(cancel)
+        box.exec()
+        if switch is not None and box.clickedButton() is switch:
+            return bool(shell.request_mode(need))
+        return False
+
+    def _label(self, cmd: str) -> str:
+        """The command's label as the menus show it (its id when it has none)."""
+        act = getattr(self.w, "ribbon", None)
+        a = act.actions.get(cmd) if act is not None else None
+        text = a.text().replace("&", "") if a is not None else ""
+        return text.rstrip(".…") or cmd
 
     def _wizard(self, cmd: str, make: Callable[[], QDialog]) -> Optional[QDialog]:
         if not self.allowed(cmd):

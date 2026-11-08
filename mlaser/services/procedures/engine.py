@@ -85,6 +85,9 @@ class Step:
     skip: Optional[Callable[[Any], bool]] = None
     action_label: str = ""                       # catalogue id of the Run button
     jog: bool = False                            # the UI offers hold-to-jog on this step
+    #: an action the operator may leave for later ("Skip, do later"): it does not run, the
+    #: procedure goes on (:meth:`Procedure.skip_current`, :meth:`Procedure.on_skip`)
+    skippable: bool = False
 
 
 @dataclass
@@ -227,6 +230,62 @@ class Procedure:
 
     def on_answer(self, step: Step, value: bool) -> None:
         """Hook: a question was answered."""
+
+    # ------------------------------------------------------------------ step status
+    #: the status of a step in the step list (UX audit O4): ``pass`` (an action or a question
+    #: that passed), ``done`` (an instruction read), ``warn``, ``fail``, ``skipped``, ``todo``
+    STATUSES = ("pass", "done", "warn", "fail", "skipped", "todo")
+
+    def step_status(self, step: Step) -> str:
+        """What happened to ``step`` so far (see :attr:`STATUSES`); subclasses with check
+        results (commissioning) report those instead."""
+        recs = [h for h in self.history if h.step == step.id]
+        last = recs[-1].outcome if recs else ""
+        if last == "failed":
+            return "fail"
+        if step.id in self.done or step.id in self.answers:
+            return "pass" if step.kind in ("action", "question") else "done"
+        if last == "skipped":
+            return "skipped"
+        return "todo"
+
+    def can_skip(self) -> bool:
+        """The current step is an action the operator may leave for later (``skippable``),
+        not started and not run yet."""
+        s = self.step
+        return bool(s is not None and self.state == WAITING and s.kind == "action" and s.skippable
+                    and s.id not in self.done)
+
+    def skip_current(self) -> bool:
+        """*Skip, do later*: the current skippable action does not run (nothing moves); it is
+        recorded as skipped and the procedure goes on.  False when it cannot be skipped."""
+        if not self.can_skip():
+            return False
+        s = self.step
+        assert s is not None
+        self.history.append(StepRecord(s.id, "skipped", "operator"))
+        self.log(f"{s.id} skipped by the operator")
+        self.on_skip(s)
+        self._enter_next()
+        return True
+
+    def on_skip(self, step: Step) -> None:
+        """Hook: the operator skipped ``step`` (:meth:`skip_current`)."""
+
+    def why_not_back(self) -> str:
+        """Why Back is not possible now (a catalogue id; "" when it is)."""
+        if self.can_back():
+            return ""
+        if self.state == RUNNING:
+            return "wizard.back_why.running"
+        if self.state in FINAL:
+            return "wizard.back_why.final"
+        i = self.index - 1
+        while i >= 0 and self._skipped(self.steps[i]):
+            i -= 1
+        if i < 0:
+            return "wizard.back_why.first"
+        return "wizard.back_why.action"
 
     def can_back(self) -> bool:
         """Back over info / input / confirm steps only (an action already ran)."""

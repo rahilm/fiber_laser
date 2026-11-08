@@ -52,6 +52,12 @@ ROTATIONS = (("sheet", "nestws.rotp.sheet", "sheet setting", None, False),
              ("grain", "nestws.rotp.grain", "with the grain", None, True))
 
 
+def util_pct(utilisation: float) -> float:
+    """A sheet's or run's utilisation as the percentage every Nest text shows (one decimal:
+    the result list, the sheet title, the total and the comparison agree; UX audit O5)."""
+    return round(100.0 * float(utilisation), 1)
+
+
 def size_text(w: float, h: float) -> str:
     """A sheet / remnant size in the display units: "3000 × 1500 mm", "118.11 × 59.06 in"."""
     u = U.current()
@@ -289,7 +295,6 @@ class NestWorkspace(QWidget):
         self.material = QLineEdit()
         self.material.setObjectName("nestws_material")
         self.material.setAccessibleName(tr(w, "nestws.material", "Material"))
-        self.material.setPlaceholderText(tr(w, "nestws.material", "Material"))
         self.material.setMinimumHeight(TOUCH_MIN - 8)
         self.thickness = QuantitySpinBox("length", minimum=0.0, maximum=100.0, decimals=2)
         self.thickness.setObjectName("nestws_thickness")
@@ -303,8 +308,10 @@ class NestWorkspace(QWidget):
         self._prefilling = False
         self.material.textChanged.connect(self._material_typed)
         self.thickness.valueChanged.connect(self._material_typed)
-        mat.addWidget(self.material)
-        mat.addWidget(self.thickness)
+        # visible labels, not placeholders only (UX audit O5): each field with its label, the
+        # pairs wrap as a unit in a narrow column
+        mat.addWidget(self._labelled(tr(w, "nestws.material", "Material"), self.material))
+        mat.addWidget(self._labelled(tr(w, "nestws.field.thickness", "Thickness"), self.thickness))
         self.tech_btn = self._button("nestws.btn.technology", "Technology", self.apply_technology)
         self.tech_btn.setObjectName("nestws_technology")
         mat.addWidget(self.tech_btn)
@@ -321,13 +328,13 @@ class NestWorkspace(QWidget):
         self.sheet_n = QSpinBox()
         self.sheet_n.setRange(1, 999)
         self.sheet_n.setValue(5)
-        self.sheet_n.setPrefix("× ")
         self.sheet_n.setMinimumHeight(TOUCH_MIN - 8)
-        for x, key, text in ((self.sheet_w, "a11y.nest.sheet_width", "Sheet width"),
-                             (self.sheet_h, "a11y.nest.sheet_height", "Sheet height"),
-                             (self.sheet_n, "a11y.nest.sheet_count", "Number of sheets")):
+        for x, key, text, lkey, ltext in (
+                (self.sheet_w, "a11y.nest.sheet_width", "Sheet width", "nestws.field.width", "Width"),
+                (self.sheet_h, "a11y.nest.sheet_height", "Sheet height", "nestws.field.height", "Height"),
+                (self.sheet_n, "a11y.nest.sheet_count", "Number of sheets", "nestws.field.count", "Count")):
             x.setAccessibleName(tr(w, key, text))
-            srow.addWidget(x)
+            srow.addWidget(self._labelled(tr(w, lkey, ltext), x))
         srow.addWidget(self._button("nestws.btn.add_sheet", "Add sheet", self.add_sheet))
         lv.addLayout(srow)
         split.addWidget(left)
@@ -654,6 +661,21 @@ class NestWorkspace(QWidget):
         lb.setFont(f)
         return lb
 
+    @staticmethod
+    def _labelled(text: str, field: QWidget) -> QWidget:
+        """``field`` with its visible label before it (the label is the field's buddy: its
+        mnemonic and a click on it focus the field)."""
+        box = QWidget()
+        box.setObjectName("nestws_labelled")
+        h = QHBoxLayout(box)
+        h.setContentsMargins(0, 0, 0, 0)
+        h.setSpacing(style.SP1)
+        lab = QLabel(text)
+        lab.setBuddy(field)
+        h.addWidget(lab)
+        h.addWidget(field, 1)
+        return box
+
     def _button(self, key: str, text: str, fn, h: int = TOUCH_MIN) -> QPushButton:
         b = QPushButton(tr(self.window_, key, text))
         b.setMinimumHeight(h)
@@ -909,8 +931,7 @@ class NestWorkspace(QWidget):
             self.job.add_part(np_)
         if nps:
             self._mark_dirty()
-            self.status.setText(tr(self.window_, "nestws.msg.recognized", "{n} parts ({k} different) added",
-                                   n=sum(p.quantity for p in nps), k=len(nps)))
+            self.status.setText(trn(self.window_, "nestws.msg.recognized", sum(p.quantity for p in nps), k=len(nps)))
         self.refresh()
         return len(nps)
 
@@ -1076,9 +1097,11 @@ class NestWorkspace(QWidget):
         for note in run.result.notes:
             self.ctx.log(f"nest: {note}")
         self.run = run
-        self.status.setText(tr(self.window_, "nestws.msg.done",
-                               "Run {n}: {placed} parts on {sheets} sheets, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
-                               n=run.number, placed=run.placed, sheets=run.sheets, util=100 * run.utilisation,
+        w = self.window_
+        self.status.setText(tr(w, "nestws.msg.done",
+                               "Run {n}: {parts} on {sheets}, utilisation {util:.1f} %, {unplaced} unplaced, {t:.1f} s",
+                               n=run.number, parts=trn(w, "nestws.n_parts", run.placed),
+                               sheets=trn(w, "nestws.n_sheets", run.sheets), util=util_pct(run.utilisation),
                                unplaced=run.unplaced, t=run.elapsed_s))
         self._show_run(run)
         self._update_buttons()
@@ -1091,8 +1114,8 @@ class NestWorkspace(QWidget):
             for k, lay in enumerate(run.result.layouts):
                 sh = run.job.sheet(lay.sheet_id)
                 pm = layout_pixmap(run.job, lay, QSize(120, 72), pal)
-                label = tr(w, "nestws.result_item", "Sheet {n}  {util:.0f} %  ·  {parts} parts\n{sheet}",
-                           n=k + 1, util=100 * lay.utilisation, parts=len(lay.placements),
+                label = tr(w, "nestws.result_item", "Sheet {n}  {util:.1f} %  ·  {parts}\n{sheet}",
+                           n=k + 1, util=util_pct(lay.utilisation), parts=trn(w, "nestws.n_parts", len(lay.placements)),
                            sheet=sh.extra.get("remnant_id") or size_text(sh.width, sh.height))
                 if lay.remnant:
                     x0, y0, x1, y1 = lay.remnant
@@ -1100,8 +1123,9 @@ class NestWorkspace(QWidget):
                 it = QListWidgetItem(QIcon(pm), label)
                 it.setSizeHint(QSize(260, 80))
                 self.results.addItem(it)
-            self.total.setText(tr(w, "nestws.total", "Total {sheets} sheets · {util:.1f} % · {placed} placed · {unplaced} unplaced",
-                                  sheets=run.sheets, util=100 * run.utilisation, placed=run.placed,
+            self.total.setText(tr(w, "nestws.total", "Total {sheets} · {util:.1f} % · {placed} placed · {unplaced} unplaced",
+                                  sheets=trn(w, "nestws.n_sheets", run.sheets), util=util_pct(run.utilisation),
+                                  placed=run.placed,
                                   unplaced=run.unplaced))
             if run.result.layouts:
                 self.results.setCurrentRow(0)
@@ -1118,7 +1142,7 @@ class NestWorkspace(QWidget):
         best = self.service.best()
         for r, run in enumerate(runs):
             vals = [f"{run.number}{' ★' if run is best else ''}", str(run.sheets),
-                    f"{100 * run.utilisation:.1f} %", U.current().number(run.cut_length_mm, "long_length", 1),
+                    f"{util_pct(run.utilisation):.1f} %", U.current().number(run.cut_length_mm, "long_length", 1),
                     str(run.pierces),
                     str(run.unplaced)]
             p = run.job.params
@@ -1160,7 +1184,7 @@ class NestWorkspace(QWidget):
         self.view.show_layout(run.job, lay, lines)
         self.sheet_title.setText(tr(self.window_, "nestws.sheet_title", "Sheet {n} / {total}   {size}   {util:.1f} %",
                                     n=row + 1, total=len(run.result.layouts), size=size_text(sh.width, sh.height),
-                                    util=100 * lay.utilisation))
+                                    util=util_pct(lay.utilisation)))
 
     def _update_buttons(self) -> None:
         """The buttons follow the nest; a disabled one says why (DESIGN.md §3)."""
