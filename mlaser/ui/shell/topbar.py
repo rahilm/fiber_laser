@@ -121,7 +121,7 @@ class TopBar(QWidget):
         self.menu_btn.setPopupMode(QToolButton.InstantPopup)
         self.menu_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.menu_btn.setIcon(icon("settings"))
-        self.menu_btn.setText("Mlaser")
+        self.menu_btn.setText("Mlaser")  # i18n: ok (product name)
         tr.bind(self.menu_btn, "shell.menu", self.menu_btn.setToolTip)
         tr.bind(self.menu_btn, "shell.menu", self.menu_btn.setAccessibleName)
         h.addWidget(self.menu_btn)
@@ -208,7 +208,7 @@ class TopBar(QWidget):
         if dirty:
             tip += "\n" + tr.tr("shell.unsaved")
         self.file.setToolTip(tip)
-        self.file.setAccessibleName(name + (", " + tr.tr("shell.unsaved") if dirty else ""))
+        self.file.setAccessibleName(tr.format("shell.file.unsaved_name", name=name) if dirty else name)
 
     def refresh_chips(self, st, alarms) -> None:
         """The chips of the states the banners do not already show (a second state next to the
@@ -221,7 +221,7 @@ class TopBar(QWidget):
         for k, lab in self.chips.items():
             lab.setVisible(k in kinds)
         if st is not None and st.banner == "FAULT" and getattr(st, "fault", ""):
-            self.chips["FAULT"].setToolTip(f"{self.shell.tr.tr('shell.chip.fault.tip')}\n{st.fault}")
+            self.chips["FAULT"].setToolTip(self.shell.tr.format("shell.chip.fault.tip_reason", fault=st.fault))
 
 
 __all__ = ["TopBar", "chip_kinds", "covered", "CHIPS"]

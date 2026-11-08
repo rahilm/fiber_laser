@@ -54,6 +54,7 @@ from ..responsive import CollapsibleSection, ColumnFitter, ColumnsPanel, FlowLay
 from ..safety_texts import remedy
 from ..units_qt import on_units_changed
 from . import TOUCH, TOUCH_MIN, show_workspace, tr
+from . import trn
 
 log = logging.getLogger("mlaser.ui.run")
 
@@ -238,7 +239,6 @@ class RunCanvas(QWidget):
         super().__init__()
         self.setMinimumSize(320, 220)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setAccessibleName("sheet view")
         self.document: Any = None
         self.sheet: Optional[tuple[float, float, float, float]] = None
         self.done: set = set()
@@ -279,14 +279,31 @@ class RunCanvas(QWidget):
             xs += [sheet[0], sheet[2]]
             ys += [sheet[1], sheet[3]]
         self._bounds = (min(xs), min(ys), max(xs), max(ys)) if xs else (0.0, 0.0, 1.0, 1.0)
+        self._a11y()
         self.update()
 
     def set_progress(self, done, current: int, head: Optional[tuple[float, float]]) -> None:
         done = set(done)
         moved = head is not None and (self.head is None or math.dist(head, self.head) > 0.2)
         if done != self.done or current != self.current or moved or (head is None) != (self.head is None):
-            self.done, self.current, self.head = done, current, head
+            if done != self.done or current != self.current:
+                self.done, self.current = done, current
+                self._a11y()
+            self.head = head
             self.update()
+
+    def _a11y(self) -> None:
+        """Accessible name and the progress as its description (F7: the view is painted)."""
+        from .. import a11y
+        t = a11y.translator_for(self)
+        n = len(self._paths)
+        a11y.name(self, t.tr("a11y.run.sheet"),
+                  t.plural("a11y.run.sheet_progress", n, done=len(self.done & set(range(n)))) if n else
+                  t.tr("a11y.run.sheet_empty"))
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._a11y()
 
     def _transform(self) -> tuple[float, float, float]:
         x0, y0, x1, y1 = self._bounds
@@ -772,9 +789,11 @@ class OperatorScreen(QWidget):
         self.status = s
         # state
         key, default = STATE_TEXT[s.kind]
-        label = f"{s.icon}  {tr(w, key, default)}"
         if s.kind == "ready" and s.armed:
-            label += f"  ·  {tr(w, 'shell.chip.armed', 'ARMED')}"
+            label = tr(w, "run.state.label_armed", "{icon}  {state}  ·  {armed}", icon=s.icon,
+                       state=tr(w, key, default), armed=tr(w, "shell.chip.armed", "ARMED"))
+        else:
+            label = tr(w, "run.state.label", "{icon}  {state}", icon=s.icon, state=tr(w, key, default))
         if self.state.text() != label:
             self.state.setText(label)
         # READY while armed shows the ARMED colour (the laser can fire: never the calm blue)
@@ -795,8 +814,8 @@ class OperatorScreen(QWidget):
         bits = []
         ent = self.ws.runner.current
         if ent is not None and self.ws.runner.state != "idle":
-            bits.append(tr(w, "run.count.sheet", "Sheet {n}/{total}", n=min(ent.done + 1, ent.quantity),
-                           total=ent.quantity) + f" · {ent.name}")
+            bits.append(tr(w, "run.count.sheet_job", "Sheet {n}/{total} · {name}", n=min(ent.done + 1, ent.quantity),
+                           total=ent.quantity, name=ent.name))
         if s.parts:
             bits.append(tr(w, "run.count.part", "part {n}/{total}", n=s.part, total=s.parts))
         if s.contours:
@@ -837,9 +856,9 @@ class OperatorScreen(QWidget):
             if k == "hold" and on and paused:
                 on, why = False, tr(w, "run.why.held", "Held: Start continues the job")
             style.set_enabled(b[k], on, why)
-        trn = getattr(w, "tr_", None)
+        tr_obj = getattr(w, "tr_", None)
         cont = paused or self.ws.window.ctl.breakpoint is not None
-        for k, text in (("start", style.run_text("start", trn, alt=cont)), ("arm", style.run_text("arm", trn, alt=s.armed))):
+        for k, text in (("start", style.run_text("start", tr_obj, alt=cont)), ("arm", style.run_text("arm", tr_obj, alt=s.armed))):
             if b[k].text() != text:
                 b[k].setText(text)
                 b[k].setAccessibleName(text)
@@ -854,17 +873,17 @@ class OperatorScreen(QWidget):
                    n=len(self.ws.queue), left=self.ws.queue.totals()["remaining"])
         if self.queue_section.title() != title:
             self.queue_section.setTitle(title)
-        msg = _msg(w, r.message)
+        lines = [_msg(w, r.message)]
         if r.current is not None and r.state != "idle":
-            msg = (msg + "\n" if msg else "") + tr(w, "run.queue.next", "Next: {name} (sheet {n}/{total}{sheet})",
-                                                   name=r.current.name, n=min(r.current.done + 1, r.current.quantity),
-                                                   total=r.current.quantity,
-                                                   sheet=f", {r.current.remnant_id or r.current.sheet}"
-                                                   if (r.current.remnant_id or r.current.sheet) else "")
+            cur = r.current
+            on = cur.remnant_id or cur.sheet
+            nxt = dict(name=cur.name, n=min(cur.done + 1, cur.quantity), total=cur.quantity)
+            lines.append(tr(w, "run.queue.next_on", "Next: {name} (sheet {n}/{total}, {sheet})", sheet=on, **nxt)
+                         if on else tr(w, "run.queue.next", "Next: {name} (sheet {n}/{total})", **nxt))
         n_pending = len(self.ws.intake.pending)
         if n_pending:
-            msg = (msg + "\n" if msg else "") + tr(w, "run.queue.pending", "{n} submitted job(s) wait for approval "
-                                                   "(Queue tab)", n=n_pending)
+            lines.append(trn(w, "run.queue.pending", n_pending))
+        msg = "\n".join(x for x in lines if x)
         self.queue_msg.setText(msg)
         waiting = r.state == "confirm" and r.current is not None and not job
         if waiting:
@@ -914,20 +933,20 @@ class OperatorScreen(QWidget):
         st = ctl.safety()
         alarms = list(ctl.active_alarms or [])
         items: list[str] = []
-        trn = getattr(w, "tr_", None)
+        tr_obj = getattr(w, "tr_", None)
         if st.banner == "FAULT":
-            items.append(f"{tr(w, 'run.alarm.fault', 'FAULT')}: {st.fault}\n"
-                         f"{tr(w, 'run.alarm.remedy', 'Remedy')}: {remedy(st.fault, trn)}")
+            items.append(tr(w, "run.alarm.fault_item", "FAULT: {fault}\nRemedy: {remedy}", fault=st.fault,
+                            remedy=remedy(st.fault, tr_obj)))
         for a in alarms:
-            text = a.text(trn) if hasattr(a, "text") else str(a)
+            text = a.text(tr_obj) if hasattr(a, "text") else str(a)
             since = self.ws.alarm_since.get(getattr(a, "code", str(a)))
             t = time.strftime("%H:%M:%S", time.localtime(since)) if since else ""
-            items.append(f"{tr(w, 'run.alarm.alarm', 'ALARM')} {getattr(a, 'code', '')}: {text}   {t}\n"
-                         f"{tr(w, 'run.alarm.remedy', 'Remedy')}: {remedy(a, trn)}")
+            items.append(tr(w, "run.alarm.alarm_item", "ALARM {code}: {text}   {time}\nRemedy: {remedy}",
+                            code=getattr(a, "code", ""), text=text, time=t, remedy=remedy(a, tr_obj)))
         show = bool(items)
         self.alarm_box.setVisible(show)
         if show:
-            self.alarm_title.setText(tr(w, "run.alarm.title", "⚠ {n} active alarm(s)", n=len(items)))
+            self.alarm_title.setText(trn(w, "run.alarm.title", len(items)))
             cur = [self.alarm_list.item(i).text() for i in range(self.alarm_list.count())]
             if cur != items:
                 self.alarm_list.clear()
@@ -1282,20 +1301,23 @@ class RunWorkspace:
         w = self.window
         s = self.status()
         key, default = STATE_TEXT[s.kind]
-        trn = getattr(w, "tr_", None)
+        tr_obj = getattr(w, "tr_", None)
         alarms = []
         st = w.ctl.safety()
         if st.banner == "FAULT":
-            alarms.append({"text": f"FAULT: {st.fault}", "remedy": remedy(st.fault, trn)})
+            alarms.append({"text": tr(w, "run.monitor.fault", "FAULT: {fault}", fault=st.fault),
+                           "remedy": remedy(st.fault, tr_obj)})
         for a in list(w.ctl.active_alarms or []):
-            alarms.append({"text": f"{getattr(a, 'code', '')} {a.text(trn) if hasattr(a, 'text') else a}",
-                           "remedy": remedy(a, trn)})
+            alarms.append({"text": tr(w, "run.monitor.alarm", "{code} {text}", code=getattr(a, "code", ""),
+                                      text=a.text(tr_obj) if hasattr(a, "text") else a),
+                           "remedy": remedy(a, tr_obj)})
         queue = []
         for e in self.queue:
             if e.status in ("done", "skipped"):
                 continue
             st_key, st_def = STATUS_TEXT.get(e.status, (e.status, e.status))
-            queue.append(f"{e.name}  {e.done}/{e.quantity}  {tr(w, st_key, st_def)}")
+            queue.append(tr(w, "run.monitor.queue_item", "{name}  {done}/{quantity}  {status}", name=e.name,
+                            done=e.done, quantity=e.quantity, status=tr(w, st_key, st_def)))
         ent = self.runner.current if self.runner.state != "idle" else None
         doc, sheet = self.view_document()
         running = s.kind in ("running", "hold")
@@ -1316,7 +1338,7 @@ class RunWorkspace:
             "power": f"{s.power_pct:.0f} %" if s.power_pct is not None else "-",
             "position": U.current().fmt_xy(s.x, s.y, decimals=1 if not U.current().imperial else 2),
             "alarms": alarms, "queue": queue[:20],
-            "sheet_rev": rev, "lang": getattr(trn, "language", "en"),
+            "sheet_rev": rev, "lang": getattr(tr_obj, "language", "en"),
             "labels": {k: tr(w, k, "") for k in LABEL_IDS},
         }
         return snap, svg

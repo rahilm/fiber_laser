@@ -21,7 +21,7 @@ from mlaser.services.intake import IntakeError
 from mlaser.ui.units_qt import on_units_changed
 
 from .. import style
-from . import TOUCH_MIN, tr
+from . import TOUCH_MIN, tr, trn
 
 SOURCE_TEXT = {"api": ("approval.source.api", "automation API"), "cli": ("approval.source.cli", "command line")}
 
@@ -99,9 +99,7 @@ class ApprovalPanel(QFrame):
         w = self.ws.window
         jobs = list(self.store.pending)
         self.setVisible(bool(jobs))
-        self.title.setText(tr(w, "approval.title",
-                              "{n} job(s) submitted from outside wait for your approval. Check the drawing, "
-                              "material and quantity; approving only adds it to the queue.", n=len(jobs)))
+        self.title.setText(trn(w, "approval.title", len(jobs)))
         keep = self.selected_id()
         self.table.setRowCount(len(jobs))
         for r, j in enumerate(jobs):
@@ -127,11 +125,11 @@ class ApprovalPanel(QFrame):
         self.reject_btn.setEnabled(on)
 
     # ------------------------------------------------------------------ actions (operator only)
-    def _confirm(self, title_id: str, title: str, text_id: str, text: str, **kw: Any) -> bool:
+    def _confirm(self, title_id: str, title: str, message: str) -> bool:
         w = self.ws.window
         if getattr(w, "_test_no_dialogs", False):
             return True
-        return QMessageBox.question(w, tr(w, title_id, title), tr(w, text_id, text, **kw),
+        return QMessageBox.question(w, tr(w, title_id, title), message,
                                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes
 
     def approve(self, job_id: Optional[str] = None) -> Any:
@@ -143,12 +141,10 @@ class ApprovalPanel(QFrame):
             job = self.store.get(jid)
         except KeyError:
             return None
+        w = self.ws.window
         if not self._confirm("approval.confirm.title", "Approve the submitted job",
-                             "approval.confirm.text",
-                             "Add {name} ({file}, {qty} sheet(s)) from {source} to the queue?\n\nIt will not "
-                             "start by itself: it runs only when you load the sheet and press Start.",
-                             name=job.name, file=os.path.basename(job.path), qty=job.quantity,
-                             source=self._from(job)):
+                             trn(w, "approval.confirm.text", job.quantity, name=job.name,
+                                 file=os.path.basename(job.path), source=self._from(job))):
             return None
         try:
             entry = self.store.approve(jid, self.ws.queue, operator=self._operator())
@@ -168,8 +164,10 @@ class ApprovalPanel(QFrame):
             job = self.store.get(jid)
         except KeyError:
             return False
-        if not self._confirm("approval.reject.title", "Reject the submitted job", "approval.reject.text",
-                             "Remove {name} from the approval list? It is not queued.", name=job.name):
+        w = self.ws.window
+        if not self._confirm("approval.reject.title", "Reject the submitted job",
+                             tr(w, "approval.reject.text", "Remove {name} from the approval list? It is not queued.",
+                                name=job.name)):
             return False
         self.store.reject(jid, operator=self._operator())
         self.ws.log(tr(self.ws.window, "approval.msg.rejected", "Rejected: {name}", name=job.name))

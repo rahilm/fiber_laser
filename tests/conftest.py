@@ -73,6 +73,8 @@ UI_MODULES = {
     "test_style", "test_jogpad",
     # UI wave: polish (commands say what happened)
     "test_command_feedback",
+    # UI evaluation F8: plural forms, Qt's translations, locale numbers, right to left
+    "test_i18n_locale",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {

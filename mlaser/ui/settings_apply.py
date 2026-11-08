@@ -104,7 +104,8 @@ def _imported(w: Any, path: str, doc: Any) -> None:
         from mlaser.ops import cam as OC
         res = w._edit(OC.cleanup, cleanup_params(cfg), label="optimize", scope="all")
         if isinstance(res, dict):
-            w.log(f"mf470: {res.get('before')} -> {res.get('after')} contours (Settings > Import: clean up on open)")
+            w.log(w.tr_.format("import.log.cleanup_on_open", title=w.tr_.tr("mf470"), before=res.get("before"),
+                               after=res.get("after")))
 
 
 def register_homes(cfg: Any) -> None:

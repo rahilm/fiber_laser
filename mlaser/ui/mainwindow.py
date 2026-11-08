@@ -220,6 +220,8 @@ class MainWindow(QMainWindow):
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
         _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
+        from .units_qt import follow_locale
+        follow_locale()                           # "1,50 mm" under de_DE like Qt's spin boxes; RTL-safe
         self.docs = DocumentService()
         self.commands = CommandRegistry()
         self.hooks = Hooks()
@@ -250,7 +252,7 @@ class MainWindow(QMainWindow):
         self.estimate: dict = {}
         self.mj_params = MicroJointParams()
         self.resize(1400, 900)
-        self.setWindowTitle("Mlaser")
+        self.setWindowTitle("Mlaser")  # i18n: ok (product name)
 
         self.ribbon = Ribbon(self.tr_, self)
         self.lang_combo = QComboBox()
@@ -262,7 +264,6 @@ class MainWindow(QMainWindow):
             lambda i: self.set_language(self.lang_combo.itemData(i)) if self.lang_combo.itemData(i) else None)
 
         self.canvas = CanvasView(self)
-        self.canvas.setAccessibleName("Canvas")
         self.tr_.bind(self.canvas, "shell.canvas", self.canvas.setAccessibleName)
         # the task shell (mlaser.ui.shell): central workspace stack (Design holds the canvas), the
         # rail, the top bar; plugins add workspaces while they load (host_register_workspace)
@@ -383,16 +384,15 @@ class MainWindow(QMainWindow):
             if st == "enabled":
                 if info.name in taken:
                     st = "failed"
-                    self.log(f"plugin {info.name}: name already taken, not loaded")
+                    self.log(self.tr_.format("main.plugin.name_taken", name=info.name))
                 else:
                     st = "loaded" if self._register(info) else "failed"
             elif st == "changed":
-                self.log(f"plugin {info.name}: its entry point ({info.target}) or its permissions changed; "
-                         "not loaded until it is enabled again (Options+ > Plugins, Service mode)")
+                self.log(self.tr_.format("main.plugin.changed", name=info.name, target=info.target))
             self.plugin_catalog.append([info, st])
         found = [i.name for i, s in self.plugin_catalog if s in ("disabled", "changed")]
         if found:
-            self.log(f"plugins installed but not enabled: {', '.join(found)} (Options+ > Plugins)")
+            self.log(self.tr_.format("main.plugin.not_enabled", names=", ".join(found)))
         return self.plugin_catalog
 
     def extension(self, name: str):
@@ -490,7 +490,7 @@ class MainWindow(QMainWindow):
         # stop/clear) before the connection goes; a failure is logged, never swallowed
         from . import safety_ui
         if safety_ui.job_running(self) and not getattr(self, "_test_no_dialogs", False):
-            if QMessageBox.question(self, "Job running", "A job is running. Stop it and quit?",
+            if QMessageBox.question(self, self.tr_.tr("main.quit_running.title"), self.tr_.tr("main.quit_running.text"),
                                     QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
                 ev.ignore()
                 return
@@ -525,6 +525,8 @@ class MainWindow(QMainWindow):
         sb = self.statusBar()
         self.st_mc, self.st_zf, self.st_lf = StatusChip("st_motion"), StatusChip("st_follower"), StatusChip("st_laser")
         self.st_xy, self.st_cv, self.st_pd, self.st_da = QLabel(), QLabel(), QLabel(), QLabel()
+        for lbl in (self.st_xy, self.st_da):
+            lbl.setLayoutDirection(Qt.LeftToRight)     # head / cursor coordinates: X then Y, never mirrored
         for name, w in (("st_position", self.st_xy), ("st_speed", self.st_cv), ("st_pd", self.st_pd),
                         ("st_cursor", self.st_da)):
             w.setObjectName(name)
@@ -656,6 +658,8 @@ class MainWindow(QMainWindow):
         QShortcut(QKeySequence(Qt.Key_Escape), self, activated=lambda: (self.canvas.select_parts([]), self.set_mode(CanvasView.MODE_SELECT)))
         for key, (dx, dy) in ((Qt.Key_Left, (-1, 0)), (Qt.Key_Right, (1, 0)), (Qt.Key_Up, (0, 1)), (Qt.Key_Down, (0, -1))):
             QShortcut(QKeySequence(key), self.canvas, activated=lambda dx=dx, dy=dy: self.nudge(dx, dy))
+        from . import canvas_a11y                 # summary + Page Up/Down part navigation (F7)
+        self.canvas_a11y = canvas_a11y.install(self)
 
     def _connect_action(self, act) -> None:
         """Every action is connected once.  A command registered ``checkable`` runs on
@@ -718,7 +722,7 @@ class MainWindow(QMainWindow):
             self._dispatch(cmd)
 
     def not_implemented(self, cmd: str) -> None:
-        self.log_panel.log(f"{cmd}: not implemented in the rebuild yet")
+        self.log_panel.log(self.tr_.format("main.not_implemented", cmd=cmd))
 
     def _fill_lang_combo(self) -> None:
         self.lang_combo.blockSignals(True)
@@ -738,7 +742,7 @@ class MainWindow(QMainWindow):
         try:
             codes = self.tr_.import_from(path)
         except (OSError, ValueError) as exc:
-            self.log_panel.log(f"{self.tr_.tr('main.import_language_none')} ({exc})")
+            self.log_panel.log(self.tr_.format("main.import_language_error", error=exc))
             return []
         names = ", ".join(self.tr_.info(c).name for c in codes if c in {li.code for li in self.tr_.available()})
         self.log_panel.log(self.tr_.format("main.import_language_done", languages=names))
@@ -1253,16 +1257,18 @@ class MainWindow(QMainWindow):
         try:
             # off the GUI thread, with a progress dialog and Cancel (untrusted input:
             # mlaser.io.limits refuses expansion bombs)
-            doc = run_import(self, lambda: loader(path), f"Opening {os.path.basename(path)}...")
+            doc = run_import(self, lambda: loader(path), self.tr_.format("import.progress.opening_file",
+                                                                          name=os.path.basename(path)))
         except ImportCancelled:
-            self.log_panel.log(f"{os.path.basename(path)}: opening cancelled")
+            self.log_panel.log(self.tr_.format("main.open.cancelled", file=os.path.basename(path)))
             return False
         except ImportBusy as exc:
-            self.log_panel.log(f"{os.path.basename(path)}: not opened ({exc})")
+            self.log_panel.log(self.tr_.format("main.open.busy", file=os.path.basename(path), error=exc))
             return False
         except ImportLimitError as exc:
             self.log_panel.log(f"mv32: {os.path.basename(path)}: {exc}")
-            show_error(self, "File not imported", f"{os.path.basename(path)}\n\n{exc}")
+            show_error(self, self.tr_.tr("main.open.refused_title"),
+                       self.tr_.format("main.open.refused_text", file=os.path.basename(path), error=exc))
             return False
         except Exception as exc:  # noqa: BLE001 - show any loader failure to the user
             self.log_panel.log(f"mv32: {exc}")
@@ -1271,7 +1277,7 @@ class MainWindow(QMainWindow):
             return False
         self._snapshot()
         self.set_document(doc, path if ext == ".chf" else None)
-        self.log_panel.log(f"{os.path.basename(path)}: {len(doc.parts)} parts")
+        self.log_panel.log(self.tr_.plural("main.open.parts", len(doc.parts), file=os.path.basename(path)))
         self.hooks.emit("document_imported", path, self.document)   # import review (orders plugin)
         self._note_recent(path)          # DXF / SVG / NC too: they have no document path to save to
         return True

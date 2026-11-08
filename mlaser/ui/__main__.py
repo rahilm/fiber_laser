@@ -201,7 +201,9 @@ def _run(args, app, inst) -> int:
                        "(--host/--port/--ini).  mlaser does not fall back to a demo controller with --real.")
             print(msg, file=sys.stderr)
             from PySide6.QtWidgets import QMessageBox
-            QMessageBox.critical(win, "Motion card not connected", msg)
+            QMessageBox.critical(win, tr.tr("main.real_not_connected.title"),
+                                 tr.format("main.real_not_connected.text", host=ctl.cfg.host, port=ctl.cfg.port,
+                                           transport=ctl.cfg.transport))
             win._test_no_dialogs = True        # closing: no "job running" questions
             win.close()
             return 2

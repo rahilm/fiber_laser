@@ -21,6 +21,11 @@ a widget asks :func:`current` for the :class:`Units` in force and calls :meth:`U
 * **Input** (:meth:`Units.parse`): a number in the display unit, or a number with any unit of
   the kind's family: ``3.2 mm``, ``0.125 in``, ``1/8"``, ``1 1/2 in``, ``2'6"``, ``2 ft 6 in``,
   ``300 mm/min``, ``40 psi``.  A decimal comma is accepted (``3,2``).
+* **Decimal separator** (:func:`set_decimal_point`): the UI sets the one of its locale
+  (``QLocale().decimalPoint()``: "1,50 mm" under de_DE, like Qt's own spin boxes); display text
+  only (:meth:`Units.number`, :meth:`Units.fmt`, :func:`mm_text`, :func:`mm_size`). The default
+  is ".", so Qt-free callers (CLI, files, card values) are unchanged; never write a display text
+  to a file or the card.
 * **Change listeners**: :func:`subscribe` (callbacks with the new :class:`Units`), fired when
   the bound ConfigService's ``units.*`` values change (:func:`bind`) or :func:`set_current`.
 
@@ -256,6 +261,61 @@ def _terms(text: str) -> list[tuple[float, str]]:
     return out
 
 
+# --------------------------------------------------------------------------- display locale
+#: decimal separator and the direction mark of display numbers (set by the UI: units_qt.follow_locale)
+_DISPLAY: dict[str, str] = {"decimal": ".", "mark": ""}
+#: left-to-right mark: keeps "0.1 mm" / "-5" one left-to-right run in a right-to-left layout
+LRM = "\u200e"
+#: direction marks and isolates a display text may carry (stripped before parsing)
+_BIDI = dict.fromkeys(map(ord, "\u200e\u200f\u2066\u2067\u2068\u2069\u202a\u202b\u202c"), None)
+
+
+def decimal_point() -> str:
+    """The decimal separator of display texts ("." unless the UI set its locale's)."""
+    return _DISPLAY["decimal"]
+
+
+def set_display_locale(decimal: str = ".", rtl: bool = False) -> None:
+    """Display numbers with ``decimal`` ("." or ",", the UI locale's) and, in a right-to-left
+    layout (``rtl``), with a left-to-right mark in front so a number and its unit read "0.1 mm",
+    not "mm 0.1". Tells the unit listeners so open widgets re-render. Display only: the
+    defaults keep every text as before (CLI, files); parsing accepts both separators and
+    ignores direction marks either way."""
+    decimal = decimal if decimal in (".", ",") else "."
+    mark = LRM if rtl else ""
+    if (decimal, mark) == (_DISPLAY["decimal"], _DISPLAY["mark"]):
+        return
+    _DISPLAY["decimal"], _DISPLAY["mark"] = decimal, mark
+    u = _state["units"]
+    _install_text_formats(u)
+    for fn in list(_listeners):
+        try:
+            fn(u)
+        except Exception:  # noqa: BLE001 - one broken listener must not stop the others
+            import logging
+            logging.getLogger("mlaser.units").exception("units listener failed")
+
+
+def set_decimal_point(sep: str) -> None:
+    """:func:`set_display_locale` with only the decimal separator changed."""
+    set_display_locale(sep, bool(_DISPLAY["mark"]))
+
+
+def localise(text: str) -> str:
+    """``text``'s decimal points as the display separator (a no-op with the default ".")."""
+    sep = _DISPLAY["decimal"]
+    return text if sep == "." else _DEC_POINT.sub(sep, text)
+
+
+def strip_marks(text: str) -> str:
+    """``text`` without direction marks / isolates."""
+    return text.translate(_BIDI)
+
+
+#: a "." between two digits (not "..", the range separator, nor a sentence's full stop)
+_DEC_POINT = re.compile(r"(?<=\d)\.(?=\d)")
+
+
 # --------------------------------------------------------------------------- Units
 class Units:
     """The display units in force (immutable; :func:`current` returns the active one)."""
@@ -378,7 +438,9 @@ class Units:
             s = s.rstrip("0").rstrip(".")
         if s in ("-0", "-0." + "0" * d) or (s.startswith("-") and float(s) == 0.0):
             s = s[1:]
-        return s
+        if _DISPLAY["decimal"] != ".":
+            s = s.replace(".", _DISPLAY["decimal"])
+        return _DISPLAY["mark"] + s
 
     def fmt(self, value: Optional[float], kind: str, decimals: Optional[int] = None, trim: bool = False,
             unit: bool = True, missing: str = "-") -> str:
@@ -411,7 +473,7 @@ class Units:
         s = (text or "").strip()
         if not s:
             raise ValueError("empty")
-        s = (s.replace("\u2212", "-").replace("\u00a0", " ").replace("\u201d", '"').replace("\u2019", "'")
+        s = (strip_marks(s).replace("\u2212", "-").replace("\u00a0", " ").replace("\u201d", '"').replace("\u2019", "'")
              .replace("\u2033", '"').replace("\u2032", "'"))
         tab = UNIT_TABLE[k.family]
         disp = self.unit(kind)
@@ -515,8 +577,15 @@ def _install_text_formats(u: Units) -> None:
     from mlaser.machine import preflight
 
     if u.unit("length") == "mm":
-        preflight.set_text_format(None, None)
-        tipping.SIZE_TEXT[0] = tipping._mm_size
+        if decimal_point() == ".":
+            preflight.set_text_format(None, None)
+            tipping.SIZE_TEXT[0] = tipping._mm_size
+            return
+        # the same mm texts with the display decimal separator ("(1,5; 2,0) mm": no comma pair)
+        tipping.SIZE_TEXT[0] = lambda w, h: localise(tipping._mm_size(w, h))
+        preflight.set_text_format(
+            lambda lo, hi, _fmt="g": localise(f"{lo:{_fmt}}") + ".." + localise(f"{hi:{_fmt}}") + " mm",
+            lambda x, y: "(" + localise(f"{x:.1f}") + "; " + localise(f"{y:.1f}") + ") mm")
         return
     tipping.SIZE_TEXT[0] = lambda w, h: mm_size(w, h, sep=" x ", units=u)
 
@@ -524,7 +593,8 @@ def _install_text_formats(u: Units) -> None:
         return f"{u.number(lo, 'length')}..{u.number(hi, 'length')} {u.suffix('length')}"
 
     def pt(x: float, y: float) -> str:
-        return f"({u.number(x, 'length')}, {u.number(y, 'length')}) {u.suffix('length')}"
+        sep = ", " if decimal_point() == "." else "; "
+        return f"({u.number(x, 'length')}{sep}{u.number(y, 'length')}) {u.suffix('length')}"
 
     preflight.set_text_format(rng, pt)
 
@@ -557,6 +627,7 @@ def bind(cfg: Any) -> None:
 def reset() -> None:
     """Back to metric with no binding (tests)."""
     bind(None)
+    set_display_locale(".", False)
 
 
 def set_system(system: str) -> None:
@@ -637,7 +708,7 @@ def mm_text(value: float, spec: str = "g", kind: str = "length", units: Optional
     material check, remnants)."""
     u = units or current()
     if _metric_shown(u, kind):
-        return f"{value:{spec}} {u.suffix(kind)}"
+        return _DISPLAY["mark"] + localise(f"{value:{spec}}") + f" {u.suffix(kind)}"
     return u.fmt(value, kind, trim=spec.endswith("g"))
 
 
@@ -645,6 +716,7 @@ def mm_size(w: float, h: float, spec: str = ".0f", sep: str = " × ", units: Opt
     """``"3000 × 1500 mm"`` in metric (``spec`` as given), ``"118.11 × 59.06 in"`` in imperial."""
     u = units or current()
     if _metric_shown(u, "length"):
-        return f"{w:{spec}}{sep}{h:{spec}} {u.suffix('length')}"
+        return (_DISPLAY["mark"] + localise(f"{w:{spec}}") + sep + localise(f"{h:{spec}}")
+                + f" {u.suffix('length')}")
     dec = 2 if spec in (".0f", "g") else None
     return f"{u.number(w, 'length', dec)}{sep}{u.number(h, 'length', dec)} {u.suffix('length')}"

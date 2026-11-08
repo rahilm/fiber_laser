@@ -113,7 +113,7 @@ def test_machine_homing_section_uses_home():
 # --------------------------------------------------------------------------- plain English
 #: product, file and protocol names written as their makers write them
 CAMEL_OK = {"EtherCAT", "MaxPhotonics", "HardPara", "ManuPara", "LayerPara", "NexCut", "GitHub", "kWh",
-            "JumpAddTime", "ipAdd", "macOS", "iOS"}
+            "JumpAddTime", "ipAdd", "macOS", "iOS", "NaN"}
 
 
 def test_no_camelcase_words():
@@ -188,7 +188,9 @@ STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE"
                "RUNNING", "STOP"}
 #: safety emphasis kept in capitals (a warning badge, an inverted-logic note)
 CAPS_OK_IDS = {"tech.example_badge", "labels.msg.fallback", "wizard.comm.hb_relay_fail", "safety.io.level_off",
-               "safety.io.level_on", "safety.io.now_alarm", "notify.msg.fault.title"}
+               "safety.io.level_on", "safety.io.now_alarm", "notify.msg.fault.title",
+               # safety texts moved into the catalogue verbatim (UI evaluation F8): wording unchanged
+               "run.monitor.fault", "safety.ask.arm", "safety.preflight.line_error"}
 
 
 def test_capitals_only_for_state_words_and_stop():

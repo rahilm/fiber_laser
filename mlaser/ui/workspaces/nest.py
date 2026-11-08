@@ -39,7 +39,7 @@ from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 from .. import homes, style
 from ..responsive import ColumnFitter, FlowLayout
-from . import TOUCH_MIN, show_workspace, tr
+from . import TOUCH_MIN, show_workspace, tr, trn
 
 #: per-part rotation choices of the parts table: (id, label key, default text, NestPart.angles, grain)
 #: the job's rotation steps offered (a job's own step is added when it has another one)
@@ -198,14 +198,27 @@ class SheetView(QWidget):
         super().__init__()
         self.setMinimumSize(360, 160)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
-        self.setAccessibleName("nest sheet")
         self.job: Optional[NestJob] = None
         self.layout_: Any = None
         self.lines: list = []
 
     def show_layout(self, job: Optional[NestJob], layout: Any, lines=()) -> None:
         self.job, self.layout_, self.lines = job, layout, list(lines)
+        self._a11y()
         self.update()
+
+    def _a11y(self) -> None:
+        """Accessible name and what the painted sheet shows (F7)."""
+        from .. import a11y
+        t = a11y.translator_for(self)
+        placed = getattr(self.layout_, "placements", None)
+        desc = (t.plural("a11y.nest.sheet_desc", len(placed)) if placed is not None
+                else t.tr("nestws.empty"))
+        a11y.name(self, t.tr("a11y.nest.sheet_view"), desc)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._a11y()
 
     def paintEvent(self, _ev) -> None:  # noqa: N802 - Qt API
         p = QPainter(self)
@@ -255,6 +268,7 @@ class NestWorkspace(QWidget):
         lv.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
         self.parts = QTableWidget(0, len(self.PART_COLS))
         self.parts.setObjectName("nestws_parts")
+        self.parts.setAccessibleName(tr(w, "a11y.nest.parts", "Parts to nest"))
         self.parts.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.PART_COLS])
         self.parts.verticalHeader().setVisible(False)
         self.parts.verticalHeader().setDefaultSectionSize(34)
@@ -274,10 +288,12 @@ class NestWorkspace(QWidget):
         mat = FlowLayout(justify=True)
         self.material = QLineEdit()
         self.material.setObjectName("nestws_material")
+        self.material.setAccessibleName(tr(w, "nestws.material", "Material"))
         self.material.setPlaceholderText(tr(w, "nestws.material", "Material"))
         self.material.setMinimumHeight(TOUCH_MIN - 8)
         self.thickness = QuantitySpinBox("length", minimum=0.0, maximum=100.0, decimals=2)
         self.thickness.setObjectName("nestws_thickness")
+        self.thickness.setAccessibleName(tr(w, "a11y.nest.thickness", "Sheet thickness"))
         self.thickness.setMinimumHeight(TOUCH_MIN - 8)
         self.material.editingFinished.connect(self.refresh_stock)
         self.thickness.valueChanged.connect(lambda _v: self.refresh_stock())
@@ -296,6 +312,7 @@ class NestWorkspace(QWidget):
         self.setAcceptDrops(True)
         self.stock = QListWidget()
         self.stock.setObjectName("nestws_stock")
+        self.stock.setAccessibleName(tr(w, "a11y.nest.stock", "Sheets and remnants"))
         self.stock.itemChanged.connect(self._stock_checked)
         lv.addWidget(self.stock, 1)
         srow = FlowLayout(justify=True)
@@ -306,7 +323,10 @@ class NestWorkspace(QWidget):
         self.sheet_n.setValue(5)
         self.sheet_n.setPrefix("× ")
         self.sheet_n.setMinimumHeight(TOUCH_MIN - 8)
-        for x in (self.sheet_w, self.sheet_h, self.sheet_n):
+        for x, key, text in ((self.sheet_w, "a11y.nest.sheet_width", "Sheet width"),
+                             (self.sheet_h, "a11y.nest.sheet_height", "Sheet height"),
+                             (self.sheet_n, "a11y.nest.sheet_count", "Number of sheets")):
+            x.setAccessibleName(tr(w, key, text))
             srow.addWidget(x)
         srow.addWidget(self._button("nestws.btn.add_sheet", "Add sheet", self.add_sheet))
         lv.addLayout(srow)
@@ -395,6 +415,7 @@ class NestWorkspace(QWidget):
         rv.addWidget(self._heading(tr(w, "nestws.results", "RESULTS")))
         self.results = QListWidget()
         self.results.setObjectName("nestws_results")
+        self.results.setAccessibleName(tr(w, "a11y.nest.results", "Nest results"))
         self.results.setViewMode(QListView.ListMode)
         self.results.setIconSize(QSize(120, 72))
         self.results.setSpacing(style.SP1)
@@ -407,6 +428,7 @@ class NestWorkspace(QWidget):
         rv.addWidget(self._heading(tr(w, "nestws.compare", "COMPARE RUNS")))
         self.compare = QTableWidget(0, len(self.COMPARE_COLS))
         self.compare.setObjectName("nestws_compare")
+        self.compare.setAccessibleName(tr(w, "a11y.nest.compare", "Compare nest runs"))
         self._set_compare_headers()
         self.compare.verticalHeader().setVisible(False)
         self.compare.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -919,11 +941,11 @@ class NestWorkspace(QWidget):
         for np_ in nps:
             self.job.add_part(np_)
         for msg in problems:
-            self.ctx.log(f"nest: {msg}")
+            self.ctx.log(tr(w, "nestws.msg.problem", "nest: {problem}", problem=msg))
         if nps:
             self._mark_dirty()
-        self.status.setText("\n".join([tr(w, "nestws.msg.imported", "{n} parts from {k} files",
-                                           n=sum(p.quantity for p in nps), k=len(lines))] + problems))
+        lines_out = [trn(w, "nestws.msg.imported", sum(p.quantity for p in nps), k=len(lines))]
+        self.status.setText("\n".join(lines_out + problems))
         self.refresh()
         return len(nps)
 
@@ -1188,11 +1210,11 @@ class NestWorkspace(QWidget):
                 tagged = True
         if tagged:
             q.changed()
-        msg = tr(w, "nestws.msg.queued", "{n} sheet jobs added to the queue", n=len(entries))
+        notes = [trn(w, "nestws.msg.queued", len(entries))]
         if not material or not self.thickness.value():
-            msg += " · " + tr(w, "nestws.msg.no_material", "no material set: the sheets are not checked "
-                              "against the technology")
-        self.status.setText(msg)
+            notes.append(tr(w, "nestws.msg.no_material", "no material set: the sheets are not checked "
+                            "against the technology"))
+        self.status.setText(" · ".join(notes))
         self.refresh_stock()
         return entries
 

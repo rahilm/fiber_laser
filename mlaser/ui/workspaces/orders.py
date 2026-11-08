@@ -42,7 +42,7 @@ from mlaser.services.parts import RecognitionRules, recognize
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed, set_cell
 
 from .. import style
-from . import TOUCH_MIN, show_workspace, tr
+from . import TOUCH_MIN, show_workspace, tr, trn
 
 OVERRIDE_CODES = (MC.MISMATCH,)
 
@@ -194,11 +194,12 @@ class ImportReviewDialog(QDialog):
         self.report = rep
         self.list.clear()
         if rep.ok:
-            self.head.setText(tr(w, "review.ok", "No problems found in {n} contours.", n=rep.contours))
+            self.head.setText(trn(w, "review.ok", rep.contours))
         else:
-            parts = [tr(w, f"repair.kind.{k}", R.KIND_TEXT[k]) + f": {n}" for k, n in rep.counts().items()]
-            self.head.setText(tr(w, "review.found", "{n} problems in {c} contours ({fix} can be fixed): {what}",
-                                 n=len(rep.findings), c=rep.contours, fix=rep.fixable, what=", ".join(parts)))
+            parts = [tr(w, "repair.kind_count", "{kind}: {n}", kind=tr(w, f"repair.kind.{k}", R.KIND_TEXT[k]), n=n)
+                     for k, n in rep.counts().items()]
+            self.head.setText(trn(w, "review.found", len(rep.findings), c=rep.contours, fix=rep.fixable,
+                                  what=", ".join(parts)))
         for f in rep.findings[:self.MAX_ROWS]:
             it = QListWidgetItem(("✔ " if f.fixable else "⚠ ") + f.message)
             it.setData(Qt.UserRole, f.where)
@@ -588,11 +589,12 @@ class OrdersPlugin:
         w = self.window
         bits = [tr(w, f"repair.done.{k}", k.replace("_", " ") + ": {n}", n=v)
                 for k, v in done.items() if v and k != "open_left"]
-        head = tr(w, "review.would", "Would fix") if preview else tr(w, "review.fixed", "Fixed")
-        text = f"{head}: {', '.join(bits) or tr(w, 'review.nothing', 'nothing')}"
+        what = ", ".join(bits) or tr(w, "review.nothing", "nothing")
+        text = (tr(w, "review.would_fix", "Would fix: {what}", what=what) if preview
+                else tr(w, "review.fixed_what", "Fixed: {what}", what=what))
         if done.get("open_left"):
-            text += " · " + tr(w, "review.open_left", "{n} open contours remain (larger gaps: check the drawing)",
-                               n=done["open_left"])
+            text = tr(w, "review.with_open_left", "{text} · {open_left}", text=text,
+                      open_left=trn(w, "review.open_left", done["open_left"]))
         return text
 
     # ------------------------------------------------------------------ import review
@@ -644,8 +646,7 @@ class OrdersPlugin:
         else:
             ps = recognize(doc, self.rules(), indices=indices)
         if ps.loose:
-            self.ctx.log(tr(self.window, "parts.loose", "{n} open contours are in no part and were left out "
-                            "(Import review closes small gaps)", n=len(ps.loose)))
+            self.ctx.log(trn(self.window, "parts.loose", len(ps.loose)))
         return ps.nest_parts(doc)
 
     def review_parts(self) -> int:
@@ -843,8 +844,8 @@ class OrdersPlugin:
                 pws.refresh_layers()
             except Exception:  # noqa: BLE001 - the Process view is only told
                 pass
-        self.ctx.log(tr(w, "orders.msg.tech", "Technology {name} applied to layer(s) {layers}",
-                        name=tech.key.label(), layers=", ".join(map(str, layers))))
+        self.ctx.log(trn(w, "orders.msg.tech", len(layers), name=tech.key.label(),
+                         layers=", ".join(map(str, layers))))
         return tech
 
     # ------------------------------------------------------------------ pre-flight contributor

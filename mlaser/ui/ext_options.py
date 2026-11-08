@@ -57,15 +57,17 @@ def profiles() -> dict:
 
 class ProfileDialog(Dialog):
     def __init__(self, current: str, parent=None) -> None:
-        super().__init__(parent, "Parity profile",
-                         explanation="How the toolpath and the motion are computed. The original "
-                                     "profile is bit-exact with the original program.")
+        super().__init__(parent, _t(parent, "options.profile.title", "Parity profile"),
+                         explanation=_t(parent, "options.profile.explanation",
+                                        "How the toolpath and the motion are computed. The original "
+                                        "profile is bit-exact with the original program."))
+        self.w = parent
         self.profs = profiles()
         self.combo = QComboBox()
         for name in self.profs:
             self.combo.addItem(name, name)
         self.combo.setCurrentIndex(max(0, self.combo.findData(current)))
-        S.form_row(self.form(), "Profile", self.combo)
+        S.form_row(self.form(), _t(parent, "options.profile.combo", "Profile"), self.combo)
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.body.addWidget(self.info)
@@ -79,27 +81,32 @@ class ProfileDialog(Dialog):
         p = self.profs.get(self.name())
         if p is None:
             return
-        txt = p.description
+        paras = [p.description]                  # the profile's own text (from its registration)
         if p.warning:
-            txt += f"\n\nWarning: {p.warning}"
+            paras.append(_t(self.w, "options.profile.warning", "Warning: {warning}", warning=p.warning))
         if p.name == "original":
-            txt += "\n\n(Bit-exact with the original; the goldens and the Wine parity run use it.)"
-        self.info.setText(txt)
+            paras.append(_t(self.w, "options.profile.original_note",
+                            "(Bit-exact with the original; the goldens and the Wine parity run use it.)"))
+        self.info.setText("\n\n".join(paras))
 
 
 class NetCheckDialog(Dialog):
     def __init__(self, parent=None) -> None:
         from mlaser import netcheck
 
-        super().__init__(parent, "Network self-test", buttons=QDialogButtonBox.Close,
-                         explanation="Checks this computer's network for the motion card. "
-                                     "No packet is sent to the card.")
+        super().__init__(parent, _t(parent, "options.netcheck.title", "Network self-test"),
+                         buttons=QDialogButtonBox.Close,
+                         explanation=_t(parent, "options.netcheck.explanation",
+                                        "Checks this computer's network for the motion card. "
+                                        "No packet is sent to the card."))
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         last = netcheck.last_result()
-        self.text.setPlainText(last.text() if last is not None else "No self-test result yet.")
+        self.text.setPlainText(last.text() if last is not None else
+                               _t(parent, "options.netcheck.none", "No self-test result yet."))
         self.body.addWidget(self.text, 1)
-        self.run_button = self.buttons.addButton("Run now", QDialogButtonBox.ActionRole)
+        self.run_button = self.buttons.addButton(_t(parent, "options.netcheck.run", "Run now"),
+                                                 QDialogButtonBox.ActionRole)
         self.run_button.clicked.connect(self.run)
 
     def run(self) -> None:
@@ -238,7 +245,8 @@ class OptionsExtension:
             try:
                 set_profile(name)
             except KeyError:
-                self.ctx.log(f"parity profile {name!r} is not available; using 'original'")
+                self.ctx.log(_t(self.w, "options.profile.unavailable",
+                                "Parity profile {name} is not available; using 'original'", name=repr(name)))
                 self.s["parity_profile"] = "original"
                 set_profile("original")
         self.w.cam_params.kerf_fallback = "clipper" if self.s["kerf_clipper"] else None
@@ -267,13 +275,18 @@ class OptionsExtension:
             return
         self.s["parity_profile"] = name
         self.apply()
-        self.ctx.log(f"parity profile: {name}" + (f" - WARNING: {p.warning}" if p.warning else ""))
+        self.ctx.log(_t(self.w, "options.profile.chosen_warning", "Parity profile: {name} - warning: {warning}",
+                        name=name, warning=p.warning) if p.warning else
+                     _t(self.w, "options.profile.chosen", "Parity profile: {name}", name=name))
         if p.warning and not getattr(self.w, "_test_no_dialogs", False):
-            QMessageBox.warning(self.w, "Parity profile", f"{name}: {p.warning}")
+            QMessageBox.warning(self.w, _t(self.w, "options.profile.title", "Parity profile"),
+                                _t(self.w, "options.profile.warning_box", "{name}: {warning}", name=name,
+                                   warning=p.warning))
 
     def set_dxf_modern(self, on: bool) -> None:
         self.s["dxf_modern"] = bool(on)
-        self.ctx.log(f"DXF import: {'modern (ezdxf)' if on else 'original rules'}")
+        self.ctx.log(_t(self.w, "options.dxf.modern", "DXF import: modern (ezdxf)") if on
+                     else _t(self.w, "options.dxf.original", "DXF import: original rules"))
 
     def set_kerf_clipper(self, on: bool) -> None:
         self.s["kerf_clipper"] = bool(on)
@@ -321,7 +334,8 @@ class OptionsExtension:
         try:
             cfg.save()
         except OSError as exc:
-            self.ctx.log(f"plugins: the allowlist could not be saved ({exc})")
+            self.ctx.log(_t(self.w, "options.plugins.not_saved", "Plugins: the allowlist could not be saved ({error})",
+                            error=exc))
             return
         try:
             from mlaser.machine.audit import audit
@@ -329,20 +343,20 @@ class OptionsExtension:
                   authority=list(cfg.get(AUTHORITY_KEY, [])))
         except Exception:  # noqa: BLE001
             pass
-        self.ctx.log("plugins enabled: " + (", ".join(sorted(allow)) or "none") + " (at the next start)")
+        self.ctx.log(_t(self.w, "options.plugins.enabled", "Plugins enabled: {names} (at the next start)",
+                        names=", ".join(sorted(allow)) or _t(self.w, "options.plugins.none", "none")))
 
 
 def register(ctx) -> OptionsExtension:
     ext = OptionsExtension(ctx)
-    ctx.register_command("app.profile", ext.profile, label="Parity profile")
-    ctx.register_command("app.dxf_modern", ext.set_dxf_modern, label="Modern DXF import", checkable=True)
-    ctx.register_command(
-        "craft.kerf_clipper", ext.set_kerf_clipper, label="Kerf fallback (pyclipper)", checkable=True
-    )
-    ctx.register_command("app.netcheck", ext.netcheck, label="Network self-test")
+    # labels: the catalogue's cmd.<id> (the window looks it up for a command without a label)
+    ctx.register_command("app.profile", ext.profile)
+    ctx.register_command("app.dxf_modern", ext.set_dxf_modern, checkable=True)
+    ctx.register_command("craft.kerf_clipper", ext.set_kerf_clipper, checkable=True)
+    ctx.register_command("app.netcheck", ext.netcheck)
     ctx.register_command("app.plugins", ext.plugins, label="plugins.allowlist", min_mode="service")
     ctx.register_command("app.plugin_manager", ext.plugin_manager, label="plugins.title", min_mode="engineer")
-    ctx.add_ribbon_tab("Options+", ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
+    ctx.add_ribbon_tab(_t(ext.w, "options.tab", "Options+"), ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
                                     "app.plugin_manager"])
     ctx.provide("dxf.mode", ext.dxf_mode)
     # the controller's plugin policy (Safety core): plugins arm / reset / reconfigure safety only

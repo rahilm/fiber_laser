@@ -16,6 +16,7 @@ while a job runs and in Operator mode.
 
 from __future__ import annotations
 
+import html
 from dataclasses import replace
 from typing import Any, Optional
 
@@ -27,6 +28,7 @@ from mlaser.model import LayerParams
 from mlaser.services import inheritance as I
 from mlaser.services import technology as T
 from mlaser.ui.inherited_field import InheritedField
+from mlaser.ui.shell.theme import link_html
 from mlaser.ui.techform import quantity
 from mlaser.ui.responsive import FlowLayout
 from mlaser.ui.techform import TechForm
@@ -163,11 +165,11 @@ class LayerInspector(QWidget):
             self.setEnabled(False)
             return
         lp = doc.layers.get(li)
-        title = f"<b>{t.format('layer.title', n=li)}</b>"
+        title = f"<b>{html.escape(t.format('layer.title', n=li))}</b>"  # i18n: ok (markup around one text)
         tech = I.recipe_of(doc, li, self.store)
         if tech is not None:
-            self.title.setText(title + " · " + t.format("layer.follows",
-                                                        recipe=f"<a href='recipe'>{I.recipe_label(tech)}</a>"))
+            self.title.setText(t.format("layer.title_follows", title=title,
+                                        recipe=link_html(I.recipe_label(tech), "recipe", self.title)))
             self.picker.pick(tech.key)
             self.recipe_section.set_summary(I.recipe_label(tech))
         else:

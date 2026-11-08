@@ -123,6 +123,12 @@ canvas, and they stay distinguishable from each other:
 change with the theme. The safety banners keep their fixed colours in every theme and always
 say their state in words.
 
+With the theme left at **System** (the default when nothing was chosen), mlaser follows the
+operating system's contrast setting: Windows "Contrast themes", macOS "Increase contrast", or a
+GNOME / desktop-portal high-contrast setting switch it to the high-contrast theme, live where
+the platform reports the change. A theme you choose yourself always wins. Links follow the
+theme too (also after a live light/dark switch).
+
 ## 7. Keyboard and accessibility
 
 The full list is [keyboard.md](keyboard.md) (Help > Keyboard shortcuts, `Ctrl+F1`, or `?` on the
@@ -143,8 +149,17 @@ canvas; generated from the same table). The most used:
 
 One-letter keys work while the canvas has the keyboard focus, so typing in a field never
 triggers them. `Tab` moves through the window in a fixed order: top bar, rail, workspace
-toolbar, canvas, run bar. Every rail, toolbar and top-bar control has an accessible name for
-screen readers.
+toolbar, canvas, run bar. Every control has an accessible name for screen readers (a test
+walks the accessibility tree of every workspace).
+
+Screen readers (VoiceOver, Narrator, NVDA, Orca) are told about what changes on its own: a new
+alarm or fault is announced at once with its remedy, then "Alarms cleared"; a safety state
+change (armed, disarmed...) and a job's start and end are announced politely. The canvas
+describes the drawing ("4 parts, 1 selected. Selected: Part 2 of 4: ...") and, while it has the
+keyboard focus, `Page Down` / `Page Up` select the next / previous part (`Home` / `End` the first
+/ last) and announce it; the arrows still nudge the selection. The painted views (the live
+sheet on Run, the nest result, the report chart, the lead preview, the follower calibration
+curve) describe what they show.
 
 ## 8. Screen sizes and the layout
 

@@ -39,6 +39,20 @@ def _as_parent(window):
     return window if isinstance(window, QWidget) else None
 
 
+def _tr(window, key: str, default: str, **values) -> str:
+    """Text of ``key`` in the window's language (``default`` without a translator)."""
+    tr = getattr(window, "tr_", None)
+    if tr is None:
+        from mlaser.ui.i18n import translator
+        tr = translator()
+    try:
+        if tr.has(key):
+            return tr.format(key, **values) if values else tr.tr(key)
+    except Exception:  # noqa: BLE001
+        pass
+    return default.format(**values) if values else default
+
+
 def _log(window, msg: str) -> None:
     lp = getattr(window, "log_panel", None)
     if lp is not None:
@@ -55,7 +69,25 @@ class CurvePlot(QWidget):
 
     def set_points(self, pts) -> None:
         self.points = sorted(pts)
+        self._a11y()
         self.update()
+
+    def _a11y(self) -> None:
+        """Accessible name and the table's range as text (F7: the curve is painted)."""
+        from . import a11y
+        t = a11y.translator_for(self)
+        if self.points:
+            raws = [a for a, _ in self.points]
+            hs = [b for _, b in self.points]
+            desc = t.plural("a11y.curve.desc", len(self.points), raw_min=min(raws), raw_max=max(raws),
+                            h_min=min(hs), h_max=max(hs))
+        else:
+            desc = t.tr("a11y.curve.empty")
+        a11y.name(self, t.tr("a11y.curve.name"), desc)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._a11y()
 
     def paintEvent(self, ev) -> None:
         p = QPainter(self)
@@ -64,8 +96,8 @@ class CurvePlot(QWidget):
         w, h = self.width() - 2 * m, self.height() - 2 * m
         p.setPen(QPen(self.palette().text().color(), 1))
         p.drawRect(m, m, w, h)
-        p.drawText(m, m - 8, "raw")
-        p.drawText(m + w - 60, m + h + 20, "height (um)")
+        p.drawText(m, m - 8, _tr(None, "devices.follower.plot.raw", "raw"))
+        p.drawText(m + w - 60, m + h + 20, _tr(None, "devices.follower.plot.height", "height (um)"))
         if len(self.points) < 2:
             return
         xs = [a for a, _ in self.points]
@@ -85,40 +117,44 @@ class FollowerDialog(Dialog):
     """Follower status, follow on/off and the calibration table (Help/calib.csv)."""
 
     def __init__(self, window, path: Optional[str] = None, parent=None):
-        super().__init__(parent if parent is not None else _as_parent(window), "Height follower",
+        super().__init__(parent if parent is not None else _as_parent(window),
+                         _tr(window, "devices.follower.title", "Height follower"),
                          buttons=QDialogButtonBox.Close)
         self.window_ = window
         self.path = path
         self.table = CalibrationTable()
+        w = window
 
-        st, sl = S.section("Status (card registers 10000..10017)")
+        st, sl = S.section(_tr(w, "devices.follower.status", "Status (card registers 10000..10017)"))
         row = S.hbox()
-        self.status_lbl = QLabel("Not connected")
+        self.status_lbl = QLabel(_tr(w, "devices.not_connected", "Not connected"))
         self.status_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
         self.status_lbl.setWordWrap(True)
         row.addWidget(self.status_lbl, 1)
-        row.addWidget(S.button("Refresh", on_click=self.refresh))
+        row.addWidget(S.button(_tr(w, "devices.follower.refresh", "Refresh"), on_click=self.refresh))
         sl.addLayout(row)
         self.body.addWidget(st)
 
-        fsec, fl = S.section("Follow")
+        fsec, fl = S.section(_tr(w, "devices.follower.follow", "Follow"))
         fh = QWidget()
         ff = S.form(fh)
         self.follow_value = QDoubleSpinBox()
         self.follow_value.setRange(0, 100000)
         self.follow_value.setValue(1000)
-        S.form_row(ff, "Follow value", self.follow_value)
+        S.form_row(ff, _tr(w, "devices.follower.follow_value", "Follow value"), self.follow_value)
         fl.addWidget(fh)
-        fl.addWidget(flow([S.button(text, on_click=fn) for text, fn in (
-            ("Follow on", lambda: self._follow(True)), ("Follow off", lambda: self._follow(False)),
-            ("Calibrate", self._calibrate), ("Cancel calibration", self._cancel),
-            ("Read curve", self._read_curve))], justify=False))
+        fl.addWidget(flow([S.button(_tr(w, f"devices.follower.{key}", text), on_click=fn) for key, text, fn in (
+            ("follow_on", "Follow on", lambda: self._follow(True)),
+            ("follow_off", "Follow off", lambda: self._follow(False)),
+            ("calibrate", "Calibrate", self._calibrate), ("cancel_calibration", "Cancel calibration", self._cancel),
+            ("read_curve", "Read curve", self._read_curve))], justify=False))
         self.body.addWidget(fsec)
 
-        csec, cl = S.section("Calibration table")
+        csec, cl = S.section(_tr(w, "devices.follower.cal_table", "Calibration table"))
         cal = S.hbox()
         self.grid = QTableWidget(0, 2)
-        self.grid.setHorizontalHeaderLabels(["Height", "Raw"])
+        self.grid.setHorizontalHeaderLabels([_tr(w, "devices.follower.col.height", "Height"),
+                                             _tr(w, "devices.follower.col.raw", "Raw")])
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.grid.verticalHeader().hide()
         # both columns stretch: at least as wide as their headers (font-based), so the table
@@ -135,13 +171,13 @@ class FollowerDialog(Dialog):
         ref_row = S.hbox()
         self.ref = QSpinBox()
         self.ref.setRange(-2 ** 31, 2 ** 31 - 1)
-        ref_lab = QLabel(S.label_text("Reference"))
+        ref_lab = QLabel(S.label_text(_tr(w, "devices.follower.reference", "Reference")))
         ref_lab.setBuddy(self.ref)
         ref_row.addWidget(ref_lab)
         ref_row.addWidget(self.ref)
         ref_row.addStretch(1)
-        ref_row.addWidget(S.button("Load…", on_click=self.load))
-        ref_row.addWidget(S.button("Save…", on_click=self.save))
+        ref_row.addWidget(S.button(_tr(w, "devices.follower.load", "Load…"), on_click=self.load))
+        ref_row.addWidget(S.button(_tr(w, "devices.follower.save", "Save…"), on_click=self.save))
         cl.addLayout(ref_row)
         self.body.addWidget(csec, 1)
         if path:
@@ -172,13 +208,15 @@ class FollowerDialog(Dialog):
         self.plot.set_points(pts)
 
     def load(self) -> None:
-        p, _ = QFileDialog.getOpenFileName(self, "Calibration table", self.path or "", "CSV (*.csv)")
+        p, _ = QFileDialog.getOpenFileName(self, _tr(self.window_, "devices.follower.cal_table", "Calibration table"),
+                                           self.path or "", "CSV (*.csv)")
         if p:
             self.path = p
             self.set_table(CalibrationTable.load(p))
 
     def save(self) -> None:
-        p, _ = QFileDialog.getSaveFileName(self, "Calibration table", self.path or "calib.csv", "CSV (*.csv)")
+        p, _ = QFileDialog.getSaveFileName(self, _tr(self.window_, "devices.follower.cal_table", "Calibration table"),
+                                           self.path or "calib.csv", "CSV (*.csv)")
         if p:
             self.table.reference = self.ref.value()
             self.table.save(p)
@@ -191,32 +229,36 @@ class FollowerDialog(Dialog):
     def refresh(self) -> None:
         zf = self._zf()
         if zf is None:
-            self.status_lbl.setText("Not connected")
+            self.status_lbl.setText(_tr(self.window_, "devices.not_connected", "Not connected"))
             return
         try:
             st = zf.read_status()
         except Exception as e:  # device errors are shown, not raised
-            self.status_lbl.setText(f"Error: {e}")
+            self.status_lbl.setText(_tr(self.window_, "devices.error", "Error: {error}", error=e))
             return
         fs = FollowerStatus(st)
         parts = [f"{n}={fs.value(n):g}" for n, _ in STATUS_FIELDS]
-        parts.append(f"homed={fs.homed} calibration={fs.calibration_grade}")
+        parts.append(_tr(self.window_, "devices.follower.homed_line", "homed={homed} calibration={grade}",
+                         homed=fs.homed, grade=fs.calibration_grade))
         self.status_lbl.setText("\n".join(", ".join(parts[i:i + 4]) for i in range(0, len(parts), 4)))
 
     def _follow(self, on: bool) -> None:
         zf = self._zf()
         if zf is not None:
             zf.follow(on, self.follow_value.value())
-            _log(self.window_, f"follower {'on' if on else 'off'}")
+            _log(self.window_, _tr(self.window_, "devices.follower.log_on", "Follower on") if on
+                 else _tr(self.window_, "devices.follower.log_off", "Follower off"))
 
     def _calibrate(self) -> None:
         zf = self._zf()
         if zf is not None:
             if not zf.status().homed:
-                self.status_lbl.setText("The follower is not homed: calibration refused (zf49)")
+                self.status_lbl.setText(_tr(self.window_, "devices.follower.not_homed",
+                                            "The follower is not homed: calibration refused (zf49)"))
                 return
             zf.calibrate()
-            _log(self.window_, "follower: head calibration started (101 := 107)")
+            _log(self.window_, _tr(self.window_, "devices.follower.calibration_started",
+                                   "Follower: head calibration started (101 := 107)"))
 
     def _cancel(self) -> None:
         zf = self._zf()
@@ -229,45 +271,48 @@ class FollowerDialog(Dialog):
             try:
                 self.set_table(zf.read_calibration_curve())
             except Exception as e:
-                self.status_lbl.setText(f"Error: {e}")
+                self.status_lbl.setText(_tr(self.window_, "devices.error", "Error: {error}", error=e))
 
 
 class LaserDialog(Dialog):
     """Laser command channel (emission, aiming beam, power/current, raw query)."""
 
     def __init__(self, window, settings: Optional[DeviceSettings] = None, parent=None):
-        super().__init__(parent if parent is not None else _as_parent(window), "Laser source",
+        super().__init__(parent if parent is not None else _as_parent(window),
+                         _tr(window, "devices.laser.title", "Laser source"),
                          buttons=QDialogButtonBox.Close)
+        w = window
         self.window_ = window
         self.settings = settings or DeviceSettings()
         self.client = None
         f = self.form()
         self.kind = QComboBox()
-        self.kind.addItem("Raycus via card serial (control type 1)", LASER_RAYCUS_NET)
-        self.kind.addItem("IPG over network (control type 2)", LASER_IPG_NET)
-        S.form_row(f, "Laser", self.kind)
+        self.kind.addItem(_tr(w, "devices.laser.raycus", "Raycus via card serial (control type 1)"), LASER_RAYCUS_NET)
+        self.kind.addItem(_tr(w, "devices.laser.ipg", "IPG over network (control type 2)"), LASER_IPG_NET)
+        S.form_row(f, _tr(w, "devices.laser.laser", "Laser"), self.kind)
         self.host = QLineEdit(self.settings.onb_laser[0])
         self.port = QSpinBox()
         self.port.setRange(1, 65535)
         self.port.setValue(self.settings.onb_laser[1])
         self.kind.currentIndexChanged.connect(self._endpoint)
-        S.form_row(f, "Host", self.host)
-        S.form_row(f, "Port", self.port)
+        S.form_row(f, _tr(w, "devices.laser.host", "Host"), self.host)
+        S.form_row(f, _tr(w, "devices.laser.port", "Port"), self.port)
         self.power = QDoubleSpinBox()
         self.power.setRange(0, 100)
         self.power.setValue(50)
         self.power.setSuffix(" %")
-        S.form_row(f, "Power or current", self.power)
-        self.body.addWidget(flow([S.button(text, on_click=fn) for text, fn in (
-            ("Emission on", lambda: self._do("emission", True)),
-            ("Emission off", lambda: self._do("emission", False)),
-            ("Aiming beam on", lambda: self._do("aim", True)), ("Aiming beam off", lambda: self._do("aim", False)),
-            ("Set power", lambda: self._do("power")))], justify=False))
+        S.form_row(f, _tr(w, "devices.laser.power", "Power or current"), self.power)
+        self.body.addWidget(flow([S.button(_tr(w, f"devices.laser.{key}", text), on_click=fn) for key, text, fn in (
+            ("emission_on", "Emission on", lambda: self._do("emission", True)),
+            ("emission_off", "Emission off", lambda: self._do("emission", False)),
+            ("aim_on", "Aiming beam on", lambda: self._do("aim", True)),
+            ("aim_off", "Aiming beam off", lambda: self._do("aim", False)),
+            ("set_power", "Set power", lambda: self._do("power")))], justify=False))
         q = S.hbox()
         self.cmd = QLineEdit("STA")
-        self.cmd.setAccessibleName("IPG command")
+        self.cmd.setAccessibleName(_tr(w, "devices.laser.ipg_command", "IPG command"))
         q.addWidget(self.cmd, 1)
-        q.addWidget(S.button("Send (IPG)", on_click=lambda: self._do("query")))
+        q.addWidget(S.button(_tr(w, "devices.laser.send_ipg", "Send (IPG)"), on_click=lambda: self._do("query")))
         self.body.addLayout(q)
         self.out = QPlainTextEdit()
         self.out.setReadOnly(True)
@@ -293,7 +338,8 @@ class LaserDialog(Dialog):
                 r = c.emission(on)
             elif what == "aim":
                 if not isinstance(c, IpgLaser):
-                    self.out.appendPlainText("Aiming beam: IPG only (the Raycus adapter has none)")
+                    self.out.appendPlainText(_tr(self.window_, "devices.laser.aim_ipg_only",
+                                                 "Aiming beam: IPG only (the Raycus adapter has none)"))
                     return
                 r = c.aiming_beam(on)
             elif what == "power":
@@ -340,16 +386,20 @@ class PendantDialog(Dialog):
 
     def __init__(self, window, parent=None):
         avail = P.hid_available()
-        super().__init__(parent if parent is not None else _as_parent(window), "Wireless pendant",
+        w = window
+        super().__init__(parent if parent is not None else _as_parent(window),
+                         _tr(w, "devices.pendant.title", "Wireless pendant"),
                          buttons=QDialogButtonBox.Close,
-                         explanation="hidapi is available." if avail else
-                         "hidapi is not installed (pip install hidapi): the pendant cannot be used.")
+                         explanation=_tr(w, "devices.pendant.hid_available", "hidapi is available.") if avail else
+                         _tr(w, "devices.pendant.hid_missing",
+                             "hidapi is not installed (pip install hidapi): the pendant cannot be used."))
         self.window_ = window
         self.ext = _ext(window)
         self.info = self.explanation
-        self.enable = QCheckBox("Enable pendant")
+        self.enable = QCheckBox(_tr(w, "devices.pendant.enable", "Enable pendant"))
         self.enable.setChecked(self.ext.pendant is not None)
-        S.set_enabled(self.enable, avail, "" if avail else "Install hidapi to use the pendant")
+        S.set_enabled(self.enable, avail, "" if avail else _tr(w, "devices.pendant.install_hid",
+                                                                "Install hidapi to use the pendant"))
         self.enable.toggled.connect(self._toggle)
         self.body.addWidget(self.enable)
         self.status = QLabel("–")
@@ -366,7 +416,7 @@ class PendantDialog(Dialog):
             ok = start_pendant(self.window_)
             if not ok:
                 self.enable.setChecked(False)
-                self.status.setText("No pendant found (VID 0x10CE)")
+                self.status.setText(_tr(self.window_, "devices.pendant.none_found", "No pendant found (USB vendor ID 0x10CE)"))
         else:
             stop_pendant(self.window_)
 
@@ -375,8 +425,9 @@ class PendantDialog(Dialog):
         if pend is None:
             return
         s = pend.status
-        self.status.setText(f"DevID {s.dev_id:#06x}  channel {s.channel}  RSSI {s.rssi}"
-                            + ("  (poor signal)" if s.poor_signal else ""))
+        key = "devices.pendant.status_poor" if s.poor_signal else "devices.pendant.status"
+        self.status.setText(_tr(self.window_, key, "Device ID {dev_id}, channel {channel}, signal {rssi}",
+                                dev_id=f"{s.dev_id:#06x}", channel=s.channel, rssi=s.rssi))
         for ev in self.ext.pendant_events[-20:]:
             self.events.appendPlainText(ev)
         self.ext.pendant_events.clear()
@@ -420,7 +471,7 @@ def start_pendant(window) -> bool:
     t.timeout.connect(pump)
     t.start(20)
     ext.pendant, ext.pendant_timer = pend.start(), t
-    _log(window, "pendant opened")
+    _log(window, _tr(window, "devices.pendant.opened", "Pendant opened"))
     return True
 
 
@@ -432,19 +483,20 @@ def stop_pendant(window) -> None:
         if ext.pendant_timer is not None:
             ext.pendant_timer.stop()
         ext.pendant = None
-        _log(window, "pendant closed")
+        _log(window, _tr(window, "devices.pendant.closed", "Pendant closed"))
 
 
 def register(ctx) -> DevicesExtension:
     """The "Devices" tab and ``hw.remoter_match`` (``ctx``: PluginContext)."""
     window = ctx.window
     ext = DevicesExtension(window)
-    cmds = {"dev.follower": ("Follower", lambda: FollowerDialog(window).exec()),
-            "dev.laser": ("Laser", lambda: LaserDialog(window).exec()),
-            "dev.pendant": ("Pendant", lambda: PendantDialog(window).exec())}
-    for cmd, (label, fn) in cmds.items():
-        ctx.register_command(cmd, fn, label=label)
-    ctx.add_ribbon_tab("Devices", list(cmds))
+    # labels: the catalogue's cmd.dev.* (the window looks up cmd.<id> for a command without one)
+    cmds = {"dev.follower": lambda: FollowerDialog(window).exec(),
+            "dev.laser": lambda: LaserDialog(window).exec(),
+            "dev.pendant": lambda: PendantDialog(window).exec()}
+    for cmd, fn in cmds.items():
+        ctx.register_command(cmd, fn)
+    ctx.add_ribbon_tab(_tr(window, "devices.tab", "Devices"), list(cmds))
     ctx.register_command("hw.remoter_match", lambda: PendantDialog(window).exec())
     ctx.on_close(lambda: stop_pendant(window))
     return ext

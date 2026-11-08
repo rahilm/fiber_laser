@@ -42,6 +42,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Iterable, Optional, Sequence
 
+from mlaser import i18n as _i18n
 from mlaser.model import Contour, Document, Part
 from mlaser.services import units as _units
 
@@ -127,12 +128,12 @@ class PartGroup:
 
     def label(self) -> str:
         w, h = self.size
-        bits = [_units.mm_size(w, h)]
+        info = _units.mm_size(w, h)
         if self.holes:
-            bits.append(f"{self.holes} hole{'s' if self.holes != 1 else ''}")
+            info = _i18n.plural("parts.label.holes", self.holes, text=info)
         if self.open_contours:
-            bits.append(f"{self.open_contours} open")
-        return f"{self.name}  ×{self.quantity}  ({', '.join(bits)})"
+            info = _i18n.tr("parts.label.open", text=info, n=self.open_contours)
+        return _i18n.tr("parts.label.text", name=self.name, qty=self.quantity, info=info)
 
 
 @dataclass
@@ -153,13 +154,13 @@ class PartSet:
 
     def summary(self) -> str:
         n, k = self.count, len(self.groups)
-        s = f"{n} part{'s' if n != 1 else ''}"
+        s = _i18n.plural("parts.summary.count", n)
         if k != n:
-            s += f" ({k} different)"
+            s = _i18n.tr("parts.summary.different", text=s, k=k)
         if self.loose:
-            s += f", {len(self.loose)} open contour(s) in no part"
+            s = _i18n.plural("parts.summary.loose", len(self.loose), text=s)
         if self.ignored:
-            s += f", {len(self.ignored)} ignored"
+            s = _i18n.tr("parts.summary.ignored", text=s, n=len(self.ignored))
         return s
 
     # ------------------------------------------------------------------ edits

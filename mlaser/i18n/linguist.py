@@ -39,7 +39,7 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from typing import Optional
 
-from . import BRACE_RE, FORMAT, PRINTF_RE, Catalogue, catalogue
+from . import BRACE_RE, FORMAT, PLURAL_CATEGORIES, PRINTF_RE, Catalogue, catalogue, plural_category
 
 TS_VERSION = "2.1"
 
@@ -112,8 +112,17 @@ def build_ts(code: str, translations: Optional[dict[str, str]] = None,
     seed = seed or {}
     rev = {sid: k for k, sid in en.legacy.items()}
     msgs = []
-    for sid in sorted(en.strings):
-        src = en.strings[sid]
+    # plural texts: the categories this language uses that English has no id for (Russian
+    # "few"/"many"), with the English "other" text as their source
+    sources = dict(en.strings)
+    cats = language_plural_categories(code)
+    for sid in en.strings:
+        base, _, last = sid.rpartition(".")
+        if last == "other" and any(f"{base}.{c}" in en.strings for c in PLURAL_CATEGORIES if c != "other"):
+            for c in cats:
+                sources.setdefault(f"{base}.{c}", en.strings[sid])
+    for sid in sorted(sources):
+        src = sources[sid]
         m = TsMessage(sid, context_of(sid), src)
         o = old.get(sid)
         if o is not None and o.translation and o.finished and o.source == src:
@@ -125,6 +134,8 @@ def build_ts(code: str, translations: Optional[dict[str, str]] = None,
         elif seed.get(sid, "").strip():
             m.translation = seed[sid]
         notes = []
+        if sid not in en.strings:
+            notes.append(f"plural form '{sid.rsplit('.', 1)[1]}' of {sid.rsplit('.', 1)[0]}")
         if en.args.get(sid):
             notes.append("placeholders: " + ", ".join("{" + a + "}" for a in en.args[sid]))
         if sid in rev:
@@ -183,9 +194,21 @@ def ts_to_catalogue(ts: TsFile, name: str = "", include_unfinished: bool = False
     ``en`` (finished ones only unless ``include_unfinished``)."""
     en = en or catalogue("en")
     strings = {m.id: m.translation for m in ts.messages
-               if m.id in en.strings and m.translation.strip() and (m.finished or include_unfinished)}
+               if (m.id in en.strings or _plural_of_known(m.id, en)) and m.translation.strip()
+               and (m.finished or include_unfinished)}
     return {"format": FORMAT, "language": ts.language, "name": name or ts.language,
             "strings": dict(sorted(strings.items()))}
+
+
+def language_plural_categories(code: str) -> list[str]:
+    """The CLDR plural categories ``code`` uses (counts 0..1000 and a fraction), CLDR order."""
+    used = {plural_category(code, n) for n in list(range(0, 1001)) + [1_000_000, 1.5]}
+    return [c for c in PLURAL_CATEGORIES if c in used]
+
+
+def _plural_of_known(sid: str, en: Catalogue) -> bool:
+    base, _, last = sid.rpartition(".")
+    return last in PLURAL_CATEGORIES and f"{base}.other" in en.strings
 
 
 def dumps_catalogue(data: dict) -> str:

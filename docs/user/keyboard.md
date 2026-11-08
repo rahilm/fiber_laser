@@ -55,6 +55,7 @@ Exit (no shortcut on Windows: Alt+F4).
 | - | Report | `Ctrl+5` | `⌘5` | main window |
 | - | Reset layout | `Ctrl+Shift+F12` | `⌥⌘0` | main window |
 | - | Run | `Ctrl+4` | `⌘4` | main window |
+| - | Select the next / previous / first / last part | `PgDn / PgUp / Home / End` | `PgDn / PgUp / Home / End` | canvas focused |
 | - | Stop the job | `Esc` | `Esc` | while a job runs |
 | - | Stop the job | `F12` | `F12` | anywhere |
 | - | User mode... | `Ctrl+Shift+M` | `⇧⌘M` | main window |

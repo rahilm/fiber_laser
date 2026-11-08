@@ -35,6 +35,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Iterable, Optional
 
+from mlaser import i18n as _i18n
 from mlaser.model import Contour, Document, Line, Part, Point, Segment
 from mlaser.services import units as _units
 
@@ -106,8 +107,9 @@ class RepairReport:
     def summary(self) -> str:
         c = self.counts()
         if not c:
-            return "no problems found"
-        return ", ".join(f"{n} {KIND_TEXT[k]}" for k, n in c.items())
+            return _i18n.tr("repair.summary.none")
+        return ", ".join(_i18n.tr("repair.summary.item", n=n, kind=_i18n.tr(f"repair.kind.{k}"))
+                         for k, n in c.items())
 
 
 # ============================================================================== helpers
@@ -236,9 +238,13 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
         gap = math.dist(a, b)
         near = min(nearest(k, a), nearest(k, b))
         fix = o.fix_open and (near <= o.join_tol or (gap <= o.close_gap and c.length() > 2 * gap))
-        msg = f"part {pi + 1} contour {ci + 1} is open: gap {_units.mm_text(gap, '.3f', 'small_length')}"
         if near < math.inf:
-            msg += f", nearest open end {_units.mm_text(near, '.3f', 'small_length')}"
+            msg = _i18n.tr("repair.msg.open_near", part=pi + 1, contour=ci + 1,
+                           gap=_units.mm_text(gap, '.3f', 'small_length'),
+                           near=_units.mm_text(near, '.3f', 'small_length'))
+        else:
+            msg = _i18n.tr("repair.msg.open", part=pi + 1, contour=ci + 1,
+                           gap=_units.mm_text(gap, '.3f', 'small_length'))
         rep.findings.append(Finding("open_contour", pi, ci, gap, a, fix, msg))
     # ---- duplicates: a contour lying on an earlier one (bbox candidates first)
     if 1 < len(items):
@@ -259,8 +265,8 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
                 dead.add(i)
                 pi, cc, c = items[i]
                 rep.findings.append(Finding("duplicate", pi, cc, c.length(), c.segments[0].start, o.fix_duplicates,
-                                            f"part {pi + 1} contour {cc + 1} lies on part {items[j][0] + 1} "
-                                            f"contour {items[j][1] + 1} (cut twice)"))
+                                            _i18n.tr("repair.msg.duplicate", part=pi + 1, contour=cc + 1,
+                                                     other_part=items[j][0] + 1, other_contour=items[j][1] + 1)))
     # ---- overlapping open geometry
     segs = [s for _pi, _ci, c in items if not c.closed for s in c.segments]
     if 1 < len(segs) <= MAX_OVERLAP_SEGMENTS:
@@ -270,7 +276,8 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
             first = next(((pi, ci, c) for pi, ci, c in items if not c.closed), None)
             rep.findings.append(Finding("overlap", first[0] if first else -1, first[1] if first else -1,
                                         before - after, first[2].segments[0].start if first else None,
-                                        o.fix_overlaps, f"{_units.mm_text(before - after, '.2f')} of open lines lie on each other"))
+                                        o.fix_overlaps, _i18n.tr("repair.msg.overlap",
+                                                                 length=_units.mm_text(before - after, '.2f'))))
     # ---- zero length, tiny segments, tiny objects, self-intersections
     for pi, ci, c in items:
         if _is_point(c):
@@ -279,35 +286,36 @@ def analyze(doc: Document, opts: Optional[RepairOptions] = None, max_pairs: int 
         total = sum(lens)
         if total <= 1e-9:
             rep.findings.append(Finding("zero_length", pi, ci, 0.0, c.segments[0].start, o.fix_zero,
-                                        f"part {pi + 1} contour {ci + 1} has zero length"))
+                                        _i18n.tr("repair.msg.zero_length", part=pi + 1, contour=ci + 1)))
             continue
         zeros = sum(1 for v in lens if v <= 1e-9)
         if zeros:
             rep.findings.append(Finding("zero_length", pi, ci, float(zeros), c.segments[0].start, o.fix_zero,
-                                        f"part {pi + 1} contour {ci + 1}: {zeros} zero-length segment(s)"))
+                                        _i18n.plural("repair.msg.zero_segments", zeros, part=pi + 1, contour=ci + 1)))
         tiny = [k for k, v in enumerate(lens) if 1e-9 < v < o.tiny_segment]
         if tiny and len(c.segments) > len(tiny) + 1:
             rep.findings.append(Finding("tiny_segment", pi, ci, float(len(tiny)), c.segments[tiny[0]].start,
                                         o.fix_tiny_segments,
-                                        f"part {pi + 1} contour {ci + 1}: {len(tiny)} segment(s) shorter than "
-                                        f"{_units.mm_text(o.tiny_segment, 'g', 'small_length')}"))
+                                        _i18n.plural("repair.msg.tiny_segments", len(tiny), part=pi + 1, contour=ci + 1,
+                                                     limit=_units.mm_text(o.tiny_segment, 'g', 'small_length'))))
         x0, y0, x1, y1 = _bbox(c)
         if max(x1 - x0, y1 - y0) < o.tiny_object:
             rep.findings.append(Finding("tiny_object", pi, ci, max(x1 - x0, y1 - y0), (x0, y0), o.fix_tiny_objects,
-                                        f"part {pi + 1} contour {ci + 1} is smaller than {_units.mm_text(o.tiny_object)}"))
+                                        _i18n.tr("repair.msg.tiny_object", part=pi + 1, contour=ci + 1,
+                                                 limit=_units.mm_text(o.tiny_object))))
         elif c.closed:
             hit = _self_intersection(c)
             if hit is not None:
                 rep.findings.append(Finding("self_intersection", pi, ci, 0.0, hit, False,
-                                            f"part {pi + 1} contour {ci + 1} crosses itself near "
-                                            f"({hit[0]:.2f}, {hit[1]:.2f}): fix it in the CAD program"))
+                                            _i18n.tr("repair.msg.self_intersection", part=pi + 1, contour=ci + 1,
+                                                     x=f"{hit[0]:.2f}", y=f"{hit[1]:.2f}")))
     # ---- text that is not converted to outlines
     can = _text_family_ok()
     for t in _unconverted_texts(doc):
         rep.findings.append(Finding("text", -1, -1, float(t.get("height", 0.0) or 0.0),
                                     _placed(doc, t.get("insert")), can and o.convert_text,
-                                    f"{t.get('type', 'TEXT')} \"{str(t.get('text', ''))[:40]}\" is not converted "
-                                    "to outlines (it would not be cut)"))
+                                    _i18n.tr("repair.msg.text", type=t.get('type', 'TEXT'),
+                                             text=str(t.get('text', ''))[:40])))
     return rep
 
 

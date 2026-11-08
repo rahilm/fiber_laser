@@ -42,6 +42,19 @@ def tr(window: Any, key: str, default: str = "", **kw: Any) -> str:
         return default or key
 
 
+def trn(window: Any, base: str, n: float, **kw: Any) -> str:
+    """The plural text ``base`` (ids ``<base>.one`` / ``<base>.other`` ...) for the count ``n``
+    (``{n}``), other placeholders from ``kw``."""
+    t = getattr(window, "tr_", None)
+    try:
+        if t is not None:
+            return t.plural(base, n, **kw)
+    except Exception:  # noqa: BLE001 - a broken catalogue entry must not break the screen
+        pass
+    from mlaser import i18n
+    return i18n.plural(base, n, **kw)
+
+
 class WorkspaceWindow(QWidget):
     """A workspace in its own top-level window (until the shell's switcher exists)."""
 

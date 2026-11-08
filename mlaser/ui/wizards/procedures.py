@@ -11,6 +11,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QAbstractSpinBox, QCheckBox, Q
                                QVBoxLayout, QWidget)
 
 from mlaser.services import units as U
+from mlaser.ui.dialogs import suffix_for
 from mlaser.services.procedures import commissioning as CM
 from mlaser.services.procedures import commissioning_live as CL
 from mlaser.services.procedures import edge_seek as ES
@@ -166,7 +167,7 @@ class EdgeSeekWizard(WizardDialog):
                     try:
                         vals[key] = val
                     except ValueError as exc:
-                        self.ext.log(f"edge seek: {key} not saved ({exc})")
+                        self.ext.log(T(self.w, "wizard.log.edge_not_saved", setting=key, error=exc))
         return True
 
     def status_text(self) -> str:
@@ -274,7 +275,7 @@ class LaserWizard(WizardDialog):
         if step.id == "results" and self.results.rowCount() != len(p.pulses):
             self.results.setRowCount(len(p.pulses))
             for i, r in enumerate(p.pulses):
-                for j, v in enumerate((f"{r.duty_pct:g} %", f"{r.duration_ms:g} ms",
+                for j, v in enumerate((f"{r.duty_pct:g}{suffix_for('%')}", f"{r.duration_ms:g}{suffix_for('ms')}",
                                        "✓" if r.fired else "✗")):
                     it = QTableWidgetItem(v)
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -381,7 +382,7 @@ class CommissioningWizard(WizardDialog):
         try:
             rows = self.live.update(self.machine(), self.config, p, dry_run=p.dry_run)
         except Exception as e:  # noqa: BLE001 - a controller being replaced: next tick
-            self.ext.log(f"commissioning live status: {type(e).__name__}: {e}")
+            self.ext.log(T(self.w, "wizard.log.commissioning_live", error=f"{type(e).__name__}: {e}"))
             return {}
         before = p.items["interlocks"].status
         p.record_live_tests(self.live.results())
@@ -425,7 +426,7 @@ class CommissioningWizard(WizardDialog):
             return None
         p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
         kind, _, arg = fix.partition(":")
-        self.ext.log(f"commissioning: fix {fix} for {row}")
+        self.ext.log(T(self.w, "wizard.log.commissioning_fix", fix=fix, row=row))
         r: Any = None
         if kind == "clear_alarms" and self.rig is not None:
             self.rig.clear_alarms()                  # the dry run's private simulator

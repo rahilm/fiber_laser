@@ -22,6 +22,7 @@ own fixed colours in every theme (docs/SAFETY.md): they always carry the state a
 """
 from __future__ import annotations
 
+import re
 from typing import Optional
 
 from PySide6.QtCore import Qt
@@ -124,10 +125,105 @@ def system_is_dark(app: Optional[QApplication] = None) -> bool:
 
 
 def effective(theme: str, app: Optional[QApplication] = None) -> str:
-    """``light``, ``dark`` or ``high_contrast``: what the canvas and the domain widgets use."""
+    """``light``, ``dark`` or ``high_contrast``: what the canvas and the domain widgets use.
+    ``system`` is ``high_contrast`` while the operating system asks for more contrast
+    (:func:`os_high_contrast`); an explicit choice always wins."""
     if theme in (LIGHT, DARK, HIGH_CONTRAST):
         return theme
+    if os_high_contrast(app):
+        return HIGH_CONTRAST
     return DARK if system_is_dark(app) else LIGHT
+
+
+# ------------------------------------------------------------------ OS high contrast
+#: the operating system's high-contrast / increase-contrast setting (cached: read at start and
+#: when Qt reports a change, :func:`os_high_contrast` with ``refresh``)
+_os_hc: Optional[bool] = None
+
+
+def os_high_contrast(app: Optional[QApplication] = None, refresh: bool = False) -> bool:
+    """True when the operating system asks for high contrast: Windows "Contrast themes",
+    macOS "Increase contrast", a GNOME / portal high-contrast setting (UI evaluation F7).
+    ``MLASER_HIGH_CONTRAST=1`` / ``0`` overrides the detection."""
+    global _os_hc
+    if _os_hc is None or refresh:
+        try:
+            _os_hc = detect_high_contrast(app)
+        except Exception:  # noqa: BLE001 - detection is a convenience, never an error
+            _os_hc = False
+    return _os_hc
+
+
+def set_os_high_contrast(value: Optional[bool]) -> None:
+    """Set the cached OS setting (tests; None: detect again on the next query)."""
+    global _os_hc
+    _os_hc = value
+
+
+def detect_high_contrast(app: Optional[QApplication] = None) -> bool:
+    """Read the OS setting now (see :func:`os_high_contrast`).
+
+    1. Qt 6.10+: ``QStyleHints.accessibility().contrastPreference()`` (Windows high contrast,
+       macOS Increase Contrast, the XDG desktop portal's ``contrast`` on Linux);
+    2. Windows: ``SystemParametersInfoW(SPI_GETHIGHCONTRAST)``;
+    3. macOS: ``com.apple.universalaccess increaseContrast``;
+    4. Linux: ``GTK_THEME`` naming a high-contrast theme, GNOME's
+       ``org.gnome.desktop.a11y.interface high-contrast``.
+    """
+    import os
+    import sys
+    env = os.environ.get("MLASER_HIGH_CONTRAST", "").strip().lower()
+    if env in ("1", "true", "yes", "on"):
+        return True
+    if env in ("0", "false", "no", "off"):
+        return False
+    app = app or QApplication.instance()
+    if app is not None:
+        hints = app.styleHints()
+        acc_fn = getattr(hints, "accessibility", None)
+        if acc_fn is not None:
+            acc = acc_fn()
+            if acc is not None and acc.contrastPreference() == Qt.ContrastPreference.HighContrast:
+                return True
+    if sys.platform.startswith("win"):
+        return _windows_high_contrast()
+    if sys.platform == "darwin":
+        return _run_bool(["defaults", "read", "com.apple.universalaccess", "increaseContrast"]) is True
+    if os.environ.get("QT_QPA_PLATFORM", "") in ("offscreen", "minimal"):
+        return False                         # no desktop session (tests, CI)
+    if "highcontrast" in os.environ.get("GTK_THEME", "").lower().replace("-", "").replace("_", ""):
+        return True
+    return _run_bool(["gsettings", "get", "org.gnome.desktop.a11y.interface", "high-contrast"]) is True
+
+
+def _windows_high_contrast() -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    class HIGHCONTRASTW(ctypes.Structure):
+        _fields_ = [("cbSize", wintypes.UINT), ("dwFlags", wintypes.DWORD), ("lpszDefaultScheme", wintypes.LPWSTR)]
+    hc = HIGHCONTRASTW()
+    hc.cbSize = ctypes.sizeof(HIGHCONTRASTW)
+    SPI_GETHIGHCONTRAST, HCF_HIGHCONTRASTON = 0x0042, 0x0001
+    ok = ctypes.windll.user32.SystemParametersInfoW(SPI_GETHIGHCONTRAST, hc.cbSize, ctypes.byref(hc), 0)  # type: ignore[attr-defined]
+    return bool(ok) and bool(hc.dwFlags & HCF_HIGHCONTRASTON)
+
+
+def _run_bool(cmd: list[str]) -> Optional[bool]:
+    """A setting read with a command line tool: "1" / "true" -> True; None when unavailable."""
+    import shutil
+    import subprocess
+    if shutil.which(cmd[0]) is None:
+        return None
+    try:
+        out = subprocess.run(cmd, capture_output=True, text=True, timeout=1.0, check=False).stdout.strip().lower()
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if out in ("1", "true"):
+        return True
+    if out in ("0", "false"):
+        return False
+    return None
 
 
 def palette(theme: str) -> QPalette:
@@ -243,14 +339,16 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
     sheet and the canvas.  Returns the theme id actually applied."""
     theme = theme if theme in THEME_IDS else DEFAULT_THEME
     app = app or QApplication.instance()
+    # "system" follows the OS high-contrast setting too (an explicit choice wins)
+    mode = HIGH_CONTRAST if theme == SYSTEM and os_high_contrast(app) else theme
     changed = False
-    if app is not None and app.property("mlaser_theme") != theme:
+    if app is not None and app.property("mlaser_theme") != mode:
         changed = True
         # application-wide changes only when the theme really changes: setStyle / setPalette
         # post a change event to every widget of every window
         native = native_style_name(app)
         custom: Optional[QPalette] = None
-        if theme == HIGH_CONTRAST:
+        if mode == HIGH_CONTRAST:
             _set_style(app, "Fusion")
             _set_scheme(app, Qt.ColorScheme.Dark)
             custom = palette(HIGH_CONTRAST)
@@ -265,9 +363,9 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
         elif app.property("mlaser_palette"):
             app.setPalette(QPalette())           # back to the platform's (live) palette
             app.setProperty("mlaser_palette", False)
-        app.setProperty("mlaser_theme", theme)
+        app.setProperty("mlaser_theme", mode)
     if window is not None:
-        qss = style_sheet(theme)
+        qss = style_sheet(mode)
         if changed and window.styleSheet():
             # widgets under a style sheet keep the palette they were polished with: a palette
             # switch (light <-> dark where the platform cannot switch, offscreen, plain X11)
@@ -276,9 +374,86 @@ def apply(theme: str, window=None, app: Optional[QApplication] = None) -> str:
         if window.styleSheet() != qss:
             window.setStyleSheet(qss)
         apply_canvas_theme(effective(theme, app), getattr(window, "canvas", None))
+        if changed:
+            schedule_link_refresh(window)
         # icons re-tint from the new palette: repaint everything
         window.update()
     return theme
+
+
+# ------------------------------------------------------------------ links in rich text
+#: an ``<a ...>`` start tag and a ``color:`` declaration inside its style attribute
+_A_TAG = re.compile(r"<a\b([^>]*)>", re.IGNORECASE)
+_STYLE_ATTR = re.compile(r"""\s*style\s*=\s*(['"])(.*?)\1""", re.IGNORECASE | re.DOTALL)
+_COLOR_DECL = re.compile(r"(?:^|;)\s*color\s*:[^;]*", re.IGNORECASE)
+
+
+def recolor_links(html: str, color: str) -> str:
+    """``html`` with every link drawn in ``color``. A QLabel resolves its links' colour once,
+    from the palette it had then: after a live light -> dark switch they stayed #0000ff on the
+    dark window (1.86:1, UI evaluation F7). An explicit colour from the current palette's
+    ``Link`` role, re-applied on every theme change (:func:`refresh_links`), follows the theme."""
+    def tag(m: "re.Match[str]") -> str:
+        attrs = m.group(1)
+        sm = _STYLE_ATTR.search(attrs)
+        if sm is None:
+            return f"<a{attrs} style='color:{color}'>"
+        decls = _COLOR_DECL.sub("", sm.group(2)).strip("; ")
+        new = f"color:{color}" + (f"; {decls}" if decls else "")
+        return f"<a{attrs[:sm.start()]} style='{new}'{attrs[sm.end():]}>"
+    return _A_TAG.sub(tag, html)
+
+
+def link_color(widget=None) -> str:
+    """The link colour of ``widget``'s palette (the application's without one)."""
+    pal = widget.palette() if widget is not None else QApplication.palette()
+    return pal.color(QPalette.Link).name()
+
+
+def link_html(text: str, href: str = "#", widget=None) -> str:
+    """``<a href=...>text</a>`` in the current palette's link colour (see :func:`recolor_links`)."""
+    import html as _html
+    return recolor_links(f"<a href='{_html.escape(href, quote=True)}'>{text}</a>", link_color(widget))
+
+
+def refresh_links(root) -> int:
+    """Re-colour the links of every rich-text QLabel under ``root`` (and ``root`` itself) from
+    its current palette. Returns how many labels changed."""
+    from PySide6.QtWidgets import QLabel
+    n = 0
+    labels = root.findChildren(QLabel)
+    if isinstance(root, QLabel):
+        labels.append(root)
+    for lb in labels:
+        try:
+            text = lb.text()
+            if "<a" not in text and "<A" not in text:
+                continue
+            new = recolor_links(text, link_color(lb))
+            if new != text:
+                lb.setText(new)
+                n += 1
+        except RuntimeError:            # deleted meanwhile
+            continue
+    return n
+
+
+def schedule_link_refresh(window) -> None:
+    """:func:`refresh_links` now and once more after the event loop delivered the palette
+    change (a platform colour-scheme switch reaches the widgets' palettes asynchronously)."""
+    refresh_links(window)
+    from PySide6.QtCore import QTimer
+    import weakref
+    ref = weakref.ref(window)
+
+    def later() -> None:
+        w = ref()
+        if w is not None:
+            try:
+                refresh_links(w)
+            except RuntimeError:
+                pass
+    QTimer.singleShot(0, later)
 
 
 def contrast_report(theme: str) -> dict[str, float]:

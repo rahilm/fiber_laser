@@ -116,19 +116,20 @@ class ProjectExtension:
         from .import_worker import ImportBusy, run_import, show_error
         try:
             # off the GUI thread with progress and Cancel; .mlz limits in mlaser.project.format
-            pr = run_import(self.w, lambda: load_project(path), f"Opening {os.path.basename(path)}...")
+            pr = run_import(self.w, lambda: load_project(path), self.tr("import.progress.opening_file",
+                                                                         name=os.path.basename(path)))
         except ProjectError as e:
             self.ctx.log(self.tr("project.error", error=str(e)))
-            show_error(self.w, "Project not opened", str(e))
+            show_error(self.w, self.tr("project.not_opened"), str(e))
             return False
         except ImportCancelled:
-            self.ctx.log(f"{os.path.basename(path)}: opening cancelled")
+            self.ctx.log(self.tr("project.log.cancelled", name=os.path.basename(path)))
             return False
         except ImportBusy as e:
-            self.ctx.log(f"{os.path.basename(path)}: not opened ({e})")
+            self.ctx.log(self.tr("project.log.busy", name=os.path.basename(path), error=e))
             return False
         if self._job_running():                          # a job started while the file was read
-            self.ctx.log(f"{os.path.basename(path)}: not opened (a job is running)")
+            self.ctx.log(self.tr("project.log.job_running", name=os.path.basename(path)))
             return False
         self.ctx.replace_document(pr.document, "open project", path=path)
         self.apply(pr)

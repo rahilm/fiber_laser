@@ -21,6 +21,15 @@ Format
   existing ``tr("mf15")`` call site keeps working, and an imported translation, which is keyed
   by those opaque keys, lines up with our ids.
 
+Plural forms
+------------
+A text that depends on a count is a set of ids ``<base>.<category>`` with the CLDR cardinal
+categories ``zero``, ``one``, ``two``, ``few``, ``many``, ``other`` (:func:`plural_category`):
+English has ``<base>.one`` and ``<base>.other``; a translation adds the categories its language
+uses (Russian ``one``/``few``/``many``/``other``, Chinese only ``other``). Look one up with
+``plural("<base>", n, ...)`` here (Qt-free code) or ``Translator.plural`` in the UI; the count is
+the ``{n}`` placeholder. A missing category falls back to ``other``, then to English.
+
 A catalogue for another language needs only ``language``, ``name`` and ``strings`` (same ids).
 Languages we do not ship come from the user's own Mlaser install through
 :mod:`mlaser.i18n.importer`.
@@ -50,6 +59,14 @@ class Catalogue:
     args: dict[str, list[str]] = field(default_factory=dict)
     legacy: dict[str, str] = field(default_factory=dict)
 
+    def plural_id(self, base: str, n: float) -> Optional[str]:
+        """The id of ``base``'s form for count ``n`` in this catalogue's language (or None)."""
+        for cat_ in (plural_category(self.code or "en", n), "other"):
+            sid = f"{base}.{cat_}"
+            if self.strings.get(sid, "").strip():
+                return sid
+        return None
+
     def resolve(self, key: str) -> Optional[str]:
         """Readable id for ``key`` (an id or an original key), or None if unknown."""
         if key in self.strings:
@@ -75,6 +92,92 @@ def catalogue(code: str = "en") -> Catalogue:
             return Catalogue.from_json(json.load(fh))
     except OSError:
         return Catalogue(code, code)
+
+
+#: the CLDR cardinal plural categories, in CLDR order
+PLURAL_CATEGORIES = ("zero", "one", "two", "few", "many", "other")
+
+
+def _operands(n: float) -> tuple[int, int]:
+    """CLDR operands ``i`` (integer digits) and ``v`` (number of visible fraction digits)."""
+    if isinstance(n, int):
+        return abs(int(n)), 0
+    txt = repr(abs(float(n)))
+    if "e" in txt or "E" in txt:
+        txt = f"{abs(float(n)):f}".rstrip("0")
+    head, _, frac = txt.partition(".")
+    frac = frac.rstrip("0") if frac != "0" else ""
+    return int(head), len(frac)
+
+
+def plural_category(lang: str, n: float) -> str:
+    """The CLDR cardinal plural category of ``n`` in ``lang`` (``"one"``, ``"few"``, ``"other"``...).
+
+    Covers the languages mlaser offers (``mlaser.ui.i18n.LANGUAGES``) and the common families;
+    an unknown language uses the English rule. Integers are the usual input; a float such as
+    ``1.5`` follows the rule's fraction operands (English: ``other``)."""
+    code = (lang or "en").replace("-", "_").split("_")[0].lower()
+    i, v = _operands(n)
+    if code in ("zh", "ja", "ko", "vi", "th", "id", "ms", "lo", "my"):
+        return "other"
+    if code in ("ru", "uk", "be"):
+        if v:
+            return "other"
+        if i % 10 == 1 and i % 100 != 11:
+            return "one"
+        if 2 <= i % 10 <= 4 and not 12 <= i % 100 <= 14:
+            return "few"
+        return "many"
+    if code == "pl":
+        if v:
+            return "other"
+        if i == 1:
+            return "one"
+        if 2 <= i % 10 <= 4 and not 12 <= i % 100 <= 14:
+            return "few"
+        return "many"
+    if code in ("cs", "sk"):
+        if v:
+            return "many"
+        return "one" if i == 1 else "few" if 2 <= i <= 4 else "other"
+    if code in ("fr", "pt"):
+        # fr / pt (Brazil): 0 and 1 are "one"; whole millions are "many"
+        if i in (0, 1):
+            return "one"
+        if not v and i and i % 1_000_000 == 0:
+            return "many"
+        return "other"
+    if code in ("es", "it"):
+        if i == 1 and not v:
+            return "one"
+        if not v and i and i % 1_000_000 == 0:
+            return "many"
+        return "other"
+    if code == "ar":
+        if v:
+            return "other"
+        if i == 0:
+            return "zero"
+        if i in (1, 2):
+            return ("one", "two")[i - 1]
+        if 3 <= i % 100 <= 10:
+            return "few"
+        if 11 <= i % 100 <= 99:
+            return "many"
+        return "other"
+    if code == "he":
+        if i == 1 and not v:
+            return "one"
+        if i == 2 and not v:
+            return "two"
+        return "other"
+    # en, de, nl, sv, da, no, tr, el, hu, fi, et, ... : one for exactly 1
+    return "one" if i == 1 and not v else "other"
+
+
+def is_plural_id(sid: str) -> bool:
+    """True for ``<base>.<category>`` ids."""
+    return sid.rsplit(".", 1)[-1] in PLURAL_CATEGORIES and "." in sid
 
 
 def shipped_languages() -> list[str]:
@@ -113,3 +216,36 @@ def format_text(text: str, names: list[str], args: tuple = (), kwargs: Optional[
     except (KeyError, IndexError, TypeError, ValueError):
         pass
     return text
+
+
+# -------------------------------------------------------------------------- Qt-free lookups
+#: The UI registers its translator here (``mlaser.ui.i18n``) so Qt-free code (services,
+#: reports) speaks the current UI language. Without one, the English catalogue is used.
+_provider: Optional[Any] = None
+
+
+def set_provider(provider: Optional[Any]) -> None:
+    """Route :func:`tr` / :func:`plural` through ``provider`` (an object with ``format(key,
+    **kw)`` and ``plural(base, n, **kw)``, the UI's Translator), or back to English (None)."""
+    global _provider
+    _provider = provider
+
+
+def tr(key: str, **kwargs: Any) -> str:
+    """Text of ``key`` in the current language with its ``{placeholders}`` filled."""
+    if _provider is not None:
+        return str(_provider.format(key, **kwargs))
+    en = catalogue("en")
+    sid = en.resolve(key)
+    text = en.strings.get(sid, key) if sid else key
+    return format_text(text, en.args.get(sid or "", []), (), kwargs)
+
+
+def plural(base: str, n: float, **kwargs: Any) -> str:
+    """The form of ``base`` for the count ``n`` in the current language; ``{n}`` is the count."""
+    if _provider is not None:
+        return str(_provider.plural(base, n, **kwargs))
+    en = catalogue("en")
+    sid = en.plural_id(base, n) or base
+    kwargs.setdefault("n", n)
+    return format_text(en.strings.get(sid, base), en.args.get(sid, []), (), kwargs)

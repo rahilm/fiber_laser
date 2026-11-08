@@ -41,6 +41,7 @@ from mlaser.engrave.raster import (
 )
 
 from . import style as S
+from .dialogs import suffix_for
 from .style import Dialog
 
 #: next_cut.Luaguage.LanguaLibrary[28, 2] (O, 0x06000073).
@@ -231,7 +232,7 @@ class BitmapDialog(Dialog):
         self.crop_x, self.crop_y, self.crop_w, self.crop_h = (QSpinBox() for _ in range(4))
         for sb, lab in zip((self.crop_x, self.crop_y, self.crop_w, self.crop_h), "XYWH"):
             sb.setRange(0, 100000)
-            sb.setSuffix(" px")
+            sb.setSuffix(suffix_for("px"))
             sb.setPrefix(f"{lab} ")
             sb.setAccessibleName(lab)
             crop_row.addWidget(sb, 1)
@@ -252,7 +253,7 @@ class BitmapDialog(Dialog):
         self.height_mm = QSpinBox()
         for sb in (self.width_mm, self.height_mm):
             sb.setRange(0, 100000)
-            sb.setSuffix(" mm")
+            sb.setSuffix(suffix_for("mm"))          # the tool's integer mm (not display units)
         self.width_mm.setValue(50)   # InitializeComponent: setWidth.Text = "50"
         self.height_mm.setValue(50)  # SetHight.Text = "50"
         self.width_mm.valueChanged.connect(self._on_width)
@@ -268,7 +269,7 @@ class BitmapDialog(Dialog):
         self.rho = QSpinBox()
         self.rho.setRange(1, 1000)
         self.rho.setValue(6)
-        self.rho.setSuffix(" /mm")
+        self.rho.setSuffix(suffix_for("/mm"))
         self.power = QSpinBox()
         self.power.setRange(0, 100000)
         self.power.setValue(20)

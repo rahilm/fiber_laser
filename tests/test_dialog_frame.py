@@ -87,7 +87,7 @@ def _factories(w):
         "PluginsDialog": lambda: ext_options.PluginsDialog(w, [], {}),
         "AlarmListDialog": lambda: ext_card.AlarmListDialog(w, []),
         "UpgradeConfirmDialog": lambda: ext_machine.UpgradeConfirmDialog(
-            w, "motion card", SimpleNamespace(path=Path("card.bin"), data=b"\0" * 64)),
+            w, "mc", SimpleNamespace(path=Path("card.bin"), data=b"\0" * 64)),
         "NotifyDialog": lambda: NotifyDialog(_ext(w, "ext_notify")),
         "ApiSettingsDialog": lambda: ApiSettingsDialog(_ext(w, "ext_automation")),
         "ParamDialog": lambda: ext_diag.ParamDialog(w, "Ball arm", ballarm.params(diag.settings)),

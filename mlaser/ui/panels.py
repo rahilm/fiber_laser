@@ -71,13 +71,14 @@ class LayerPanel(QWidget):
             b = QToolButton()
             b.setIcon(_swatch(layer_color(i), 16))
             b.setText(str(i))
-            b.setToolTip(f"{tr.tr('gp83')} {i}")
+            b.setToolTip(tr.format("layers.layer_n", n=i))
             b.setToolButtonStyle(Qt.ToolButtonIconOnly)
             b.clicked.connect(lambda _=False, i=i: self.assignLayer.emit(i))
             row.addWidget(b)
             self.color_buttons.append(b)
         v.addWidget(roww)
         self.table = QTableWidget(0, len(self.COLS))
+        tr.bind(self.table, "a11y.layers.table", self.table.setAccessibleName)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         # no sideways scrolling (DESIGN.md R2): the layer column stretches and elides, the
@@ -181,7 +182,7 @@ class LayerPanel(QWidget):
                                                       extra={"placeholder": True})
                 r = self.table.rowCount()
                 self.table.insertRow(r)
-                head = QTableWidgetItem(_swatch(layer_color(li)), f"{self.tr_.tr('gp83')} {li}")
+                head = QTableWidgetItem(_swatch(layer_color(li)), self.tr_.format("layers.layer_n", n=li))
                 head.setData(Qt.UserRole, li)
                 head.setFlags(head.flags() & ~Qt.ItemIsEditable)
                 ref = (lp.extra or {}).get("technology") if isinstance(lp.extra, dict) else None
@@ -197,10 +198,12 @@ class LayerPanel(QWidget):
                         it = QTableWidgetItem(txt)
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
                     self.table.setItem(r, c, it)
-                    tips.append(f"{self.tr_.tr_param(self.COLS[c][0])[1]}: {it.text()}")
+                    tips.append(self.tr_.format("layers.tip.value", name=self.tr_.tr_param(self.COLS[c][0])[1],
+                                                value=it.text()))
                 if isinstance(ref, dict) and isinstance(ref.get("key"), dict):
                     k = ref["key"]
-                    tips.insert(0, f"{k.get('material', '')} {k.get('thickness_mm', 0):g} mm · {k.get('gas', '')}")
+                    tips.insert(0, self.tr_.format("layers.tip.technology", material=k.get("material", ""),
+                                                   thickness=f"{k.get('thickness_mm', 0):g}", gas=k.get("gas", "")))
                 tips.append(self.tr_.tr("layers.edit_in"))
                 head.setToolTip("\n".join(tips))
         self.table.blockSignals(False)
@@ -224,7 +227,7 @@ class LayerPanel(QWidget):
                 setattr(lp, attr, v / self._scale(attr))
                 it.setData(VALUE_ROLE, v)
             else:
-                setattr(lp, attr, float(it.text()))
+                setattr(lp, attr, float(U.strip_marks(it.text()).replace(",", ".")))
             lp.extra.pop("placeholder", None)        # the operator set it: the layer is defined
             self.changed.emit()
         except (ValueError, KeyError):
@@ -587,13 +590,13 @@ class ControlPanel(QWidget):
         if self.machine_ops is not None:
             self.machine_ops.set_mark(self.mark_index.currentIndex())
         else:
-            self.log.emit(f"{self.tr_.tr('mp39')}: mark points need the machine extension")
+            self.log.emit(self.tr_.format("panel.mark_needs_machine", action=self.tr_.tr("mp39")))
 
     def _return_mark(self) -> None:
         if self.machine_ops is not None:
             self.machine_ops.return_mark(self.mark_index.currentIndex())
         else:
-            self.log.emit(f"{self.tr_.tr('af10')}: mark points need the machine extension")
+            self.log.emit(self.tr_.format("panel.mark_needs_machine", action=self.tr_.tr("af10")))
 
     # -- helpers
     def _section(self, key: str, body: QWidget, priority: int) -> CollapsibleSection:
@@ -708,8 +711,8 @@ class LogPanel(QTabWidget):
         self.alarms.verticalHeader().hide()
         self.addTab(self.text, "")
         self.addTab(self.alarms, "")
-        tr.bind(self, "mf124", lambda t: self.setTabText(0, t))
-        tr.bind(self, "mf123", lambda t: self.setTabText(1, t))
+        tr.bind(self, "mf124", lambda t: (self.setTabText(0, t), self.text.setAccessibleName(t)))
+        tr.bind(self, "mf123", lambda t: (self.setTabText(1, t), self.alarms.setAccessibleName(t)))
         tr.bind(self.alarms, "gp84", lambda _t: self.alarms.setHorizontalHeaderLabels([tr.tr("gp84"), tr.tr("gp85")]))
 
     def sizeHint(self):  # keep the bottom dock compact by default

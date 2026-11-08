@@ -315,20 +315,21 @@ class AlarmDialog(Dialog):
 class AboutDialog(Dialog):
     def __init__(self, tr: Translator, parent=None):
         super().__init__(parent, tr.tr("mf24"), buttons=QDialogButtonBox.Ok,
-                         heading_text="Mlaser",
-                         explanation="Mlaser rebuild (PySide6): a cross-platform reimplementation of the "
-                                     "Mlaser v0.0.1.51 user interface.  MIT licence.")
-        lic = S.caption("Uses Qt for Python (PySide6), licensed under the GNU LGPL v3: you may replace "
-                        "the Qt / PySide6 libraries with your own build.  Licence texts: "
-                        "packaging/licenses/ (LGPL-3.0, GPL-3.0) and docs/ASSETS.md.  Bundled fonts: "
-                        "Noto Sans SC / Noto Sans Arabic subsets (SIL Open Font License 1.1).")
+                         heading_text="Mlaser",                     # i18n: ok (product name)
+                         # product, licence and file names are not translated: placeholders
+                         explanation=tr.format("about.description", toolkit="PySide6", version="v0.0.1.51",
+                                               licence="MIT"))
+        lic = S.caption(tr.format("about.licences", qt="Qt for Python (PySide6)", lgpl="GNU LGPL v3",
+                                  libs="Qt / PySide6",
+                                  paths="packaging/licenses/ (LGPL-3.0, GPL-3.0), docs/ASSETS.md",
+                                  fonts="Noto Sans SC / Noto Sans Arabic subsets (SIL Open Font License 1.1)"))
         self.body.addWidget(lic)
         try:
             from mlaser import netcheck
             res = netcheck.last_result()
-            net = res.text() if res is not None else "Network self-test: not run yet (Settings > Network self-test)"
+            net = res.text() if res is not None else tr.tr("about.netcheck_not_run")
         except Exception as e:  # noqa: BLE001 - informative only
-            net = f"Network self-test unavailable: {e}"
+            net = tr.format("about.netcheck_unavailable", error=e)
         nl = QLabel(net)
         nl.setWordWrap(True)
         nl.setTextInteractionFlags(Qt.TextSelectableByMouse)
@@ -337,7 +338,7 @@ class AboutDialog(Dialog):
             from mlaser.parity_ports import kernel_status
             kern = kernel_status().text()     # C kernel or Python port (MLASER_NATIVE, self-check)
         except Exception as e:  # noqa: BLE001 - informative only
-            kern = f"Emitter kernel: status unavailable ({e})"
+            kern = tr.format("about.kernel_unavailable", error=e)
         kl = QLabel(kern)
         kl.setObjectName("about_kernel")
         kl.setWordWrap(True)

@@ -229,6 +229,29 @@ class Translator:
         msg = " ".join(msg.split())
         return msg[:1].upper() + msg[1:] if msg else msg
 
+    def plural(self, base: str, n: float, *args, default: Optional[str] = None, **kwargs) -> str:
+        """The form of the plural text ``base`` for the count ``n`` (``{n}``) in the current
+        language: ``<base>.<CLDR category>`` of the current language, else its ``.other``,
+        else English (see :mod:`mlaser.i18n`, "Plural forms")."""
+        kwargs.setdefault("n", n)
+        if self.language != "en":
+            cat_ = cat.plural_category(self.language, n)
+            for c in dict.fromkeys((cat_, "other")):
+                t = self._lookup_lang(f"{base}.{c}", self.language)
+                if t:                       # "few"/"many" exist only in the translation
+                    return cat.format_text(t, self.en.args.get(f"{base}.other", []), args, kwargs)
+        sid = self.en.plural_id(base, n)
+        if sid is None:
+            return cat.format_text(default if default is not None else base, [], args, kwargs)
+        return self.format(sid, *args, default=default, **kwargs)
+
+    def _lookup_lang(self, sid: str, code: str) -> Optional[str]:
+        """Text of ``sid`` in ``code`` only (no English fallback)."""
+        t = cat.catalogue(code).strings.get(sid)
+        if t and t.strip():
+            return t
+        return self._qm_text(code, sid) if sid in self.en.strings else None
+
     def tr_param(self, key: str, default: Optional[str] = None) -> tuple[str, str]:
         """Split a parameter label ``Group.Name`` into (group, name)."""
         t = self.tr(key, default)
@@ -252,6 +275,11 @@ class Translator:
     def set_language(self, code: str) -> None:
         self.info(code)
         self.language = code
+        if _default is self:                # the application's translator (not a test's)
+            cat.set_provider(self)
+            # Qt's own strings follow only when mlaser has texts in that language (no German
+            # file dialog around English texts)
+            install_qt_translations(code if code in {li.code for li in self.available()} else "en")
         alive = []
         for ref, key, apply, args in self._bindings:
             if ref() is None:
@@ -264,6 +292,35 @@ class Translator:
         self._bindings = alive
 
 
+#: Qt's own translator (``qtbase_<code>.qm``: standard buttons, context menus, file dialogs)
+_qt_translators: list = []
+
+#: our language codes -> the names of Qt's translation files
+_QT_CODES = {"zh": "zh_CN", "pt": "pt_BR"}
+
+
+def install_qt_translations(code: str) -> bool:
+    """Install Qt's own translations for ``code`` (English, the default: remove them).
+
+    Returns True when a Qt catalogue was installed. A no-op without a QCoreApplication."""
+    from PySide6.QtCore import QCoreApplication, QLibraryInfo, QTranslator
+    app = QCoreApplication.instance()
+    if app is None:
+        return False
+    for q in _qt_translators:
+        app.removeTranslator(q)
+    _qt_translators.clear()
+    if code == "en":
+        return False
+    path = QLibraryInfo.path(QLibraryInfo.LibraryPath.TranslationsPath)
+    q = QTranslator(app)
+    if q.load(f"qtbase_{_QT_CODES.get(code, code)}", path) or q.load(f"qtbase_{code}", path):
+        app.installTranslator(q)
+        _qt_translators.append(q)
+        return True
+    return False
+
+
 _default: Optional[Translator] = None
 
 
@@ -271,6 +328,7 @@ def translator() -> Translator:
     global _default
     if _default is None:
         _default = Translator()
+        cat.set_provider(_default)
     return _default
 
 
