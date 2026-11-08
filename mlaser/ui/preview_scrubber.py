@@ -15,7 +15,10 @@ delivers (``ctx.on_plan``): the same PlannedJob Start streams (preview = cut).
 from __future__ import annotations
 
 import html
+import time
 from typing import Any, Optional
+
+import numpy as np
 
 from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
@@ -59,13 +62,22 @@ class PreviewOverlay:
         self._head: Optional[QGraphicsEllipseItem] = None
         self.t = 0.0
         self.visible = False
+        self._pts: Optional[tuple] = None        # (seg, xs, ys, las) of the whole timeline, thinned
+        self._chunks: list = []                  # (cut, rapid) QPainterPath per CHUNK points
+        self._pierce_key: Optional[tuple] = None
 
+    #: points per cached path chunk: a frame joins the finished chunks (C++) and builds only the
+    #: open one in Python (issue #7: rebuilding the whole path, up to 60 000 points, on every
+    #: 33 ms tick kept the event loop busy, so the buttons stopped answering while it played)
+    CHUNK = 2000
+    MAX_POINTS = 60000
     def _scene(self):
         return self.canvas.scene()
 
     def _ensure(self) -> None:
         sc = self._scene()
         if self._cut is None or self._cut.scene() is not sc:
+            self._pierce_key = None              # a new pierce item starts empty
             self._cut = QGraphicsPathItem()
             pen = QPen(QColor(_c("cut")), 2.0)
             pen.setCosmetic(True)
@@ -88,8 +100,51 @@ class PreviewOverlay:
     def set_timeline(self, tl: Optional[Timeline]) -> None:
         self.timeline = tl
         self.t = 0.0
+        self._pts = None
+        self._chunks = []
+        self._pierce_key = None
         if tl is None:
             self.hide()
+
+    def _points(self, tl: Timeline) -> tuple:
+        """The head path's move end points over the whole timeline, once: (segment index of
+        each point, xs, ys, laser), thinned to about MAX_POINTS keeping every laser change (as
+        Timeline.path_until), with the start point first (segment -1)."""
+        if self._pts is None:
+            mv = (tl.kind == TRAVEL) | (tl.kind == CUT)
+            idx = np.flatnonzero(mv)
+            xs = tl.x0[idx] + tl.dx[idx]
+            ys = tl.y0[idx] + tl.dy[idx]
+            las = tl.laser[idx].astype(bool)
+            if len(xs) > self.MAX_POINTS:
+                keep = np.zeros(len(xs), dtype=bool)
+                keep[:: max(1, len(xs) // self.MAX_POINTS)] = True
+                keep[-1] = True
+                keep[1:] |= las[1:] != las[:-1]
+                keep[:-1] |= las[1:] != las[:-1]
+                idx, xs, ys, las = idx[keep], xs[keep], ys[keep], las[keep]
+            x0, y0 = (float(tl.x0[0]), float(tl.y0[0])) if len(tl.x0) else (0.0, 0.0)
+            self._pts = (np.concatenate([[-1], idx]), np.concatenate([[x0], xs]),
+                         np.concatenate([[y0], ys]), np.concatenate([[False], las]))
+        return self._pts
+
+    @staticmethod
+    def _append(cut: QPainterPath, rap: QPainterPath, xs, ys, las, k0: int, k1: int) -> None:
+        """Moves to points k0..k1-1 (each from the point before it) into ``cut`` / ``rap``."""
+        for k in range(max(k0, 1), k1):
+            a, b = QPointF(float(xs[k - 1]), float(ys[k - 1])), QPointF(float(xs[k]), float(ys[k]))
+            path = cut if las[k] else rap
+            if path.elementCount() == 0 or path.currentPosition() != a:
+                path.moveTo(a)
+            path.lineTo(b)
+
+    def _chunk(self, c: int, xs, ys, las) -> tuple:
+        while len(self._chunks) <= c:
+            j = len(self._chunks)
+            cut, rap = QPainterPath(), QPainterPath()
+            self._append(cut, rap, xs, ys, las, j * self.CHUNK, (j + 1) * self.CHUNK)
+            self._chunks.append((cut, rap))
+        return self._chunks[c]
 
     def hide(self) -> None:
         self.visible = False
@@ -105,23 +160,36 @@ class PreviewOverlay:
         self._ensure()
         self.visible = True
         self.t = t
-        xs, ys, las = tl.path_until(t)
+        seg, xs, ys, las = self._points(tl)
+        i = tl.segment_at(t)
+        st = tl.state_at(t)
+        # the points of segments before the current one are complete; the current segment's
+        # move ends at the head's present position
+        n = int(np.searchsorted(seg, i, side="left")) if i >= 0 else 1
         cut, rap = QPainterPath(), QPainterPath()
-        for k in range(1, len(xs)):
-            a, b = QPointF(xs[k - 1], ys[k - 1]), QPointF(xs[k], ys[k])
-            path = cut if las[k] else rap
-            if path.currentPosition() != a or path.elementCount() == 0:
+        full = n // self.CHUNK
+        for c in range(full):                    # finished chunks: cached paths, joined in C++
+            cc, rc = self._chunk(c, xs, ys, las)
+            cut.addPath(cc)
+            rap.addPath(rc)
+        self._append(cut, rap, xs, ys, las, full * self.CHUNK, n)
+        if i >= 0 and n >= 1 and int(tl.kind[i]) in (TRAVEL, CUT):
+            a, b = QPointF(float(xs[n - 1]), float(ys[n - 1])), QPointF(float(st.x), float(st.y))
+            path = cut if bool(tl.laser[i]) else rap
+            if path.elementCount() == 0 or path.currentPosition() != a:
                 path.moveTo(a)
             path.lineTo(b)
         assert self._cut is not None and self._rapid is not None and self._pierce is not None
         self._cut.setPath(cut)
         self._rapid.setPath(rap)
-        pp = QPainterPath()
-        i = tl.segment_at(t)
-        for j in [int(j) for j in (tl.pierce[: i + 1].nonzero()[0])][-2000:]:
-            pp.addEllipse(QPointF(float(tl.x0[j]), float(tl.y0[j])), 1.0, 1.0)
-        self._pierce.setPath(pp)
-        st = tl.state_at(t)
+        pierces = tl.pierce[: i + 1].nonzero()[0] if i >= 0 else np.zeros(0, dtype=int)
+        key = (len(pierces), id(tl))
+        if key != self._pierce_key:              # pierces change rarely: rebuilt only then
+            self._pierce_key = key
+            pp = QPainterPath()
+            for j in [int(j) for j in pierces][-2000:]:
+                pp.addEllipse(QPointF(float(tl.x0[j]), float(tl.y0[j])), 1.0, 1.0)
+            self._pierce.setPath(pp)
         assert self._head is not None
         self._head.setPos(st.x, st.y)
         on = st.laser
@@ -306,6 +374,10 @@ class ScrubberWidget(QWidget):
         self.seek(0.0)
         self.timeChanged.emit(-1.0)
 
+    #: shortest frame interval (ms); a frame that takes longer stretches the next interval so the
+    #: event loop always has time for the buttons (issue #7)
+    FRAME_MS = 33
+
     def _tick(self) -> None:
         tl = self.timeline
         if tl is None:
@@ -316,7 +388,12 @@ class ScrubberWidget(QWidget):
         if t >= tl.total_s:
             t = tl.total_s
             self.pause()
+        t0 = time.perf_counter()
         self.seek(t)
+        spent_ms = (time.perf_counter() - t0) * 1000.0
+        if self._timer.isActive():
+            # at least as much idle time as the frame took: input is never starved
+            self._timer.setInterval(int(max(self.FRAME_MS, 2.0 * spent_ms)))
 
     def seek(self, t: float, from_slider: bool = False) -> None:
         tl = self.timeline
@@ -332,11 +409,16 @@ class ScrubberWidget(QWidget):
         self._update_labels()
         self.timeChanged.emit(self.t)
 
+    #: "previous contour" within this much wall time of a contour's start goes to the contour
+    #: before it (issue #7); scaled by the playback speed while playing
+    PREV_GRACE_S = 0.6
+
     def step_contour(self, step: int) -> None:
         tl = self.timeline
         if tl is None or not tl.markers:
             return
-        self.seek(tl.next_contour_time(self.t, step))
+        speed = float(self.speed.currentData() or 1) if self.playing else 1.0
+        self.seek(tl.next_contour_time(self.t, step, grace=self.PREV_GRACE_S * speed))
 
     def _goto_contour(self, n: int) -> None:
         tl = self.timeline

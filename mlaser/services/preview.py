@@ -121,15 +121,23 @@ class Timeline:
             return None
         return self.markers[k][2], self.markers[k][3]
 
-    def next_contour_time(self, t: float, step: int = 1) -> float:
+    def next_contour_time(self, t: float, step: int = 1, grace: float = 0.0) -> float:
+        """The start of the next (``step`` > 0) or previous contour.  Backwards, as a media
+        player: from inside a contour to its own start, but within ``grace`` seconds of that
+        start to the contour before it (issue #7: while the preview plays the time is already a
+        little past the start it was sent to, and "previous" kept returning to the same start)."""
         ts = sorted({m[0] for m in self.markers})
         if not ts:
             return t
         if step > 0:
             k = bisect.bisect_right(ts, t + 1e-6)
             return ts[min(k, len(ts) - 1)]
-        k = bisect.bisect_left(ts, t - 1e-6) - 1
-        return ts[max(k, 0)]
+        cur = bisect.bisect_right(ts, t + 1e-6) - 1          # the contour t is in (-1: before the first)
+        if cur < 0:
+            return ts[0]
+        if t - ts[cur] <= max(grace, 1e-6):
+            cur -= 1
+        return ts[max(cur, 0)]
 
     # ---------------------------------------------------------------- drawing
     def path_until(self, t: float, max_points: int = 60000) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
