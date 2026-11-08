@@ -24,10 +24,10 @@ from __future__ import annotations
 
 from typing import Callable, Optional
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QAction, QActionGroup
 from PySide6.QtWidgets import (QFrame, QGridLayout, QHBoxLayout, QLabel, QScrollArea, QSizePolicy,
-                               QSplitter, QStyle, QTabWidget, QToolBar, QToolButton,
+                               QSplitter, QStyle, QTabBar, QTabWidget, QToolBar, QToolButton,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
@@ -110,22 +110,47 @@ class EmptyState(QWidget):
         self.grid.setRowStretch(n // cols + 1, 1)
 
 
+#: logical px: the height a canvas stacked over its page keeps; when the page and this do not
+#: both fit, the canvas and the page are tabs (each the whole height)
+CANVAS_MIN_H = 240
+
+
 class CanvasSplitter(QSplitter):
-    """The canvas and the page beside it: side by side while both have their minimum widths,
-    the page under the canvas in a narrower window (a half-screen one), so the page's minimum
-    width is the wider of the two, not their sum (a workspace switch then reflows instead of
-    widening the window)."""
+    """The canvas and the page beside it (Process, ...), in the arrangement the room allows:
+
+    * ``side``: side by side while both have their minimum widths;
+    * ``stack``: the page under the canvas in a narrower window (a half-screen one), while the
+      page's height and a workable canvas (:data:`CANVAS_MIN_H`) both fit;
+    * ``tabs``: else one of them at a time with the whole room, switched by the page's tab bar
+      (:attr:`tab`: 0 the canvas, 1 the page; the user's choice is remembered).
+
+    The minimum width is the wider of the two, not their sum, so a workspace switch reflows
+    instead of widening the window.  The choice follows the size alone (the minimum follows
+    the choice, never the reverse)."""
+
+    modeChanged = Signal(str)
+
+    def __init__(self, *a) -> None:
+        super().__init__(*a)
+        self.mode = "side"
+        self.tab = 0
+
+    def _canvas_wanted(self) -> bool:
+        return self.count() > 1 and not self.widget(0).isHidden()
+
+    def _shown(self) -> list:
+        """The canvas when it is wanted (a page may hide it: Process › Library) and the page
+        (hidden only while the canvas tab is on top)."""
+        return [self.widget(i) for i in range(self.count()) if i == 1 or not self.widget(i).isHidden()]
 
     def _side_by_side_need(self) -> int:
-        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
-              for i in range(self.count()) if not self.widget(i).isHidden()]
+        ws = [x.minimumSizeHint().expandedTo(x.minimumSize()).width() for x in self._shown()]
         return sum(ws) + self.handleWidth() * max(len(ws) - 1, 0)
 
     def page_height(self) -> int:
-        """Stacked: the height the page under the canvas needs at the splitter's width (its
-        wrapper's need, height-for-width aware).  Not the wrapper's minimum: that is capped by
-        what the screen leaves around the wrapper, and under the canvas almost nothing is left,
-        so the page got a few pixels and its forms scrolled."""
+        """The height the page needs at the splitter's width (its wrapper's need, height-for-
+        width aware).  Not the wrapper's minimum: that is capped by what the screen leaves
+        around the wrapper, and under the canvas almost nothing is left."""
         if self.count() < 2:
             return 0
         own = self.widget(1)
@@ -134,25 +159,39 @@ class CanvasSplitter(QSplitter):
         if area is None:
             return own.minimumSizeHint().expandedTo(own.minimumSize()).height()
         chrome = max(own.height() - area.viewport().height(), 0) if own is not area else 0
-        width = max(area.viewport().width(), self.width() - (own.width() - area.viewport().width()), 1)
+        if self.orientation() == Qt.Vertical or own.isHidden():
+            # under the canvas, or in its tab: the splitter's whole width (a hidden page's
+            # own width is stale)
+            width = max(self.width() - (max(own.width() - area.viewport().width(), 0)
+                                        if own.isVisible() else 0), 1)
+        else:
+            width = max(area.viewport().width(), 1)
         return area.need(width).height() + chrome
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         s = super().minimumSizeHint()
-        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
-              for i in range(self.count()) if not self.widget(i).isHidden()]
+        ws = [x.minimumSizeHint().expandedTo(x.minimumSize()).width() for x in self._shown()]
         h = s.height()
-        if self.orientation() == Qt.Vertical and self.count() > 1:
-            canvas = self.widget(0)
-            h = max(h, canvas.minimumSizeHint().expandedTo(canvas.minimumSize()).height()
-                    + self.handleWidth() + self.page_height())
+        if self.mode in ("stack", "tabs"):
+            # what the smaller arrangement (tabs) needs: stacking never raises the window,
+            # it is used only while the height allows it
+            h = max(CANVAS_MIN_H, self.page_height())
         return QSize(max(ws, default=s.width()), h)
 
     def fit_orientation(self) -> None:
-        # by the width alone (the height follows the choice, never the reverse)
-        want = Qt.Horizontal if self.width() >= self._side_by_side_need() else Qt.Vertical
+        if not self._canvas_wanted() or self.width() >= self._side_by_side_need():
+            mode = "side"
+        elif self.height() >= CANVAS_MIN_H + self.handleWidth() + self.page_height():
+            mode = "stack"
+        else:
+            mode = "tabs"
+        want = Qt.Horizontal if mode == "side" else Qt.Vertical
         if self.orientation() != want:
             self.setOrientation(want)
+        if mode != self.mode:
+            self.mode = mode
+            self.updateGeometry()
+            self.modeChanged.emit(mode)
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
@@ -198,6 +237,14 @@ class WorkspacePage(QWidget):
         self.body_lay = QHBoxLayout(self.body)
         self.body_lay.setContentsMargins(0, 0, 0, 0)
         self.body_lay.setSpacing(0)
+        # the canvas and the page as tabs when stacked they do not both fit (CanvasSplitter)
+        self.view_tabs = QTabBar()
+        self.view_tabs.setObjectName("shell_view_tabs")
+        self.view_tabs.setDocumentMode(True)
+        self.view_tabs.setExpanding(False)
+        self.view_tabs.setVisible(False)
+        self.view_tabs.currentChanged.connect(self._view_tab_chosen)
+        v.addWidget(self.view_tabs)
         v.addWidget(self.body, 1)
         self.splitter: Optional[QSplitter] = None
         self.canvas_slot: Optional[QWidget] = None
@@ -245,6 +292,8 @@ class WorkspacePage(QWidget):
                 self.splitter.setStretchFactor(1, 2)
                 self.splitter.setSizes([600, 400])
                 self._user_split = False
+                self.splitter.modeChanged.connect(self._split_mode)
+                self.splitter.tab = self._remembered_tab()
                 self.splitter.splitterMoved.connect(self._split_moved)
             self.body_lay.addWidget(self.splitter)
         else:
@@ -407,6 +456,47 @@ class WorkspacePage(QWidget):
         if not self._fitting_split:
             self._user_split = True          # the user's split stays (until a reset)
 
+    # ------------------------------------------------------------------ canvas | page tabs
+    def _config(self):
+        return getattr(self.host.w, "config", None)
+
+    def _remembered_tab(self) -> int:
+        cfg = self._config()
+        try:
+            tabs = dict(cfg.get("shell.view_tabs", {}) or {}) if cfg is not None else {}
+        except Exception:  # noqa: BLE001 - an unregistered key in a test configuration
+            tabs = {}
+        return 1 if int(tabs.get(self.spec.id, 0) or 0) == 1 else 0
+
+    def _split_mode(self, mode: str) -> None:
+        tb = self.view_tabs
+        if mode == "tabs":
+            if tb.count() == 0:
+                tb.blockSignals(True)
+                tb.addTab(self.host.tr.tr("shell.view.canvas"))
+                tb.addTab(self.host.tr.tr(self.spec.title) if self.spec.title else self.spec.id)
+                tb.blockSignals(False)
+            tb.blockSignals(True)
+            tb.setCurrentIndex(self.splitter.tab if self.splitter is not None else 0)
+            tb.blockSignals(False)
+        tb.setVisible(mode == "tabs")
+        self.fit_split()
+
+    def _view_tab_chosen(self, i: int) -> None:
+        sp = self.splitter
+        if sp is None or i < 0:
+            return
+        sp.tab = 1 if i == 1 else 0
+        cfg = self._config()
+        if cfg is not None:
+            try:
+                tabs = dict(cfg.get("shell.view_tabs", {}) or {})
+                tabs[self.spec.id] = sp.tab
+                cfg.set("shell.view_tabs", tabs)            # the user's choice is remembered
+            except Exception:  # noqa: BLE001 - an unregistered key in a test configuration
+                pass
+        self.fit_split()
+
     def fit_split(self) -> None:
         """The page beside the canvas gets the width its content asks for (its size hint) and,
         if that is not enough for the height it has, more, until it fits or the canvas is down
@@ -414,17 +504,28 @@ class WorkspacePage(QWidget):
         so narrow that its wrapped rows pushed the window taller than the screen with the
         Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
         sp = self.splitter
-        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+        if sp is None or sp.count() < 2:
+            return
+        if isinstance(sp, CanvasSplitter) and sp.mode != "tabs" and sp.widget(1).isHidden():
+            sp.widget(1).show()                 # out of the tabs: the page again
+        if not sp.isVisible() or (self._user_split and getattr(sp, "mode", "") != "tabs"):
             return
         if sp.orientation() != Qt.Horizontal:
-            # stacked: the page under the canvas gets the height it needs, the canvas the rest
             total = sp.height() - sp.handleWidth()
             if total <= 0 or not isinstance(sp, CanvasSplitter):
                 return
-            canvas = sp.widget(0)
-            low = canvas.minimumSizeHint().expandedTo(canvas.minimumSize()).height()
-            ph = max(min(sp.page_height(), total - low), 0)
-            sizes = [total - ph, ph]
+            own = sp.widget(1)
+            if sp.mode == "tabs":
+                # one of them with the whole height: the page hidden under the canvas tab (a
+                # collapsed page would show its scroll bar), the canvas collapsed under the
+                # page's
+                own.setVisible(sp.tab == 1)
+                sizes = [total, 0] if sp.tab == 0 else [0, total]
+            else:
+                # stacked: the page under the canvas gets the height it needs, the canvas the
+                # rest (at least CANVAS_MIN_H: else the splitter is in tabs)
+                ph = max(min(sp.page_height(), total - CANVAS_MIN_H), 0)
+                sizes = [total - ph, ph]
             if sp.sizes() != sizes:
                 self._fitting_split = True
                 try:
@@ -639,9 +740,32 @@ class _UserSize(QObject):
             old, new = ev.oldSize(), ev.size()
             m = self.w.minimumSize()
             forced = old.isValid() and new == old.expandedTo(m) and new != old
-            if not forced:
+            if not forced and not self._restoring:
                 self.size = QSize(new)
+        elif obj is self.w and ev.type() == QEvent.LayoutRequest and not self._queued:
+            self._queued = True
+            QTimer.singleShot(0, self, self._restore)
         return False
+
+    _queued = False
+    _restoring = False
+
+    def _restore(self) -> None:
+        """Back to the user's size once the content's minimum allows it again (a page that
+        needed more room grew the window; another page or a narrower state needs less)."""
+        self._queued = False
+        w = self.w
+        if (self.size is None or self.switching or not w.isVisible()
+                or w.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen)):
+            return
+        want = self.size.expandedTo(w.minimumSize())
+        cur = w.size()
+        if want != cur and want.width() <= cur.width() and want.height() <= cur.height():
+            self._restoring = True
+            try:
+                w.resize(want)
+            finally:
+                self._restoring = False
 
 
 class WorkspaceHost:
