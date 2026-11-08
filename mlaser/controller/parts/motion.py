@@ -5,6 +5,7 @@ import time
 from typing import Callable, Optional
 
 from ...protocol import frames as F
+from ..commands import card_command
 from ..client import (HOME_X, HOME_XY, HOME_XY_W, HOME_XY_ZF, HOME_Y, HOME_ZF, ControllerError,
                       stop_decel)
 from .connection import AXES
@@ -33,6 +34,7 @@ class MotionPart:
         return F.ftol(stop_decel(m.move_acc, m.jog_stop_factor, m.max_acc))
 
     # ------------------------------------------------------------------ homing
+    @card_command("homing", drop_if_stale=True)
     def home(self, axes: str = "XY") -> None:
         """Go Origin (mf15/mf16/mf17/mf18/mf222): mailbox ``[2, mask, 0]`` (FUN_10032da0).
 
@@ -60,6 +62,7 @@ class MotionPart:
                 self._s.mode, self._s.homed = "origin", False
             self._log(f"mf15: homing {axes} (mode {mode}, [2, 0x{mask:x}, 0])")
 
+    @card_command("start-up homing")
     def startup_homing(self, confirm: Optional[Callable[[str], bool]] = None,
                        normal_exit: bool = True) -> bool:
         """The start-up part of FUN_00596320 after the connection (O):
@@ -177,6 +180,7 @@ class MotionPart:
         if length is None:
             self._s.mode = "jog"
 
+    @card_command("jog", drop_if_stale=True)
     def jog_start(self, axis: str, direction: int, fast: bool = False) -> None:
         """Panel jog button pressed (continuous): jog over the axis stroke; jog_stop stops it.
         Hold-to-jog: the caller sends :meth:`jog_keepalive` while the button is held, otherwise
@@ -187,11 +191,13 @@ class MotionPart:
         """The jog button is still held (UI timer, pendant reader)."""
         self._jog_alive = time.monotonic()
 
+    @card_command("jog step", drop_if_stale=True)
     def jog_step(self, axis: str, direction: int, step_mm: float, fast: bool = False) -> None:
         """Panel jog button in step mode (MC.IsStepMove): the same command over ``step_mm``
         (MC.StepLength / the panel's step box); the release sends nothing (FUN_005ad9f0)."""
         self._jog(axis, direction, fast, abs(float(step_mm)), "jog step")
 
+    @card_command("jog stop")
     def jog_stop(self, axis: Optional[str] = None) -> None:
         """Jog button released (WM_LBUTTONUP, FUN_005ad9f0 -> CManuPanel::jogStop FUN_005cd960):
         CNCModule +0x58 = "send stop manu cmd" (FUN_10046420, VM event 10) with no program
@@ -218,7 +224,13 @@ class MotionPart:
           FUN_10051bf0 103 := 1.
 
         If the stop itself fails (link trouble) the supervisor's halt channel sends the full halt.
+        Once the link is known to be lost the full halt goes out on the halt channel at once
+        (short timeouts, repeated by the monitor until the card answers): each main-channel
+        request would wait out the retry policy (seconds) first.
         """
+        if self._sup._lost:
+            self._sup.safe_halt("stop (link lost)")
+            return
         ok = self._try("stop", self._mc.stop_motion, self._decel_counts())
         if self._program_ran and self._laser_type() == 0 and self._zf_type():
             self._try("stop", self._mc.command, [F.OP_FOLLOW, 5, 0])
@@ -230,7 +242,7 @@ class MotionPart:
 
     def _wait_axes_idle(self, timeout_s: float) -> None:
         t_end = time.time() + timeout_s
-        while time.time() < t_end:
+        while time.time() < t_end and not self._sup._lost:
             try:
                 st = self._mc.read_status()
             except (ControllerError, OSError, AttributeError):
@@ -240,6 +252,7 @@ class MotionPart:
             time.sleep(0.01)
 
     # ------------------------------------------------------------------ moves
+    @card_command("move", drop_if_stale=True)
     def move_to(self, x: float, y: float) -> None:
         """mp111/mp112 Position-to (FUN_005c2790, O): relative move to (x, y) from the cached head
         position at v = MC.JogFastSpeed / MC.JogSlowSpeed (fast mode) and acc =
@@ -266,6 +279,7 @@ class MotionPart:
         except Exception:  # noqa: BLE001
             return self._s.x, self._s.y
 
+    @card_command("move", drop_if_stale=True)
     def move_by(self, dx: float, dy: float, speed: Optional[float] = None,
                 acc: Optional[float] = None) -> None:
         """Relative X/Y move ``[5, 3, ftol(v*ppm), ftol(acc), 10*ftol(acc), ftol(dx*ppm),
@@ -292,6 +306,7 @@ class MotionPart:
         self._safe("move", self._mc.move, 0b11, F.ftol(sp * p), F.ftol(ac),
                    [F.ftol(dx * p), F.ftol(dy * p)])
 
+    @card_command("return to zero", drop_if_stale=True)
     def return_zero(self, confirm: Optional[Callable[[str], bool]] = None,
                     target: Optional[tuple[float, float]] = None) -> Optional[tuple[float, float]]:
         """mp29 回零位 "Home" (FUN_005bc220, O):
@@ -327,6 +342,7 @@ class MotionPart:
         self._log(f"mp29: move to ({t[0]:.3f}, {t[1]:.3f})")
         return t
 
+    @card_command("set origin", drop_if_stale=True)
     def set_origin(self) -> None:
         """[9999, 8, 0] zero/reset coordinates (FUN_100314b0, INFERRED)."""
         if self._motion_ok("set origin") and not self._busy():

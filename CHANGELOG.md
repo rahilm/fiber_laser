@@ -60,6 +60,14 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Changed
 
+- **Safety** (issue #5, UI evaluation F1): with the card switched off (e-stop) no operator command
+  blocks the window any more (measured before: jog release 29 s, Gas 7 s, Clear alarm 6 s, fault
+  Reset 3.5-6.6 s per press, Disconnect 10 s, window close 3.6 s). Panel commands given on the
+  GUI thread run in order on one command worker; Stop, Hold and every halt still go out at once
+  from their own thread, and a Stop drops the motion commands queued before it. Once the link is
+  known to be lost, every request that is not a halt is refused at once and halt-class requests
+  are sent once instead of waiting out the retry policy (the monitor keeps repeating the full
+  halt). Nothing changes on the wire for a card that answers. docs/SAFETY.md §4a.
 - Report: every job record has a source (real / simulator / dry run / practice); the figures
   count real jobs by default (Runs filter), dry runs are recorded too. The device counters
   (processing hours, maintenance), the planned quantity and `TotalReport.txt` count real jobs

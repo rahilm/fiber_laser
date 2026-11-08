@@ -2867,6 +2867,7 @@
   "run.btn.start": "Start",
   "run.btn.stop": "STOP",
   "run.canvas.empty": "No job loaded",
+  "run.card_busy": "Waiting for the card to answer…",
   "run.count.contour": "contour {n}/{total}",
   "run.count.part": "part {n}/{total}",
   "run.count.sheet": "Sheet {n}/{total}",

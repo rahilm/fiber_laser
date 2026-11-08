@@ -161,6 +161,10 @@ class MachineAPI(Protocol):
     def job_active(self) -> bool: ...
     def clear_alarms(self) -> None: ...
 
+    # -- queued operator commands (card I/O off the GUI thread, issue #5) --
+    def commands_pending(self) -> int: ...
+    def wait_commands(self, timeout: float = 30.0) -> bool: ...
+
 
 def api_members() -> list[str]:
     """Names of every :class:`MachineAPI` member (methods and attributes)."""
@@ -307,6 +311,15 @@ class ControllerFacade(ABC):
         """The operator started a new action (a wizard step that moves): clears the halt latch
         of the supervisor (docs/SAFETY.md §4; a latched FAULT still refuses motion).  Called
         only from a button press, never from a worker on its own."""
+
+    def commands_pending(self) -> int:
+        """Operator commands queued for the card or running (0 for a controller that runs
+        every command at once)."""
+        return 0
+
+    def wait_commands(self, timeout: float = 30.0) -> bool:
+        """Block until the queued operator commands ended (tests, scripting)."""
+        return True
 
     def heartbeat_status(self) -> dict:
         """The "PC alive" output (docs/SAFETY.md §11): output number (0 = off), frequency,

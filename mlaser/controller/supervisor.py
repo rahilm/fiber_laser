@@ -222,6 +222,14 @@ class SafetySupervisor:
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
         self._halt_lock = threading.RLock()
+        # the controller's command executor (controller.commands): why the command running on
+        # the calling thread must not move or fire any more (a Stop / halt since it was queued)
+        self.request_veto: Optional[Callable[[], Optional[str]]] = None
+        # True on the GUI thread: a main-channel request there is counted and logged (issue #5:
+        # with the card off one request blocks the window for seconds)
+        self.ui_thread_probe: Optional[Callable[[], bool]] = None
+        self.ui_thread_requests = 0
+        self._ui_warned: set = set()
 
     @property
     def guarded_outputs(self) -> int:
@@ -297,9 +305,21 @@ class SafetySupervisor:
 
     def _guard(self, req: F.Request) -> None:
         cls = classify_request(req, self.guarded_outputs)
+        probe = self.ui_thread_probe
+        if probe is not None and probe():
+            self._ui_thread_request(req)
         if cls == Cmd.READ:
             return
         why = self._check(req, cls)
+        if why is None and self._lost and cls != Cmd.HALT:
+            # the link is known to be down: a command that is not a halt would only wait out
+            # the retry policy (seconds per request) and fail; refused at once.  Halt-class
+            # commands (stop, PWM / DA 0, outputs off, FIFO stop / clear, alarm reset) still go
+            # out, and the monitor keeps repeating the full halt on the halt channel
+            why = "the card does not answer (link lost): only halt commands are sent"
+        veto = self.request_veto
+        if why is None and veto is not None and cls & (Cmd.MOTION | Cmd.EMISSION):
+            why = veto()
         if req.func == F.FUNC_WRITE and req.addr == F.REG_FIFO_DATA:
             self.fifo_frames += 1
             if cls & Cmd.EMISSION:
@@ -314,6 +334,19 @@ class SafetySupervisor:
             self.refused.append((time.time(), cls.name or str(int(cls)), why))
             del self.refused[:-100]
             raise CommandRefused(why, cls)
+
+    def _ui_thread_request(self, req: F.Request) -> None:
+        self.ui_thread_requests += 1
+        import traceback
+        site = ""
+        for fr in reversed(traceback.extract_stack(limit=12)[:-3]):
+            if "/controller/" not in fr.filename.replace("\\", "/"):
+                site = f"{fr.filename}:{fr.lineno} {fr.name}"
+                break
+        if site not in self._ui_warned and len(self._ui_warned) < 50:
+            self._ui_warned.add(site)
+            log.warning("card request on the GUI thread (func %s addr %s) from %s: it blocks the "
+                        "window while the card does not answer", int(req.func), req.addr, site or "?")
 
     def _halt_guard(self, req: F.Request) -> None:
         cls = classify_request(req, self.guarded_outputs)
@@ -336,10 +369,33 @@ class SafetySupervisor:
     # ------------------------------------------------------------------ halt
     def safe_halt(self, reason: str, pause: bool = False, latch: bool = True) -> HaltResult:
         """Bring the card to a safe state (see the module doc); idempotent, never raises."""
+        self._mark_halt(reason, latch)
+        return self._send_halt(reason, pause)
+
+    def safe_halt_soon(self, reason: str, pause: bool = False, latch: bool = True) -> threading.Event:
+        """:meth:`safe_halt` for the GUI thread: the halt is counted and latched here (pending
+        starts are stale, motion is refused from now on), the sequence goes out at once from
+        its own thread (with the card off a halt-channel sequence takes up to ~0.6 s).  Returns
+        an Event set when it was sent."""
+        from .._sched import start_now
+        self._mark_halt(reason, latch)
+        done = threading.Event()
+
+        def run() -> None:
+            try:
+                self._send_halt(reason, pause)
+            finally:
+                done.set()
+        start_now(run, "mlaser-halt")
+        return done
+
+    def _mark_halt(self, reason: str, latch: bool) -> None:
         self.halt_count += 1                  # every halt makes pending start requests stale
         if latch:
             self._latch = True
             self._latch_reason = reason
+
+    def _send_halt(self, reason: str, pause: bool) -> HaltResult:
         mc = self._halt_channel()
         if mc is None:
             res = HaltResult(reason, [("connection", False, "not connected")], time.monotonic(),
@@ -460,6 +516,7 @@ class SafetySupervisor:
             if not self._lost:
                 self._lost = True
                 self.link_ok = False
+                mc.link_lost = True
                 why = (f"no reply from the card for {age * 1000:.0f} ms "
                        f"({'streaming' if self.streaming else 'idle'}, deadline "
                        f"{self.deadline_s() * 1000:.0f} ms)")
@@ -469,6 +526,7 @@ class SafetySupervisor:
         else:
             if self._lost:
                 self._lost = False
+                mc.link_lost = False
                 audit("link", status="restored")
                 if self.on_link_restored is not None:
                     self.on_link_restored()

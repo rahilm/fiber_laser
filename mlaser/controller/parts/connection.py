@@ -32,7 +32,9 @@ class ConnectionPart:
         (or the full ``MotionController.startup`` when ``card_params`` is set), read the card
         parameters (FUN_10039f20) and adopt the scaling.  The connection always starts
         **disarmed** (or in FAULT when a fault is still latched)."""
-        self.disconnect(quiet=True, keep_sim=True)
+        self.wait_commands(15.0)             # a queued disconnect (or command) ends first
+        self._invalidate_starts("disconnect")
+        self._disconnect(True, True, None)   # here, before the new channel opens
         self._invalidate_starts("connect")
         # the streaming link deadline: the configured one for a real card, the simulator's own
         # (see connect_simulator) while self.sim runs in this process
@@ -90,6 +92,7 @@ class ConnectionPart:
         self._poll_thread = threading.Thread(target=self._poll_loop, name="mlaser-poll", daemon=True)
         self._poll_thread.start()
         self._sup.start_monitor()
+        self._commands.start()               # before the first GUI command (no thread start there)
         lifecycle.register(self)
         if self.registers_laser_guard:
             # one entry per controller; every registered one must allow (devices.laser): a
@@ -161,7 +164,9 @@ class ConnectionPart:
         real card keeps the configured deadline (150 ms default); pass ``link_deadline_ms`` to
         test link-loss behaviour at the real value."""
         from ..simulator import CardSimulator
-        self.disconnect(quiet=True)
+        self.wait_commands(15.0)
+        self._invalidate_starts("disconnect")
+        self._disconnect(True, False, None)
         self._card_link_deadline_ms()                       # remember the configured value
         self._sup.link_deadline_ms = float(link_deadline_ms if link_deadline_ms is not None
                                           else SIM_LINK_DEADLINE_MS)
@@ -185,11 +190,31 @@ class ConnectionPart:
     def is_simulator(self) -> bool:
         return self.sim is not None
 
-    def disconnect(self, quiet: bool = False, keep_sim: bool = False) -> None:
+    def disconnect(self, quiet: bool = False, keep_sim: bool = False):
         """Halt the card first (program stop, PWM 0, process outputs off, FIFO stop/clear), then
-        stop the job worker, the poller and close the sockets."""
+        stop the job worker, the poller and close the sockets.
+
+        On the GUI thread (Disconnect, the window closing) the halt goes out at once from its
+        own thread and the rest - waiting for the job worker and the poller, which takes
+        seconds when the card is off - runs on the command worker after the commands queued
+        before it; returns its ticket then."""
         self._invalidate_starts("disconnect")
-        if self._sup.connected:
+        if self._offload() and not self._commands.on_worker():
+            halted = self._sup.safe_halt_soon("disconnect") if self._sup.connected else None
+            self._stop_reason = "disconnect"
+            self._cancel.set()
+            st = self._streamer
+            if st is not None and hasattr(st, "set_cancel"):
+                st.set_cancel()
+            self._jogging = None
+            self._jog_active = False
+            return self._commands.submit("disconnect", lambda: self._disconnect(quiet, keep_sim, halted))
+        return self._disconnect(quiet, keep_sim, None)
+
+    def _disconnect(self, quiet: bool, keep_sim: bool, halted) -> None:
+        if halted is not None:
+            halted.wait(10.0)                # the halt went out before the sockets close
+        elif self._sup.connected:
             self._sup.safe_halt("disconnect")
         self._stop_reason = "disconnect"
         self._cancel.set()

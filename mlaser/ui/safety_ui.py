@@ -665,6 +665,7 @@ class SafetyUI(QObject):
             for kind in (EV.StateChanged, EV.AlarmRaised, EV.AlarmCleared, EV.LinkLost, EV.Armed, EV.Disarmed):
                 self._subs.append(bus.subscribe(kind, lambda _e: self.refresh()))
             self._subs.append(bus.subscribe(EV.JobStarted, self._job_started))
+            self._subs.append(bus.subscribe(EV.CommandsPending, self._commands_pending))
         try:
             from ..devices import laser as L
             L.set_emission_guard(self._laser_source_guard)
@@ -676,6 +677,36 @@ class SafetyUI(QObject):
         st = _safety(self.w.ctl)
         if on and not (st is not None and st.armed and st.state.value in ("armed", "running")):
             raise LaserError("laser source emission refused: the machine is not armed")
+
+    # a card command waiting longer than this shows "Waiting for the card" in the status bar
+    BUSY_AFTER_MS = 400
+
+    def _commands_pending(self, ev) -> None:
+        """The command worker's queue (controller.commands): a command the card has not
+        answered for a moment is shown as pending, never as a frozen window (issue #5)."""
+        t = getattr(self, "_busy_timer", None)
+        if ev.pending > 0:
+            if t is None:
+                t = self._busy_timer = QTimer(self)
+                t.setSingleShot(True)
+                t.timeout.connect(self._show_busy)
+            if not t.isActive() and not getattr(self, "_busy_text", ""):
+                t.start(self.BUSY_AFTER_MS)
+            return
+        if t is not None:
+            t.stop()
+        text = getattr(self, "_busy_text", "")
+        if text:
+            self._busy_text = ""
+            sb = self.w.statusBar()
+            if sb.currentMessage() == text:
+                sb.clearMessage()
+
+    def _show_busy(self) -> None:
+        if not self.w.ctl.commands_pending():
+            return
+        self._busy_text = _tr(self.w, "run.card_busy", "Waiting for the card to answer…")
+        self.w.statusBar().showMessage(self._busy_text)
 
     def _job_started(self, ev) -> None:
         self._job_t0 = time.monotonic()
@@ -906,10 +937,12 @@ class SafetyUI(QObject):
             ctl.clear_alarms()
             self.refresh()
             return
-        ok = bool(ctl.reset_fault())
-        if not ok and self._dialogs():
-            QMessageBox.warning(self.w, "Reset refused", self._last_reason() or "reset refused")
-        self.refresh()
+        def done(ok) -> None:
+            if not ok and self._dialogs():
+                QMessageBox.warning(self.w, "Reset refused", self._last_reason() or "reset refused")
+            self.refresh()
+        # the reset reads the card: queued on the command worker (issue #5), answered here
+        qtbridge.when_done(ctl.reset_fault(), done)
 
     def alarm_details(self) -> None:
         from .ext_card import AlarmListDialog
