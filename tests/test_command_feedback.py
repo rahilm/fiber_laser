@@ -35,6 +35,9 @@ IDEMPOTENT = {
     "workspace.design": lambda w: w.shell.host.current == "design",
     "view.zoom_fit": lambda w: True,          # the drawing is shown fitted when it is set
     "view.fit_table": lambda w: True,         # an empty drawing is shown fitted to the table
+    # macOS only: Window > Bring All to Front; with the main window as the only (and front)
+    # window there is nothing to bring forward
+    "window.bring_all_front": lambda w: w.isVisible() and not w.isMinimized(),
 }
 
 

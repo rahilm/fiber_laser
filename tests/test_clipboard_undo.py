@@ -330,6 +330,27 @@ def test_menu_has_cut_close_and_the_window_list(win, app):
     assert items and menu_spec.strip_mnemonic(items[0].text()) == win.windowTitle().replace("[*]", "")
 
 
+def test_bring_all_to_front_on_a_simulated_mac(app, monkeypatch):
+    """macOS only: registered, in the Window menu, and with one window it leaves it in front
+    (the feedback walk checks that state: tests/test_command_feedback.py IDEMPOTENT)."""
+    from mlaser.ui import native
+    from wiring import dispose, real_window
+    from test_command_feedback import IDEMPOTENT
+    monkeypatch.setattr(native, "platform_id", lambda plat=None: native.MACOS)
+    monkeypatch.setattr(native, "mac_arrange_in_front", lambda: False)
+    w = real_window(user_mode="engineer")
+    try:
+        w.show()
+        app.processEvents()
+        assert "window.bring_all_front" in w.commands
+        assert menu_spec.placement(w.shell.menu_ctl.layout)["window.bring_all_front"] == "window"
+        w.run("window.bring_all_front")
+        app.processEvents()
+        assert IDEMPOTENT["window.bring_all_front"](w)
+    finally:
+        dispose(w)
+
+
 def test_close_closes_the_active_window(win, app, monkeypatch):
     from PySide6.QtWidgets import QWidget
     other = QWidget(None, Qt.Window)
@@ -436,9 +457,14 @@ def test_escape_in_a_dialog_while_a_job_runs_stops_and_still_cancels(win, app, m
     from mlaser.ui import safety_ui
     stops = []
     monkeypatch.setattr(safety_ui, "job_running", lambda w: True)
+    monkeypatch.setattr(safety_ui, "keep_awake", lambda on: None)
     monkeypatch.setattr(win.safety_ui, "stop", lambda *a, **k: stops.append(1))
+    # the global keys are an application event filter installed while a job runs (by the job's
+    # start event, else the 100 ms refresh); install it now, through the refresh, instead of
+    # hoping a refresh tick falls before the key press (it did not on the macOS runners)
+    win.safety_ui.refresh()
+    assert win.safety_ui._filtering
     dlg = QDialog(win)
-    monkeypatch.setattr(QDialog, "exec", QDialog.exec)        # not needed: shown modeless
     dlg.show()
     dlg.activateWindow()
     dlg.setFocus()
