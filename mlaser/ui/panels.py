@@ -251,6 +251,12 @@ class PartListPanel(QTreeWidget):
         self.setRootIsDecorated(False)
         self.setUniformRowHeights(True)
         self.setSelectionMode(QAbstractItemView.ExtendedSelection)
+        # drag the selected parts out: to the canvas (paste there), another mlaser window, a
+        # drawing program or a file manager (a .dxf file); MainWindow sets the data source
+        self.setDragEnabled(True)
+        self.setDragDropMode(QAbstractItemView.DragOnly)
+        self.setDefaultDropAction(Qt.CopyAction)
+        self.mime_for_selection = None
         self._sync = False
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
         self._swatches: dict[int, QIcon] = {}
@@ -371,6 +377,20 @@ class PartListPanel(QTreeWidget):
         if self._sync:
             return
         self.selectionToCanvas.emit([it.data(0, Qt.UserRole) for it in self.selectedItems()])
+
+    def mimeTypes(self) -> list:  # noqa: N802 - Qt API
+        from .clipboard import MIME_DXF, MIME_PARTS, MIME_SVG
+        return [MIME_PARTS, MIME_SVG, *MIME_DXF, "text/plain", "text/uri-list"]
+
+    def mimeData(self, items):  # noqa: N802 - Qt API
+        """The dragged rows' parts (the selection: rows and parts are kept in step)."""
+        fn = self.mime_for_selection
+        md = fn() if fn is not None else None
+        return md if md is not None else super().mimeData(items)
+
+    def startDrag(self, actions) -> None:  # noqa: N802 - Qt API
+        # copy only: a "move" accepted by the target must not remove rows from the list
+        super().startDrag(Qt.CopyAction)
 
 
 # --------------------------------------------------------------------------- control

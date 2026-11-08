@@ -109,8 +109,8 @@ TWO_PARTS = Need(lambda w, c: len(_parts(w)) >= 2, "feedback.need_parts", "This 
 GROUPS = Need(lambda w, c: any(_is_group(p) for p in _parts(w)), "feedback.need_groups", "The drawing has no groups")
 SELECTED_GROUP = Need(lambda w, c: any(_is_group(p) for p in _selected(w)), "feedback.need_selected_group",
                       "Select a group first")
-CLIPBOARD = Need(lambda w, c: bool(getattr(w, "_clipboard", None)), "feedback.need_clipboard",
-                 "Nothing to paste: copy parts first")
+CLIPBOARD = Need(lambda w, c: bool(w.can_paste() if hasattr(w, "can_paste") else getattr(w, "_clipboard", None)),
+                 "feedback.need_clipboard", "Nothing to paste: copy parts first")
 REDO = Need(lambda w, c: bool(getattr(getattr(w, "docs", None), "can_redo", True)),
             "feedback.need_redo", "Nothing to redo")
 UNDO = Need(lambda w, c: bool(getattr(getattr(w, "docs", None), "can_undo", True)),
@@ -121,7 +121,7 @@ MANUAL_SORT = Need(_manual_sort, "feedback.need_manual_sort", "Manual sort is no
 #: command id -> its preconditions (checked in order; the first that fails is reported)
 NEEDS: dict[str, tuple[Need, ...]] = {
     # edit
-    "edit.copy": (SELECTION,), "edit.delete": (SELECTION,), "edit.paste": (CLIPBOARD,),
+    "edit.copy": (SELECTION,), "edit.cut": (SELECTION,), "edit.delete": (SELECTION,), "edit.paste": (CLIPBOARD,),
     "edit.redo": (REDO,), "edit.undo": (UNDO,),
     # selection (on an empty drawing)
     "select.all": (DOCUMENT,), "select.invert": (DOCUMENT,), "select.unclosed": (DOCUMENT,),

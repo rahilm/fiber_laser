@@ -16,8 +16,10 @@ records; architecture.md §1.6, P1-7).  Here:
   ``Document.extra['chf']``) are immutable once created: the writer copies before it edits.
   :class:`RoundTripTable` registers them by (uid, key) and every snapshot copy *shares* them
   (a deepcopy memo seeded with the table), so they are never deep-copied per edit.
-* **Bounded.**  :class:`UndoStack` drops the oldest commands beyond ``limit`` commands or beyond
-  ``max_cost`` estimated bytes.
+* **Bounded by memory.**  :class:`UndoStack` drops the oldest commands beyond ``max_cost``
+  estimated bytes (and beyond ``limit`` commands when a limit is given).
+* **Coalesced.**  Edits pushed with the same ``merge_key`` in quick succession (arrow-key
+  nudges of one selection) merge into one command (:meth:`UndoStack.push`).
 
 No Qt: the stack is a plain object, the application's ``edit.undo`` / ``edit.redo`` commands call
 it through :class:`mlaser.services.document.DocumentService`.
@@ -136,6 +138,23 @@ class PartsEdit:
     doc_state: tuple  # (layers, extra) of the other state
     cost: int = 0
     stamp: float = field(default_factory=time.time)
+    #: edits with the same key that follow each other closely are one undo step (nudges)
+    merge_key: Any = None
+
+    def can_absorb(self, newer: Any) -> bool:
+        return (isinstance(newer, PartsEdit) and self.merge_key is not None and newer.merge_key == self.merge_key
+                and newer.order_before == self.order_after)
+
+    def absorb(self, newer: "PartsEdit") -> None:
+        """Take ``newer`` (applied after this one, not undone) into this command: the states
+        before this one stay, the state after is ``newer``'s.  Only the parts ``newer`` touched
+        that this one did not are added (their pre-``newer`` copy is their state before this)."""
+        for uid, other in newer.swap.items():
+            if uid not in self.swap:
+                self.swap[uid] = other
+        self.order_after = newer.order_after
+        self.cost = sum(part_cost(p) for p in self.swap.values() if p is not None)
+        self.stamp = newer.stamp
 
     def _apply(self, t: UndoTarget, order: list[int]) -> None:
         doc = t.document
@@ -187,10 +206,19 @@ class ReplaceDocument:
 
 # --------------------------------------------------------------------------- stack
 class UndoStack:
-    """Bounded command history: at most ``limit`` commands and about ``max_cost`` bytes of
-    retained copies (the oldest commands are dropped first)."""
+    """Command history bounded by memory: about ``max_cost`` bytes of retained copies, and at
+    most ``limit`` commands when one is given (None: no count limit); the oldest commands are
+    dropped first.
 
-    def __init__(self, limit: int = 100, max_cost: int = 256 * 2**20) -> None:
+    **Coalescing.**  A pushed command whose ``merge_key`` equals the top command's, within
+    :attr:`merge_window` seconds of it, is merged into it (``absorb``): five arrow-key nudges
+    of the same selection are one undo step.  Any other push, an undo, a redo or :meth:`seal`
+    ends the run."""
+
+    #: seconds between two edits of one coalesced step
+    merge_window = 1.5
+
+    def __init__(self, limit: Optional[int] = None, max_cost: int = 256 * 2**20) -> None:
         self.limit = limit
         self.max_cost = max_cost
         self._undo: list[Any] = []
@@ -223,13 +251,27 @@ class UndoStack:
         return [c.label for c in self._undo]
 
     def push(self, cmd: Any) -> None:
-        """Record an already applied command; clears the redo history."""
+        """Record an already applied command; clears the redo history.  Merged into the top
+        command when both have the same ``merge_key`` and follow each other closely."""
+        top = self._undo[-1] if self._undo else None
+        if (top is not None and not self._redo and getattr(cmd, "merge_key", None) is not None
+                and getattr(top, "can_absorb", None) is not None and top.can_absorb(cmd)
+                and 0.0 <= cmd.stamp - top.stamp <= self.merge_window):
+            top.absorb(cmd)
+            self._trim()
+            return
         self._undo.append(cmd)
         self._redo.clear()
         self._trim()
 
+    def seal(self) -> None:
+        """End a coalescing run: the next edit is a step of its own (call it on save, so the
+        saved state is a step boundary)."""
+        if self._undo and getattr(self._undo[-1], "merge_key", None) is not None:
+            self._undo[-1].merge_key = None
+
     def _trim(self) -> None:
-        while len(self._undo) > self.limit:
+        while self.limit is not None and len(self._undo) > self.limit:
             self._undo.pop(0)
         while len(self._undo) > 1 and self.cost > self.max_cost:
             self._undo.pop(0)
@@ -240,6 +282,7 @@ class UndoStack:
         cmd = self._undo.pop()
         cmd.undo(target)
         self._redo.append(cmd)
+        self.seal()
         return cmd.label
 
     def redo(self, target: Any) -> Optional[str]:
@@ -248,6 +291,7 @@ class UndoStack:
         cmd = self._redo.pop()
         cmd.redo(target)
         self._undo.append(cmd)
+        self.seal()
         return cmd.label
 
     def clear(self) -> None:

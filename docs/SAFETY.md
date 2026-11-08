@@ -309,6 +309,12 @@ long jobs on slow hosts.
 * Stop never blocks the caller: it flags the cancel, a background thread sends the halt first,
   then waits for the worker. Global keys while a job runs: Space = Hold/continue (not while typing
   in a text field), Esc and F12 = Stop.
+* Esc = Stop applies in every window, dialogs included (decision of the UI evaluation, F10: the
+  platform guides say Esc only cancels a dialog, but an operator reaching for Esc in a hurry must
+  stop the machine wherever the focus is). In a dialog the key then goes on to the dialog too, so
+  its own Esc = Cancel keeps working: one press stops the job and closes the dialog
+  (`safety_ui._KeyFilter`, `tests/test_clipboard_undo.py`). In the main window the key is taken
+  (Esc = deselect does not also run).
 
 ## 9. Simulator and fault injection
 

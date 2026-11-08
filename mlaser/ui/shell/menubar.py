@@ -18,9 +18,9 @@ from __future__ import annotations
 import os
 from typing import Optional
 
-from PySide6.QtCore import QTimer
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction
-from PySide6.QtWidgets import QDockWidget, QMenu, QMenuBar
+from PySide6.QtWidgets import QApplication, QDockWidget, QMenu, QMenuBar
 
 from .. import native
 from . import menu_spec as spec
@@ -136,6 +136,7 @@ class MenuBar:
             self._titles.append(m.id)
             self.tr.bind(qm, m.title, lambda t, i=i: self._set_title(i, t))
             self._fill(qm, m.items)
+            self._keys_on_show(qm)
         for cid in spec.all_ids(self.layout):
             act = self.w.ribbon.actions.get(cid) if not (cid in spec.NAV and HAVE_HOMES) else None
             if act is not None:
@@ -174,10 +175,76 @@ class MenuBar:
             self._labels_bound.add(cid)
             self.tr.bind(act, key, act.setText)
 
+    # ------------------------------------------------------------------ access keys
+    def _keys_on_show(self, qm: QMenu) -> None:
+        """Windows / Linux: every item of ``qm`` gets an access key, distinct in the menu
+        (:func:`menu_spec.item_mnemonics`), set when the menu opens so translated, renamed
+        (Undo Move) and dynamic items (recent files, windows) are covered too.  macOS menus
+        have none."""
+        if self.plat == native.MACOS:
+            return
+        qm.aboutToShow.connect(lambda m=qm: self.assign_keys(m))
+
+    def assign_keys(self, qm: QMenu) -> list[str]:
+        """Set the access keys of ``qm``'s items now; returns the texts (tests)."""
+        acts = [a for a in qm.actions() if not a.isSeparator() and a.isVisible()]
+        texts = spec.item_mnemonics([a.text() for a in acts])
+        for a, t in zip(acts, texts):
+            if a.text() != t:
+                a.setText(t)
+        return texts
+
+    # ------------------------------------------------------------------ window list
+    def open_windows(self) -> list:
+        """The application's visible windows with a title, the main window first."""
+        app = QApplication.instance()
+        out = []
+        for x in app.topLevelWidgets() if app is not None else []:
+            if not (x.isWindow() and x.isVisible()) or x.windowType() not in (Qt.Window, Qt.Dialog):
+                continue
+            if x.windowTitle().replace("[*]", "").strip():
+                out.append(x)
+        out.sort(key=lambda x: x is not self.w)
+        return out
+
+    def _window_list(self, qm: QMenu) -> None:
+        acts: list[QAction] = []
+
+        def refill() -> None:
+            for a in acts:
+                qm.removeAction(a)
+                a.deleteLater()
+            acts.clear()
+            wins = self.open_windows()
+            if wins:
+                acts.append(qm.addSeparator())
+            active = QApplication.activeWindow()
+            for x in wins:
+                a = QAction(x.windowTitle().replace("[*]", "").replace("&", "&&"), qm)
+                a.setObjectName("window_list_item")
+                a.setCheckable(True)
+                a.setChecked(x is active)
+                a.triggered.connect(lambda _=False, x=x: self._bring(x))
+                qm.addAction(a)
+                acts.append(a)
+        qm.aboutToShow.connect(refill)
+
+    @staticmethod
+    def _bring(x) -> None:
+        try:
+            if x.isMinimized():
+                x.showNormal()
+            x.raise_()
+            x.activateWindow()
+        except RuntimeError:            # closed meanwhile
+            pass
+
     def _fill(self, qm: QMenu, items: list) -> None:
         for e in items:
             if e == spec.SEP:
                 qm.addSeparator()
+            elif isinstance(e, spec.Sub) and e.id == spec.WINDOW_LIST:
+                self._window_list(qm)
             elif isinstance(e, spec.Sub):
                 self._sub(qm, e)
             else:
@@ -216,6 +283,7 @@ class MenuBar:
             sub.aboutToShow.connect(lambda s=sub: self._fill_docks(s))
             self._fill_docks(sub)
         self._fill(sub, e.items)
+        self._keys_on_show(sub)
 
     def _retitle(self, cid: str) -> None:
         text = self.shell.label(cid)
@@ -231,7 +299,7 @@ class MenuBar:
         nat = getattr(self.shell, "native", None)
         paths = nat.recent.existing() if nat is not None else []
         for p in paths:
-            a = sub.addAction(os.path.basename(p))
+            a = sub.addAction(os.path.basename(p).replace("&", "&&"))
             a.setToolTip(p)
             a.setStatusTip(p)
             a.triggered.connect(lambda _=False, p=p: nat.open_file(p))

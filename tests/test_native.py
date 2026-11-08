@@ -222,7 +222,7 @@ def test_open_recent_and_window_menu(win, app, tmp_path):
     sh.native.recent.add(str(tmp_path / "gone.dxf"))           # not existing: not listed
     recent = sh.menubar.findChild(QMenu, "menu_recent")
     recent.aboutToShow.emit()
-    texts = [a.text() for a in recent.actions() if not a.isSeparator()]
+    texts = [menu_spec.strip_mnemonic(a.text()) for a in recent.actions() if not a.isSeparator()]   # access keys
     assert texts[0] == "a.dxf" and "gone.dxf" not in texts and texts[-1] == "Clear menu"
     docks = sh.menubar.findChild(QMenu, "menu_docks")
     docks.aboutToShow.emit()

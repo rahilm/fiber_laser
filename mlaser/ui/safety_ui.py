@@ -575,11 +575,30 @@ class _KeyFilter(QObject):
             return True
         if getattr(ev, "isAutoRepeat", lambda: False)():
             return True
+        if key == Qt.Key_Escape and self._in_dialog(obj):
+            # Esc in a dialog while a job runs: the job stops (unchanged, docs/SAFETY.md) AND
+            # the key goes on to the dialog, so its own Esc = Cancel still works.  The event
+            # filter sees the key once per widget it propagates through: stop once.
+            if not self._esc_taken:
+                self._esc_taken = True
+                QTimer.singleShot(0, self._esc_reset)
+                self.ui.stop()
+            return False
         if key == Qt.Key_Space:
             self.ui.hold()
         else:
             self.ui.stop()
         return True
+
+    _esc_taken = False
+
+    def _esc_reset(self) -> None:
+        self._esc_taken = False
+
+    def _in_dialog(self, obj) -> bool:
+        """``obj`` is in a dialog window (not the main window)."""
+        win = obj.window() if isinstance(obj, QWidget) else None
+        return isinstance(win, QDialog) and win is not self.ui.w
 
 
 class SafetyUI(QObject):
