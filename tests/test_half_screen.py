@@ -285,6 +285,23 @@ def test_process_pages_fit_half_screen(win, app, size):
     from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea
     from mlaser.ops import demo_document
     from mlaser.ui.shell.workspace_host import CANVAS_MIN_H
+    from PySide6.QtCore import QEvent, QObject
+
+    class Log(QObject):
+        """The window's size and minimum at each resize and layout request (a failure's
+        details: who held the minimum)."""
+        rows: list = []
+
+        def eventFilter(self, obj, ev):  # noqa: N802 - Qt API
+            if obj is win and ev.type() in (QEvent.Resize, QEvent.LayoutRequest):
+                row = (ev.type().name, win.size().toTuple(), win.minimumSize().toTuple(),
+                       win.minimumSizeHint().toTuple())
+                if not self.rows or self.rows[-1][1:] != row[1:]:
+                    self.rows.append(row)
+                    del self.rows[:-60]
+            return False
+    log = Log(win)
+    win.installEventFilter(log)
     win.set_document(demo_document())
     win.canvas.select_parts([0])
     win.shell.host.activate("process")
@@ -310,6 +327,11 @@ def test_process_pages_fit_half_screen(win, app, size):
                   win.minimumSizeHint().toTuple())
             for row in heights(win):
                 print("HEIGHTS", *row)
+            pol = win.shell.dock_policy
+            print("POLICY room", pol.room, "min", pol._min, "folded", pol.folded is not None,
+                  "vfolded", pol.vfolded is not None, "user size", win.shell.host.user_size.size)
+            for row in log.rows:
+                print("LOG", *row)
         assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
         if page.view_tabs.isVisible():
             page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height

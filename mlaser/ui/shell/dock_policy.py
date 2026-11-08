@@ -55,7 +55,6 @@ class DockPolicy(QObject):
         self.room: Optional[QSize] = None        # a screen smaller than the content (update_min)
         self._moving = False
         self._min = (0, 0)                       # the explicit minimum this set
-        self._reactivated: Optional[tuple] = None  # update_min: the stale minimum re-laid out
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.apply)
@@ -535,27 +534,19 @@ class DockPolicy(QObject):
             f = self.fold_need()
             if f < self.w.minimumSizeHint().width():
                 want_w = f
-        want_h = 0
+        # the height too: the layout's present minimum, set on every pass (a minimum left to
+        # the layout is the one of its last activation, which could be an earlier, taller state:
+        # the window was held 885 px tall with 731 needed and could not return to the user's
+        # 875 px, Windows CI)
+        hint = self.w.minimumSizeHint()
+        want_h = hint.height()
         if self.room is not None:
-            hint = self.w.minimumSizeHint()
             want_w = min(want_w or hint.width(), self.room.width())
             want_h = min(hint.height(), self.room.height())
-        if (want_w, want_h) != self._min:
+        if (want_w, want_h) != self._min or self.w.minimumSize().toTuple() != (want_w or self.w.minimumWidth(), want_h):
             self._min = (want_w, want_h)
-            # 0: that dimension is the layout's own minimum
+            # width 0: the layout's own minimum
             self.w.setMinimumSize(want_w, want_h)
-        # a dimension left to the layout keeps the minimum of its last activation: after the
-        # docks under the page folded (or a page got shorter) that was the old, larger one,
-        # and the window could not go back to the user's size (Windows CI: 885 px kept with
-        # 731 needed).  Re-activated, the layout applies its present minimum.
-        hint = self.w.minimumSizeHint()
-        lay = self.w.layout()
-        stale = ((want_h == 0 and self.w.minimumHeight() > hint.height())
-                 or (want_w == 0 and self.w.minimumWidth() > hint.width()))
-        key = (self.w.minimumSize().toTuple(), hint.toTuple())
-        if lay is not None and stale and key != self._reactivated:
-            self._reactivated = key          # once per state: never a loop of layout requests
-            lay.invalidate()
 
     @staticmethod
     def _shown(group: list) -> QDockWidget:
