@@ -102,10 +102,47 @@ def test_a_workspace_command_builds_it_without_showing_it(app, quiet, config):
         dispose(w)
 
 
+#: seconds :func:`_reference_work` takes on the development host (Linux x86-64, Python 3.12)
+REFERENCE_WORK_S = 0.015
+
+
+def _reference_work() -> float:
+    """Seconds a fixed mix of what building a window does (creating, laying out and deleting
+    widgets, plain Python) takes now, best of three: the speed of this runner under its load."""
+    from PySide6.QtWidgets import QFormLayout, QLabel, QLineEdit, QWidget
+
+    def once() -> float:
+        t = time.perf_counter()
+        w = QWidget()
+        form = QFormLayout(w)
+        for i in range(150):
+            form.addRow(QLabel(f"row {i}"), QLineEdit(str(i)))
+        w.adjustSize()
+        w.deleteLater()
+        acc = 0.0
+        for i in range(60_000):
+            acc += (i % 97) * 0.5 - (i % 31) * 0.25
+        assert acc
+        dt = time.perf_counter() - t
+        QApplication.processEvents()          # the deferred delete, outside the timing
+        return dt
+    return min(once() for _ in range(3))
+
+
+def runner_budget(seconds: float) -> float:
+    """``seconds`` (a bound with headroom on the development host) scaled by how much slower
+    this runner is right now, never less (a shared Windows runner: 3.65 s for a ~0.6 s window).
+    Building the Process page eagerly again (+1.1 s here, about 2.5x the window) stays far over
+    the scaled bound on the same runner."""
+    return seconds * max(1.0, _reference_work() / REFERENCE_WORK_S)
+
+
+@pytest.mark.flaky(reruns=1)            # a timing bound on a shared runner (one rerun, like the other timing tests)
 def test_window_construction_stays_fast(app, quiet, config):
-    """A bound with headroom (it measured 0.6 s with the lazy Process page and 1.5-2.0 s before,
-    on a loaded 64-core CI host); the first window of the process pays the imports, the second
-    is the one timed."""
+    """The decisive check is structural: the window is built without the Process page.  The
+    time bound has headroom (0.6 s measured with the lazy page, 1.5-2.0 s before, on a loaded
+    64-core host) and is scaled by the runner's speed; the first window of the process pays the
+    imports, the second is the one timed."""
     from wiring import dispose, real_window
     dispose(real_window(config=config()))
     cfg = config()
@@ -113,7 +150,14 @@ def test_window_construction_stays_fast(app, quiet, config):
     w = real_window(config=cfg)
     dt = time.perf_counter() - t0
     try:
-        assert not w.extension("ext_process").workspace_built
-        assert dt < 1.5, f"MainWindow() took {dt:.2f} s"
+        ext = w.extension("ext_process")
+        assert not ext.workspace_built and _process_workspaces(w) == []
+        budget = runner_budget(1.5)
+        assert dt < budget, f"MainWindow() took {dt:.2f} s (budget {budget:.2f} s on this runner)"
+        # what the lazy page saves is real work: building it now costs a sizeable share of the
+        # window (a page that became trivially cheap would make this test pointless)
+        t1 = time.perf_counter()
+        ext.page.ensure()
+        assert ext.workspace_built and time.perf_counter() - t1 > 0.1 * dt
     finally:
         dispose(w)
