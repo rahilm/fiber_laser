@@ -29,6 +29,9 @@ from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QStyle, QT
 #: logical px: the canvas width a workspace with the shared canvas keeps (a content need: the
 #: drawing stays workable, also in a half-screen window)
 CANVAS_MIN = 260
+#: logical px: the canvas width the docks give way to (down to their minimums) when the window
+#: has the room: a comfortable drawing, CANVAS_MIN only when the window is too narrow for more
+CANVAS_COMFORT = 480
 SIDE = (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea)
 
 
@@ -88,6 +91,15 @@ class DockPolicy(QObject):
     def page_min(self) -> int:
         c = self.w.centralWidget()
         return c.minimumSizeHint().width() if c is not None else 0
+
+    def page_want(self) -> int:
+        """The page width the docks give way to: its minimum, and with the shared canvas on it
+        the canvas's comfortable width (the docks still never go below their minimums)."""
+        need = self.page_min()
+        canvas = getattr(self.w, "canvas", None)
+        if canvas is not None and canvas.isVisible():
+            need += CANVAS_COMFORT - CANVAS_MIN     # the page's minimum holds CANVAS_MIN
+        return need
 
     # ------------------------------------------------------------------ events
     def schedule(self) -> None:
@@ -390,7 +402,7 @@ class DockPolicy(QObject):
         central = self.w.centralWidget()
         avail = (central.width() if central is not None else 0) + sum(
             g.width() for gs in cols.values() for g in gs)
-        room = avail - self.page_min()
+        room = avail - self.page_want()
         total = sum(sum(v) for v in want.values())
         lows = sum(sum(v) for v in low.values())
         out: dict[QDockWidget, int] = {}
@@ -449,4 +461,4 @@ class DockPolicy(QObject):
             self._applying = False
 
 
-__all__ = ["DockPolicy", "CANVAS_MIN"]
+__all__ = ["DockPolicy", "CANVAS_MIN", "CANVAS_COMFORT"]

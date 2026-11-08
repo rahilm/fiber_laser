@@ -432,15 +432,29 @@ class WorkspacePage(QWidget):
             seps = [i for i, a in enumerate(acts) if a.isSeparator() and 0 < i < len(ws)]
             k = min(seps, key=lambda i: abs(sum(ws[:i]) - total / 2)) if seps else mid
             need = max(sum(ws[:k]) + sp * max(k - 1, 0), sum(ws[k:]) + sp * max(len(ws) - k - 1, 0)) + chrome
-            if self.width() < one:
-                split = k
-        self._place(split)
+            split = k if self.width() < one else len(acts)
+            # the estimate decides only whether to try one row: one row is kept only when the
+            # tool bar's own size hint (the style's spacing and margins: macOS has its own)
+            # says it fits, else it goes back to two rows; never the extension button
+            self._place(split)
+            if split == len(acts):
+                apply(Qt.ToolButtonIconOnly)
+                if tb.sizeHint().width() > max(self.width(), 1):
+                    split = k
+                    self._place(split)
+        else:
+            self._place(split)
         if split == len(acts):
             apply(Qt.ToolButtonTextBesideIcon)
             if tb.sizeHint().width() > max(self.width(), 1):
                 apply(Qt.ToolButtonIconOnly)
         else:
             apply(Qt.ToolButtonIconOnly)
+            tb2.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            if tb2.layout() is not None:
+                tb2.layout().invalidate()
+            # the two rows as the style lays them out (the estimate only chose the break)
+            need = max(need, tb.sizeHint().width(), tb2.sizeHint().width())
         if tb.layout() is not None:
             tb.layout().invalidate()
         if need != self._toolbar_need:
