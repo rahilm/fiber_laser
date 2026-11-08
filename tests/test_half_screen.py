@@ -73,6 +73,18 @@ def wide_ones(root) -> list:
             and max(x.minimumSizeHint().width(), x.minimumWidth()) > 450][:12]
 
 
+def heights(w) -> list:
+    """The window's parts and the page's tallest minimums (a failure's details: what a
+    platform's font metrics made taller)."""
+    from PySide6.QtWidgets import QWidget
+    out = [(type(c).__name__, c.objectName(), c.height(), c.minimumSizeHint().height())
+           for c in w.findChildren(QWidget) if c.parent() is w and c.isVisible()]
+    page = w.centralWidget()
+    out += [(type(c).__name__, c.objectName(), c.width(), c.minimumSizeHint().height())
+            for c in page.findChildren(QWidget) if c.isVisible() and c.minimumSizeHint().height() >= 60][:25]
+    return out
+
+
 def groups(w) -> list:
     out = []
     for d in w.shell.host.docks():
@@ -286,7 +298,7 @@ def test_process_pages_fit_half_screen(win, app, size):
                      if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
                      and a.verticalScrollBar().isVisible()]
         assert not scrolling, (size, b.objectName(), scrolling)
-        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
+        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize(), heights(win))
         if page.view_tabs.isVisible():
             page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height
             settle(app, 0.2)

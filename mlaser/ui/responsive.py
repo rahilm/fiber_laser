@@ -1489,6 +1489,44 @@ class ColumnFitter(QObject):
 
 
 # --------------------------------------------------------------------------- page stack
+class ElidedLabel(QLabel):
+    """One line of plain text, elided at the width it has, the whole text in its tooltip and
+    accessible name: a heading that must not take more lines in a narrow (half-screen) page.
+    Its minimum width is small (it never widens the page)."""
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._full = ""
+        self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self.setText(text)
+
+    def setText(self, text: str) -> None:  # noqa: N802 - Qt API
+        self._full = text or ""
+        self._elide()
+
+    def full_text(self) -> str:
+        return self._full
+
+    def _elide(self) -> None:
+        text = self._full
+        shown = self.fontMetrics().elidedText(text, Qt.ElideRight, max(self.width(), 1)) if text else ""
+        if super().text() != shown:
+            super().setText(shown)
+        tip = text if shown != text else ""
+        if self.toolTip() != tip:
+            self.setToolTip(tip)
+        self.setAccessibleName(text)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self._elide()
+
+    def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().changeEvent(ev)
+        if ev.type() == QEvent.FontChange:
+            self._elide()
+
+
 class TabsWhenNarrow(QWidget):
     """Panes side by side in a splitter while the width has room for them, tabs (one pane at a
     time, each with the whole width) in a narrower window (a half-screen one).  The choice is
@@ -1696,5 +1734,5 @@ class FitArea(QScrollArea):
         return w.sizeHint() if w is not None else super().sizeHint()
 
 
-__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "TabsWhenNarrow", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
+__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "TabsWhenNarrow", "ElidedLabel", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
            "CompactWhenNarrow", "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]
