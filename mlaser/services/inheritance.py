@@ -406,10 +406,15 @@ def derive_marks(doc: Document, store: Optional[T.TechnologyStore], force: bool 
             marks = {c.key for c in T.layer_changes(lp, tech)}
         _set_marks(lp, marks)
         n += len(marks)
+    per_layer: dict[int, dict[str, Any]] = {}      # the inherited values depend on the layer only
     for p in doc.parts:
         pm = set()
+        inh = per_layer.get(p.craft.layer)
+        if inh is None:
+            inh = per_layer[p.craft.layer] = {vid: effective(doc, store, vid, layer=p.craft.layer, upto=2)[0]
+                                              for vid in CRAFT_IDS}
         for vid in CRAFT_IDS:
-            v, _ = effective(doc, store, vid, layer=p.craft.layer, upto=2)
+            v = inh[vid]
             if not _same(craft_get(p.craft, vid), v):
                 pm.add(vid)
         _set_marks(p.craft, pm)

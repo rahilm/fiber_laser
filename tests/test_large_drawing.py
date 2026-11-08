@@ -304,3 +304,57 @@ def test_import_review_of_a_large_drawing_runs_off_the_gui_thread(win, app, monk
         app.processEvents()
         time.sleep(0.01)
     assert shown and threads and threads[0] is not threading.main_thread()
+
+
+# --------------------------------------------------------------------------- follow-up: panels, open
+def test_effective_many_equals_one_call_per_part():
+    """The properties panel's per-layer evaluation gives exactly ``inheritance.effective`` per
+    part, with part, layer and registry sources mixed."""
+    from mlaser.services import inheritance as I
+    from mlaser.ui.properties.panel import _effective_many
+    from mlaser.model import LayerParams
+    doc = big_document(30)
+    doc.layers = {li: LayerParams(index=li) for li in (1, 2, 3)}
+    I.set_override(doc, None, "layer", "craft.kerf_width", 0.3, layer=2)
+    for p in doc.parts[::4]:
+        I.set_override(doc, None, "part", "craft.kerf_width", 0.15, part=p)
+        I.set_override(doc, None, "part", "craft.lead_in.length", 3.5, part=p)
+    vids = [*I.CRAFT_IDS, "GP.speed"]
+    for vid in vids:
+        marks = [I.craft_overrides(p.craft) for p in doc.parts]
+        assert _effective_many(doc, None, vid, doc.parts, marks) == \
+            [I.effective(doc, None, vid, part=p) for p in doc.parts], vid
+        assert _effective_many(doc, None, vid, doc.parts, None, upto=2) == \
+            [I.effective(doc, None, vid, part=p, upto=2) for p in doc.parts], vid
+
+
+def test_select_all_refresh_of_the_properties_panel_is_cheap(win, app):
+    """With every part of a 1,500-part drawing selected, a properties refresh evaluates each
+    value once per layer, not once per part (54,000 inheritance calls, about 1 s, before)."""
+    from mlaser.services import inheritance as I
+    win.set_document(big_document(1500))
+    win.run("select.all")
+    app.processEvents()
+    ext = win.extension("ext_process")
+    ext = ext[0] if isinstance(ext, tuple) else ext
+    calls = []
+    real = I.effective
+    I.effective = lambda *a, **k: (calls.append(1), real(*a, **k))[1]
+    try:
+        ext.properties.refresh()
+    finally:
+        I.effective = real
+    assert 0 < len(calls) <= 4 * 3 * len(ext.properties.inherit), len(calls)
+
+
+def test_open_primes_the_planner_snapshot(win, app, tmp_path):
+    """File > Open makes the planner's part copies in the import worker: the first replan after
+    the open copies nothing on the GUI thread."""
+    from mlaser.cli.export import write_dxf
+    path = tmp_path / "grid.dxf"
+    write_dxf(big_document(300), str(path))
+    assert win.load_path(str(path))
+    misses = win.docs.plan_misses
+    snap = win.docs.plan_snapshot()
+    assert win.docs.plan_misses == misses, win.docs.plan_misses - misses
+    assert snap == win.docs.snapshot()

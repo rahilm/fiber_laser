@@ -19,7 +19,7 @@ from typing import Any, Callable, Iterable, Optional
 
 from mlaser.model import Contour, Document, Part, _raw_extra, ensure_unique_ids
 
-from .undo import PartsEdit, ReplaceDocument, RoundTripTable, UndoStack, part_cost, scope_uids
+from .undo import PartsEdit, ReplaceDocument, RoundTripTable, UndoStack, fast_deepcopy, part_cost, scope_uids
 
 Listener = Callable[[str], None]  # kind: "edit" | "replace" | "undo" | "redo"
 
@@ -138,6 +138,32 @@ class DocumentService:
                 del prev[u]
         layers, extra = self.blobs.copy_doc_state(doc)
         return Document(parts=parts, layers=layers, version=doc.version, extra=extra)
+
+    def prime_plan(self, copies: Iterable[tuple[Part, Part]]) -> int:
+        """Seed :meth:`plan_snapshot` with ``(part, copy)`` pairs made elsewhere (the import
+        worker, :func:`plan_copies`, before the document was shown).  A pair is taken only
+        when the part is in the document and the copy still equals it (``_same_part``, as for
+        any cached copy); returns the number taken."""
+        live = {p.uid: p for p in self.document.parts}
+        n = 0
+        for p, c in copies:
+            if live.get(p.uid) is not p or p.uid in self._plan_parts:
+                continue
+            if not _same_part(p, c) and len(p.contours) == len(c.contours):
+                # the open's listeners may have set craft marks meanwhile (Process: derive_marks):
+                # the copy is still private, so its crafts are copied again
+                memo = self.blobs.part_memo(p)
+                c.craft = fast_deepcopy(p.craft, memo)
+                for a, b in zip(p.contours, c.contours):
+                    if a.craft is p.craft:
+                        b.craft = c.craft
+                    elif b.craft is not None or a.craft is not None:
+                        b.craft = fast_deepcopy(a.craft, memo)
+            if _same_part(p, c):
+                self._plan_parts[p.uid] = (p, c)
+                self._plan_dirty.discard(p.uid)
+                n += 1
+        return n
 
     def _plan_invalidate(self, uids=None) -> None:
         if uids is None:
@@ -291,6 +317,14 @@ class DocumentService:
     @property
     def can_redo(self) -> bool:
         return self.stack.can_redo
+
+
+def plan_copies(doc: Document) -> list[tuple[Part, Part]]:
+    """``(part, copy)`` of every part of a document no one else holds yet (an import worker),
+    copied as :meth:`DocumentService.plan_snapshot` copies them (round-trip records shared)."""
+    t = RoundTripTable()
+    t.register_document(doc)
+    return [(p, t.copy_part(p)) for p in doc.parts]
 
 
 def _swapped(cmd: Any) -> Optional[set[int]]:

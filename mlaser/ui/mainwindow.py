@@ -1269,8 +1269,15 @@ class MainWindow(QMainWindow):
         try:
             # off the GUI thread, with a progress dialog and Cancel (untrusted input:
             # mlaser.io.limits refuses expansion bombs)
-            doc = run_import(self, lambda: loader(path), self.tr_.format("import.progress.opening_file",
-                                                                          name=os.path.basename(path)))
+            from mlaser.services.document import plan_copies
+
+            def read():
+                # the planner's part copies are made here too, on the worker, while the new
+                # document is still private (0.2 s at 2,700 parts on the GUI thread otherwise)
+                d = loader(path)
+                return d, plan_copies(d)
+            doc, copies = run_import(self, read, self.tr_.format("import.progress.opening_file",
+                                                                 name=os.path.basename(path)))
         except ImportCancelled:
             self.log_panel.log(self.tr_.format("main.open.cancelled", file=os.path.basename(path)))
             return False
@@ -1289,6 +1296,8 @@ class MainWindow(QMainWindow):
             return False
         self._snapshot()
         self.set_document(doc, path if ext == ".chf" else None)
+        if self.docs.document is doc:
+            self.docs.prime_plan(copies)
         self.log_panel.log(self.tr_.plural("main.open.parts", len(doc.parts), file=os.path.basename(path)))
         self.hooks.emit("document_imported", path, self.document)   # import review (orders plugin)
         self._note_recent(path)          # DXF / SVG / NC too: they have no document path to save to

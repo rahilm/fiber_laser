@@ -498,6 +498,8 @@ class PropertiesPanel(QScrollArea):
         doc = self.document
         t = self.tr_
         ci = self.contour_index()
+        # the parts' own override marks, read once per part (not once per part and value)
+        own_marks = [I.craft_overrides(p.craft) for p in sel] if ci is None else []
         for vid, fld in self.inherit.items():
             if ci is not None:
                 p = sel[0]
@@ -507,8 +509,8 @@ class PropertiesPanel(QScrollArea):
                 source = I.source_label(doc, self.store, psrc, li, t)
                 fld.set_state(v, src == "contour", t.tr("inherit.src.contour"), source, parent_vid=None)
                 continue
-            vals = [I.effective(doc, self.store, vid, part=p) for p in sel]
-            parents = [I.effective(doc, self.store, vid, part=p, upto=2) for p in sel]
+            vals = _effective_many(doc, self.store, vid, sel, own_marks)
+            parents = _effective_many(doc, self.store, vid, sel, None, upto=2)
             own = [src == "part" for _v, src in vals]
             li = sel[0].craft.layer
             psrc = parents[0][1]
@@ -599,7 +601,7 @@ class PropertiesPanel(QScrollArea):
         if open_c:
             txt += " · " + self.tr_.format("props.open_contours", n=open_c)
         self.summary.setText(txt)
-        x0, y0, x1, y1 = ops.selection_bbox(doc)
+        x0, y0, x1, y1 = self._selection_bbox(doc)
         for wdg, v in ((self.x, x0), (self.y, y0), (self.w, max(x1 - x0, 0.001)), (self.h, max(y1 - y0, 0.001))):
             wdg.setValue(v)
         self.rot.setValue(0.0)
@@ -652,10 +654,23 @@ class PropertiesPanel(QScrollArea):
             where = (t("props.outer_contour") if self.contour_index() is None
                      else self.contour.currentText())
             self.by_id["start"].set_summary(self.tr_.format("props.sum.start", pos=self.start.text(), contour=where))
-        ncool = sum(len(p.craft.extra.get("cool_points", []) or []) for p in sel)
+        ncool = sum(len(p.craft.cool_points) for p in sel)     # the typed field of extra["cool_points"]
         self.cool_info.setText(self.tr_.format("props.cool_info", n=ncool))
         self.by_id["cool"].set_summary(self.cool_info.text())
         self.by_id["overcut"].set_summary(self.overcut.text())
+
+    def _selection_bbox(self, doc: Document) -> tuple:
+        """``ops.selection_bbox``, with the part boxes from the part list's cache when the
+        window has one (the part list measured the changed parts just before; re-measuring
+        every part of a 2,700-part selection took 0.25 s per refresh, UI evaluation F2)."""
+        pl = getattr(self.ctx.window, "part_list", None)
+        box = getattr(pl, "part_bbox", None)
+        if not callable(box):
+            return ops.selection_bbox(doc)
+        bs = [box(p) for p in ops.targets(doc) if p.contours]
+        if not bs:
+            return (0.0, 0.0, 0.0, 0.0)
+        return (min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs), max(b[3] for b in bs))
 
     def _after_lead_values(self) -> None:
         """Rows, diagram and summaries that follow the lead / kerf fields."""
@@ -952,3 +967,28 @@ def _set_contour_kerf(d: Document, ci: int, k: int, w: float) -> None:
 def _same_lead(a: LeadParams, b: LeadParams) -> bool:
     return (int(a.kind), round(a.angle_deg, 6), round(a.length, 6), round(a.radius, 6)) == \
         (int(b.kind), round(b.angle_deg, 6), round(b.length, 6), round(b.radius, 6))
+
+
+def _effective_many(doc: Document, store: Any, vid: str, parts: list, marks: Optional[list],
+                    upto: int = 4) -> list:
+    """``inheritance.effective(doc, store, vid, part=p, upto=upto)`` for every part of
+    ``parts``, computed once per layer: a part's own value counts only where it carries an
+    override mark for ``vid`` (``marks``: its ``craft_overrides``; None with ``upto`` < 3,
+    where the part level is not looked at), every other part gets its layer's chain value.
+    The same results as one call per part (54,000 calls for a 2,700-part selection, UI
+    evaluation F2)."""
+    from mlaser.services import inheritance as I
+
+    per_layer: dict = {}
+    craft_vid = not vid.startswith("GP.") and vid in I.CRAFT_IDS and upto >= 3
+    out = []
+    for k, p in enumerate(parts):
+        if craft_vid and marks is not None and vid in marks[k]:
+            out.append((I.craft_get(p.craft, vid), "part"))
+            continue
+        li = p.craft.layer
+        r = per_layer.get(li)
+        if r is None:
+            r = per_layer[li] = I.effective(doc, store, vid, layer=li, upto=upto)
+        out.append(r)
+    return out
