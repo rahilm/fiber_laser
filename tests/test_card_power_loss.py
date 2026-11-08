@@ -27,7 +27,7 @@ def test_a_link_down_send_is_a_no_reply_error_not_an_oserror(monkeypatch):
         with pytest.raises(ControllerError) as ei:
             mc.read_regs(F.REG_STATUS_RO, 2)
         assert ei.value.code == F.ERR_HOST_UNREACHABLE
-        assert time.monotonic() - t0 < 2.0
+        assert time.monotonic() - t0 < 5.0      # vs ~12 s waiting out timeouts (macOS runners are slow)
     finally:
         mc.close()
 

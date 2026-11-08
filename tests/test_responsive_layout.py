@@ -984,6 +984,7 @@ app.processEvents()
 """
 
 
+@pytest.mark.sim          # one worker with the timing tests: a whole app in a subprocess loads the runner
 @pytest.mark.parametrize("mode", ["maximized", "connected"])
 def test_window_at_rest_does_not_relayout(tmp_path, mode):
     """Issue #4: a maximized window (the 1280 x 800 screen, the smallest supported) and a
@@ -1055,6 +1056,7 @@ app.processEvents()
 """
 
 
+@pytest.mark.sim          # one worker with the timing tests (see above)
 @pytest.mark.parametrize("screen", [(800, 600), (1366, 768)])
 def test_idle_gui_thread_stays_idle(tmp_path, screen):
     """An idle window connected to the simulator costs the GUI thread little CPU, also on a
@@ -1078,7 +1080,9 @@ def test_idle_gui_thread_stays_idle(tmp_path, screen):
                        capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
     assert r.returncode == 0, r.stderr[-3000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])
-    busy = {ws: round(c, 3) for ws, c in res["cpu"].items() if c >= 0.05}
+    # the loop this guards against held the GUI thread at ~100 %; a busy CI runner measures a
+    # few per cent for an idle window (5.5 % once on Windows), so the bound leaves room for that
+    busy = {ws: round(c, 3) for ws, c in res["cpu"].items() if c >= 0.15}
     assert not busy, res
 
 
