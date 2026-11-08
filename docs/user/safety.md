@@ -54,7 +54,8 @@ taken at the fault is kept, so after arming you can **Resume**.
 ## Keys while a job runs
 
 * **Space**: hold / continue (not while typing in a text field).
-* **Esc** or **F12**: stop. Stop never waits; the halt goes out first.
+* **Esc** or **F12**: stop. Stop never waits; the halt goes out first. Esc stops the job in any
+  window; in a dialog it also cancels the dialog, as usual.
 * Jogging is hold-to-jog: releasing the key or button, or losing focus, stops the axis.
 
 ## What software cannot do

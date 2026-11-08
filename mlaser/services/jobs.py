@@ -485,7 +485,7 @@ class JobService:
             except (ChildLost, ChildSetupError) as exc:
                 if t.cancelled:
                     raise Cancelled() from exc
-                if isinstance(exc, ChildLost) and pp.failures >= 3:
+                if isinstance(exc, ChildLost) and pp.failures >= pp.MAX_FAILURES:
                     log.warning("plan process failed %d times, compiling in a thread from now on: %s",
                                 pp.failures, exc)
                     self.planproc = None
@@ -698,7 +698,17 @@ class JobService:
             except Exception as exc:  # noqa: BLE001 - reported
                 on_result(False, f"start failed: {exc}")
                 return
-            if started is False:  # refused by the controller (pre-flight, start gate): it logged why
+            then = getattr(started, "then", None)
+            if callable(then) and hasattr(started, "dropped"):
+                # given on the GUI thread: the start (start gate: card reads) runs on the
+                # controller's command worker; the result comes when it ended (issue #5)
+                then(lambda t: _started(plan, False if t.dropped or t.error is not None else t.result))
+                return
+            _started(plan, started)
+
+        def _started(plan: PlannedJob, started) -> None:
+            if started is False:
+                # refused by the controller (pre-flight, start gate): it logged why
                 on_result(False, "start refused by the controller")
                 return
             on_result(True, plan.summary())

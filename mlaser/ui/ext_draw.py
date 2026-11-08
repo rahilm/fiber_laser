@@ -244,11 +244,13 @@ class DrawExtension:
     def t(self, key, default=None):
         return self.w.tr_.tr(key, default)
 
-    def edit(self, fn, label: str = "draw", parts=None):
+    def edit(self, fn, label: str = "draw", parts=None, coalesce: bool = False):
         """One undoable transaction.  ``parts`` is its scope: the parts ``fn`` changes in place
         (DocumentService.edit copies only those for undo; None = every part).  Each command
         below passes the parts it touches, normally the selection (review 2 P1-3: a one-part
-        nudge copied all 2,000 parts, 5.2 s)."""
+        nudge copied all 2,000 parts, 5.2 s).  ``coalesce``: quick repeats are one undo step."""
+        if coalesce:
+            return self.ctx.edit(fn, label, parts=parts, coalesce=True)
         return self.ctx.edit(fn, label, parts=parts)
 
     def _sync_selection(self):
@@ -616,7 +618,8 @@ class DrawExtension:
         if not self._selected():
             return
         s = self.step_for(dx, dy)
-        self.edit(lambda doc: AR.translate(self._selected(doc), dx * s, dy * s), parts=self._selected())
+        self.edit(lambda doc: AR.translate(self._selected(doc), dx * s, dy * s), "nudge", parts=self._selected(),
+                  coalesce=True)
 
 
 # --------------------------------------------------------------------------- wiring

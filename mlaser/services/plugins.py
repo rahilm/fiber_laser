@@ -354,10 +354,13 @@ class PluginContext:
             self.register_command(cmd_id, fn)
 
     # ------------------------------------------------------------------ document
-    def edit(self, fn: Callable[[Any], Any], label: str = "", parts=None) -> Any:
+    def edit(self, fn: Callable[[Any], Any], label: str = "", parts=None, coalesce: bool = False) -> Any:
         """Run ``fn(document)`` as one undoable transaction and refresh the views
-        (a plugin with a manifest needs ``permissions.document``)."""
+        (a plugin with a manifest needs ``permissions.document``).  ``coalesce``: quick
+        repeats of the same edit on the same parts are one undo step (nudges)."""
         self._need("document")
+        if coalesce:
+            return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts, coalesce=True)
         return self.host.docs.edit(fn, label or f"{self.name}: edit", parts=parts)
 
     def replace_document(self, doc: Any, label: str = "", path: Optional[str] = None) -> None:

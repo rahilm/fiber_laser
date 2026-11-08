@@ -24,6 +24,8 @@ from typing import Iterable, Optional, Union
 
 MACOS, WINDOWS, LINUX = "macos", "windows", "linux"
 SEP = "-"
+#: a dynamic section (no submenu): the open windows, listed in the Window menu itself
+WINDOW_LIST = "window_list"
 
 #: menu roles (QAction.MenuRole names; only macOS acts on them)
 ABOUT, PREFERENCES, QUIT, APP_SPECIFIC = "AboutRole", "PreferencesRole", "QuitRole", "ApplicationSpecificRole"
@@ -52,7 +54,7 @@ def _menus(plat: str) -> list[Menu]:
     file_end: list[Entry] = [SEP, "app.exit"] if plat != MACOS else ["app.exit"]
     file_ = Menu("file", "shell.menu.file", [
         "file.new", "file.open", Sub("shell.menu.open_recent", id="recent"), "file.import", SEP,
-        "file.save", "file.save_as", SEP,
+        "window.close", "file.save", "file.save_as", SEP,
         "file.open_project", "file.save_project", "file.export_chf", SEP,
         Sub("shell.menu.import_more", ["file.bitmap", "file.import_scan_gcode", "file.task_import",
                                        "file.task_save", "import.review", "parts.review"]),
@@ -63,7 +65,7 @@ def _menus(plat: str) -> list[Menu]:
         *file_end,
     ])
     edit_items: list[Entry] = [
-        "edit.undo", "edit.redo", SEP, "edit.copy", "edit.paste", "edit.delete", SEP,
+        "edit.undo", "edit.redo", SEP, "edit.cut", "edit.copy", "edit.paste", "edit.delete", SEP,
         "select.all", "select.invert",
         Sub("shell.menu.select", ["select.unclosed", "select.similar", "select.inner", "select.outer",
                                   "tool.group_select_all"]),
@@ -178,9 +180,12 @@ def _menus(plat: str) -> list[Menu]:
     if plat == WINDOWS:
         tools_items += [SEP, "app.options"]
     tools = Menu("tools", "shell.menu.tools", tools_items)
+    # Window: Minimize, Zoom / Maximize, Full screen, the panels; on macOS also Bring All to
+    # Front; then the open windows (WINDOW_LIST: filled when the menu opens, the active one checked)
     window = Menu("window", "shell.menu.window", [
         "window.minimize", "window.zoom", "window.fullscreen", SEP,
-        Sub("shell.menu.panels", id="docks"), "shell.reset_layout",
+        Sub("shell.menu.panels", id="docks"), "shell.reset_layout", SEP,
+        "window.bring_all_front", Sub("", id=WINDOW_LIST),
     ])
     help_items: list[Entry] = ["shell.palette", SEP, "app.help", "shell.docs", "shell.shortcuts", "shell.welcome"]
     if plat != MACOS:
@@ -394,6 +399,77 @@ def mnemonic_titles(titles: list[str], first: Iterable[int] = ()) -> list[str]:
 #: menus whose access key is chosen first (the conventional File, Edit, View, Window, Help)
 MNEMONIC_FIRST = ("file", "edit", "view", "window", "help")
 
+#: the conventional access key of some English items (Windows: E&xit, Cu&t, Save &As…)
+PREFERRED_KEYS = {"exit": "x", "cut": "t", "save as…": "a", "save as...": "a", "select all": "a",
+                  "redo": "r", "paste": "p", "delete": "d"}
 
-__all__ = ["Menu", "Sub", "SEP", "MACOS", "WINDOWS", "LINUX", "layout", "placement", "all_ids", "roles",
-           "platform_labels", "mnemonic_titles", "PREFIX_MENU"]
+
+def strip_mnemonic(text: str) -> str:
+    """``"Save &As…"`` -> ``"Save As…"`` (a literal ``&&`` stays ``&``)."""
+    return text.replace("&&", "\0").replace("&", "").replace("\0", "&")
+
+
+def _mnemonic_of(text: str) -> str:
+    """The access key letter of ``text`` ("" for none)."""
+    t = text.replace("&&", "\0\0")
+    i = t.find("&")
+    return t[i + 1].lower() if 0 <= i < len(t) - 1 else ""
+
+
+def item_mnemonics(texts: list[str]) -> list[str]:
+    """Access keys for the items of one menu (Windows, Linux): every item gets one, distinct
+    within the menu where letters allow.  An item that already carries a free one keeps it;
+    the others take, in order, the conventional letter (:data:`PREFERRED_KEYS`), the first
+    letter of a word, then any letter or digit.  Earlier items choose first.  Literal ``&``
+    in a text is doubled (``&&``) so it never becomes an access key by accident."""
+    plains = [strip_mnemonic(t) for t in texts]
+    cands: list[list[int]] = []                   # per item: positions in preference order
+    for t, plain in zip(texts, plains):
+        order: list[int] = []
+        own = _mnemonic_of(t)
+        if own and own.isalnum():                 # the one it has (a translator's choice)
+            j = t.replace("&&", "\0\0").index("&")
+            order.append(len(strip_mnemonic(t[:j])))
+        pref = PREFERRED_KEYS.get(plain.strip().lower())
+        if pref:
+            order += [k for k, ch in enumerate(plain) if ch.lower() == pref and (k == 0 or not plain[k - 1].isalnum())]
+            order += [k for k, ch in enumerate(plain) if ch.lower() == pref]
+        order += [k for k, ch in enumerate(plain) if ch.isalnum() and (k == 0 or not plain[k - 1].isalnum())]
+        order += [k for k, ch in enumerate(plain) if ch.isalnum()]
+        seen: set[str] = set()
+        mine: list[int] = []
+        for k in order:
+            if plain[k].lower() not in seen:
+                seen.add(plain[k].lower())
+                mine.append(k)
+        cands.append(mine)
+    # a maximum matching items -> letters (augmenting paths), earlier items and earlier
+    # candidates first: every item gets a key whenever the letters allow it
+    owner: dict[str, int] = {}
+    pick: dict[int, int] = {}
+
+    def assign(i: int, visited: set[str]) -> bool:
+        for k in cands[i]:
+            ch = plains[i][k].lower()
+            if ch in visited:
+                continue
+            visited.add(ch)
+            if ch not in owner or assign(owner[ch], visited):
+                owner[ch] = i
+                pick[i] = k
+                return True
+        return False
+    for i in range(len(texts)):
+        assign(i, set())
+
+    def esc(s: str) -> str:
+        return s.replace("&", "&&")
+    out = []
+    for i, plain in enumerate(plains):
+        k = pick.get(i, -1)
+        out.append(esc(plain) if k < 0 else esc(plain[:k]) + "&" + esc(plain[k:]))
+    return out
+
+
+__all__ = ["Menu", "Sub", "SEP", "MACOS", "WINDOWS", "LINUX", "WINDOW_LIST", "layout", "placement", "all_ids",
+           "roles", "platform_labels", "mnemonic_titles", "item_mnemonics", "strip_mnemonic", "PREFIX_MENU"]

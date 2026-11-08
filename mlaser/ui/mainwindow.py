@@ -6,9 +6,9 @@ import copy
 import os
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
-from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
+from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
                                QMessageBox, QTabWidget)
 
 from mlaser import ops
@@ -125,6 +125,32 @@ class _CloseWatch(QObject):
             self._w.jobs.shutdown()
             self._w.config.flush()
         return False
+
+
+class _CanvasDrop(QObject):
+    """Drops on the canvas (its viewport): drawing / project files are opened or imported,
+    parts (another mlaser window, a part-list drag, DXF / SVG from a drawing program) are
+    pasted centred where they are dropped."""
+
+    def __init__(self, window) -> None:
+        super().__init__(window)
+        self._w = window
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        t = ev.type()
+        if t not in (QEvent.DragEnter, QEvent.DragMove, QEvent.Drop):
+            return False
+        w = self._w
+        md = ev.mimeData()
+        if not w.accepts_drop(md, ev.source(), canvas=True):
+            if t == QEvent.DragEnter:
+                ev.ignore()
+            return False
+        ev.acceptProposedAction()
+        if t == QEvent.Drop:
+            sp = w.canvas.mapToScene(ev.position().toPoint())
+            w.take_drop(md, (sp.x(), sp.y()))
+        return True
 
 
 _LEAD_IDS = tuple(f"craft.lead_{n}.{f}" for n in ("in", "out") for f in ("kind", "angle_deg", "length", "radius"))
@@ -285,6 +311,24 @@ class MainWindow(QMainWindow):
         self.idle_pause.add(self._timer, keep=lambda: getattr(self, "_last_mode", None) in _JOB_MODES,
                             on_resume=self._poll)
         self.docs.subscribe(self._document_changed)
+        # undo steps are named after the command that made them; Edit > Undo says which
+        # ("Undo Move", ui/undo_names.py)
+        from . import undo_names
+        self._running_cmd = ""
+        self._last_cmds: dict[str, str] = {}     # id prefix -> the last command run
+        self.docs.label_for = lambda label: undo_names.record_label(self, label)
+        self.docs.subscribe(lambda _kind: self._update_undo_texts())
+        for cid in ("edit.undo", "edit.redo"):
+            act = self.ribbon.actions.get(cid)
+            if act is not None:          # after the action's own binding: a language change renames
+                self.tr_.bind(act, "shell.undo.named", lambda _t: self._update_undo_texts(), "")
+        # drops: drawing / project files on the window, parts or files on the canvas
+        self.setAcceptDrops(True)
+        self._canvas_drop = _CanvasDrop(self)
+        self.canvas.setAcceptDrops(True)
+        self.canvas.viewport().setAcceptDrops(True)
+        self.canvas.viewport().installEventFilter(self._canvas_drop)
+        self.part_list.mime_for_selection = self._drag_mime
         self.set_document(Document())
         self._close_watch = _CloseWatch(self)
         self.installEventFilter(self._close_watch)
@@ -588,6 +632,7 @@ class MainWindow(QMainWindow):
         for cmd, fn in handlers.items():
             self.commands.register(cmd, fn, "core", checkable=cmd in show)
         self.commands.register("edit.delete", self.delete_selected, "core", "cmd.edit.delete")
+        self.commands.register("edit.cut", self.cut_selected, "core", "cmd.edit.cut")
         for how, label in SORT_LABELS.items():
             self.ribbon.action(f"sort.{how}", label)
         # size presets: labels in the display units (and again after a language change)
@@ -655,6 +700,11 @@ class MainWindow(QMainWindow):
         fb = self.command_feedback
         if checked is None and fb is not None and not fb.before(cmd):
             return
+        # the undo step an edit of this command records is named after it (ui/undo_names.py)
+        outer = getattr(self, "_running_cmd", "")
+        if not outer and cmd not in ("edit.undo", "edit.redo"):
+            self._running_cmd = cmd
+            self._last_cmds[cmd.split(".", 1)[0]] = cmd
         try:
             if checked is None:
                 result = self.commands.run(cmd)
@@ -663,6 +713,8 @@ class MainWindow(QMainWindow):
         except UnknownCommandError:
             self.not_implemented(cmd)
             return
+        finally:
+            self._running_cmd = outer
         if checked is None and fb is not None:
             fb.after(cmd, result)
 
@@ -885,12 +937,15 @@ class MainWindow(QMainWindow):
         Plugins use ``ctx.edit`` / ``ctx.replace_document`` instead."""
         self.docs.checkpoint()
 
-    def _edit(self, fn, *args, label: str = "edit", scope: str = "targets"):
+    def _edit(self, fn, *args, label: str = "edit", scope: str = "targets", coalesce: bool = False):
         """Undoable edit ``fn(document, *args)``; ``scope`` = the parts it changes in place:
-        "targets" (selection, else all), "selection" or "all"."""
+        "targets" (selection, else all), "selection" or "all".  ``coalesce``: quick repeats on
+        the same parts are one undo step (arrow-key nudges)."""
         doc = self.docs.document
         parts = (ops.targets(doc) if scope == "targets" else
                  [p for p in doc.parts if p.selected] if scope == "selection" else None)
+        if coalesce:
+            return self.docs.edit(lambda d: fn(d, *args), label, parts=parts, coalesce=True)
         return self.docs.edit(lambda d: fn(d, *args), label, parts=parts)
 
     def _select(self, pred) -> None:
@@ -899,14 +954,43 @@ class MainWindow(QMainWindow):
         self.part_list.sync_selection()
 
     def undo(self) -> None:
+        from .undo_names import display_name
         label = self.docs.undo()
         if label:
-            self.statusBar().showMessage(f"undo: {label}", 3000)
+            self.statusBar().showMessage(self.tr_.format("shell.undo.done", action=display_name(self, label)), 3000)
 
     def redo(self) -> None:
+        from .undo_names import display_name
         label = self.docs.redo()
         if label:
-            self.statusBar().showMessage(f"redo: {label}", 3000)
+            self.statusBar().showMessage(self.tr_.format("shell.redo.done", action=display_name(self, label)), 3000)
+
+    def _update_undo_texts(self) -> None:
+        """Edit > Undo / Redo name the step: "Undo Move", "Redo Rotate 90° clockwise"."""
+        from .undo_names import menu_texts
+        try:
+            texts = menu_texts(self)
+        except Exception:  # noqa: BLE001 - a broken label must not break editing
+            return
+        for cid, text in zip(("edit.undo", "edit.redo"), texts):
+            act = self.ribbon.actions.get(cid)
+            if act is not None and act.text().replace("&", "") != text.replace("&", ""):
+                act.setText(text)
+
+    def _drag_mime(self):
+        """The part list's drag data: the selected parts (ui/clipboard.py) and a ``.dxf`` file
+        for a file manager."""
+        from . import clipboard
+        sel = [p for p in self.document.parts if p.selected]
+        if not sel:
+            return None
+        import shutil
+        import tempfile
+        old = getattr(self, "_drag_dir", None)
+        if old:                                   # the previous drag's file (that drag is over)
+            shutil.rmtree(old, ignore_errors=True)
+        self._drag_dir = tempfile.mkdtemp(prefix="mlaser-drag-")
+        return clipboard.mime_for(self.document, sel, file_dir=self._drag_dir)
 
     def _operator_blocked(self) -> bool:
         """Operator mode (mlaser.services.usermodes): the drawing and the parameters are not
@@ -931,6 +1015,7 @@ class MainWindow(QMainWindow):
         t = self.tr_.tr
         m.addAction(t("mv1"), self.canvas.zoom_fit)
         m.addSeparator()
+        m.addAction(t("cmd.edit.cut"), self.cut_selected)
         m.addAction(t("mv7"), self.copy_selected)
         m.addAction(t("mv8"), self.paste)
         m.addAction(t("mv9"), self.delete_selected)
@@ -942,8 +1027,127 @@ class MainWindow(QMainWindow):
         m.addAction(t("mv34"), same_layer)
         m.exec(self.canvas.mapToGlobal(pos))
 
-    def copy_selected(self) -> None:
-        self._clipboard = clone_parts(p for p in self.document.parts if p.selected)
+    # ------------------------------------------------------------------ clipboard (ui/clipboard.py)
+    def copy_selected(self) -> int:
+        """Edit > Copy: the selected parts to the system clipboard (mlaser's own format, DXF,
+        SVG and text: another window, another mlaser or a CAD / drawing program can paste them)."""
+        sel = [p for p in self.document.parts if p.selected]
+        if not sel:
+            return 0
+        from . import clipboard
+        self._clipboard = clone_parts(sel)          # what was copied (the feedback counts it)
+        try:
+            QApplication.clipboard().setMimeData(clipboard.mime_for(self.document, sel))
+        except Exception as exc:  # noqa: BLE001 - the copy is kept in the window
+            self.log_panel.log(f"clipboard: {exc}")
+        return len(sel)
+
+    def cut_selected(self) -> int:
+        """Edit > Cut: copy, then delete the selection, as one undo step ("Undo Cut")."""
+        if self._operator_blocked():
+            return 0
+        n = self.copy_selected()
+        if n:
+            self._edit(ops.delete_selected, label="cut", scope="selection")
+        return n
+
+    def can_paste(self) -> bool:
+        from . import clipboard
+        try:
+            return clipboard.has_parts(QApplication.clipboard().mimeData())
+        except RuntimeError:
+            return False
+
+    def paste_mime(self, md, at: Optional[tuple] = None) -> int:
+        """Paste the parts of ``md`` (clipboard or drop): copies offset by 10 mm (the original
+        pastes at a picked point, menu 134), or centred at ``at`` (a drop point, mm).  Files
+        in ``md`` are opened / imported as if dropped.  Returns the number of parts added."""
+        if self._operator_blocked():
+            return 0
+        from . import clipboard
+        files = clipboard.drop_files(md)
+        if files and not md.hasFormat(clipboard.MIME_PARTS):
+            return self.open_or_import(files)
+        try:
+            doc = clipboard.document_from_mime(md)
+        except Exception as exc:  # noqa: BLE001 - untrusted data: say why, never raise
+            self.log_panel.log(self.tr_.format("clip.paste_failed", error=str(exc)))
+            self.statusBar().showMessage(self.tr_.tr("clip.paste_unreadable"), 4000)
+            return 0
+        if doc is None or not doc.parts:
+            self.statusBar().showMessage(self.tr_.tr("feedback.need_clipboard"), 4000)
+            return 0
+        dx = dy = 10.0
+        if at is not None:
+            try:
+                x0, y0, x1, y1 = doc.bbox()
+                dx, dy = at[0] - (x0 + x1) / 2, at[1] - (y0 + y1) / 2
+            except Exception:  # noqa: BLE001
+                pass
+
+        def run(d: Document) -> int:
+            for li, lp in doc.layers.items():         # the pasted parts' layers, unless defined
+                d.layers.setdefault(li, lp)
+            return len(ops.paste_parts(d, doc.parts, dx, dy))
+        # paste deselects every part, so all parts are in the scope (selection flags change)
+        return int(self._edit(run, label="paste", scope="all") or 0)
+
+    def open_or_import(self, paths: list) -> int:
+        """Files dropped on the window / canvas: a project or ``.chf`` opens (one: the first),
+        drawings (DXF, SVG, G-code) are imported into the drawing.  Returns the files taken."""
+        from . import clipboard
+        n = 0
+        opens = [p for p in paths if os.path.splitext(p)[1].lower() in clipboard.OPEN_EXTS]
+        if opens:
+            nat = getattr(getattr(self, "shell", None), "native", None)
+            ok = nat.open_file(opens[0]) if nat is not None else self.load_path(opens[0])
+            n += int(bool(ok))
+        for p in paths:
+            if os.path.splitext(p)[1].lower() in clipboard.IMPORT_EXTS:
+                n += int(self.import_path(p))
+        return n
+
+    def accepts_drop(self, md, source=None, canvas: bool = False) -> bool:
+        """A drop the window takes: drawing / project files from anywhere; parts (another
+        window or instance, a drawing program) on the canvas, or on the window from outside
+        this window (a drag from this window's own part list onto itself is no paste)."""
+        from . import clipboard
+        if md is None:
+            return False
+        if canvas:
+            return clipboard.has_parts(md)
+        if source is not None and source.window() is self:
+            return False
+        return bool(clipboard.drop_files(md)) or md.hasFormat(clipboard.MIME_PARTS)
+
+    def take_drop(self, md, at: Optional[tuple] = None) -> None:
+        """Handle an accepted drop once the drag is over: the source (Finder, another window)
+        is not kept waiting while a file is read, and no progress dialog runs inside the drag."""
+        copy_md = QMimeData()
+        for f in md.formats():
+            copy_md.setData(f, md.data(f))
+        if md.hasUrls():
+            copy_md.setUrls(md.urls())
+        QTimer.singleShot(0, lambda: self.paste_mime(copy_md, at))
+
+    def dragEnterEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self.accepts_drop(ev.mimeData(), ev.source()):
+            ev.acceptProposedAction()
+        else:
+            super().dragEnterEvent(ev)
+
+    def dragMoveEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self.accepts_drop(ev.mimeData(), ev.source()):
+            ev.acceptProposedAction()
+        else:
+            super().dragMoveEvent(ev)
+
+    def dropEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self.accepts_drop(ev.mimeData(), ev.source()):
+            ev.acceptProposedAction()
+            self.take_drop(ev.mimeData())
+        else:
+            super().dropEvent(ev)
 
     def _status_position(self, st) -> None:
         """Machine position and speed in the status bar, in the display units."""
@@ -960,13 +1164,10 @@ class MainWindow(QMainWindow):
         self.st_da.setText(self.tr_.format("status.cursor", x=u.number(x, 'length'), y=u.number(y, 'length'),
                                            unit=u.suffix('length')))
 
-    def paste(self) -> None:
-        """Paste copies offset by 10 mm (the original pastes at a picked point, menu 134)."""
-        clip = getattr(self, "_clipboard", None)
-        if not clip or self._operator_blocked():
-            return
-        # paste deselects every part, so all parts are in the scope (selection flags change)
-        self._edit(ops.paste_parts, clip, 10.0, 10.0, label="paste", scope="all")
+    def paste(self) -> int:
+        """Edit > Paste from the system clipboard: mlaser's own parts first, else DXF / SVG
+        from another program, else copied drawing files; copies offset by 10 mm."""
+        return self.paste_mime(QApplication.clipboard().mimeData())
 
     def nudge(self, dx: float, dy: float) -> None:
         """mf445 keyboard fine-tuning (arrow keys): the ``nudge`` provider when a plugin sets one
@@ -981,7 +1182,7 @@ class MainWindow(QMainWindow):
             return
         step = float(self.config.get("design.nudge_step", 1.0))
         self._edit(lambda d: ops.translate(d, dx * step, dy * step, [p for p in d.parts if p.selected]),
-                   label="nudge", scope="selection")
+                   label="nudge", scope="selection", coalesce=True)
 
     def assign_layer(self, layer: int) -> None:
         if self._operator_blocked():
@@ -1084,7 +1285,14 @@ class MainWindow(QMainWindow):
         self.set_document(doc, path if ext == ".chf" else None)
         self.log_panel.log(f"{os.path.basename(path)}: {len(doc.parts)} parts")
         self.hooks.emit("document_imported", path, self.document)   # import review (orders plugin)
+        self._note_recent(path)          # DXF / SVG / NC too: they have no document path to save to
         return True
+
+    def _note_recent(self, path: str) -> None:
+        """File > Open Recent and the OS's recent documents (ui/native.py)."""
+        native = getattr(getattr(self, "shell", None), "native", None)
+        if native is not None:
+            native.note_recent(path)
 
     def file_open(self) -> None:
         if self._job_locked("File > Open"):
@@ -1099,11 +1307,18 @@ class MainWindow(QMainWindow):
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf13"), "", self.FILTER)
         if not path:
             return
+        self.import_path(path)
+
+    def import_path(self, path: str) -> bool:
+        """Import a drawing into the current one (File > Import, a dropped file): one undo step."""
         before = self.document
-        if self.load_path(path) and before.parts:
+        if not self.load_path(path):
+            return False
+        if before.parts:
             merged = copy.deepcopy(before)
             merged.parts.extend(self.document.parts)
             self.set_document(merged, self.path)
+        return True
 
     def file_save(self, save_as: bool = False) -> None:
         """Save: a new drawing (or Save As) asks for a file, ``.mlz`` project by default

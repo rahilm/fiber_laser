@@ -61,12 +61,13 @@ exit codes are not visible there.
   The help documents (`docs/user`, `docs/dev`, `docs/re` and the top-level `SAFETY.md`,
   `ASSETS.md`, `ROADMAP.md`) go to `mlaser/help/docs` (`bundle_config.help_datas`), where
   `diag/helpdocs.py` finds them; `docs/review` and `docs/re/history` stay out.
-* Libraries: PySide6 (QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport; on Linux also the
+* Libraries: PySide6 (QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport, QtNetwork for the
+  single-instance local socket; on Linux also the
   `libQt6DBus` library that `libQt6Gui` links), numpy, shapely (GEOS), ezdxf with its fonts and resources,
   svgelements, pyclipper, uharfbuzz, fontTools, segno, Pillow, platformdirs. When they are
   installed, the build also includes hidapi and pyserial (devices) and OR-Tools, spyrrow and
   Ruckig (modern options).
-* Left out: QtWebEngine, Qt Quick/QML, Qt3D, Multimedia, PDF, Charts, QtNetwork, the QtDBus
+* Left out: QtWebEngine, Qt Quick/QML, Qt3D, Multimedia, PDF, Charts, the QtDBus
   binding and the other unused Qt modules. Also left out: the GTK3 platform theme (it would ship
   the build host's GTK, cairo and pango), the TLS and network-information plugins, PySide6's
   OpenSSL copy, the TUIO/VNC and embedded-Linux plugins (eglfs, linuxfb, evdev ...),

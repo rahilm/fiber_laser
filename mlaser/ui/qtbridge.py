@@ -26,13 +26,39 @@ class QtDispatcher(QObject):
     def _run(self, thunk) -> None:
         thunk()
 
+    @property
+    def ui_thread(self) -> threading.Thread | None:
+        """The GUI thread while this dispatcher (and its window) lives: the controller queues the
+        card I/O of operator commands given on it (``controller.commands``, issue #5)."""
+        if not self.alive or not _valid(self):
+            return None
+        return self._gui
+
+    def pump(self) -> None:
+        """Process the GUI thread's pending events (``ctl.wait_commands`` on the GUI thread)."""
+        from PySide6.QtCore import QCoreApplication
+        if QCoreApplication.instance() is not None and threading.current_thread() is self._gui:
+            QCoreApplication.processEvents()
+
     def __call__(self, thunk: Callable[[], None]) -> None:
         if threading.current_thread() is self._gui:
             thunk()
         elif self.alive:
-            self.call.emit(thunk)
+            try:
+                self.call.emit(thunk)
+            except RuntimeError:            # the window (and this object) was deleted
+                self.alive = False
+                raise
         else:
             raise RuntimeError("GUI gone")
+
+
+def _valid(obj) -> bool:
+    try:
+        import shiboken6
+        return bool(shiboken6.isValid(obj))
+    except Exception:  # noqa: BLE001
+        return False
 
 
 class BackgroundCall(QObject):
@@ -98,9 +124,20 @@ class BackgroundCall(QObject):
         on_done(res, err)
 
 
+def when_done(value, fn: Callable[[object], None]) -> None:
+    """``fn(result)`` for a controller call's return value: at once for a plain value, when the
+    command ended for a queued command's ticket (``controller.commands.CommandTicket``: an
+    operator command given on the GUI thread runs on the command worker), on the GUI thread."""
+    then = getattr(value, "then", None)
+    if callable(then) and hasattr(value, "dropped"):
+        then(lambda t: fn(None if t.dropped or t.error is not None else t.result))
+    else:
+        fn(value)
+
+
 def install(ctl, dispatcher: QtDispatcher) -> None:
     """Route ``ctl``'s events (``MachineAPI.events``) through ``dispatcher``."""
     ctl.events.set_dispatcher(dispatcher)
 
 
-__all__ = ["BackgroundCall", "QtDispatcher", "install"]
+__all__ = ["BackgroundCall", "QtDispatcher", "install", "when_done"]

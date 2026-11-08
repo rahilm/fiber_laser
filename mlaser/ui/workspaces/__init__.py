@@ -55,8 +55,11 @@ class WorkspaceWindow(QWidget):
         lay.addWidget(widget)
         self.widget = widget
         self._on_close = on_close
-        fs = QShortcut(QKeySequence(Qt.Key_F11), self)
-        fs.activated.connect(self.toggle_full_screen)
+        # the platform's full-screen key (⌃⌘F on macOS, F11 on Windows / Linux: shell.keymap)
+        from ..shell import keymap
+        for seq in keymap.sequences(keymap.window_keys().get("window.fullscreen", "F11")):
+            fs = QShortcut(QKeySequence(seq), self)
+            fs.activated.connect(self.toggle_full_screen)
         self.resize(1280, 800)
 
     def toggle_full_screen(self) -> None:
@@ -66,6 +69,80 @@ class WorkspaceWindow(QWidget):
         if self._on_close is not None:
             self._on_close()
         super().closeEvent(ev)
+
+
+class LazyPage(QWidget):
+    """A workspace page built the first time it is shown (or :meth:`ensure` is called).
+
+    The application opens in Design: building every workspace at start cost about 1.1 s of the
+    window's construction for the Process page alone (UI evaluation F11).  A plugin registers a
+    ``LazyPage(factory)`` with ``ctx.add_workspace`` instead of the widget; ``factory()``
+    returns the real page, which is placed in this container (no margins) on the first
+    ``showEvent`` or the first :meth:`ensure` (a command that needs the page builds it on
+    demand, so every command keeps working before the workspace was ever opened).
+    ``built`` callbacks run once, after the page exists."""
+
+    def __init__(self, factory: Callable[[], QWidget], name: str = "",
+                 parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        if name:
+            self.setObjectName(name)
+        self._factory: Optional[Callable[[], QWidget]] = factory
+        self._content: Optional[QWidget] = None
+        self._building = False
+        self._built: list[Callable[[QWidget], None]] = []
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.setSpacing(0)
+
+    @property
+    def content(self) -> Optional[QWidget]:
+        """The real page, None until it is built."""
+        return self._content
+
+    @property
+    def is_built(self) -> bool:
+        return self._content is not None
+
+    def on_built(self, fn: Callable[[QWidget], None]) -> None:
+        """Run ``fn(page)`` once the page exists (at once when it already does)."""
+        if self._content is not None:
+            fn(self._content)
+        else:
+            self._built.append(fn)
+
+    def ensure(self) -> Optional[QWidget]:
+        """The real page, built now when it was not yet (None while its factory runs: a call
+        from inside the factory gets no half-built page and does not build a second one)."""
+        if self._content is None:
+            if self._building:
+                return None
+            factory, self._factory = self._factory, None
+            assert factory is not None
+            self._building = True
+            try:
+                w = factory()
+            finally:
+                self._building = False
+            self._content = w
+            self.layout().addWidget(w)
+            w.show()
+            for fn in self._built:
+                try:
+                    fn(w)
+                except Exception:  # noqa: BLE001 - one broken hook must not lose the page
+                    log.exception("LazyPage %s: built hook failed", self.objectName())
+            self._built.clear()
+            # the splitters and tabs of the page as the user left them (shell/view_state.py)
+            restore = getattr(getattr(self.window(), "shell", None), "restore_view_state", None)
+            if callable(restore):
+                restore(w)
+            self.updateGeometry()
+        return self._content
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        self.ensure()
+        super().showEvent(ev)
 
 
 def show_workspace(ctx: Any, name: str, widget: QWidget, title: str) -> Optional[QWidget]:
@@ -91,4 +168,4 @@ def show_workspace(ctx: Any, name: str, widget: QWidget, title: str) -> Optional
     return host
 
 
-__all__ = ["PLUGINS", "TOUCH", "TOUCH_MIN", "tr", "show_workspace", "WorkspaceWindow"]
+__all__ = ["PLUGINS", "TOUCH", "TOUCH_MIN", "tr", "show_workspace", "WorkspaceWindow", "LazyPage"]

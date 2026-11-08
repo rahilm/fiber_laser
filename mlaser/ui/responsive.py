@@ -1016,6 +1016,7 @@ class ColumnsPanel(QWidget):
         self._comfortable_hint: Optional[QSize] = None
         self._comfortable_min_w = 0
         self._last: Optional[tuple] = None
+        self._placed_key: Optional[tuple] = None   # the key the last pass placed the sections by
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.relayout)
@@ -1239,6 +1240,7 @@ class ColumnsPanel(QWidget):
             return
         self._busy = True
         key = None
+        self._placed_key = None
         try:
             self._relayout(self.width() - 2 * self.margins(), self.height() - 2 * self.margins())
             # the key of the state this pass leaves (its compact margins and sizes): the
@@ -1246,6 +1248,13 @@ class ColumnsPanel(QWidget):
             key = self._key()
         finally:
             self._busy = False
+        if key is not None and key != self._placed_key:
+            # placing the sections changed what they need (their contents laid out at the new
+            # widths): the sizes this pass used are stale, one more pass with the new ones
+            # (without it the jog pad stayed 2 px short with the macOS metrics); it converges,
+            # the next pass places at the same widths
+            key = None
+            self._content_changed()
         self._last = key
         self.layoutChanged.emit()
 
@@ -1320,6 +1329,10 @@ class ColumnsPanel(QWidget):
         n, cols, _ = self._plan(W, H, exp, self._cols(W, H, exp))
         if self.scroll_overflow:
             self._overflow(W, H, secs, exp)
+        # what the sections are placed by: placing them lays out their contents at the new
+        # widths, which can change what they need (a flow layout's rows at the width it last
+        # had), so ``relayout`` compares it with the key after the pass
+        self._placed_key = self._key()
         self._place(W, n, cols)
         folded = [s.title() for s in secs if not exp[id(s)]]
         self.setProperty(STATE_PROP, f"{n} col{'s' if n > 1 else ''}" + (" compact" if compact else "")

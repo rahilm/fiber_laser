@@ -35,7 +35,7 @@ def keep_mlaser_module(name: str) -> bool:
     return not _DROP_MLASER.match(name)
 
 
-# unused Qt bindings (the app imports QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport only)
+# unused Qt bindings (the app imports QtCore, QtGui, QtWidgets, QtSvg, QtPrintSupport, QtNetwork)
 QT_UNUSED = [
     "Qt3DAnimation", "Qt3DCore", "Qt3DExtras", "Qt3DInput", "Qt3DLogic", "Qt3DRender",
     "QtAxContainer", "QtBluetooth", "QtCanvasPainter", "QtCharts", "QtConcurrent",
@@ -47,10 +47,11 @@ QT_UNUSED = [
     "QtSql", "QtStateMachine", "QtTest", "QtTextToSpeech", "QtUiTools", "QtWebChannel",
     "QtWebEngineCore", "QtWebEngineQuick", "QtWebEngineWidgets", "QtWebSockets", "QtWebView",
     "QtXml", "QtAsyncio",
-    # pulled in by the PySide6 hooks but unused: QtNetwork only served the TUIO/VNC plugins and
-    # the TLS backends; on Linux libQt6DBus itself stays (libQt6Gui links it), only its binding
-    # goes (Review 2, P2-8)
-    "QtNetwork", "QtDBus",
+    # pulled in by the PySide6 hooks but unused: on Linux libQt6DBus itself stays (libQt6Gui
+    # links it), only its binding goes (Review 2, P2-8).  QtNetwork is shipped again: the single
+    # application instance talks over QLocalServer / QLocalSocket (mlaser/ui/single_instance.py,
+    # UI evaluation F6); its TLS and network-information plugins stay out (no TCP/TLS use)
+    "QtDBus",
 ]
 PY_EXCLUDES = [
     "mlaser.parity", "tests", "matplotlib", "pandas", "pytest", "_pytest", "hypothesis", "IPython",
@@ -74,12 +75,12 @@ QT_GPL_ONLY = ["Charts", "DataVisualization", "Graphs", "Lottie", "NetworkAuth",
 QT_DROP_LIBS = ["WebEngine", "Pdf", "Quick", "Qml", "3D", "Multimedia", "Location", "Positioning",
                 "Bluetooth", "Nfc", "Sensors", "SerialBus", "SerialPort", "TextToSpeech",
                 "RemoteObjects", "Scxml", "StateMachine", "SpatialAudio", "WebChannel", "WebSockets",
-                "WebView", "Help", "Sql", "Test", "Labs", "FFmpeg", "Network"]
+                "WebView", "Help", "Sql", "Test", "Labs", "FFmpeg"]
 QT_DROP_PLUGIN_DIRS = ["assetimporters", "canbus", "designer", "geometryloaders", "geoservices",
                        "multimedia", "position", "qmltooling", "renderers", "renderplugins",
                        "sceneparsers", "scxmldatamodel", "sensors", "sqldrivers", "texttospeech",
                        "webview", "wayland-graphics-integration-server",
-                       "tls", "networkinformation"]     # no QtNetwork use: no OpenSSL in the bundle
+                       "tls", "networkinformation"]     # local sockets only: no OpenSSL in the bundle
 # single plugins (substrings of the file name):
 # * GTK3 theme (pulls the build host's GTK/cairo/pango, ~15 MB), Qt PDF image format (QtPdf is
 #   not shipped), the GPL-only virtual keyboard;

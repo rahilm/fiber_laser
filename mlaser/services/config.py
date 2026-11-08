@@ -222,6 +222,7 @@ _APP_HOMES = (("safety.", "machine"), ("bed.", "machine"), ("plugin.ext_process.
               ("plugin.ext_options.parity_profile", "machine"), ("costing.laser_rated_w", "machine"),
               ("nest.", "nest"), ("plugins.", "hidden"),
               ("shell.pin.", "hidden"), ("shell.user_mode", "hidden"), ("shell.layout", "hidden"),
+              ("shell.view_state", "hidden"),
               ("shell.workspace", "hidden"), ("shell.recent_commands", "hidden"), ("shell.welcome_done", "hidden"),
               ("app.last_file", "hidden"), ("settings.", "hidden"), ("plugin.ext_practice.", "hidden"))
 

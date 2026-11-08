@@ -63,7 +63,8 @@ DEFAULT_MAX_BUFFER_MS = 1200.0
 
 class StreamFault(ControllerError):
     """Streaming stopped for a safety reason (``kind``): ``unexpected_idle``, ``underrun``,
-    ``link_lost``, ``child_died``, ``child_stalled``, ``parent_lost``, ``refused``."""
+    ``link_lost``, ``child_died``, ``child_stalled``, ``parent_lost``, ``refused``,
+    ``protocol`` (the streaming process is of another mlaser version: :data:`STREAM_PROTO`)."""
 
     def __init__(self, kind: str, msg: str, exec_index: int = -1):
         super().__init__(f"{kind}: {msg}", FAULT_CODE)
@@ -451,10 +452,31 @@ def _child_guard(policy: dict, flags: dict):
     return guard
 
 
+#: version of the messages between the parent and the streaming process.  The parent sends it
+#: in ``policy["proto"]``; the child answers with its first event, ``("hello", {"proto": ...,
+#: "pid": ..., "ok": ...})``, and refuses a different version **before it opens a socket** (no
+#: card traffic at all).  The parent faults a job whose child does not introduce itself with
+#: this version (``StreamFault("protocol")``: halt, FAULT, a clear message).  A mismatch
+#: means two mlaser versions met (an update installed while mlaser ran, a mixed install).
+#: Raise it on any change of the event tuples or of the policy's meaning.
+STREAM_PROTO = 1
+
+
 def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, evt_q,
                 flags: Optional[dict] = None, policy: Optional[dict] = None) -> None:
     """Entry point of the streaming process (spawned): own socket, own GIL, self-supervised."""
     from .supervisor import HaltParams, run_halt
+    hello = {"proto": STREAM_PROTO, "pid": os.getpid(), "ok": True}
+    their = (policy or {}).get("proto")
+    if their != STREAM_PROTO:
+        hello.update(ok=False, error=f"the parent speaks streaming protocol {their!r}, "
+                                     f"this streaming process {STREAM_PROTO}")
+    try:
+        evt_q.put(("hello", hello))
+    except Exception:  # noqa: BLE001 - parent gone
+        return
+    if not hello["ok"]:
+        return                                  # nothing was opened: the card never heard of us
     try:  # best effort: a little more priority for the real-time-ish loop (often not permitted)
         os.nice(-5)
     except Exception:  # noqa: BLE001
@@ -704,6 +726,21 @@ class ProcessStreamer:
             if time.monotonic() - relay[0] <= limit:
                 flags["hb"].value += 1
 
+    def _check_hello(self, ev) -> None:
+        """The child's first event must be its ``hello`` with :data:`STREAM_PROTO`; anything else
+        cancels the child and faults the job (the caller halts the card)."""
+        hello = ev[1] if ev and ev[0] == "hello" and len(ev) > 1 and isinstance(ev[1], dict) else None
+        if hello is not None and hello.get("proto") == STREAM_PROTO and hello.get("ok"):
+            return
+        if self.flags is not None:
+            self.flags["cancel"].value = 1
+        if hello is None:
+            why = "the streaming process did not introduce itself (a different mlaser version)"
+        else:
+            why = str(hello.get("error") or f"the streaming process speaks protocol "
+                      f"{hello.get('proto')!r}, this mlaser {STREAM_PROTO}")
+        raise StreamFault("protocol", f"{why}; restart mlaser", self.exec_index)
+
     def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.02, timeout_s: Optional[float] = None) -> StreamStats:
@@ -714,7 +751,7 @@ class ProcessStreamer:
         ctx = self.ctx
         self.cmd_q, self.evt_q = ctx.Queue(), ctx.Queue()
         self.flags = _shared_flags(ctx)
-        policy = {**self.policy, "ppid": os.getpid()}
+        policy = {**self.policy, "ppid": os.getpid(), "proto": STREAM_PROTO}
         self.proc = ctx.Process(target=_child_main, name="mlaser-stream", daemon=True,
                                 args=(self._cfg_dict(), self.position_ppm, wj, self.kw,
                                       self.cmd_q, self.evt_q, self.flags, policy))
@@ -723,6 +760,7 @@ class ProcessStreamer:
         deadline = time.monotonic() + (timeout_s if timeout_s is not None else max(60.0, 4 * dur + 60.0))
         t_start = time.monotonic()
         last_msg = None
+        greeted = False                     # the child's "hello" (STREAM_PROTO) came first
         relay = [time.monotonic()]          # the relay loop's last iteration (heartbeat thread)
         hb_stop = threading.Event()
         hb = threading.Thread(target=self._heartbeat, args=(self.flags, relay, hb_stop, cancel, hold),
@@ -762,6 +800,10 @@ class ProcessStreamer:
                 if self.on_alive is not None:
                     self.on_alive()
                 kind = ev[0]
+                if not greeted:
+                    self._check_hello(ev)       # raises StreamFault("protocol")
+                    greeted = True
+                    continue
                 if kind == "progress":
                     self.executed, self.exec_index = ev[1], ev[2]
                     if progress is not None:
@@ -797,4 +839,4 @@ class ProcessStreamer:
 
 
 __all__ = ["JobStreamer", "ProcessStreamer", "WireJob", "BufferStats", "StreamFault",
-           "wire_timing", "DEFAULT_MAX_BUFFER_MS", "FAULT_CODE"]
+           "wire_timing", "DEFAULT_MAX_BUFFER_MS", "FAULT_CODE", "STREAM_PROTO"]

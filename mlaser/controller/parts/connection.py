@@ -13,6 +13,7 @@ from ...machine.api import MachineState
 from ...machine.audit import audit
 from ...machine.safety import SafetyState
 from .. import alarms as A
+from .. import cardlock
 from ..client import ControllerError
 
 log = logging.getLogger("mlaser.controller.ui_adapter")
@@ -31,7 +32,9 @@ class ConnectionPart:
         (or the full ``MotionController.startup`` when ``card_params`` is set), read the card
         parameters (FUN_10039f20) and adopt the scaling.  The connection always starts
         **disarmed** (or in FAULT when a fault is still latched)."""
-        self.disconnect(quiet=True, keep_sim=True)
+        self.wait_commands(15.0)             # a queued disconnect (or command) ends first
+        self._invalidate_starts("disconnect")
+        self._disconnect(True, True, None)   # here, before the new channel opens
         self._invalidate_starts("connect")
         # the streaming link deadline: the configured one for a real card, the simulator's own
         # (see connect_simulator) while self.sim runs in this process
@@ -41,6 +44,17 @@ class ConnectionPart:
             self.cfg.host = host
         if port:
             self.cfg.port = int(port)
+        # one process drives a card at a time (controller/cardlock.py): an OS lock keyed by the
+        # address, taken before any socket exists and released by disconnect() or the OS
+        self.connect_error, self.card_busy = "", False
+        try:
+            self._card_lock = cardlock.acquire(self.cfg.host, self.cfg.port, self.cfg.transport)
+        except cardlock.CardBusy as e:
+            self.connect_error, self.card_busy = str(e), True
+            self._log(f"mf166: {e}", logging.WARNING)
+            audit("connect_refused", logging.WARNING, host=self.cfg.host, port=self.cfg.port,
+                  reason="card in use by another process", owner_pid=e.owner.get("pid"))
+            return False
         mc = self._sup.open(self.cfg, self.machine.pulses_per_mm_x)
         self._sup.guarded_outputs = self._guarded_outputs_mask()
         self._sup.heartbeat_output = int(self.heartbeat_output or 0)
@@ -52,7 +66,9 @@ class ConnectionPart:
                 cfgw, ver = mc.connect()
         except (ControllerError, OSError) as e:
             self._log(f"mf166: cannot connect to {self.cfg.host}:{self.cfg.port} ({e})", logging.WARNING)
+            self.connect_error = f"no answer from the motion card at {self.cfg.host}:{self.cfg.port} ({e})"
             self._sup.close()
+            self._release_card_lock()
             return False
         self.version = ver
         with self._slock:
@@ -76,6 +92,7 @@ class ConnectionPart:
         self._poll_thread = threading.Thread(target=self._poll_loop, name="mlaser-poll", daemon=True)
         self._poll_thread.start()
         self._sup.start_monitor()
+        self._commands.start()               # before the first GUI command (no thread start there)
         lifecycle.register(self)
         if self.registers_laser_guard:
             # one entry per controller; every registered one must allow (devices.laser): a
@@ -87,6 +104,16 @@ class ConnectionPart:
             except Exception as e:  # noqa: BLE001
                 self._log(f"connect hook failed: {e}")
         return True
+
+    #: why the last connect() failed ("" after a success): the card in use elsewhere, no answer
+    connect_error = ""
+    card_busy = False                    # ... because another process holds the card (cardlock)
+    _card_lock = None
+
+    def _release_card_lock(self) -> None:
+        lock, self._card_lock = self._card_lock, None
+        if lock is not None:
+            lock.release()
 
     # False for a private controller (the procedures' simulator rig): it never takes part in
     # the laser-source decision of the process (devices.laser registry)
@@ -137,7 +164,9 @@ class ConnectionPart:
         real card keeps the configured deadline (150 ms default); pass ``link_deadline_ms`` to
         test link-loss behaviour at the real value."""
         from ..simulator import CardSimulator
-        self.disconnect(quiet=True)
+        self.wait_commands(15.0)
+        self._invalidate_starts("disconnect")
+        self._disconnect(True, False, None)
         self._card_link_deadline_ms()                       # remember the configured value
         self._sup.link_deadline_ms = float(link_deadline_ms if link_deadline_ms is not None
                                           else SIM_LINK_DEADLINE_MS)
@@ -161,11 +190,31 @@ class ConnectionPart:
     def is_simulator(self) -> bool:
         return self.sim is not None
 
-    def disconnect(self, quiet: bool = False, keep_sim: bool = False) -> None:
+    def disconnect(self, quiet: bool = False, keep_sim: bool = False):
         """Halt the card first (program stop, PWM 0, process outputs off, FIFO stop/clear), then
-        stop the job worker, the poller and close the sockets."""
+        stop the job worker, the poller and close the sockets.
+
+        On the GUI thread (Disconnect, the window closing) the halt goes out at once from its
+        own thread and the rest - waiting for the job worker and the poller, which takes
+        seconds when the card is off - runs on the command worker after the commands queued
+        before it; returns its ticket then."""
         self._invalidate_starts("disconnect")
-        if self._sup.connected:
+        if self._offload() and not self._commands.on_worker():
+            halted = self._sup.safe_halt_soon("disconnect") if self._sup.connected else None
+            self._stop_reason = "disconnect"
+            self._cancel.set()
+            st = self._streamer
+            if st is not None and hasattr(st, "set_cancel"):
+                st.set_cancel()
+            self._jogging = None
+            self._jog_active = False
+            return self._commands.submit("disconnect", lambda: self._disconnect(quiet, keep_sim, halted))
+        return self._disconnect(quiet, keep_sim, None)
+
+    def _disconnect(self, quiet: bool, keep_sim: bool, halted) -> None:
+        if halted is not None:
+            halted.wait(10.0)                # the halt went out before the sockets close
+        elif self._sup.connected:
             self._sup.safe_halt("disconnect")
         self._stop_reason = "disconnect"
         self._cancel.set()
@@ -180,6 +229,7 @@ class ConnectionPart:
             self._poll_thread = None
         was = self._sup.connected
         self._sup.close()
+        self._release_card_lock()
         lifecycle.unregister(self)
         _laser.unregister_emission_guard(self)
         if self.sim is not None and not keep_sim:

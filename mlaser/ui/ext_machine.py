@@ -559,8 +559,11 @@ class MachineExtension:
         proj = self.w.extension("ext_project") if hasattr(self.w, "extension") else None
         if proj is not None:
             proj.apply(rec.project)
-        resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
-        self.log(f"mf169: system recovered from {rec.path.name}" + (" (resuming breakpoint)" if resumed else ""))
+        from .qtbridge import when_done
+        name = rec.path.name
+        when_done(self.w.ctl.resume_saved(doc, str(self.ops.file_dir)),
+                  lambda resumed: self.log(f"mf169: system recovered from {name}"
+                                           + (" (resuming breakpoint)" if resumed else "")))
 
     def startup_homing(self, ctl) -> None:
         """After the card connected: FUN_00596320's red light off, go-origin prompt (mp119,

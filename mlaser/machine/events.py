@@ -110,6 +110,13 @@ class Log(Event):
 
 
 @dataclass(frozen=True)
+class CommandsPending(Event):
+    """Operator commands queued for the card or running (``controller.commands``); 0 = idle."""
+    pending: int = 0
+    what: str = ""
+
+
+@dataclass(frozen=True)
 class BreakpointChanged(Event):
     breakpoint: Any = None          # nc.resume.Breakpoint or None
 
@@ -195,5 +202,5 @@ class EventBus:
 __all__ = [
     "Event", "JobStarted", "JobProgress", "JobFinished", "AlarmRaised", "AlarmCleared",
     "LinkLost", "LinkRestored", "Armed", "Disarmed", "StateChanged", "Log", "BreakpointChanged",
-    "HomingDone", "EventBus",
+    "HomingDone", "CommandsPending", "EventBus",
 ]

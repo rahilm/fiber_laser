@@ -22,7 +22,8 @@ Layout of the main window with the shell::
   original's ribbon instead of the top bar and the rail; the palette and every key still work.
 
 Persisted in the ConfigService: ``shell.theme``, ``shell.classic_ribbon``, ``shell.user_mode``,
-``shell.pin.*`` (hashes), ``shell.recent_commands``, ``shell.welcome_done``, ``shell.layout``.
+``shell.pin.*`` (hashes), ``shell.recent_commands``, ``shell.welcome_done``, ``shell.layout``,
+``shell.view_state`` (splitters and tabs, :mod:`.view_state`).
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMessageBox, QToolButton,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QMessageBox, QToolButton,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
@@ -51,6 +52,8 @@ SETTINGS = [
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
     Setting("shell.workspace", "str", "design", label="shell.rail", section="shell", source="app"),
     Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
+    # splitter positions and current tabs (shell/view_state.py), saved with the dock layout
+    Setting("shell.view_state", "json", {}, label="shell.reset_layout", section="shell", source="app"),
 ]
 LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
@@ -205,7 +208,13 @@ class Shell:
             ("window.zoom", lambda: self.toggle_zoom(), "shell.window.zoom", False, "operator"),
             ("window.fullscreen", lambda on: self.set_full_screen(bool(on)), "shell.window.fullscreen", True,
              "operator"),
+            # File > Close (⌘W / Ctrl+W): the active window; the main window closes the
+            # application through its own close checks (job running, unsaved changes)
+            ("window.close", lambda: self.close_window(), "shell.window.close", False, "operator"),
         ]
+        if self._plat == "macos":
+            cmds.append(("window.bring_all_front", lambda: self.bring_all_to_front(),
+                         "shell.window.bring_all_front", False, "operator"))
         for m in um.MODES:
             cmds.append((f"shell.mode_{m}", lambda m=m: self.request_mode(m), f"shell.mode.switch_{m}", False, ""))
         for t in theme.THEME_IDS:
@@ -503,6 +512,28 @@ class Shell:
         else:
             self.w.showMaximized()
 
+    def close_window(self) -> None:
+        """File > Close (⌘W / Ctrl+W): close the active window.  The main window is the
+        document window of this single-window application: closing it quits, through
+        ``MainWindow.closeEvent`` (the job-running question, the unsaved-changes prompt)."""
+        app = QApplication.instance()
+        win = app.activeWindow() if app is not None else None
+        if win is None or win is self.w or not win.isWindow():
+            win = self.w
+        win.close()
+
+    def bring_all_to_front(self) -> None:
+        """Window > Bring All to Front (macOS): every window of the application above the
+        other applications' (NSApplication arrangeInFront:, else each window raised)."""
+        from .. import native
+        if native.mac_arrange_in_front():
+            return
+        app = QApplication.instance()
+        for x in app.topLevelWidgets() if app is not None else []:
+            if x.isWindow() and x.isVisible() and not x.isMinimized():
+                x.raise_()
+        self.w.activateWindow()
+
     def set_full_screen(self, on: bool) -> None:
         """Window > Enter Full Screen (⌃⌘F on macOS, F11 elsewhere)."""
         if on and not self.w.isFullScreen():
@@ -618,10 +649,20 @@ class Shell:
             except Exception:  # noqa: BLE001 - a broken saved layout falls back to the default
                 pass
             self.host.activate(self.host.current, force=True)
+        self.restore_view_state()
         ws = self.config.get("shell.workspace", "design")
         if ws in self.host.specs and ws != self.host.current:
             self.host.activate(ws)
         pol.apply()
+
+    def restore_view_state(self, under=None) -> int:
+        """Splitter positions and current tabs as saved (:mod:`.view_state`); ``under``: only
+        that part of the window (a workspace built later, ``LazyPage``)."""
+        from . import view_state
+        try:
+            return view_state.restore(self.w, self.config.get(view_state.KEY, {}) or {}, under)
+        except Exception:  # noqa: BLE001 - a broken saved state falls back to the defaults
+            return 0
 
     def fit_docks(self) -> None:
         """Dock sizes for the window as it is now (:mod:`.dock_policy`): the remembered or
@@ -650,6 +691,7 @@ class Shell:
         self.dock_policy.forget()
         self.fit_docks()
         self.config.set("shell.layout", "")
+        self.config.set("shell.view_state", {})
         self.host.activate("design" if "design" in self.host.visible_ids() else self.host.visible_ids()[0],
                            force=True)
         w.statusBar().showMessage(self.tr.tr("shell.layout_reset"), 3000)
@@ -661,6 +703,8 @@ class Shell:
         if self._default_state is not None:
             try:
                 self.config.set("shell.layout", bytes(self.w.saveState(LAYOUT_VERSION).toBase64()).decode("ascii"))
+                from . import view_state
+                self.config.set(view_state.KEY, view_state.collect(self.w, self.config.get(view_state.KEY, {}) or {}))
                 if self._fit_screen:
                     self.config.set("shell.geometry", bytes(self.w.saveGeometry().toBase64()).decode("ascii"))
             except Exception:  # noqa: BLE001

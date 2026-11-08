@@ -47,7 +47,9 @@ class ProcessExtension:
     def __init__(self, ctx: Any) -> None:
         from mlaser.ui.preview_scrubber import PreviewOverlay, ScrubberWidget
         from mlaser.ui.properties import PropertiesPanel
-        from mlaser.ui.workspaces.process import ProcessWorkspace
+        from mlaser.ui.workspaces import LazyPage
+        from mlaser.ui.workspaces.cutting_strategy import register_commands as strategy_commands
+        from mlaser.ui.workspaces.process import technology_name
 
         self.ctx = ctx
         t = ctx.tr.tr
@@ -58,13 +60,17 @@ class ProcessExtension:
         self.plan: Any = None
         self.timeline: Optional[Timeline] = None
         self.exec_dialogs = True
-        self.workspace = ProcessWorkspace(ctx, self.store)
-        from mlaser.ui.workspaces.cutting_strategy import install as install_strategy
-        self.strategy = install_strategy(ctx, self.workspace.tabs, self.store)     # the Cutting strategy tab
+        self._workspace: Any = None
+        self._strategy: Any = None
+        # the Process workspace is built the first time it is shown or a command needs it
+        # (``self.workspace``): the app opens in Design, and building it at start was about 1.1 s
+        # of the window's construction (UI evaluation F11)
+        self.page = LazyPage(self._build_workspace, "process_workspace_page")
         # the Process slot of the shell: the canvas with this panel at its right
-        ctx.add_workspace("process", self.workspace, t("process.title"), canvas=True,
+        ctx.add_workspace("process", self.page, t("process.title"), canvas=True,
                           docks=["plugin.ext_process.properties", "plugin.ext_process.preview", "mf124"])
-        self.properties = PropertiesPanel(ctx, self.canvas, technology_name=self.workspace.technology_name,
+        self.properties = PropertiesPanel(ctx, self.canvas,
+                                          technology_name=lambda li: technology_name(ctx.document, li),
                                           store=self.store)
         self.scrubber = ScrubberWidget(ctx.tr)
         self.overlay = PreviewOverlay(self.canvas)
@@ -81,30 +87,63 @@ class ProcessExtension:
             pass
         self.scrubber.timeChanged.connect(self._time_changed)
         self.scrubber.need_timeline = lambda: self._build_timeline() if self.plan is not None else None
-        self.workspace.card.rates_btn.clicked.connect(self.rates_dialog)
         self.canvas.selectionChanged.connect(self.properties.refresh)
         ctx.on_document_changed(self._document_changed)
         ctx.on_plan(self._plan)
         self.closed = False
         ctx.on_close(self._close)
         self.config_unsub = ctx.config.subscribe(self._config_changed)
-        # the cost card's notes carry lengths (sheet size, nozzle): rebuilt in the new units
-        on_units_changed(self.workspace, lambda _u: self.update_card(), now=False)
         ctx.register_command("process.show", self.show_process, label="process.cmd.show")
-        ctx.register_command("process.apply", self.workspace.apply_selected, label="process.cmd.apply")
+        ctx.register_command("process.apply", lambda: self.workspace.apply_selected(), label="process.cmd.apply")
         ctx.register_command("process.rates", self.rates_dialog, label="process.cmd.rates")
         ctx.register_command("process.library", self.show_library, label="process.cmd.library")
         ctx.register_command("props.show", self.show_properties, label="props.cmd.show")
         ctx.register_command("preview.play", self.play, label="preview.cmd.play")
         ctx.register_command("preview.clear", self.scrubber.clear, label="preview.cmd.clear")
+        # the Cutting strategy tab's commands: they build the workspace when it was not opened yet
+        strategy_commands(ctx, lambda: self.strategy)
         ctx.add_ribbon_tab(t("process.tab"), ["process.show", "process.apply", "props.show", "preview.play",
                                               "preview.clear", "process.rates"])
+
+    # ---------------------------------------------------------------- the workspace (lazy)
+    @property
+    def workspace(self) -> Any:
+        """The Process workspace (:class:`~mlaser.ui.workspaces.process.ProcessWorkspace`),
+        built now when it was not yet."""
+        self.page.ensure()
+        return self._workspace
+
+    @property
+    def strategy(self) -> Any:
+        """The Cutting strategy tab of the workspace (built with it)."""
+        self.page.ensure()
+        return self._strategy
+
+    @property
+    def workspace_built(self) -> bool:
+        return self._workspace is not None
+
+    def _build_workspace(self) -> Any:
+        from mlaser.ui.workspaces.cutting_strategy import add_tab as strategy_tab
+        from mlaser.ui.workspaces.process import ProcessWorkspace
+
+        ctx = self.ctx
+        ws = self._workspace = ProcessWorkspace(ctx, self.store)
+        self._strategy = strategy_tab(ctx, ws.tabs, self.store)     # the Cutting strategy tab
+        ws.card.rates_btn.clicked.connect(self.rates_dialog)
+        # the cost card's notes carry lengths (sheet size, nozzle): rebuilt in the new units
+        on_units_changed(ws, lambda _u: self.update_card(), now=False)
+        # what happened before it existed: the drawing's layers and the current plan's card
+        ws.refresh_layers()
+        self.update_card()
+        return ws
 
     # ---------------------------------------------------------------- commands
     def show_process(self) -> None:
         """The Process workspace (the shell's rail); a host without the shell shows the panel."""
         if not self.ctx.show_workspace(f"{self.ctx.name}.process"):
-            self.workspace.show()
+            self.page.show()
+        self.page.ensure()
 
     def show_library(self) -> None:
         """Process › Library (the technology records): the workspace on its Library page."""
@@ -141,7 +180,8 @@ class ProcessExtension:
             # once (no value changes; services.inheritance)
             from mlaser.services.inheritance import derive_marks
             derive_marks(self.ctx.document, self.store)
-        self.workspace.refresh_layers()
+        if self._workspace is not None:      # not built yet: it reads the layers when it is
+            self._workspace.refresh_layers()
         self.properties.refresh()
 
     def _config_changed(self, key: str) -> None:
@@ -172,12 +212,15 @@ class ProcessExtension:
         self.update_card()
 
     def update_card(self) -> None:
+        ws = self._workspace                 # not built yet: it shows the card when it is
         if self.plan is None or self.timeline is None:
-            self.workspace.card.set_card(None)
+            if ws is not None:
+                ws.card.set_card(None)
             return
         unit = int(self.ctx.config.get("UN.GasPressureUnit", 0) or 0)
         self.card = card_for_plan(self.plan, self.timeline, rates_from(self.ctx.config), unit)
-        self.workspace.card.set_card(self.card)
+        if ws is not None:
+            ws.card.set_card(self.card)
 
     def _time_changed(self, t: float) -> None:
         if t < 0:

@@ -973,10 +973,18 @@ for ws in ("design", "run"):
     out[ws] = dict(passes)
 print(json.dumps({"state": int(w.windowState().value), "size": [w.width(), w.height()], "passes": out}))
 sys.stdout.flush()
-os._exit(0)
+# a clean exit: the window closed (simulator disconnected) and deleted, with every page wrapper
+# and its event filter, before the interpreter goes (os._exit with the window alive crashed on
+# Windows: Qt's teardown in the DLL detach still delivered events to a FitArea's filter)
+R.ColumnsPanel._relayout = _relayout
+from wiring import dispose
+dispose(w)
+del w
+app.processEvents()
 """
 
 
+@pytest.mark.sim          # one worker with the timing tests: a whole app in a subprocess loads the runner
 @pytest.mark.parametrize("mode", ["maximized", "connected"])
 def test_window_at_rest_does_not_relayout(tmp_path, mode):
     """Issue #4: a maximized window (the 1280 x 800 screen, the smallest supported) and a
@@ -1007,6 +1015,75 @@ def test_window_at_rest_does_not_relayout(tmp_path, mode):
     # at rest: at most a pass or two (a periodic refresh may change a label), never a stream
     busy = {ws: {k: n for k, n in p.items() if n > 3} for ws, p in res["passes"].items()}
     assert not any(busy.values()), res
+
+
+IDLE_SCRIPT = r"""
+import json, sys, time
+sys.path.insert(0, sys.argv[1])
+from PySide6.QtCore import QEventLoop, QTimer
+from PySide6.QtWidgets import QApplication, QDialog, QMessageBox
+app = QApplication([])
+QDialog.exec = lambda self, *a: 0
+for n in ("information", "warning", "critical", "question"):
+    setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
+from wiring import dispose, real_window
+from mlaser.controller.ui_adapter import UiController
+from mlaser.ui import docops
+w = real_window(UiController(poll_s=0.05), user_mode="engineer")
+w.shell.fit_to_screen()             # as the application starts: the whole screen
+w.show()
+def idle(sec):
+    # the GUI thread's CPU time while the event loop waits (not a busy processEvents loop)
+    loop = QEventLoop()
+    QTimer.singleShot(int(sec * 1000), loop.quit)
+    t0 = time.thread_time()
+    loop.exec()
+    return (time.thread_time() - t0) / sec
+idle(1.0)
+assert w.connect_simulator(time_scale=1.0)
+w.set_document(docops.demo_document())
+idle(1.0)
+out = {}
+for ws in ("machine", "run", "design"):
+    w.show_workspace(ws)
+    idle(1.0)
+    out[ws] = idle(2.0)
+print(json.dumps({"size": [w.width(), w.height()], "cpu": out}))
+sys.stdout.flush()
+dispose(w)
+del w
+app.processEvents()
+"""
+
+
+@pytest.mark.sim          # one worker with the timing tests (see above)
+@pytest.mark.parametrize("screen", [(800, 600), (1366, 768)])
+def test_idle_gui_thread_stays_idle(tmp_path, screen):
+    """An idle window connected to the simulator costs the GUI thread little CPU, also on a
+    screen smaller than the content's minimum (800 x 600: the window is held to the screen).
+    There the dock policy asked for the same dock widths on every turn, which the window could
+    not give; each resizeDocks relaid the window out and scheduled the policy again: about 97 %
+    of a core at idle."""
+    style = os.environ.get("MLASER_LAYOUT_STYLE", "").lower()
+    if style in NATIVE_ONLY_STYLES:
+        pytest.skip(f"the offscreen platform cannot host the {style} style")
+    cfg = tmp_path / "screen.json"
+    cfg.write_text(json.dumps({"screens": [{"name": "s", "x": 0, "y": 0, "width": screen[0], "height": screen[1],
+                                            "logicalDpi": 96, "dpr": 1}]}), encoding="utf-8")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen:configfile=screen.json",
+               MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
+               MLASER_DATA_DIR=str(tmp_path / "data"))
+    env.pop("_MLASER_CONFIG_AUTO", None)
+    root = str(Path(__file__).resolve().parent.parent)
+    env["PYTHONPATH"] = os.pathsep.join([root, env.get("PYTHONPATH", "")]).rstrip(os.pathsep)
+    r = subprocess.run([sys.executable, "-c", IDLE_SCRIPT, str(Path(__file__).parent.resolve())], env=env,
+                       capture_output=True, text=True, timeout=600, cwd=str(tmp_path))
+    assert r.returncode == 0, r.stderr[-3000:]
+    res = json.loads(r.stdout.strip().splitlines()[-1])
+    # the loop this guards against held the GUI thread at ~100 %; a busy CI runner measures a
+    # few per cent for an idle window (5.5 % once on Windows), so the bound leaves room for that
+    busy = {ws: round(c, 3) for ws, c in res["cpu"].items() if c >= 0.15}
+    assert not busy, res
 
 
 def test_pending_still_needed(win, app):

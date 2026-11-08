@@ -93,7 +93,8 @@ def main(argv: list[str] | None = None) -> int:
 # required, and each must also pass its working check (:data:`_BACKEND_CHECKS`).
 _BUNDLE_MODULES = [
     ("PySide6.QtCore", True), ("PySide6.QtGui", True), ("PySide6.QtWidgets", True),
-    ("PySide6.QtSvg", True), ("PySide6.QtPrintSupport", True), ("numpy", True), ("shapely", True),
+    ("PySide6.QtSvg", True), ("PySide6.QtPrintSupport", True), ("PySide6.QtNetwork", True),
+    ("numpy", True), ("shapely", True),
     ("ezdxf", True), ("svgelements", True), ("pyclipper", True), ("uharfbuzz", True),
     ("fontTools.ttLib", True), ("segno", True), ("PIL.Image", True), ("platformdirs", False),
 ]

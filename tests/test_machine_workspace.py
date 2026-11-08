@@ -79,6 +79,7 @@ def test_workspace_sections_connection_and_monitor_panels(app, win):
     assert ws.section() == "monitors" and mon.isVisible()
     assert win.extension("ext_diag").show_monitor("controller") is mon
     ws.disconnect()
+    assert win.ctl.wait_commands(30)                         # ends on the command worker (#5)
     assert not win.ctl.state().connected
 
 

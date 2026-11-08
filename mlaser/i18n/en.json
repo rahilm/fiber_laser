@@ -2867,6 +2867,7 @@
   "run.btn.start": "Start",
   "run.btn.stop": "STOP",
   "run.canvas.empty": "No job loaded",
+  "run.card_busy": "Waiting for the card to answer…",
   "run.count.contour": "contour {n}/{total}",
   "run.count.part": "part {n}/{total}",
   "run.count.sheet": "Sheet {n}/{total}",
@@ -4189,7 +4190,61 @@
   "wizard.comm.fix.simulate": "Simulate the sensor (dry run)",
   "wizard.comm.fix.dry_run": "Not in a dry run: nothing is applied to the machine or its parameters.",
   "wizard.comm.fix.dry_run_only": "Only in a dry run (the private simulator).",
-  "wizard.comm.fix.unavailable": "Not available in this window or user mode."
+  "wizard.comm.fix.unavailable": "Not available in this window or user mode.",
+  "cmd.edit.cut": "Cut",
+  "shell.window.close": "Close",
+  "shell.window.bring_all_front": "Bring all to front",
+  "shell.undo.named": "Undo {action}",
+  "shell.redo.named": "Redo {action}",
+  "shell.undo.done": "Undone: {action}",
+  "shell.redo.done": "Redone: {action}",
+  "clip.paste_failed": "Paste: the clipboard data could not be read ({error})",
+  "clip.paste_unreadable": "The clipboard holds no drawing mlaser can read",
+  "undo.edit": "Edit",
+  "undo.draw": "Drawing",
+  "undo.craft": "Process change",
+  "undo.cam": "CAM change",
+  "undo.replace": "Open",
+  "undo.open": "Open",
+  "undo.nudge": "Move",
+  "undo.delete": "Delete",
+  "undo.cut": "Cut",
+  "undo.paste": "Paste",
+  "undo.layer": "Change layer",
+  "undo.mirror": "Mirror",
+  "undo.rotate": "Rotate",
+  "undo.scale": "Scale",
+  "undo.size": "Resize",
+  "undo.align": "Align",
+  "undo.reverse": "Reverse direction",
+  "undo.kerf": "Kerf",
+  "undo.clear_leads": "Clear lead-ins",
+  "undo.micro_joints": "Micro-joints",
+  "undo.clear_micro_joints": "Clear micro-joints",
+  "undo.optimize": "Optimize",
+  "undo.batch_rotate": "Rotate",
+  "undo.array": "Array",
+  "undo.circular_array": "Circular array",
+  "undo.fill_sheet": "Fill sheet",
+  "undo.remove_duplicates": "Remove duplicates",
+  "undo.join": "Join",
+  "undo.smooth": "Smooth",
+  "undo.fillet": "Fillet",
+  "undo.unload_loop": "Unload loop",
+  "undo.alpha_corner": "Alpha corner",
+  "undo.clear_alpha_corner": "Clear alpha corner",
+  "undo.cool_points": "Cool points",
+  "undo.clear_cool_points": "Clear cool points",
+  "undo.common_edge": "Common edge",
+  "undo.rectangle_common_edge": "Rectangle common edge",
+  "undo.fly_cut": "Fly cut",
+  "undo.layer_order": "Layer order",
+  "undo.manual_sort": "Manual sort",
+  "undo.move_first_last": "Cutting order",
+  "undo.home_ref": "Move to reference",
+  "undo.laser_type": "Laser type",
+  "undo.clear_edge_seek": "Clear edge seek",
+  "undo.import": "Import"
  },
  "args": {
   "alarm.axis_dual_drive_alarm": [
@@ -5390,6 +5445,21 @@
    "output",
    "rate",
    "hz"
+  ],
+  "shell.undo.named": [
+   "action"
+  ],
+  "shell.redo.named": [
+   "action"
+  ],
+  "shell.undo.done": [
+   "action"
+  ],
+  "shell.redo.done": [
+   "action"
+  ],
+  "clip.paste_failed": [
+   "error"
   ]
  },
  "legacy": {

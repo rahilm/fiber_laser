@@ -87,7 +87,8 @@ def test_review2_trims():
                  "PySide6/plugins/generic/qtuiotouchplugin.dll",
                  "PySide6/Qt/plugins/imageformats/libqtiff.so", "PySide6/plugins/imageformats/qwebp.dll",
                  "PySide6/Qt/plugins/imageformats/libqtga.so", "PySide6/Qt/plugins/imageformats/libqwbmp.so",
-                 "PySide6/Qt/lib/libQt6Network.so.6", "PySide6/Qt6Network.dll"):
+                 "PySide6/Qt/plugins/tls/libqopensslbackend.so",
+                 "PySide6/Qt/lib/libQt6NetworkAuth.so.6"):
         assert cfg.drop_binary(drop), drop
     for keep in ("PySide6/Qt/plugins/platforms/libqxcb.so", "PySide6/Qt/plugins/platforms/libqwayland.so",
                  "PySide6/Qt/plugins/platforms/libqminimal.so", "PySide6/plugins/platforms/qwindows.dll",
@@ -98,13 +99,16 @@ def test_review2_trims():
                  "PySide6/Qt/plugins/iconengines/libqsvgicon.so",
                  "PySide6/Qt/plugins/xcbglintegrations/libqxcb-glx-integration.so",
                  "PySide6/Qt/lib/libQt6DBus.so.6", "PySide6/Qt/lib/libQt6OpenGL.so.6",
+                 # QtNetwork: QLocalServer / QLocalSocket of the single instance (UI evaluation F6)
+                 "PySide6/Qt/lib/libQt6Network.so.6", "PySide6/Qt6Network.dll",
+                 "PySide6/Qt/lib/QtNetwork.framework/Versions/A/QtNetwork",
                  "PIL/_imaging.cpython-312-x86_64-linux-gnu.so", "libcrypto-3.dll", "libssl-3.dll"):
         assert not cfg.drop_binary(keep), keep
     assert cfg.drop_data("PySide6/Qt/translations/qtbase_de.qm")
     assert cfg.drop_data("PySide6/translations/qt_help_de.qm")
     assert not cfg.drop_data("mlaser/i18n/qm/mlaser_de.qm")          # the app's own catalogues
     excluded = cfg.excludes()
-    assert "PySide6.QtNetwork" in excluded and "PySide6.QtDBus" in excluded
+    assert "PySide6.QtNetwork" not in excluded and "PySide6.QtDBus" in excluded
 
 
 def test_linux_host_system_libraries_dropped():

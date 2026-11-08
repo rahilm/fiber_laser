@@ -43,6 +43,7 @@ from typing import Optional
 from ..machine.api import ControllerFacade, MachineState
 from ..machine.safety import SafetyState
 from .client import CardScaling, ControllerError, MotionController, TransportConfig
+from .commands import CommandExecutor
 from .interlocks import InterlockConfig, InterlockMonitor
 from .parts.connection import AXES, ConnectionPart
 from .parts.gate import StartGatePart
@@ -155,6 +156,82 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
         self.laser_type: Optional[int] = None  # SP.m_iEnableLaserType override (MachineOps)
         self._errors = 0
         self._store = None
+        # operator commands given on the GUI thread run here, in order (controller.commands)
+        self._commands = CommandExecutor(stale=self._stale_since, dispatch=lambda: self.events.dispatcher,
+                                         on_change=self._commands_changed, on_dropped=self._command_dropped)
+        self._sup.request_veto = self._commands.stale_reason
+        self._sup.ui_thread_probe = self._on_ui_thread
+
+    # ------------------------------------------------------------------ GUI thread (issue #5)
+    def _ui_thread(self) -> Optional[threading.Thread]:
+        """The GUI thread of the window this controller is attached to (its event dispatcher,
+        ``ui.qtbridge.QtDispatcher``), None without one (scripts, tests, the API server)."""
+        return getattr(self.events.dispatcher, "ui_thread", None)
+
+    def _on_ui_thread(self) -> bool:
+        ui = self._ui_thread()
+        return ui is not None and threading.current_thread() is ui
+
+    def _offload(self) -> bool:
+        """Card I/O of an operator command must leave the calling thread: it is the GUI thread
+        (and the process is not exiting: the exit hooks halt synchronously)."""
+        from ..machine import lifecycle
+        return self._on_ui_thread() and not lifecycle.synchronous()
+
+    def _ui_marshal(self, fn):
+        """``fn`` (a confirmation dialog) callable from the command worker: it runs on the GUI
+        thread and the worker waits for the answer (No when the window went away)."""
+        d = self.events.dispatcher
+
+        def call(*a, **kw):
+            if d is None or self._on_ui_thread():
+                return fn(*a, **kw)
+            box: list = []
+            ev = threading.Event()
+
+            def thunk() -> None:
+                try:
+                    box.append((True, fn(*a, **kw)))
+                except BaseException as e:  # noqa: BLE001 - re-raised on the worker
+                    box.append((False, e))
+                finally:
+                    ev.set()
+            try:
+                d(thunk)
+            except Exception:  # noqa: BLE001 - the window is gone: no answer means No
+                return False
+            while not ev.wait(0.25):
+                if self._ui_thread() is None:
+                    return False
+            ok, v = box[0]
+            if not ok:
+                raise v
+            return v
+        return call
+
+    def submit_command(self, what: str, fn, *, drop_if_stale: bool = False):
+        """Queue ``fn`` on the command worker (from any thread); a :class:`CommandTicket`."""
+        return self._commands.submit(what, fn, gen=self.start_generation(), drop_if_stale=drop_if_stale)
+
+    def wait_commands(self, timeout: float = 30.0) -> bool:
+        """Block until the queued operator commands ended (tests, scripting).  On the GUI thread
+        the window's events are processed meanwhile."""
+        pump = getattr(self.events.dispatcher, "pump", None) if self._on_ui_thread() else None
+        return self._commands.wait_idle(timeout, pump)
+
+    def commands_pending(self) -> int:
+        """Operator commands queued or running (the UI shows "waiting for the card")."""
+        return self._commands.pending()
+
+    def _stale_since(self, gen: int) -> Optional[str]:
+        return None if gen == self.start_generation() else "Stop or a halt since the request"
+
+    def _command_dropped(self, t) -> None:
+        self._log(f"{t.what} cancelled: {t.dropped}")
+
+    def _commands_changed(self, pending: int, what: str) -> None:
+        from ..machine import events as EV
+        self.events.publish(EV.CommandsPending(pending, what))
 
     # ------------------------------------------------------------------ helpers
     @property

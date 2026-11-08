@@ -169,6 +169,27 @@ Called from: the job worker's `finally` (every exit except a verified complete r
 `disconnect()`, `closeEvent`, `atexit`, SIGINT/SIGTERM, `sys.excepthook` / `threading.excepthook`,
 every FAULT, Stop, Pause (without the FIFO part), the jog dead-man fallback.
 
+### 4a. Card loss: no command waits on the GUI thread (issue #5)
+
+With the card switched off (an e-stop that cuts its power) one request waits out the retry
+policy, ~3.5 s. The GUI thread never waits for it:
+
+* operator commands given on the GUI thread (jog, jog release, outputs, laser, Clear alarm,
+  fault reset, home, moves, Start/Resume, ...) are queued on **one** command worker
+  (`controller/commands.py`), in order, so they reach the wire in the order given;
+* Stop, Hold, `safe_halt`, a fault halt and the halt of Disconnect / window close never wait in
+  that queue: they are latched at once and sent from their own thread at once;
+* a queued command that moves or turns something on carries the start generation of the moment
+  it was given: after a Stop / halt / fault it is dropped, and while it runs the guard refuses
+  its motion and emission requests (a Stop always wins over queued and in-flight commands);
+  off-commands (jog release, outputs off, laser off, alarm reset) are never dropped;
+* once the monitor declared the link lost, the guard refuses every request that is not a pure
+  halt class at once ("the card does not answer"), halt-class requests are still sent (once,
+  one receive timeout, instead of the whole retry policy) and the monitor keeps repeating the
+  full halt on the halt channel; a jog release then sends the full halt on the halt channel;
+* the window closes at once; the disconnect (halt first, then the worker and poller joins) ends
+  on the command worker, and the exit hooks halt again synchronously.
+
 ## 5. Pre-flight check
 
 `ctl.preflight(action, document, ...)` returns errors (blocking) and warnings (acknowledged in
@@ -288,6 +309,12 @@ long jobs on slow hosts.
 * Stop never blocks the caller: it flags the cancel, a background thread sends the halt first,
   then waits for the worker. Global keys while a job runs: Space = Hold/continue (not while typing
   in a text field), Esc and F12 = Stop.
+* Esc = Stop applies in every window, dialogs included (decision of the UI evaluation, F10: the
+  platform guides say Esc only cancels a dialog, but an operator reaching for Esc in a hurry must
+  stop the machine wherever the focus is). In a dialog the key then goes on to the dialog too, so
+  its own Esc = Cancel keeps working: one press stops the job and closes the dialog
+  (`safety_ui._KeyFilter`, `tests/test_clipboard_undo.py`). In the main window the key is taken
+  (Esc = deselect does not also run).
 
 ## 9. Simulator and fault injection
 

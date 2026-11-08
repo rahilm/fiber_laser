@@ -26,12 +26,19 @@ Listener = Callable[[str], None]  # kind: "edit" | "replace" | "undo" | "redo"
 
 class DocumentService:
     def __init__(
-        self, document: Optional[Document] = None, undo_limit: int = 100, undo_max_bytes: int = 256 * 2**20
+        self,
+        document: Optional[Document] = None,
+        undo_limit: Optional[int] = None,
+        undo_max_bytes: int = 256 * 2**20,
     ) -> None:
         self.document: Document = document or Document()
         self.path: Optional[str] = None
         self.blobs = RoundTripTable()
+        # bounded by memory (undo_max_bytes), not by a step count (UI evaluation F10)
         self.stack = UndoStack(undo_limit, undo_max_bytes)
+        #: the undo label of a transaction, as recorded: the UI names an edit after the command
+        #: that made it (``edit.cut``), see mlaser/ui/undo_names.py; identity by default
+        self.label_for: Callable[[str], str] = lambda label: label
         self.listeners: list[Listener] = []
         self.last_edit_ms = 0.0  # time of the last edit transaction (fn + record)
         # during a notification: uids of the parts an edit / undo / redo may have changed (the
@@ -154,7 +161,7 @@ class DocumentService:
             return
         if record:
             old, old_path = self._pending or (self.document, self.path)
-            self.stack.push(ReplaceDocument(label, old, old_path, cost=sum(part_cost(p) for p in old.parts)))
+            self.stack.push(ReplaceDocument(self.label_for(label), old, old_path, cost=sum(part_cost(p) for p in old.parts)))
         self._pending = None
         self.document, self.path = doc, path
         ensure_unique_ids(doc)
@@ -186,7 +193,7 @@ class DocumentService:
             return
         old, old_path = self._pending
         self._pending = None
-        self.stack.push(ReplaceDocument("edit", old, old_path, cost=sum(part_cost(p) for p in old.parts)))
+        self.stack.push(ReplaceDocument(self.label_for("edit"), old, old_path, cost=sum(part_cost(p) for p in old.parts)))
 
     def commit(self) -> None:
         """Record an in-place change made after :meth:`checkpoint` and notify."""
@@ -203,8 +210,11 @@ class DocumentService:
         label: str = "edit",
         parts: Optional[Iterable[Part]] = None,
         notify: bool = True,
+        coalesce: bool = False,
     ) -> Any:
-        """Run ``fn(document)`` as one undoable change; returns its result."""
+        """Run ``fn(document)`` as one undoable change; returns its result.  ``coalesce``: an
+        edit of the same kind (label) on the same parts right after this one joins its undo
+        step (arrow-key nudges; :class:`UndoStack`)."""
         if self._depth:  # nested edit: part of the outer transaction
             return fn(self.document)
         t0 = time.perf_counter()
@@ -229,7 +239,7 @@ class DocumentService:
         finally:
             self._depth -= 1
         if self.document is not doc:  # fn replaced the whole document
-            self.stack.push(ReplaceDocument(label, doc, path, cost=sum(part_cost(p) for p in doc.parts)))
+            self.stack.push(ReplaceDocument(self.label_for(label), doc, path, cost=sum(part_cost(p) for p in doc.parts)))
             self.blobs.register_document(self.document)
             self.last_edit_ms = (time.perf_counter() - t0) * 1e3
             if notify:
@@ -249,7 +259,9 @@ class DocumentService:
             elif p.uid in scope:
                 self.blobs.register_part(p)
         cost = sum(part_cost(p) for p in swap.values() if p is not None)
-        self.stack.push(PartsEdit(label, order_before, order_after, swap, doc_state, cost=cost))
+        label = self.label_for(label)
+        key = (label, frozenset(scope)) if coalesce else None
+        self.stack.push(PartsEdit(label, order_before, order_after, swap, doc_state, cost=cost, merge_key=key))
         self.last_edit_ms = (time.perf_counter() - t0) * 1e3
         if notify:
             changed = set(swap) | scope

@@ -402,6 +402,10 @@ class MotionController:
         self.last_ok = 0.0
         self.last_sent = 0.0         # time.monotonic() of the last request sent
         self.requests = 0
+        # set by the safety supervisor while the link is known to be down (no reply for the
+        # link deadline): a request is sent once and waits one receive timeout instead of the
+        # whole retry policy (~3.5 s), so the halts and the poller's probes get through
+        self.link_lost = False
 
     @property
     def guard(self):
@@ -506,6 +510,8 @@ class MotionController:
             self._tid = (self._tid + 1) & 0xFFFF
             frame = F.encode_request(req)
             sends, recvs = self.cfg.max_send, max(1, self.cfg.max_recv)
+            if self.link_lost:
+                sends = recvs = 1
             tmo = self._timeout_ms / 1000
             last = F.ERR_TIMEOUT
             self._drain()

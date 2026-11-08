@@ -13,6 +13,10 @@ instead (:mod:`mlaser.cli`, docs/user/automation.md): no window, no card connect
 * ``--laser-off``: dry-run mode, the laser byte of every step item is cleared and arming is
   impossible (banner DRY-RUN).
 * ``--log-dir PATH``: where mlaser.log / audit.log / crash.log go (default: the user log directory).
+* ``--new-instance``: start even when mlaser already runs for this user and configuration
+  (``MLASER_SINGLE_INSTANCE=0`` too).  Without it a second launch hands its file to the running
+  instance, which comes to the front, and exits (:mod:`mlaser.ui.single_instance`).  A motion
+  card is driven by one process at a time either way (:mod:`mlaser.controller.cardlock`).
 
 Every connection starts **disarmed** (docs/SAFETY.md): the operator arms the machine in the
 state banner or the run bar before anything can fire.
@@ -73,8 +77,55 @@ def main(argv=None) -> int:
     ap.add_argument("--laser-off", action="store_true", help="never set the laser byte (dry run)")
     ap.add_argument("--fake", action="store_true", help="use the protocol-free DemoController")
     ap.add_argument("--log-dir", help="log directory (default: the user log directory)")
+    ap.add_argument("--new-instance", action="store_true",
+                    help="start another instance instead of handing the file to the running one "
+                         "(tests, development; also MLASER_SINGLE_INSTANCE=0)")
     args = ap.parse_args(argv)
 
+    # platform identity first (Windows AppUserModelID, macOS process name, Linux platform
+    # theme), then the application object (QFileOpenEvent from Finder / the Dock), its name,
+    # desktop file name and icon (mlaser/ui/native.py)
+    from PySide6.QtWidgets import QApplication
+
+    from . import native
+    app = QApplication.instance()
+    if app is None:
+        native.before_qapplication()
+        app = native.create_application(sys.argv[:1])
+    native.init_application(app)
+
+    # one instance per user and configuration (mlaser/ui/single_instance.py): a second launch
+    # hands its file to the running one, which comes to the front, and exits
+    from . import single_instance
+    inst = None
+    if not args.new_instance and single_instance.enabled():
+        inst = single_instance.SingleInstance()
+        if not inst.claim():
+            try:
+                inst.forward([args.file] if args.file else [])
+            except single_instance.InstanceError as exc:
+                print(f"mlaser is already running, but the request could not be handed over: {exc}. "
+                      "Start with --new-instance to run a second one anyway.", file=sys.stderr)
+                return 1
+            print("mlaser is already running: " + (f"{args.file} opened there" if args.file else
+                                                   "its window was brought to the front"), file=sys.stderr)
+            return 0
+    global _instance
+    _instance = inst
+    try:
+        return _run(args, app, inst)
+    finally:
+        _instance = None
+        if inst is not None:
+            inst.close()
+
+
+#: this process' instance guard while the GUI runs (tests inspect it)
+_instance = None
+
+
+def _run(args, app, inst) -> int:
+    """The application, once this process is the instance that runs (see :func:`main`)."""
     from mlaser.machine import lifecycle, logsetup
     try:
         logdir = logsetup.setup_logging(args.log_dir)
@@ -83,22 +134,11 @@ def main(argv=None) -> int:
         logdir = None
     lifecycle.install()          # atexit, SIGINT/SIGTERM, excepthooks -> safe_halt
 
-    from PySide6.QtWidgets import QApplication
-
     from . import docops
     from .facade import DemoController
     from .i18n import Translator
     from .mainwindow import EXTENSIONS, MainWindow
 
-    # platform identity first (Windows AppUserModelID, macOS process name, Linux platform
-    # theme), then the application object (QFileOpenEvent from Finder / the Dock), its name,
-    # desktop file name and icon (mlaser/ui/native.py)
-    from . import native
-    app = QApplication.instance()
-    if app is None:
-        native.before_qapplication()
-        app = native.create_application(sys.argv[:1])
-    native.init_application(app)
     from mlaser._power import app_activity
     app_activity()                     # macOS: no App Nap (timers and priority kept)
     from . import i18n
@@ -137,6 +177,9 @@ def main(argv=None) -> int:
                      config=config, entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
+    if inst is not None:
+        from .single_instance import activate_window
+        inst.on_activate = lambda: activate_window(win)
     last = str(config.get("app.last_file", "") or "")
     if args.file:
         win.load_path(args.file)
@@ -149,9 +192,13 @@ def main(argv=None) -> int:
             win.ctl.connect()
     elif args.real:
         if not ctl.connect():
-            msg = (f"ERROR: no answer from the motion card at {ctl.cfg.host}:{ctl.cfg.port} "
-                   f"({ctl.cfg.transport}); not starting.  Check the cable and the address "
-                   "(--host/--port/--ini).  mlaser does not fall back to a demo controller with --real.")
+            if ctl.card_busy:          # another process drives this card (controller/cardlock.py)
+                msg = (f"ERROR: {ctl.connect_error}; not starting.  mlaser does not fall back to a demo "
+                       "controller with --real.")
+            else:
+                msg = (f"ERROR: no answer from the motion card at {ctl.cfg.host}:{ctl.cfg.port} "
+                       f"({ctl.cfg.transport}); not starting.  Check the cable and the address "
+                       "(--host/--port/--ini).  mlaser does not fall back to a demo controller with --real.")
             print(msg, file=sys.stderr)
             from PySide6.QtWidgets import QMessageBox
             QMessageBox.critical(win, "Motion card not connected", msg)

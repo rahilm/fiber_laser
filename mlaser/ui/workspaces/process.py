@@ -841,6 +841,19 @@ class LibraryPage(QWidget):
 
 
 # --------------------------------------------------------------------------- workspace
+def technology_name(document: Any, layer: int) -> str:
+    """The technology record a layer of ``document`` follows ("Mild steel 2 mm · v3"), "" when none.
+    No workspace needed: the Properties panel shows it before the Process workspace is built."""
+    ref = T.layer_technology_ref(document.layers.get(layer))
+    if not ref:
+        return ""
+    k = ref.get("key") or {}
+    try:
+        return T.TechKey(**k).label() + (f" · v{ref.get('version')}" if ref.get("version") else "")
+    except TypeError:
+        return str(k)
+
+
 class ProcessWorkspace(QWidget):
     """The Process workspace: **Drawing** (the drawing's layers and the layer inspector, the
     cutting-strategy checks and the estimate) and **Library** (the technology records).  See the
@@ -1097,14 +1110,7 @@ class ProcessWorkspace(QWidget):
         return n
 
     def technology_name(self, layer: int) -> str:
-        ref = T.layer_technology_ref(self.ctx.document.layers.get(layer))
-        if not ref:
-            return ""
-        k = ref.get("key") or {}
-        try:
-            return T.TechKey(**k).label() + (f" · v{ref.get('version')}" if ref.get("version") else "")
-        except TypeError:
-            return str(k)
+        return technology_name(self.ctx.document, layer)
 
     def layer_state(self, layer: int) -> tuple[str, str]:
         from mlaser.services import inheritance as I
