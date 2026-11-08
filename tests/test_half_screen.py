@@ -316,7 +316,7 @@ def test_docks_under_the_page_fold_when_short_and_come_back(win, app):
     assert not any(a == 8 for a, _t in arrangement(win).values())
     for bar in tab_bars(win):
         assert bar in groups(win), (bar, groups(win))
-    win.resize(*WIDE)
+    win.resize(WIDE[0], 1080)       # the height back, with room to spare (larger fonts)
     settle(app)
     assert pol.vfolded is None and pol.folded is None
     assert arrangement(win) == before

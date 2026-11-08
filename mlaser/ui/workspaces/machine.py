@@ -780,6 +780,9 @@ class MachineWorkspace(QWidget):
         self.alarm_table.verticalHeader().hide()
         self.alarm_table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.alarm_table.setWordWrap(True)
+        # no sideways scrolling in a narrow (half-screen) window: the less important columns
+        # hide while the table is narrower than its columns; the alarm text never does
+        ColumnFitter(self.alarm_table, {0: 5, 1: 2, 2: 1, 3: 4, 4: None, 5: 3}, stretch=4)
         lay.addWidget(self.alarm_table, 1)
         self._fill_alarms()
         return page

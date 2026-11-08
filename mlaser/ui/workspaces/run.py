@@ -249,7 +249,7 @@ class RunCanvas(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(320, 220)
+        self.setMinimumSize(260, 220)          # as the shared canvas (CANVAS_MIN): a half-screen window
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.document: Any = None
         self.sheet: Optional[tuple[float, float, float, float]] = None
