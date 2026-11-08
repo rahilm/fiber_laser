@@ -366,7 +366,9 @@ def test_chips_carry_text(win, app):
     win.ctl.raise_fault("test fault")
     win.safety_ui.refresh()
     sh._poll()
-    assert banner.kind == "FAULT" and "test fault" in banner.label.text() and chips["FAULT"].isHidden()
+    # a plain headline in the banner, the raw reason behind it (UX audit W12)
+    assert banner.kind == "FAULT" and "test fault" in banner.label.toolTip() and chips["FAULT"].isHidden()
+    assert "fault" in banner.label.text().lower()
     assert not chips["SIMULATOR"].isHidden()
     win.ctl.reset_fault()
 

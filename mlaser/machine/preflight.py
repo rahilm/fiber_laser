@@ -32,7 +32,7 @@ from typing import Iterable, Optional, Sequence
 
 from .. import i18n as _i18n
 
-ERROR, WARNING = "error", "warning"
+ERROR, WARNING, INFO = "error", "warning", "info"
 ACTIONS = ("start", "dry_run", "frame", "resume", "move", "laser_test")
 
 
@@ -95,6 +95,11 @@ class PreflightReport:
     @property
     def warnings(self) -> list[Issue]:
         return [i for i in self.issues if i.severity == WARNING]
+
+    @property
+    def infos(self) -> list[Issue]:
+        """Information only (:func:`demote_cutting_only`): shown, never to acknowledge."""
+        return [i for i in self.issues if i.severity == INFO]
 
     @property
     def ok(self) -> bool:
@@ -355,6 +360,27 @@ def cutting_issues(document, cam_params=None, *, leads: bool = True, bed=None, s
     return out
 
 
+#: issue codes that only matter when the beam cuts: for a laser-off run (Frame, Dry run) they are
+#: information, not warnings to acknowledge (UX audit W6)
+CUTTING_ONLY = ("layer_undefined", "lead_collision", "tip_risk", "open_contour", "zero_length",
+                "interlock_unconfigured_door", "interlock_unconfigured_gas", "interlock_unconfigured_laser",
+                "interlock_unconfigured_follower", "heartbeat_unconfigured")
+#: the laser-off actions
+LASER_OFF_ACTIONS = ("frame", "dry_run", "move")
+
+
+def demote_cutting_only(rep: PreflightReport) -> PreflightReport:
+    """A copy of ``rep`` for display: for a laser-off action the *warnings* that only concern
+    cutting (:data:`CUTTING_ONLY`) become :data:`INFO`.  Errors are never touched (a blocking
+    issue stays blocking); a cutting action's report is returned unchanged."""
+    if rep is None or rep.action not in LASER_OFF_ACTIONS:
+        return rep
+    from dataclasses import replace
+    issues = [replace(i, severity=INFO) if i.severity == WARNING and i.code in CUTTING_ONLY else i
+              for i in rep.issues]
+    return replace(rep, issues=issues)
+
+
 def merge(reports: Iterable[PreflightReport]) -> PreflightReport:
     reports = list(reports)
     out = PreflightReport(reports[0].action if reports else "start")
@@ -365,6 +391,6 @@ def merge(reports: Iterable[PreflightReport]) -> PreflightReport:
     return out
 
 
-__all__ = ["ERROR", "WARNING", "Issue", "TravelLimits", "PreflightReport", "PreflightError",
+__all__ = ["ERROR", "WARNING", "INFO", "CUTTING_ONLY", "demote_cutting_only", "Issue", "TravelLimits", "PreflightReport", "PreflightError",
            "check", "travel_from_machine", "travel_from_card", "job_extent_mm", "used_layers",
            "layer_is_defined", "check_geometry", "cutting_issues", "merge"]

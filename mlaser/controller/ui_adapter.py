@@ -398,6 +398,14 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
         if why:
             self._log(f"arming refused: interlock active: {why}", logging.WARNING)
             return False
+        from .alarms import blocks_arming
+        held = blocks_arming(self.active_alarms or ())
+        if held:
+            # an e-stop / servo alarm disarmed the machine and it stays disarmed until the
+            # alarm is gone and reset (UX audit C3)
+            from .. import i18n
+            self._log(i18n.tr("log.arm_refused_alarm", alarm=held[0].text_en), logging.WARNING)
+            return False
         if not super().arm(reason, source):
             return False
         self._on_armed()

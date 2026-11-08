@@ -60,6 +60,44 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Changed
 
+- **Safety** (UX audit C1): Start while disarmed runs the pre-flight check first, as if armed;
+  only when it passes one question follows with the arming safety text, *Arm and start* /
+  *Cancel* (Cancel the default, warning icon). Before, the question defaulted to OK, skipped the
+  safety text and armed before the check, so a refused start (e-stop pressed, no technology)
+  left the machine ARMED. A start refused after arming now disarms again and says so. The Arm
+  question has the verb button *Arm laser* and the warning icon (O13); every safety question
+  defaults to Cancel.
+- **Safety** (UX audit C2): *Reset alarm* reads the card again after `[9999, 5, 0, 0]` and clears
+  only the alarms the card no longer reports; with the cause still present it reports "Reset
+  refused: <alarm> still active — <remedy>" instead of "alarms cleared". The run state, the
+  banners, the status chips and the run controls read one alarm source (`ctl.active_alarms`):
+  the run bar showed READY after a reset while the e-stop was still pressed.
+- **Safety** (UX audit C3): an emergency-stop or servo alarm disarms the machine also when idle
+  or held (before: only an alarm during a job latched a FAULT; idle the machine stayed ARMED
+  through the e-stop and its reset). Arming is refused while such an alarm is active, so after
+  the reset the operator arms again. New run state E-STOP. docs/SAFETY.md §2.
+- **Safety** (UX audit C4): Start, Frame and Dry run are disabled while a card alarm or e-stop is
+  active, with the reason "Reset the alarm first: <alarm>".
+- **Safety** (UX audit W17): Stop while held stays immediate and ends the job but keeps the
+  resume point: "Stopped: resume point kept" with *Resume from here* / *Discard* (before it was
+  discarded silently).
+- Start prerequisites before Start (UX audit W3): run state NOT HOMED with *Home axes* in the
+  state banner; `services.readiness.readiness()` (connected, alarms, homed, technology,
+  interlocks, armed: ok / reason / fix command) and `SafetyUI.readiness()` for a readiness strip.
+- One name per action (UX audit W5): *Reset alarm* everywhere (banner, Run screen, dock, menu,
+  alarm list, pre-flight text), *Arm laser* without an ellipsis; a fault and card alarms share
+  one banner with one *Reset alarm*.
+- Pre-flight dialog (UX audit W6): titled "Before Start" / "Before Frame" / "Before Dry run",
+  grouped issues with a severity icon and word, fix buttons for blocking errors (*Choose
+  technology…* opens Process), a click selects the part, "<Action> anyway" / Cancel (Cancel the
+  default); cutting-only warnings of Frame and Dry run are information, not warnings.
+- Plain-language fault and log texts (UX audit W12): the banners show "Lost connection to the
+  motion card" instead of the raw reason (card words, wire index, deadline), which stays in the
+  tooltip, Details and the log file (`Log.detail`); "Held: resume point at X…, Y… mm" instead of
+  "paused (send pause manu cmd): breakpoint at wire 5960".
+- Machine › Connection (UX audit O9): "Demo (no card)" only for the demo controller ("Not
+  connected" for a card controller without a card), the safety state in words, Connect /
+  Disconnect enabled by the connection state.
 - **Safety** (issue #5, UI evaluation F1): with the card switched off (e-stop) no operator command
   blocks the window any more (measured before: jog release 29 s, Gas 7 s, Clear alarm 6 s, fault
   Reset 3.5-6.6 s per press, Disconnect 10 s, window close 3.6 s). Panel commands given on the

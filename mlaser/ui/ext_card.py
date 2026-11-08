@@ -40,11 +40,16 @@ def _tr(window, key: str, default: str, **values) -> str:
 
 
 class AlarmListDialog(Dialog):
-    """Active card alarms (code, text) with a Clear alarms button."""
+    """Active card alarms (code, text) with a Reset alarm button; ``fault``: the latched fault's
+    raw reason (the engineering detail behind the banner's plain headline, UX audit W12)."""
 
-    def __init__(self, window, alarms: list):
+    def __init__(self, window, alarms: list, fault: str = ""):
+        if fault:
+            explanation = _tr(window, "card.alarms.fault_detail", "Fault detail: {detail}", detail=fault)
+        else:
+            explanation = "" if alarms else _tr(window, "card.alarms.none", "No active alarms.")
         super().__init__(window, _tr(window, "mf123", "Alarm"), buttons=QDialogButtonBox.Close,
-                         explanation="" if alarms else _tr(window, "card.alarms.none", "No active alarms."))
+                         explanation=explanation)
         t = S.table([S.Col(_tr(window, "card.alarms.code", "Code"), priority=1), S.Col(_tr(window, "gp85", "Description"), stretch=True)])
         t.setRowCount(len(alarms))
         tr = getattr(window, "tr_", None)
@@ -53,10 +58,18 @@ class AlarmListDialog(Dialog):
             t.setItem(i, 1, QTableWidgetItem(a.text(tr)))
         self.table = t
         self.body.addWidget(t, 1)
-        clr = self.buttons.addButton(_tr(window, "gp90", "Clear Alarm"), QDialogButtonBox.ActionRole)
-        S.set_enabled(clr, bool(alarms), "" if alarms else _tr(window, "card.alarms.nothing_to_clear",
-                                                                    "No alarm to clear"))
-        clr.clicked.connect(lambda: (window.ctl.clear_alarms(), self.accept()))
+        clr = self.buttons.addButton(_tr(window, "run.btn.reset", "Reset alarm"), QDialogButtonBox.ActionRole)
+        S.set_enabled(clr, bool(alarms or fault), "" if alarms or fault else _tr(
+            window, "card.alarms.nothing_to_clear", "No alarm to reset"))
+        clr.clicked.connect(lambda: (self.accept(), self._reset(window)))
+
+    @staticmethod
+    def _reset(window) -> None:
+        su = getattr(window, "safety_ui", None)
+        if su is not None:
+            su.reset_fault()
+        else:
+            window.ctl.clear_alarms()
 
 
 class CardExtension:
@@ -94,7 +107,11 @@ class CardExtension:
         AlarmListDialog(self.w, list(self.w.ctl.active_alarms)).exec()
 
     def clear_alarms(self) -> None:
-        self.w.ctl.clear_alarms()
+        su = getattr(self.w, "safety_ui", None)
+        if su is not None:                 # "Reset alarm": one path (UX audit C2/W5)
+            su.reset_fault()
+        else:
+            self.w.ctl.clear_alarms()
 
     def break_resume(self) -> None:
         ctl = self.w.ctl

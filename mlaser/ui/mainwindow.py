@@ -87,8 +87,12 @@ class _RunRouter:
     def __getattr__(self, name):
         return getattr(self._w.ctl, name)
 
-    def start(self, document=None, selected_only: bool = False) -> None:
-        self._w.run_job("process", selected_only)
+    #: start() reports whether the controller took the start (safety_ui: a Start that armed the
+    #: machine disarms it again when the start is refused, UX audit C1)
+    reports_start_result = True
+
+    def start(self, document=None, selected_only: bool = False, on_result=None) -> None:
+        self._w.run_job("process", selected_only, on_result=on_result)
 
     def dry_run(self, document=None) -> None:
         self._w.run_job("dry_run")
@@ -1053,7 +1057,7 @@ class MainWindow(QMainWindow):
     def toolpath(self, items) -> None:
         self._set_toolpath(items or [])
 
-    def run_job(self, mode: str = "process", selected_only: bool = False) -> None:
+    def run_job(self, mode: str = "process", selected_only: bool = False, on_result=None) -> None:
         """Start (``process``), Dry Cut (``dry_run``) or Frame (``frame``) with the planned job:
         the plan for the current inputs (normally the cached preview plan) goes to the
         controller; a compile, when one is needed, runs in the worker, never here."""
@@ -1061,19 +1065,32 @@ class MainWindow(QMainWindow):
         doc = self.document
         from .resume import moving, resume
         # job_active() also counts a pending breakpoint (Safety core): "not streaming" is the test
+        report = on_result if callable(on_result) else (lambda ok, msg: None)
         if mode == "process" and ctl.breakpoint is not None and not moving(ctl):
             resume(ctl, "exact", doc)
+            report(True, "resume")
             return
         if not doc.parts or (selected_only and not any(p.selected for p in doc.parts)):
-            self.log_panel.log("mp78: graphic data is empty, cannot go frame" if mode == "frame"
-                               else "mp74: graphic data is empty, cannot start")
+            msg = ("mp78: graphic data is empty, cannot go frame" if mode == "frame"
+                   else "mp74: graphic data is empty, cannot start")
+            self.log_panel.log(msg)
+            report(False, msg)
             return
-        req = build_request(mode, self.docs, ctl, self.machine, self.cam_params, selected_only)
+        try:
+            req = build_request(mode, self.docs, ctl, self.machine, self.cam_params, selected_only)
+        except Exception as exc:
+            report(False, str(exc))
+            raise
 
         def result(ok: bool, msg: str) -> None:
             if not ok:
                 self.log_panel.log(msg)
-        self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
+            report(ok, msg)
+        try:
+            self.jobs.run(req, ControllerSubmitter(ctl, self.log_panel.log), result)
+        except Exception as exc:
+            report(False, str(exc))           # a start that never happened is a refused one
+            raise
 
     def _update_toolpath(self) -> None:
         """Re-plan (debounced, in the worker): edits, sort mode, machine profile, controller.

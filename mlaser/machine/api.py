@@ -36,6 +36,7 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Callable, Optional, Protocol, runtime_checkable
 
+from .. import i18n as _i18n
 from . import events as EV
 from . import preflight as PF
 from .safety import SafetyFSM, SafetyState, SafetyStatus
@@ -77,6 +78,7 @@ class MachineAPI(Protocol):
     events: EV.EventBus
     active_alarms: list              # controller.alarms.Alarm (card) or text
     breakpoint: Any                  # nc.resume.Breakpoint while paused at a breakpoint
+    kept_breakpoint: Any             # the resume point a Stop while held kept (UX audit W17)
     connect_hooks: list              # fn(controller) after a successful connect
     job_start_hooks: list            # fn(document) before a job compiles
     coords: Any                      # controller.coords.CoordSystems or None
@@ -92,7 +94,7 @@ class MachineAPI(Protocol):
     def require_homed(self) -> bool: ...     # pre-flight policy (read-only; configure_safety)
 
     # -- listeners (sugar over ``events``)
-    def add_log_listener(self, fn: Callable[[str], None]) -> None: ...
+    def add_log_listener(self, fn: Callable[[str], None], detail: bool = False) -> None: ...
     def add_alarm_listener(self, fn: Callable[[list], None]) -> None: ...
 
     # -- connection and state
@@ -101,6 +103,7 @@ class MachineAPI(Protocol):
     def state(self) -> MachineState: ...
     def snapshot(self) -> MachineState: ...
     def is_simulator(self) -> bool: ...
+    def is_demo(self) -> bool: ...   # the protocol-free demo table (no card, no card simulator)
     def card(self) -> Any: ...       # supervised card handle (None without a card)
     def endpoint(self) -> Optional[tuple[str, int]]: ...   # card (host, port), None without one
 
@@ -157,6 +160,8 @@ class MachineAPI(Protocol):
     def step_forward(self, length_mm: float) -> None: ...
     def resume_saved(self, document: Any, autosave_dir: Optional[str] = None,
                      mode: str = "contour") -> bool: ...
+    def restore_kept_breakpoint(self) -> bool: ...
+    def discard_kept_breakpoint(self) -> None: ...
     def wait_job(self, timeout: float = 60.0) -> bool: ...
     def job_active(self) -> bool: ...
     def clear_alarms(self) -> None: ...
@@ -198,6 +203,9 @@ class ControllerFacade(ABC):
         self.events = EV.EventBus()
         self.active_alarms: list = []
         self.breakpoint = None
+        #: the resume point a Stop while held kept (UX audit W17): restore_kept_breakpoint()
+        #: brings it back, discard_kept_breakpoint() drops it; a new breakpoint replaces it
+        self.kept_breakpoint = None
         self.connect_hooks: list = []
         self.job_start_hooks: list = []
         self.coords = None
@@ -207,17 +215,24 @@ class ControllerFacade(ABC):
         self._gen_lock = threading.Lock()
 
     # -- events ------------------------------------------------------------
-    def add_log_listener(self, fn: Callable[[str], None]) -> None:
-        self.events.subscribe(EV.Log, lambda e: fn(e.message))
+    def add_log_listener(self, fn: Callable[[str], None], detail: bool = False) -> None:
+        """``fn(message)`` for every log line; with ``detail`` the line's engineering detail
+        is appended in brackets (the log file: :class:`mlaser.diag.logs.LogFileWriter`)."""
+        if detail:
+            self.events.subscribe(EV.Log, lambda e: fn(f"{e.message} [{e.detail}]" if e.detail else e.message))
+        else:
+            self.events.subscribe(EV.Log, lambda e: fn(e.message))
 
     def add_alarm_listener(self, fn: Callable[[list], None]) -> None:
         """``fn(active_alarms)`` whenever the active alarm list changes."""
         self.events.subscribe(EV.AlarmRaised, lambda e: fn(list(e.active)))
         self.events.subscribe(EV.AlarmCleared, lambda e: fn(list(e.active)))
 
-    def _log(self, msg: str, level: int = logging.INFO) -> None:
-        log.log(level, "%s", msg)
-        self.events.publish(EV.Log(msg, level))
+    def _log(self, msg: str, level: int = logging.INFO, detail: str = "") -> None:
+        """A log line: ``msg`` for the operator (plain language), ``detail`` (card words, wire
+        indices, deadlines) only for the log file and the Python log."""
+        log.log(level, "%s", f"{msg} [{detail}]" if detail else msg)
+        self.events.publish(EV.Log(msg, level, detail))
 
     def _on_safety_change(self, old: SafetyState, new: SafetyState, st: SafetyStatus,
                           reason: str) -> None:
@@ -300,6 +315,9 @@ class ControllerFacade(ABC):
     def is_simulator(self) -> bool:
         return False
 
+    def is_demo(self) -> bool:
+        return False
+
     def card(self) -> Any:
         return None
 
@@ -361,11 +379,35 @@ class ControllerFacade(ABC):
         self._log("fault reset: machine disarmed")
         return True
 
+    def restore_kept_breakpoint(self) -> bool:
+        """The resume point a Stop while held kept (UX audit W17) becomes the breakpoint again:
+        the machine is held at it (Start / Continue resumes with the pre-flight and the start
+        gate, as after a Hold).  Refused while a job is active or another breakpoint exists."""
+        bp = self.kept_breakpoint
+        if bp is None or self.breakpoint is not None or self.job_active():
+            return False
+        self.kept_breakpoint = None
+        self.breakpoint = bp
+        s = getattr(self, "_s", None)
+        if s is not None and s.connected:
+            s.mode = "pause"            # the status poll keeps it while the breakpoint exists
+        self._log(_i18n.tr("log.resume_point_restored"))
+        self.events.publish(EV.BreakpointChanged(bp))
+        return True
+
+    def discard_kept_breakpoint(self) -> None:
+        """Drop the kept resume point (the operator's explicit choice)."""
+        if self.kept_breakpoint is not None:
+            self.kept_breakpoint = None
+            self._log(_i18n.tr("log.resume_point_discarded"))
+
     def raise_fault(self, reason: str) -> None:
         """Latch a FAULT and bring the machine to a safe state."""
         first = self.fsm.raise_fault(reason)
         self._invalidate_starts("fault")
-        self._log(f"FAULT: {reason}" if first else f"(fault already latched) {reason}", logging.ERROR)
+        from .fault_text import headline
+        self._log(headline(reason), logging.ERROR,
+                  detail=f"FAULT: {reason}" if first else f"(fault already latched) {reason}")
         self.safe_halt(reason)
 
     def safe_halt(self, reason: str = "") -> None:

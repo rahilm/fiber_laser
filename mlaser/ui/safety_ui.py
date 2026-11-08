@@ -24,7 +24,7 @@ import logging
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialog,
                                QDialogButtonBox, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStyle, QTextEdit,
@@ -36,6 +36,7 @@ from ..machine import events as EV
 from ..services import units
 from . import a11y, qtbridge, style
 from .responsive import keep_min_size
+from ..machine.fault_text import headline
 from .safety_texts import remedy
 from .style import TARGET_RUN
 
@@ -140,20 +141,30 @@ DONT_ASK: dict[str, bool] = {}      # key -> remembered answer for this session 
 
 
 def ask(parent, key: str, text: str, title: str = "", dont_ask: bool = False,
-        settings: Optional[dict] = None, default_yes: bool = True) -> bool:
+        settings: Optional[dict] = None, default_yes: bool = False, yes_text: str = "",
+        warning: bool = False, informative: str = "") -> bool:
     """OK/Cancel question as a real dialog; with ``dont_ask`` a "don't ask again" box stores the
-    answer in ``settings["dont_ask.<key>"]``."""
+    answer in ``settings["dont_ask.<key>"]``.  Cancel is the default button unless
+    ``default_yes`` (UX audit C1: a safety question never defaults to yes); ``yes_text`` names
+    the OK button with its verb ("Arm laser", "Arm and start"); ``warning``: the warning icon
+    (a hazard question), else the question icon."""
     store = settings if settings is not None else DONT_ASK
     k = f"dont_ask.{key}"
     if dont_ask and k in store:
         return bool(store[k])
     box = QMessageBox(parent)
     try:
-        box.setIcon(QMessageBox.Question)
+        box.setIcon(QMessageBox.Warning if warning else QMessageBox.Question)
         box.setWindowTitle(title)          # empty: the platform shows the app name (Native track)
         box.setText(text)
+        if informative:
+            box.setInformativeText(informative)
         box.setStandardButtons(QMessageBox.Ok | QMessageBox.Cancel)
+        if yes_text:
+            # the standard Ok role (exec() answers Ok), the verb as its text
+            box.button(QMessageBox.Ok).setText(yes_text)
         box.setDefaultButton(QMessageBox.Ok if default_yes else QMessageBox.Cancel)
+        box.setEscapeButton(QMessageBox.Cancel)
         cb = None
         if dont_ask:
             # parented to the box: PySide's setCheckBox() leaves the C++ checkbox owned by its
@@ -190,60 +201,179 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
         on_recover()
 
 
+#: pre-flight action -> (title id, title default, "go anyway" id, default)
+PREFLIGHT_TITLES = {
+    "start": ("safety.preflight.title_start", "Before Start", "safety.preflight.anyway_start", "Start anyway"),
+    "resume": ("safety.preflight.title_resume", "Before Resume", "safety.preflight.anyway_resume", "Resume anyway"),
+    "frame": ("safety.preflight.title_frame", "Before Frame", "safety.preflight.anyway_frame", "Frame anyway"),
+    "dry_run": ("safety.preflight.title_dry_run", "Before Dry run", "safety.preflight.anyway_dry_run",
+                "Dry run anyway"),
+    "move": ("safety.preflight.title_move", "Before the move", "safety.preflight.anyway_move", "Move anyway"),
+    "laser_test": ("safety.preflight.title_laser_test", "Before the laser test",
+                   "safety.preflight.anyway_laser_test", "Test anyway"),
+}
+#: issue code -> (fix button id, default, command id): the fix of a blocking error (UX audit W6)
+PREFLIGHT_FIXES = {
+    "layer_undefined": ("safety.preflight.fix.technology", "Choose technology…", "workspace.process"),
+    "not_homed": ("safety.preflight.fix.home", "Home axes", "machine.home"),
+    "alarm": ("run.btn.reset", "Reset alarm", "card.clear_alarms"),
+    "fault": ("run.btn.reset", "Reset alarm", "card.clear_alarms"),
+    "not_armed": ("run.btn.arm", "Arm laser", "run.arm"),
+}
+#: severity -> (QStyle standard icon, label id, default): icon AND word, never colour alone
+_SEVERITY = {"error": ("SP_MessageBoxCritical", "safety.preflight.sev_error", "Error"),
+             "warning": ("SP_MessageBoxWarning", "safety.preflight.sev_warning", "Warning"),
+             "info": ("SP_MessageBoxInformation", "safety.preflight.sev_info", "Info")}
+
+
+def preflight_groups(report) -> list[tuple[str, str, list]]:
+    """The report's issues grouped for display: [(severity, code, issues)], errors first, one
+    group per (severity, code), in the order they were found."""
+    order = {"error": 0, "warning": 1, "info": 2}
+    groups: dict = {}
+    for i in report.issues:
+        groups.setdefault((i.severity, i.code), []).append(i)
+    return sorted(((sev, code, items) for (sev, code), items in groups.items()),
+                  key=lambda g: order.get(g[0], 3))
+
+
 class PreflightDialog(QDialog):
-    """The pre-flight report: errors (blocking) and warnings (to acknowledge)."""
+    """The pre-flight report as a structured list (UX audit W6): one row per issue group with a
+    severity icon and word, a fix button for blocking errors ("Choose technology…" opens the
+    Process workspace), a click on a row with a place in the drawing selects it; information
+    rows (cutting-only issues of a laser-off run) need no acknowledgement.  Buttons: Close when
+    something blocks, else "<Action> anyway" / Cancel (Cancel the default)."""
 
     def __init__(self, report, parent=None, title: str = "", actions=()):
         super().__init__(parent)
+        from PySide6.QtWidgets import QListWidget, QListWidgetItem
         self.report = report
         self.chosen = None              # the extra action the operator picked (``actions``)
-        self.setWindowTitle(title or _tr(parent.window() if parent is not None else None, "safety.preflight.title",
-                                         "Pre-flight check: {action}", action=report.action))
+        self.fixes: dict[str, QPushButton] = {}
+        win = parent.window() if parent is not None else None
+        self._win = win
+        tid, tdef, gid, gdef = PREFLIGHT_TITLES.get(report.action, (
+            "safety.preflight.title", "Pre-flight check: {action}", "safety.preflight.continue", "Continue"))
+        self.setWindowTitle(title or _tr(win, tid, tdef, action=report.action))
         lay = style.vbox(self, "dialog")
         head = QLabel()
-        win = parent.window() if parent is not None else None
         head.setTextFormat(Qt.PlainText)
+        head.setWordWrap(True)
         style.set_font(head, "label_strong")
         if report.errors:
-            head.setStyleSheet(f"color:{style.css('danger')};")
             head.setText(_trn(win, "safety.preflight.errors", len(report.errors)))
-        else:
+        elif report.warnings:
             head.setText(_trn(win, "safety.preflight.warnings", len(report.warnings)))
+        else:
+            head.setText(_tr(win, "safety.preflight.info_only", "For your information:"))
         lay.addWidget(head)
-        txt = QPlainTextEdit()
-        txt.setReadOnly(True)
-        lines = [_tr(win, "safety.preflight.line_error", "ERROR    {message}", message=i.message) for i in report.errors]
-        lines += [_tr(win, "safety.preflight.line_warning", "warning  {message}", message=i.message)
-                  for i in report.warnings]
+        self.list = QListWidget()
+        self.list.setObjectName("preflight_issues")
+        self.list.setWordWrap(True)
+        self.list.setAccessibleName(_tr(win, "safety.preflight.list", "Pre-flight issues"))
+        st = self.style()
+        self.groups = preflight_groups(report)
+        for sev, code, items in self.groups:
+            icon_name, sid, sdef = _SEVERITY.get(sev, _SEVERITY["warning"])
+            text = self._group_text(win, code, items)
+            it = QListWidgetItem(st.standardIcon(getattr(QStyle, icon_name)),
+                                 _tr(win, "safety.preflight.row", "{severity}: {message}",
+                                     severity=_tr(win, sid, sdef), message=text))
+            it.setData(Qt.UserRole, (sev, code))
+            it.setToolTip("\n".join(i.message for i in items))
+            self.list.addItem(it)
+        self.list.itemActivated.connect(self._focus)
+        self.list.itemClicked.connect(self._focus)
+        lay.addWidget(self.list, 1)
+        extra = []
         if report.extent is not None:
             x0, y0, x1, y1 = report.extent
             u = units.current()
             n = lambda v: u.number(v, "length", 1 if u.unit("length") == "mm" else 2)  # noqa: E731
-            lines.append("\n" + _tr(win, "safety.preflight.extent", "job extent X {x0}..{x1}  Y {y0}..{y1} {unit}",  # i18n: ok (blank line before)
-                                     x0=n(x0), x1=n(x1), y0=n(y0), y1=n(y1), unit=u.suffix("length")))
+            extra.append(_tr(win, "safety.preflight.extent", "job extent X {x0}..{x1}  Y {y0}..{y1} {unit}",
+                             x0=n(x0), x1=n(x1), y0=n(y0), y1=n(y1), unit=u.suffix("length")))
         if report.travel is not None:
             u = units.current()
             tv = report.travel
             g = lambda v: u.number(v, "length", trim=True)  # noqa: E731
-            lines.append(_tr(win, "safety.preflight.travel", "travel X {x0}..{x1} {unit}, Y {y0}..{y1} {unit} ({source})",
+            extra.append(_tr(win, "safety.preflight.travel", "travel X {x0}..{x1} {unit}, Y {y0}..{y1} {unit} ({source})",
                              x0=g(tv.x[0]), x1=g(tv.x[1]), y0=g(tv.y[0]), y1=g(tv.y[1]), unit=u.suffix("length"),
                              source=tv.source))
-        txt.setPlainText("\n".join(lines))
-        lay.addWidget(txt)
+        if extra:
+            foot = QLabel("\n".join(extra))
+            foot.setTextFormat(Qt.PlainText)
+            foot.setWordWrap(True)
+            foot.setObjectName("preflight_extent")
+            lay.addWidget(foot)
         bb = QDialogButtonBox()
         if report.errors:
-            bb.addButton(QDialogButtonBox.Close)
+            close = bb.addButton(QDialogButtonBox.Close)
+            close.setDefault(True)
             bb.rejected.connect(self.reject)
+            for sev, code, _items in self.groups:
+                fix = PREFLIGHT_FIXES.get(code)
+                if fix is None or code in self.fixes or sev != "error":
+                    continue
+                fid, fdef, cid = fix
+                b = bb.addButton(_tr(win, fid, fdef), QDialogButtonBox.ActionRole)
+                b.setObjectName(f"preflight_fix_{code}")
+                b.clicked.connect(lambda _=False, c=cid: self._fix(c))
+                self.fixes[code] = b
         else:
-            self.go = bb.addButton(_tr(win, "safety.preflight.continue", "Continue"), QDialogButtonBox.AcceptRole)
-            bb.addButton(QDialogButtonBox.Cancel)
+            self.go = bb.addButton(_tr(win, gid, gdef, action=report.action), QDialogButtonBox.AcceptRole)
+            cancel = bb.addButton(QDialogButtonBox.Cancel)
+            self.go.setDefault(False)
+            self.go.setAutoDefault(False)
+            cancel.setDefault(True)            # Enter never confirms a warning by accident
             bb.accepted.connect(self.accept)
             bb.rejected.connect(self.reject)
         for label, fn in actions:       # e.g. "Repair..." for open contours (contributors)
             b = bb.addButton(label, QDialogButtonBox.ActionRole)
             b.clicked.connect(lambda _=False, f=fn: self._act(f))
         lay.addWidget(bb)
-        self.resize(560, 300)
+        self.resize(600, 320)
+
+    @staticmethod
+    def _group_text(win, code: str, items: list) -> str:
+        """One line per group: "4 layers have no technology (1, 2, 3, 4)", else the message (the
+        first one and "+n more" for a longer group)."""
+        if code == "layer_undefined" and len(items) > 1:
+            layers = ", ".join(str(i.where[0]) for i in items if i.where)
+            return _trn(win, "safety.preflight.layers_undefined", len(items), layers=layers)
+        if len(items) == 1:
+            return items[0].message
+        return _tr(win, "safety.preflight.more", "{message} (+{n} more)", message=items[0].message,
+                   n=len(items) - 1)
+
+    def _fix(self, cmd_id: str) -> None:
+        """A fix button: close the dialog (the action does not run) and run the fix command."""
+        self.chosen = cmd_id
+        self.reject()
+        cmds = getattr(self._win, "commands", None)
+        if cmds is None:
+            return
+        try:
+            cmds.run(cmd_id)
+        except Exception:  # noqa: BLE001 - a missing command (another controller) only logs
+            log.exception("pre-flight fix %s", cmd_id)
+
+    def _focus(self, item) -> None:
+        """Select the part an issue points at (``Issue.where`` = (part index, contour index))."""
+        sev_code = item.data(Qt.UserRole)
+        if not sev_code:
+            return
+        for sev, code, items in self.groups:
+            if (sev, code) != tuple(sev_code):
+                continue
+            where = next((i.where for i in items if i.where), None)
+            canvas = getattr(self._win, "canvas", None)
+            if where is None or code == "layer_undefined" or canvas is None or len(where) != 2:
+                return
+            try:
+                canvas.select_parts([int(where[0])])
+            except Exception:  # noqa: BLE001 - selection is a convenience
+                log.debug("pre-flight focus failed", exc_info=True)
+            return
 
     def _act(self, fn) -> None:
         self.chosen = fn
@@ -266,6 +396,13 @@ class StateBanner(QWidget):
         style.set_font(self.label, "title")
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         h.addWidget(self.label, 1)
+        # NOT HOMED (UX audit W3): the machine needs homing before a job; the fix at hand
+        self.home_btn = QPushButton(_tr(ui.w, "safety.banner.home", "Home axes"))
+        self.home_btn.setObjectName("safety_home")
+        self.home_btn.setMinimumHeight(style.TARGET)
+        self.home_btn.clicked.connect(lambda _=False: self.ui.home())
+        self.home_btn.setVisible(False)
+        h.addWidget(self.home_btn)
         self.btn = QPushButton()
         self.btn.setMinimumHeight(style.TARGET)
         self.btn.clicked.connect(self._action)
@@ -282,7 +419,7 @@ class StateBanner(QWidget):
         elif k in ("DISARMED", "SIMULATOR"):
             self.ui.arm()
 
-    def refresh(self, st) -> None:
+    def refresh(self, st, need_home: bool = False) -> None:
         kind = st.banner if st is not None else "OFFLINE"
         self.kind = kind
         bg, fg = COLORS.get(kind, COLORS["OFFLINE"])
@@ -290,25 +427,34 @@ class StateBanner(QWidget):
         key, default = TEXTS.get(kind, ("", kind))
         text = _tr(w, key, default) if key else kind
         if kind == "FAULT":
-            text = _tr(w, "safety.banner.fault_latched", "FAULT (latched): {fault}", fault=st.fault)
+            # the plain headline; the raw reason is the tooltip and the alarm banner's Details
+            text = _tr(w, "safety.banner.fault_latched", "FAULT (latched): {fault}",
+                       fault=headline(st.fault, getattr(w, "tr_", None)))
         elif st is not None and st.simulator and kind != "SIMULATOR":
             text = _tr(w, "safety.banner.with_simulator", "{state}  · simulator", state=text)
         if st is not None and kind == "SIMULATOR":
             text = _tr(w, "safety.banner.simulator_disarmed", "SIMULATOR: disarmed") if not st.armed else text
         if self.label.text() != text:
             self.label.setText(text)
+        tip = st.fault if kind == "FAULT" and st is not None else ""
+        if self.label.toolTip() != tip:
+            self.label.setToolTip(tip)
         qss = f"background:{bg}; color:{fg};"
         if qss != self._style:                 # re-polishing is expensive: only on a change
             self._style = qss
             self.setStyleSheet(qss)
             self.label.setStyleSheet(f"color:{fg}; background:transparent;")
-        label = {"FAULT": _tr(w, "safety.banner.reset", "Reset"),
-                 "ARMED": _tr(w, "run.btn.disarm", "Disarm laser"),
-                 "DISARMED": _tr(w, "safety.banner.arm", "Arm laser…"),
-                 "SIMULATOR": _tr(w, "safety.banner.arm", "Arm laser…")}.get(kind)
+        # FAULT has no button here: the alarm banner below (always shown with a fault) carries
+        # the one "Reset alarm" (UX audit W5: one banner, one reset)
+        label = {"ARMED": _tr(w, "run.btn.disarm", "Disarm laser"),
+                 "DISARMED": _tr(w, "run.btn.arm", "Arm laser"),
+                 "SIMULATOR": _tr(w, "run.btn.arm", "Arm laser")}.get(kind)
         self.btn.setVisible(label is not None)
         if label:
             self.btn.setText(label)
+        home = bool(need_home) and kind != "FAULT"
+        if self.home_btn.isHidden() == home:
+            self.home_btn.setVisible(home)
 
 
 class AlarmBanner(QWidget):
@@ -357,13 +503,20 @@ class AlarmBanner(QWidget):
             if t:
                 title = _tr(w, "safety.alarm.with_since", "{text}   since {time}", text=title,
                             time=time.strftime('%H:%M:%S', time.localtime(t)))
+            if st is not None and st.banner == "FAULT":
+                # one banner for a fault and the alarms together, one Reset alarm (UX audit W5)
+                title = _tr(w, "safety.alarm.with_fault", "{text}  · FAULT: {fault}", text=title,
+                            fault=headline(st.fault, tr))
             self.title.setText(title)
+            self.title.setToolTip(st.fault if st is not None and st.banner == "FAULT" else "")
             self.remedy.setText(_tr(w, "safety.alarm.remedy", "Remedy: {text}", text=remedy(a, tr)))
             return True
         if st is not None and st.banner == "FAULT":
             w = self.ui.w
-            self.title.setText(_tr(w, "safety.alarm.fault_since", "FAULT: {fault}   since {time}", fault=st.fault,
+            self.title.setText(_tr(w, "safety.alarm.fault_since", "FAULT: {fault}   since {time}",
+                                   fault=headline(st.fault, tr),
                                    time=time.strftime('%H:%M:%S', time.localtime(st.fault_t))))
+            self.title.setToolTip(st.fault)
             self.remedy.setText(_tr(w, "safety.alarm.remedy", "Remedy: {text}", text=remedy(st.fault, tr)))
             return True
         return False
@@ -549,28 +702,25 @@ class RunBar(QToolBar):
     #: run state -> (catalogue id, default, colour key of COLORS)
     PILL = {"offline": ("run.state.offline", "OFFLINE", "OFFLINE"), "ready": ("run.state.ready", "READY", "READY"),
             "running": ("run.state.running", "RUNNING", "RUNNING"), "hold": ("run.state.hold", "HOLD", "HOLD"),
-            "alarm": ("run.state.alarm", "ALARM", "ALARM"), "fault": ("run.state.fault", "FAULT", "FAULT")}
+            "alarm": ("run.state.alarm", "ALARM", "ALARM"), "fault": ("run.state.fault", "FAULT", "FAULT"),
+            "estop": ("run.state.estop", "E-STOP", "ALARM"),
+            "not_homed": ("run.state.not_homed", "NOT HOMED", "DISARMED")}
 
     def _pill_texts(self) -> list[str]:
         return [_tr(self.ui.w, k, d) for k, d, _c in self.PILL.values()]
 
-    def run_state(self, st, ms) -> str:
-        """offline / ready / running / hold / alarm / fault: the machine's run state."""
-        if st is not None and st.banner == "FAULT":
-            return "fault"
-        if ms is not None and ms.alarms:
-            return "alarm"
-        if ms is None or not ms.connected:
-            return "offline"
-        if ms.mode == "pause":
-            return "hold"
-        if ms.mode in ("process", "dry_run", "frame"):
-            return "running"
-        return "ready"
+    def run_state(self, st, ms, alarms=None, need_home: bool = False) -> str:
+        """offline / fault / estop / alarm / hold / running / not_homed / ready: the machine's
+        run state.  ``alarms``: the card's active alarms (``ctl.active_alarms``, the one alarm
+        source the banner and the status chips read too, UX audit C2); None reads them from the
+        controller.  ``need_home``: :func:`mlaser.services.readiness.homing_needed`."""
+        if alarms is None:
+            alarms = active_alarms(self.ui.w)
+        return run_state(st, ms, alarms, need_home)
 
-    def refresh(self, st, ms, running: bool, eta: str) -> None:
+    def refresh(self, st, ms, running: bool, eta: str, alarms=None, need_home: bool = False) -> None:
         kind = st.banner if st is not None else "OFFLINE"
-        rs = self.run_state(st, ms)
+        rs = self.run_state(st, ms, alarms, need_home)
         key, default, col = self.PILL[rs]
         label = _tr(self.ui.w, key, default)
         # READY while armed shows the ARMED colour (the laser fires on Start: never the calm blue)
@@ -588,7 +738,7 @@ class RunBar(QToolBar):
         connected = bool(ms is not None and ms.connected)
         fault = kind == "FAULT"
         paused = ms is not None and ms.mode == "pause"
-        for k, on, why in run_enabled(self.ui.w, st, ms, running):
+        for k, on, why in run_enabled(self.ui.w, st, ms, running, alarms):
             b = self.buttons[k]
             if b.isEnabled() != on or b.property("disabled_reason") != ("" if on else why):
                 style.set_enabled(b, on, why)
@@ -611,16 +761,66 @@ class RunBar(QToolBar):
             b.setAccessibleName(text)
 
 
-def run_enabled(window, st, ms, running: bool) -> list[tuple[str, bool, str]]:
+def active_alarms(window) -> list:
+    """The card's active alarms: THE alarm source of the run state, the banners, the status
+    chips and the run controls' enabling (``ctl.active_alarms``, re-read after every status and
+    after a reset; UX audit C2)."""
+    ctl = _ctl(window)
+    try:
+        return list(ctl.active_alarms or ()) if ctl is not None else []
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def alarm_text(window, a) -> str:
+    """An alarm's text in the UI language."""
+    tr = getattr(window, "tr_", None)
+    return a.text(tr) if hasattr(a, "text") else str(a)
+
+
+def run_state(st, ms, alarms=(), need_home: bool = False) -> str:
+    """The machine's run state from the safety status ``st``, the machine state ``ms`` and the
+    card's active ``alarms``: ``fault`` > ``estop`` (an emergency-stop alarm) > ``alarm`` >
+    ``offline`` > ``hold`` > ``running`` > ``not_homed`` > ``ready``.  Never ``ready`` while an
+    alarm is active (UX audit C2/C3/W3)."""
+    if st is not None and st.banner == "FAULT":
+        return "fault"
+    alarms = list(alarms or ())
+    if any(getattr(a, "kind", "") == "estop" for a in alarms):
+        return "estop"
+    if alarms:
+        return "alarm"
+    if ms is None or not ms.connected:
+        return "offline"
+    if ms.mode == "pause":
+        return "hold"
+    if ms.mode in ("process", "dry_run", "frame"):
+        return "running"
+    if need_home:
+        return "not_homed"
+    return "ready"
+
+
+def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, bool, str]]:
     """(run control, enabled, why not) for the run bar and the Run screen: one rule set.
-    STOP is always enabled."""
+    STOP is always enabled.  ``alarms``: the card's active alarms (None: read from the
+    controller, :func:`active_alarms`): while one is active Start, Frame and Dry run are
+    disabled with "Reset the alarm first: <alarm>" (UX audit C4), and so is Arm while an
+    e-stop or servo alarm is active (C3)."""
     connected = bool(ms is not None and ms.connected)
     fault = st is not None and st.banner == "FAULT"
     paused = ms is not None and ms.mode == "pause"
     dry = bool(getattr(st, "dry_run", False))
+    if alarms is None:
+        alarms = active_alarms(window)
+    alarms = list(alarms or ())
     no_conn = _tr(window, "run.why.offline", "Connect the machine or the simulator first")
     why_fault = _tr(window, "run.why.fault", "Reset the fault first")
     why_running = _tr(window, "run.why.running", "Not while a job runs")
+    why_alarm = (_tr(window, "run.why.alarm", "Reset the alarm first: {alarm}", alarm=alarm_text(window, alarms[0]))
+                 if alarms else "")
+    from ..controller.alarms import DISARM_KINDS
+    arm_alarm = next((a for a in alarms if getattr(a, "kind", "") in DISARM_KINDS), None)
 
     def reason(*checks: tuple[bool, str]) -> tuple[bool, str]:
         for bad, why in checks:
@@ -628,16 +828,21 @@ def run_enabled(window, st, ms, running: bool) -> list[tuple[str, bool, str]]:
                 return False, why
         return True, ""
     out = []
-    ok, why = reason((not connected, no_conn), (fault, why_fault), (running and not paused, why_running))
+    ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm),
+                     (running and not paused, why_running))
     out.append(("start", ok, why))
     ok, why = reason((not connected, no_conn), (not running, _tr(window, "run.why.no_job", "No job is running")))
     out.append(("hold", ok, why))
     out.append(("stop", True, ""))
     for k in ("frame", "dry_run"):
-        ok, why = reason((not connected, no_conn), (fault, why_fault), (running, why_running))
+        ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm), (running, why_running))
         out.append((k, ok, why))
+    armed = bool(getattr(st, "armed", False))
     ok, why = reason((not connected, no_conn), (fault, why_fault),
-                     (dry, _tr(window, "run.why.laser_off", "Laser output is disabled (dry-run mode)")))
+                     (dry, _tr(window, "run.why.laser_off", "Laser output is disabled (dry-run mode)")),
+                     (arm_alarm is not None and not armed,           # Disarm always stays possible
+                      _tr(window, "run.why.alarm", "Reset the alarm first: {alarm}",
+                          alarm=alarm_text(window, arm_alarm)) if arm_alarm is not None else ""))
     out.append(("arm", ok, why))
     return out
 
@@ -697,7 +902,45 @@ class _KeyFilter(QObject):
         return isinstance(win, QDialog) and win is not self.ui.w
 
 
+class KeptNotice(QWidget):
+    """The resume point a Stop while held kept (UX audit W17): "Stopped: resume point kept at
+    X…, Y… mm" with *Resume from here* (the breakpoint comes back; Start / Continue resumes it
+    with its pre-flight) and *Discard*."""
+
+    def __init__(self, ui: "SafetyUI"):
+        super().__init__()
+        self.ui = ui
+        w = ui.w
+        h = style.hbox(self)
+        h.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
+        self.label = QLabel()
+        self.label.setObjectName("kept_label")
+        self.label.setWordWrap(True)
+        h.addWidget(self.label, 1)
+        self.resume = QPushButton(_tr(w, "safety.kept.resume", "Resume from here"))
+        self.resume.setObjectName("kept_resume")
+        self.resume.setMinimumHeight(style.TARGET)
+        self.resume.clicked.connect(lambda _=False: ui.resume_kept())
+        self.discard = QPushButton(_tr(w, "safety.kept.discard", "Discard"))
+        self.discard.setObjectName("kept_discard")
+        self.discard.setMinimumHeight(style.TARGET)
+        self.discard.clicked.connect(lambda _=False: ui.discard_kept())
+        h.addWidget(self.resume)
+        h.addWidget(self.discard)
+
+    def show_point(self, bp) -> None:
+        text = _tr(self.ui.w, "safety.kept.text", "Stopped: resume point kept at X {x}, Y {y} mm",
+                   x=f"{float(getattr(bp, 'x', 0.0)):.1f}", y=f"{float(getattr(bp, 'y', 0.0)):.1f}")
+        if self.label.text() != text:
+            self.label.setText(text)
+            a11y.name(self, text)
+
+
 class SafetyUI(QObject):
+    #: (ticket, ok, message) of a Start that armed the machine first (any thread -> GUI thread)
+    _start_result = Signal(object, bool, str)
+    need_home = False
+
     def __init__(self, window):
         super().__init__(window)
         self.w = window
@@ -729,8 +972,22 @@ class SafetyUI(QObject):
         self.alarm_bar.addWidget(self.alarm)
         window.addToolBar(Qt.TopToolBarArea, self.alarm_bar)
         self.alarm_bar.setVisible(False)
+        # "Stopped: resume point kept · Resume · Discard" after a Stop while held (UX audit W17):
+        # Stop stays immediate (no question); the resume point is not silently thrown away
+        self.kept_bar = QToolBar(_tr(window, "safety.bar.kept", "Resume point"), window)
+        self.kept_bar.setObjectName("kept_resume_point")
+        self.kept_bar.setMovable(False)
+        self.kept_bar.setFloatable(False)
+        self.kept_bar.toggleViewAction().setVisible(False)
+        self.kept = KeptNotice(self)
+        self.kept.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.kept_bar.addWidget(self.kept)
+        window.addToolBar(Qt.BottomToolBarArea, self.kept_bar)
+        window.addToolBarBreak(Qt.BottomToolBarArea)
+        self.kept_bar.setVisible(False)
         self.run_bar = RunBar(self)
         window.addToolBar(Qt.BottomToolBarArea, self.run_bar)
+        self._start_result.connect(self._start_done)
         self.keys = _KeyFilter(self)
         self._filtering = False          # the key filter is installed only while a job runs
         self._mc_style = ""
@@ -847,8 +1104,13 @@ class SafetyUI(QObject):
             ms = ctl.state()
         except Exception:  # noqa: BLE001
             ms = None
-        self.banner.refresh(st)
-        alarms = list(ctl.active_alarms or [])
+        alarms = active_alarms(self.w)          # the one alarm source (UX audit C2)
+        from ..services.readiness import homing_needed
+        running = job_running(self.w)
+        need_home = (not running and ms is not None and ms.mode not in ("pause",) and
+                     ctl.breakpoint is None and homing_needed(ctl))
+        self.need_home = need_home
+        self.banner.refresh(st, need_home and not alarms)
         now = time.time()
         codes = {getattr(a, "code", str(a)) for a in alarms}
         for c in codes:
@@ -859,7 +1121,7 @@ class SafetyUI(QObject):
         show = self.alarm.refresh(alarms, st, self._alarm_since)
         if show != self.alarm_bar.isVisible():
             self.alarm_bar.setVisible(show)
-        running = job_running(self.w)
+        self._refresh_kept(ctl, running)
         self._announce(st, alarms, show, running)
         self._set_filter(running)
         keep_awake(running)                 # no idle system sleep while a job runs (macOS, Windows)
@@ -868,7 +1130,7 @@ class SafetyUI(QObject):
             el = time.monotonic() - self._job_t0
             left = el * (1.0 - ms.progress) / ms.progress
             eta = f"{int(el // 60)}:{int(el % 60):02d} / ETA {int(left // 60)}:{int(left % 60):02d}"
-        self.run_bar.refresh(st, ms, running, eta)
+        self.run_bar.refresh(st, ms, running, eta, alarms, need_home)
         self._status_override(st, alarms, ms)
         panel = getattr(self.w, "control", None)
         if panel is not None and hasattr(panel, "safety_refresh"):
@@ -962,29 +1224,51 @@ class SafetyUI(QObject):
             bb = doc.bbox() if hasattr(doc, "bbox") else None
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
-    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False) -> bool:
-        """Run the controller's pre-flight check; show the dialog when it finds anything."""
+    def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False,
+                     assume_armed: bool = False) -> bool:
+        """Run the controller's pre-flight check; show the dialog when it finds anything.
+        ``assume_armed``: check as if the machine were armed (Start while disarmed checks
+        everything else first and only then asks to arm, UX audit C1); every other issue is
+        checked as usual.  Cutting-only warnings of a laser-off run are information (W6): with
+        nothing else to report no dialog is shown."""
+        from dataclasses import replace
+
+        from ..machine.preflight import demote_cutting_only
         ctl = self.w.ctl
         try:
             rep = ctl.preflight(action, doc, selected_only, extent=self._extent(doc) if doc else None,
                                 emits=emits)
         except TypeError:
             rep = ctl.preflight(action, doc)
+        if assume_armed:
+            rep = replace(rep, issues=[i for i in rep.issues if i.code != "not_armed"])
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
         from .workspaces.cutting_strategy import augment_preflight as augment_cutting
         rep = augment_cutting(self.w, rep, action, doc, selected_only)   # lead / tip warnings
         rep = contribute_preflight(self.w, rep, action, doc, emits)   # plugins (material check)
-        if not rep.issues:
-            return True
+        rep = demote_cutting_only(rep)
+        self.last_report = rep
+        if not rep.errors and not rep.warnings:
+            if rep.infos:                      # information only: said, never to acknowledge
+                first = preflight_groups(rep)[0]
+                tid, tdef, _g, _gd = PREFLIGHT_TITLES.get(action, ("safety.preflight.title", "Pre-flight check: {action}",
+                                                                    "", ""))
+                self.w.statusBar().showMessage(_tr(
+                    self.w, "safety.preflight.info_status", "{title}: {message}",
+                    title=_tr(self.w, tid, tdef, action=action),
+                    message=PreflightDialog._group_text(self.w, first[1], first[2])), 8000)
+            return True                        # nothing, or information only
         if not self._dialogs():
             return rep.ok
         rep = override_preflight(self.w, rep)
-        if not rep.issues:
+        if not rep.errors and not rep.warnings:
             return True
         actions = [a for c in _contributors(self.w) for a in (c.actions(rep) if hasattr(c, "actions") else ())]
         d = PreflightDialog(rep, self.w, actions=actions)
         return bool(d.exec()) and rep.ok
+
+    last_report = None             # the last pre-flight report preflight_ok() decided on (tests)
 
     def _after(self, what: str) -> None:
         """Show the controller's own refusal (exact job extent, safety state) after an action."""
@@ -1013,19 +1297,75 @@ class SafetyUI(QObject):
             return
         st = _safety(ctl)
         emits = bool(ctl.laser_enabled)
-        if emits and st is not None and not st.armed and self._dialogs():
-            if not ask(self.w, "start_disarmed", _tr(self.w, "safety.ask.start_disarmed",
-                                                     "The machine is not armed: the laser cannot fire.\n\n"
-                                                     "Arm it now (laser emission enabled) and start?"),
-                       _tr(self.w, "safety.ask.start_title", "Start")):
+        action = "start" if emits else "dry_run"
+        arm_first = emits and st is not None and not st.armed and self._dialogs()
+        if arm_first:
+            # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
+            # technology or an axis out of travel refuses here, before anything is armed); only
+            # then one question with the arming safety text, Cancel the default
+            if not self.preflight_ok(action, doc, emits, selected_only=bool(selected_only), assume_armed=True):
+                return
+            if not self.ask_arm_and_start():
                 return
             if not self.arm(confirm=False):
                 return
-        if not self.preflight_ok("start" if emits else "dry_run", doc, emits, selected_only=bool(selected_only)):
+        elif not self.preflight_ok(action, doc, emits, selected_only=bool(selected_only)):
             return
         self._shown = None
-        self._runner().start(doc, selected_only=bool(selected_only))
-        self._after(_tr(self.w, "safety.refused.start", "Start refused"))
+        self._run_start(doc, bool(selected_only), arm_first)
+
+    def ask_arm_and_start(self) -> bool:
+        """The one question of a Start while disarmed: the arming safety text, "Arm and start" /
+        "Cancel" (Cancel the default), the warning icon (UX audit C1, O13)."""
+        return ask(self.w, "start_disarmed", _tr(self.w, "safety.ask.start_disarmed",
+                                                 "The machine is not armed: the laser cannot fire."),
+                   _tr(self.w, "safety.ask.start_title", "Arm and start"),
+                   yes_text=_tr(self.w, "safety.ask.arm_and_start", "Arm and start"), warning=True,
+                   informative=_tr(self.w, "safety.ask.arm_info", "Laser emission will be enabled: the beam "
+                                   "fires on Start, Laser and laser tests. Make sure the work area is clear "
+                                   "and the enclosure is closed."))
+
+    _arm_token: object = None       # the Start that armed the machine itself (C1)
+
+    def _run_start(self, doc, selected_only: bool, armed_here: bool) -> None:
+        """Hand the start to the planned-job runner; when this Start armed the machine and the
+        start is refused for any reason (compile error, start gate, the controller's own
+        pre-flight, a Stop meanwhile) the machine is disarmed again and the operator told
+        (:meth:`_start_done`): a refused start never leaves the machine armed."""
+        runner = self._runner()
+        token = object() if armed_here else None
+        self._arm_token = token
+        if token is None:
+            runner.start(doc, selected_only=selected_only)
+            self._after(_tr(self.w, "safety.refused.start", "Start refused"))
+            return
+
+        def result(ok: bool, msg: str = "") -> None:
+            self._start_result.emit(token, bool(ok), str(msg or ""))
+        if getattr(runner, "reports_start_result", False):
+            runner.start(doc, selected_only=selected_only, on_result=result)
+        else:
+            ret = runner.start(doc, selected_only=selected_only)
+            ctl = self.w.ctl
+            qtbridge.when_done(ret, lambda r: result(r is not False and bool(ctl.job_active())))
+        if self._arm_token is token:
+            self._after(_tr(self.w, "safety.refused.start", "Start refused"))
+
+    def _start_done(self, token, ok: bool, msg: str) -> None:
+        if token is None or token is not self._arm_token:
+            return
+        self._arm_token = None
+        if ok:
+            return
+        ctl = self.w.ctl
+        st = _safety(ctl)
+        if st is not None and st.armed and not ctl.job_active():
+            ctl.disarm("disarmed: the start was refused")
+            text = _tr(self.w, "safety.refused.start_disarmed", "Start refused: the laser was disarmed again.")
+            self._log(text)
+            self.w.statusBar().showMessage(text, 10000)
+        self.refresh()
+        self._after(_tr(self.w, "safety.refused.start_disarmed_title", "Start refused, laser disarmed"))
 
     def hold(self) -> None:
         ctl = self.w.ctl
@@ -1060,10 +1400,12 @@ class SafetyUI(QObject):
     def arm(self, confirm: bool = True) -> bool:
         ctl = self.w.ctl
         if confirm and self._dialogs():
-            if not ask(self.w, "arm", _tr(self.w, "safety.ask.arm", "ARM the machine?\n\nLaser emission will be "
-                                          "enabled: the beam fires on Start, Laser and laser tests. Make sure the "
-                                          "work area is clear and the enclosure is closed."),
-                       _tr(self.w, "safety.ask.arm_title", "Arm laser"), default_yes=False):
+            if not ask(self.w, "arm", _tr(self.w, "safety.ask.arm_question", "Arm the laser?"),
+                       _tr(self.w, "safety.ask.arm_title", "Arm laser"), default_yes=False,
+                       yes_text=_tr(self.w, "run.btn.arm", "Arm laser"), warning=True,
+                       informative=_tr(self.w, "safety.ask.arm_info", "Laser emission will be enabled: the beam "
+                                       "fires on Start, Laser and laser tests. Make sure the work area is clear "
+                                       "and the enclosure is closed.")):
                 return False
         ok = bool(ctl.arm())
         if not ok and self._dialogs():
@@ -1084,23 +1426,97 @@ class SafetyUI(QObject):
             self.arm()
 
     def reset_fault(self) -> None:
+        """"Reset alarm" (the one reset of the banner, the Run screen, the dock and the menu,
+        UX audit W5): a latched fault is reset (the card alarms with it), else the card alarms.
+        Nothing is reported as reset while the card still reports its cause (C2): "Reset
+        refused: <alarm> still active — <remedy>"."""
         ctl = self.w.ctl
         st = _safety(ctl)
-        if st is not None and st.banner != "FAULT" and ctl.active_alarms:
-            ctl.clear_alarms()
-            self.refresh()
+        if st is not None and st.banner != "FAULT" and active_alarms(self.w):
+            # the reset reads the card again: queued on the command worker (issue #5)
+            qtbridge.when_done(ctl.clear_alarms(), self._reset_done)
             return
-        def done(ok) -> None:
-            if not ok and self._dialogs():
-                QMessageBox.warning(self.w, _tr(self.w, "safety.refused.reset", "Reset refused"),
-                                    self._last_reason() or _tr(self.w, "safety.refused.reset_text", "reset refused"))
-            self.refresh()
-        # the reset reads the card: queued on the command worker (issue #5), answered here
-        qtbridge.when_done(ctl.reset_fault(), done)
+        qtbridge.when_done(ctl.reset_fault(), self._reset_done)
+
+    #: the last reset refusal shown (tests; the dialog is only shown with dialogs)
+    last_reset_refusal = ""
+
+    def _reset_done(self, ok) -> None:
+        self.refresh()
+        left = active_alarms(self.w)
+        st = _safety(self.w.ctl)
+        if ok is not False and not left and not (st is not None and st.banner == "FAULT"):
+            sb = self.w.statusBar()
+            if self.last_reset_refusal and sb.currentMessage() == self.last_reset_refusal:
+                sb.clearMessage()                 # the earlier refusal no longer holds
+            self.last_reset_refusal = ""
+            return
+        if left:
+            a = left[0]
+            text = _tr(self.w, "safety.refused.reset_alarm", "Reset refused: {alarm} still active — {remedy}",
+                       alarm=alarm_text(self.w, a), remedy=remedy(a, getattr(self.w, "tr_", None)))
+        else:
+            text = self._last_reason() or _tr(self.w, "safety.refused.reset_text", "reset refused")
+        self.last_reset_refusal = text
+        self.w.statusBar().showMessage(text, 10000)
+        if self._dialogs():
+            QMessageBox.warning(self.w, _tr(self.w, "safety.refused.reset", "Reset refused"), text)
 
     def alarm_details(self) -> None:
+        """The active alarms, and a latched fault's raw reason (the detail behind the plain
+        headline, UX audit W12)."""
         from .ext_card import AlarmListDialog
-        AlarmListDialog(self.w, list(self.w.ctl.active_alarms)).exec()
+        st = _safety(self.w.ctl)
+        fault = st.fault if st is not None and st.banner == "FAULT" else ""
+        AlarmListDialog(self.w, active_alarms(self.w), fault=fault).exec()
+
+    # ------------------------------------------------------------------ readiness (W3)
+    def readiness(self) -> list:
+        """The start prerequisites (:func:`mlaser.services.readiness.readiness`): items with
+        ``id``, ``ok``, ``label``, ``reason`` and ``action`` (a command id) for a readiness
+        strip."""
+        from ..services.readiness import readiness
+        sio = None
+        b = getattr(self.w, "safety_io", None)
+        if b is not None and hasattr(b, "config"):
+            try:
+                sio = b.config()
+            except Exception:  # noqa: BLE001
+                sio = None
+        return readiness(self.w.ctl, self.w.document, sio)
+
+    def run_readiness_action(self, action: str) -> None:
+        """Run a readiness item's fix (its command id)."""
+        cmds = getattr(self.w, "commands", None)
+        if action and cmds is not None:
+            cmds.run(action)
+
+    def home(self) -> None:
+        """NOT HOMED's fix: home the axes (the Machine › Home command, with its question)."""
+        cmds = getattr(self.w, "commands", None)
+        if cmds is not None and "machine.home" in cmds:
+            cmds.run("machine.home")
+        else:
+            self.w.ctl.home("XY")
+
+    # ------------------------------------------------------------------ kept resume point (W17)
+    def _refresh_kept(self, ctl, running: bool) -> None:
+        bp = ctl.kept_breakpoint
+        show = bp is not None and not running and ctl.breakpoint is None
+        if show:
+            self.kept.show_point(bp)
+        if self.kept_bar.isHidden() == show:
+            self.kept_bar.setVisible(show)
+
+    def resume_kept(self) -> None:
+        """Bring the kept resume point back (held at it again); Start / Continue then resumes
+        with its pre-flight."""
+        self.w.ctl.restore_kept_breakpoint()
+        self.refresh()
+
+    def discard_kept(self) -> None:
+        self.w.ctl.discard_kept_breakpoint()
+        self.refresh()
 
 
 def _contributors(window) -> list:
