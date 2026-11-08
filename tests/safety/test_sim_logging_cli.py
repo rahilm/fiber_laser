@@ -23,13 +23,28 @@ def test_pessimistic_simulator_keeps_running_and_holds_the_beam():
             for fr in frames[:10]:
                 mc.fifo_write_frame(fr)
             mc.fifo_step_format()        # [9999, 1, mask|0x66800000, 0] as on a real card
+            # The halt lag (50 ms) is card time, consumed by the motion thread from the wall-clock
+            # time between its ticks: one late tick on a loaded runner (macOS CI: timers
+            # coalesced, the GIL busy) used the whole lag at once, before the test sampled the
+            # position, and two samples 20 ms apart then read the same value.  The card clock is
+            # held (time_scale 0) and advanced by hand around the stop, so "still executing
+            # after the stop" is checked in card time; then the real motion thread runs out the
+            # rest of the lag.
+            sim.time_scale = 0.0
             mc.fifo_start()
-            time.sleep(0.2)
+            with sim.lock:
+                sim.advance(0.2)
+            assert sim.state.fifo_running
             mc.fifo_stop()
+            assert sim.state.fifo_running and sim.state.lag_left_s > 0.0   # decelerating
             x = sim.position(0)
-            time.sleep(0.02)
+            with sim.lock:
+                sim.advance(0.02)
             assert sim.position(0) > x                  # still executing buffered items
+            assert sim.state.fifo_running               # 30 ms of the lag left
+            sim.time_scale = 1.0                        # the motion thread finishes the lag
             assert wait_until(lambda: not sim.state.fifo_running, 1.0) is not None
+            assert sim.position(0) > x
             assert sim.beam_on                          # no implicit laser-off on a halt
             mc.command(F.mailbox_sys(F.SYS_PWM, 5000, 0, 0))
             assert not sim.beam_on
