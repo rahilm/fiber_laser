@@ -36,6 +36,33 @@ from mlaser._power import app_activity  # noqa: E402
 
 app_activity("mlaser test session")
 
+
+def _platform_ui_font() -> None:
+    """The font the real platform plugin gives the application, where the offscreen one gives
+    something else.  On Windows the offscreen plugin's font database is FreeType's over Qt's
+    own font folder, not the system's: its generic "Sans Serif" (and "Segoe UI" too) resolved
+    to Noto Sans Arabic on the CI runners (12 px, but 25 px line height and 11 px average
+    character width: every label, row and button nearly twice as tall as on any real Windows).
+    The windows plugin uses the system message font, Segoe UI 9 pt (16 px lines): the offscreen
+    plugin reads the Windows font folder (QT_QPA_FONTDIR) and the application starts with that
+    font.  Set before any QApplication exists, so every test's application has it."""
+    import sys
+    if sys.platform != "win32" or not os.environ.get("QT_QPA_PLATFORM", "").startswith("offscreen"):
+        return
+    fonts = os.path.join(os.environ.get("WINDIR") or os.environ.get("SystemRoot") or "C:/Windows", "Fonts")
+    if os.path.isdir(fonts):
+        os.environ.setdefault("QT_QPA_FONTDIR", fonts)
+    try:
+        from PySide6.QtGui import QFont
+        from PySide6.QtWidgets import QApplication
+    except ImportError:
+        return
+    if QApplication.instance() is None:
+        QApplication.setFont(QFont("Segoe UI", 9))
+
+
+_platform_ui_font()
+
 if os.environ.get("MLASER_FAULT_LOG"):   # CI diagnostics: a native crash's Python stacks to a file
     import faulthandler
     # one file per xdist worker (fault.log.gw0, ...): the workers would overwrite each other
