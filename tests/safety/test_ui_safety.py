@@ -34,15 +34,35 @@ def win(app, monkeypatch):
     w.resize(1280, 720)                    # 1920 x 1080 at 150 % scaling
     w.show()
     app.processEvents()
+    _status_ticks[0] = 0
+    w._timer.timeout.connect(_count_tick)   # after MainWindow._poll and SafetyUI.refresh
+    _status_window[0] = w
     yield w
+    _status_window[0] = None
     w.ctl.stop()
     w._test_no_dialogs = True                  # closing: no questions (a test may have enabled them)
     w.close()
 
 
+_status_ticks = [0]
+_status_window = [None]
+
+
+def _count_tick() -> None:
+    _status_ticks[0] += 1
+
+
 def _pump(app, s=0.15):
+    """Process events for ``s`` seconds and at least until the window's status tick (100 ms:
+    the status chips, the banners, the alarm bar) ran twice since the call: a slow CI runner
+    (macOS) may not get to one tick in 0.15 s, the chip then still showed the state from
+    before the test's change ("offline" before the connect)."""
     t = time.monotonic() + s
-    while time.monotonic() < t:
+    n0 = _status_ticks[0]
+    w = _status_window[0]
+    ticking = w is not None and w._timer.isActive()
+    give_up = time.monotonic() + 10.0
+    while time.monotonic() < t or (ticking and _status_ticks[0] < n0 + 2 and time.monotonic() < give_up):
         app.processEvents()
         time.sleep(0.01)
 
