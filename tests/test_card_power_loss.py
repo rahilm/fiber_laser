@@ -68,6 +68,33 @@ def test_background_call_delivers_on_the_gui_thread_and_never_overlaps():
     app.processEvents()
 
 
+class _GuiWatch:
+    """Samples the GUI thread's stack while it has not come back to the test's loop for over
+    0.3 s: where it was stuck, for a failure's message."""
+
+    def __init__(self, gui, beat):
+        import sys
+        import traceback
+        self.where = "(no stall sampled)"
+        self._stop = threading.Event()
+
+        def run() -> None:
+            worst = 0.3
+            while not self._stop.wait(0.05):
+                age = time.monotonic() - beat[0]
+                if age > worst:
+                    frame = sys._current_frames().get(gui.ident)
+                    if frame is not None:
+                        worst = age
+                        self.where = f"after {age:.2f} s:\n" + "".join(traceback.format_stack(frame)[-14:])
+        self._th = threading.Thread(target=run, name="gui-watch", daemon=True)
+        self._th.start()
+
+    def stop(self) -> None:
+        self._stop.set()
+        self._th.join(2)
+
+
 @pytest.mark.parametrize("link", ["silent", "down"])
 def test_the_window_stays_responsive_when_the_card_loses_power(tmp_path, monkeypatch, link):
     from PySide6.QtCore import QTimer
@@ -106,13 +133,19 @@ def test_the_window_stays_responsive_when_the_card_loses_power(tmp_path, monkeyp
         t.start(20)
         end = time.monotonic() + 4.0
         worst, prev = 0.0, time.monotonic()
-        while time.monotonic() < end:
-            app.processEvents()
-            now = time.monotonic()
-            worst, prev = max(worst, now - prev), now
-            time.sleep(0.005)
+        beat = [prev]
+        stuck = _GuiWatch(gui, beat)
+        try:
+            while time.monotonic() < end:
+                app.processEvents()
+                now = time.monotonic()
+                worst, prev = max(worst, now - prev), now
+                beat[0] = now
+                time.sleep(0.005)
+        finally:
+            stuck.stop()
         t.stop()
-        assert worst < 0.5, f"the GUI thread blocked for {worst:.2f} s"
+        assert worst < 0.5, f"the GUI thread blocked for {worst:.2f} s in:\n{stuck.where}"
         assert on_gui == [], f"card requests on the GUI thread: {on_gui[:10]}"
         t0 = time.monotonic()
         w.reconnect()                        # the operator presses Reconnect: no freeze either

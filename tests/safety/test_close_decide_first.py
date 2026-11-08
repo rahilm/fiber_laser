@@ -8,11 +8,12 @@ Now nothing stops until the close is accepted, and an accepted close still halts
 """
 from __future__ import annotations
 
+import math
 import time
 
 import pytest
 
-from safety_helpers import Watch, rect_doc, start_and_run, stopped, wait_until
+from safety_helpers import Watch, head_mm, rect_doc, start_and_run, stopped, wait_until
 
 pytest.importorskip("PySide6")
 
@@ -23,9 +24,9 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def _answer(w, *buttons, seen=None):
+def _answer(w, *buttons, seen=None, before_click=None):
     """Click ``buttons`` in order on the close questions as they come up (offscreen, the window-
-    modal box runs its own event loop)."""
+    modal box runs its own event loop); ``before_click()`` runs right before each click."""
     from PySide6.QtCore import QTimer
     from PySide6.QtWidgets import QMessageBox
     todo = list(buttons)
@@ -39,6 +40,8 @@ def _answer(w, *buttons, seen=None):
                 seen.append({"text": box.text(), "info": box.informativeText(),
                              "modality": box.windowModality(),
                              "buttons": {box.standardButton(b): b.text() for b in box.buttons()}})
+                if before_click is not None:
+                    before_click()
                 box.button(todo.pop(0)).click()
                 break
         if todo and tries[0] < 2000:
@@ -100,6 +103,16 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     w._test_no_dialogs = True
     assert ctl.stop().wait(10)
     assert wait_until(lambda: ctl.state().mode == "ready" and stopped(ctl.sim), 10) is not None
+    # the controller's polled head position has caught up with the stopped card: Start plans
+    # from it, and the start gate refuses a plan made from a stale head ("start again", a slow
+    # runner's poll still had the decelerating head)
+    def head_known() -> bool:
+        st, (hx, hy) = ctl.state(), head_mm(ctl.sim)
+        return math.dist((float(st.x), float(st.y)), (hx, hy)) < 0.01
+    t_end = time.monotonic() + 10
+    while not head_known() and time.monotonic() < t_end:
+        _pump(0.02)
+    assert head_known(), (ctl.state(), head_mm(ctl.sim))
     plans = []
     w.hooks.add("plan", plans.append, "test")
     w.nudge(1, 0)
@@ -115,12 +128,16 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     _pump(0.3)
     # accepted (with that job running): halts the machine, then the hooks and NormalExit=1
     sim = ctl.sim
-    watch = Watch(sim)
     ctl.disconnect = (lambda orig=ctl.disconnect: (lambda *a, **k: orig(*a, keep_sim=True, **k)))()
     w._test_no_dialogs = False
-    _answer(w, QMessageBox.Yes)
+    # the halt's time and travel count from the operator's Yes: while the question is up the
+    # job rightly runs on (decide first), for as long as the runner takes to show and answer it
+    # (Windows CI: 24 mm from before the question to the halt, not from the answer)
+    watch = []
+    _answer(w, QMessageBox.Yes, before_click=lambda: watch.append((Watch(sim), sim.state.fifo_running)))
     assert w.close() is True
-    dt, travel = watch.until_safe(1.0)
+    assert len(watch) == 1 and watch[0][1], "the job was not running when Yes was clicked"
+    dt, travel = watch[0][0].until_safe(1.0)
     assert dt is not None and dt < 0.5 and travel < 20.0
     assert closed == [1] and w.jobs._closed and _normal_exit(w) == "1"
     sim.stop()

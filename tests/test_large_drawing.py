@@ -9,6 +9,7 @@ checks are counts (parts copied, contour paths recomputed) and equality with ful
 from __future__ import annotations
 
 import copy
+import gc
 import math
 import pathlib
 import time
@@ -40,13 +41,53 @@ def big_document(n: int = 2000, segs: int = 14) -> Document:
     return Document(parts=parts)
 
 
-def timed(fn, n: int = 1) -> float:
+def timed(fn, n: int = 1, gc_off: bool = False) -> float:
+    """The best of ``n`` runs of ``fn``; ``gc_off``: each with the cyclic garbage collector
+    paused (after a collection), for a comparison of two copies of the whole drawing: a full
+    collection of the worker's heap (whatever the tests before left) landing inside one side
+    measured the runner, not the code (macOS CI: a cold snapshot at 0.70 of the old copy
+    instead of 0.30-0.35)."""
     best = math.inf
     for _ in range(n):
-        t0 = time.perf_counter()
-        fn()
-        best = min(best, time.perf_counter() - t0)
+        if gc_off:
+            gc.collect()
+            gc.disable()
+        try:
+            t0 = time.perf_counter()
+            fn()
+            best = min(best, time.perf_counter() - t0)
+        finally:
+            if gc_off:
+                gc.enable()
     return best
+
+
+#: seconds :func:`_reference_work` takes on the development host (Linux x86-64, Python 3.12)
+REFERENCE_WORK_S = 0.020
+
+
+def _reference_work() -> float:
+    """Seconds a fixed mix of what a nudge does on the GUI thread (copying model objects, plain
+    Python) takes now (best of three, as :func:`timed`): the speed of this runner under its
+    current load."""
+    d = big_document(150)
+
+    def work() -> None:
+        for _ in range(3):
+            fast_deepcopy(d)
+        acc = 0.0
+        for i in range(60_000):
+            acc += (i % 97) * 0.5 - (i % 31) * 0.25
+        assert acc
+    return timed(work, 3, gc_off=True)
+
+
+def runner_budget(seconds: float) -> float:
+    """``seconds`` (a bound with headroom on the development host) scaled by how much slower
+    this runner is right now, never less (a shared Windows runner: 0.29 s for a ~0.05 s nudge).
+    A real regression (the whole drawing copied or redrawn per nudge, 5-50x) stays far over."""
+    slow = _reference_work() / REFERENCE_WORK_S
+    return seconds * max(1.0, slow)
 
 
 # --------------------------------------------------------------------------- the copier
@@ -127,12 +168,18 @@ def test_plan_snapshot_of_a_large_drawing_is_cheap(big):
     """The cold snapshot (after an open) is linear and well under the old per-part deepcopy
     with a whole-table memo (5 s at 2,700 parts in the evaluation); a one-part nudge copies one
     part; undo and redo reuse the copies made before."""
+    # the cold snapshot against the old copy, both with the collector paused (gc_off)
     doc = copy.deepcopy(big)
     docs = DocumentService(doc)
     shared = docs.blobs.ids()
-    t_old = timed(lambda: [copy.deepcopy(p, dict(shared)) for p in doc.parts])
+    t_old = timed(lambda: [copy.deepcopy(p, dict(shared)) for p in doc.parts], gc_off=True)
+    t_cold_nogc = timed(lambda: (docs._plan_invalidate(), docs.plan_snapshot()), gc_off=True)
+    assert t_cold_nogc < 0.6 * t_old, (t_cold_nogc, t_old)
+    # the first snapshot of a fresh service is the cold one (a second one after an invalidate
+    # reuses what the first made): the nudge's reference, as a user's first plan after an open
+    doc = copy.deepcopy(big)
+    docs = DocumentService(doc)
     t_cold = timed(lambda: (docs._plan_invalidate(), docs.plan_snapshot()))
-    assert t_cold < 0.6 * t_old, (t_cold, t_old)
     snap = docs.plan_snapshot()
     assert snap == docs.snapshot()
     # a one-part nudge: one part copied for undo, one for the planner
@@ -302,8 +349,9 @@ def test_nudge_of_one_part_keeps_the_gui_thread_budget(win, app):
     win.canvas.select_parts([7])
     t_nudge = timed(lambda: (win.nudge(1, 0), win.docs.plan_snapshot()), 3)
     t_undo = timed(lambda: (win.undo(), win.docs.plan_snapshot()), 3)
-    assert t_nudge < NUDGE_BUDGET_S, t_nudge
-    assert t_undo < NUDGE_BUDGET_S, t_undo
+    budget = runner_budget(NUDGE_BUDGET_S)
+    assert t_nudge < budget, (t_nudge, budget)
+    assert t_undo < budget, (t_undo, budget)
 
 
 def test_import_review_of_a_large_drawing_runs_off_the_gui_thread(win, app, monkeypatch):

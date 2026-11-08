@@ -72,7 +72,11 @@ def test_cancel_stops_the_import_and_the_gui_keeps_running(qapp):
     def press_cancel():
         dlgs = [w for w in QApplication.topLevelWidgets() if isinstance(w, QProgressDialog) and w.isVisible()]
         seen["dialog"] = bool(dlgs)
-        if dlgs:
+        if dlgs and "entities" not in dlgs[0].labelText() and time.monotonic() - t0 < 3.0:
+            # the running count is shown at the dialog's next 100 ms tick once the worker
+            # has counted: a slow runner (Windows CI) had the dialog up without it yet
+            QTimer.singleShot(50, press_cancel)
+        elif dlgs:
             seen["label"] = dlgs[0].labelText()
             from PySide6.QtWidgets import QPushButton
             [b for b in dlgs[0].findChildren(QPushButton) if b.text() == "Cancel"][0].click()

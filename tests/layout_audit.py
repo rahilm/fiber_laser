@@ -176,7 +176,9 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
             if isinstance(w, QGraphicsView):
                 continue
             if w.horizontalScrollBar().isVisible():
-                add("hscroll", w, f"content {w.horizontalScrollBar().maximum()} px wider than {w.viewport().width()}")
+                state = w.property("responsive_state")
+                add("hscroll", w, f"content {w.horizontalScrollBar().maximum()} px wider than {w.viewport().width()}"
+                    + (f" ({state}, policy {int(w.horizontalScrollBarPolicy().value)})" if state else ""))
             if w.verticalScrollBar().isVisible() and not is_list_area(w):
                 add("vscroll", w, f"content {w.verticalScrollBar().maximum()} px taller than {w.viewport().height()}")
             continue

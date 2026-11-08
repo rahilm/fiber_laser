@@ -499,8 +499,22 @@ def test_properties_panel_reflows(win, app):
         assert pp.horizontalScrollBar().maximum() == 0
         assert not pp.verticalScrollBar().isVisible()            # it folds instead (RESPONSIVE.md)
         forms = [s.body for s in pp.sections if s.isVisible() and s.expanded()]
-        above = [not f.beside() for f in forms]
-        assert any(above) if width == 200 else not any(above)
+        # each form puts its labels above exactly when label and field do not fit beside each
+        # other at its width (which ones at 200 px depends on the platform's font: with Segoe
+        # UI every form fits beside); at 600 px all of them are beside
+        assert forms
+        assert [f.beside() for f in forms] == [f.width() >= f.needed_beside() for f in forms], width
+        if width == 600:
+            assert all(f.beside() for f in forms)
+    # narrower than the widest form needs beside: that one reflows (labels above its fields)
+    need = max(f.needed_beside() for f in forms)
+    dock.resize(dock.minimumSizeHint().width(), 900)
+    pump(app, 0.05)
+    forms = [s.body for s in pp.sections if s.isVisible() and s.expanded()]
+    if any(f.width() < need for f in forms):
+        assert any(not f.beside() for f in forms)
+    assert [f.beside() for f in forms] == [f.width() >= f.needed_beside() for f in forms]
+    assert pp.horizontalScrollBar().maximum() == 0
     dock.setFloating(False)
 
 
