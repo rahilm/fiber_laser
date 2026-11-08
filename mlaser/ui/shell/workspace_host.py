@@ -121,11 +121,32 @@ class CanvasSplitter(QSplitter):
               for i in range(self.count()) if not self.widget(i).isHidden()]
         return sum(ws) + self.handleWidth() * max(len(ws) - 1, 0)
 
+    def page_height(self) -> int:
+        """Stacked: the height the page under the canvas needs at the splitter's width (its
+        wrapper's need, height-for-width aware).  Not the wrapper's minimum: that is capped by
+        what the screen leaves around the wrapper, and under the canvas almost nothing is left,
+        so the page got a few pixels and its forms scrolled."""
+        if self.count() < 2:
+            return 0
+        own = self.widget(1)
+        areas = [own] if isinstance(own, FitArea) else own.findChildren(FitArea)
+        area = next((a for a in areas if a.isVisibleTo(own)), None)
+        if area is None:
+            return own.minimumSizeHint().expandedTo(own.minimumSize()).height()
+        chrome = max(own.height() - area.viewport().height(), 0) if own is not area else 0
+        width = max(area.viewport().width(), self.width() - (own.width() - area.viewport().width()), 1)
+        return area.need(width).height() + chrome
+
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         s = super().minimumSizeHint()
         ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
               for i in range(self.count()) if not self.widget(i).isHidden()]
-        return QSize(max(ws, default=s.width()), s.height())
+        h = s.height()
+        if self.orientation() == Qt.Vertical and self.count() > 1:
+            canvas = self.widget(0)
+            h = max(h, canvas.minimumSizeHint().expandedTo(canvas.minimumSize()).height()
+                    + self.handleWidth() + self.page_height())
+        return QSize(max(ws, default=s.width()), h)
 
     def fit_orientation(self) -> None:
         # by the width alone (the height follows the choice, never the reverse)
@@ -393,8 +414,23 @@ class WorkspacePage(QWidget):
         so narrow that its wrapped rows pushed the window taller than the screen with the
         Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
         sp = self.splitter
-        if (sp is None or sp.count() < 2 or self._user_split or not sp.isVisible()
-                or sp.orientation() != Qt.Horizontal):
+        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+            return
+        if sp.orientation() != Qt.Horizontal:
+            # stacked: the page under the canvas gets the height it needs, the canvas the rest
+            total = sp.height() - sp.handleWidth()
+            if total <= 0 or not isinstance(sp, CanvasSplitter):
+                return
+            canvas = sp.widget(0)
+            low = canvas.minimumSizeHint().expandedTo(canvas.minimumSize()).height()
+            ph = max(min(sp.page_height(), total - low), 0)
+            sizes = [total - ph, ph]
+            if sp.sizes() != sizes:
+                self._fitting_split = True
+                try:
+                    sp.setSizes(sizes)
+                finally:
+                    self._fitting_split = False
             return
         own = sp.widget(1)
         total = sp.width() - sp.handleWidth()

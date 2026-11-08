@@ -24,7 +24,7 @@ import time
 from dataclasses import replace
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, Signal
+from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
                                QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
@@ -72,6 +72,21 @@ class TechnologyEditor(QWidget):
         lay.addWidget(self.form, 1)
         self.fields = self.form.fields
         self._craft_sections()
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        # the wrapped header and badge at the width it has (a narrow, half-screen page: more
+        # lines); a parent that does not ask for height for width (a splitter, a tab widget)
+        # otherwise gave the form under them less than its minimum and it scrolled
+        s = super().minimumSizeHint()
+        lay = self.layout()
+        if lay is not None and lay.hasHeightForWidth() and self.width() > 0:
+            s.setHeight(max(s.height(), lay.minimumHeightForWidth(self.width())))
+        return s
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        if ev.oldSize().width() != ev.size().width():
+            self.updateGeometry()             # its minimum height follows its width
 
     # ---------------------------------------------------------------- craft sections
     def _craft_sections(self) -> None:
@@ -630,6 +645,18 @@ class LibraryPage(QWidget):
         want = Qt.Vertical if self.width() < need else Qt.Horizontal
         if self.split.orientation() != want:
             self.split.setOrientation(want)
+        self._fit_panes()
+
+    def _fit_panes(self) -> None:
+        """A splitter does not ask its panes for their height at their width: the wrapped
+        "Used by" text of a narrow page was one line in its minimum, and the technology form
+        under it got what was left and scrolled (a half-screen window).  The label's minimum
+        height is its height at its width, so the pane's (and the page's) minimum holds it."""
+        lab = self.used_by
+        width = lab.width() if lab.width() > 0 else self.width()
+        h = lab.heightForWidth(width) if lab.text() else 0
+        if h > 0 and lab.minimumHeight() != h:
+            lab.setMinimumHeight(h)
 
     # ---------------------------------------------------------------- records
     def _factory_of(self, tech: T.Technology) -> Optional[T.Technology]:
