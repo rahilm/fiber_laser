@@ -106,6 +106,9 @@ class _Bridge(QObject):
         self.call.connect(lambda fn: fn())
 
 
+_JOB_MODES = ("process", "dry_run", "frame")
+
+
 class _CloseWatch(QObject):
     """Runs the plugins' ``close`` hooks before the window's closeEvent (an event filter, so the
     window's own close handling stays untouched)."""
@@ -275,6 +278,12 @@ class MainWindow(QMainWindow):
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
         self._timer.start(100)
+        # display timers stop while the window is minimised or hidden (ui/idle.py); the status
+        # poll runs on during a job (it records the head's track)
+        from .idle import HiddenPause
+        self.idle_pause = HiddenPause(self)
+        self.idle_pause.add(self._timer, keep=lambda: getattr(self, "_last_mode", None) in _JOB_MODES,
+                            on_resume=self._poll)
         self.docs.subscribe(self._document_changed)
         self.set_document(Document())
         self._close_watch = _CloseWatch(self)
@@ -736,15 +745,18 @@ class MainWindow(QMainWindow):
         document (a new document is zoomed to fit, an edit keeps the view)."""
         doc = self.docs.document
         self._fill_layers(doc)
+        # the parts this edit / undo / redo may have changed (None: all; also when this is
+        # called outside a DocumentService notification, e.g. refresh_views)
+        changed = self.docs.changed if kind != "replace" else None
         if kind == "replace":
             self._load_order(doc)                # the drawing's own cutting order
             self.canvas.set_document(doc)
         else:
             self.canvas.document = doc
-            self.canvas.rebuild()
+            self.canvas.rebuild(changed)
         self._update_toolpath()
         self.layer_panel.set_document(doc)
-        self.part_list.set_document(doc)       # bounding boxes are cached (22 ms at 2,000 parts)
+        self.part_list.set_document(doc, changed)   # bounding boxes are cached (22 ms at 2,000 parts)
         self.hooks.emit("document_changed", kind)
 
     def _refresh_part_list(self) -> None:
@@ -1337,6 +1349,10 @@ class MainWindow(QMainWindow):
 
     def _poll(self) -> None:
         st = self.ctl.state()
+        if self.idle_pause.hidden and st.mode not in _JOB_MODES and self._last_mode not in _JOB_MODES:
+            self.idle_pause.check(self._timer)       # minimised and no job (any more): pause
+            if not self._timer.isActive():
+                return
         t = self.tr_.tr
         self.st_mc.show_state(t("status.dev.motion"), t(self._MC.get(st.mode, "mp22")), st.mode == "offline")
         self.st_zf.show_state(t("status.dev.follower"), t(self._ZF.get(st.ftc, "mp23")), st.ftc == "offline")

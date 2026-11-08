@@ -17,7 +17,7 @@ import copy
 import time
 from typing import Any, Callable, Iterable, Optional
 
-from mlaser.model import Document, Part, ensure_unique_ids
+from mlaser.model import Contour, Document, Part, _raw_extra, ensure_unique_ids
 
 from .undo import PartsEdit, ReplaceDocument, RoundTripTable, UndoStack, part_cost, scope_uids
 
@@ -34,11 +34,19 @@ class DocumentService:
         self.stack = UndoStack(undo_limit, undo_max_bytes)
         self.listeners: list[Listener] = []
         self.last_edit_ms = 0.0  # time of the last edit transaction (fn + record)
+        # during a notification: uids of the parts an edit / undo / redo may have changed (the
+        # edit's scope, added, removed and replaced parts; a command's swapped parts); None
+        # when not known (a new document, an in-place change after checkpoint, no notification
+        # running).  Parts outside it are the same objects, unchanged (the edit contract), so
+        # views may keep what they built for them (canvas items, part list rows; UI eval F2).
+        self.changed: Optional[frozenset[int]] = None
         self._pending: Optional[tuple[Document, Optional[str]]] = None
         self._depth = 0
         # plan_snapshot: part uid -> (live part, its copy); uids edited since they were copied
         self._plan_parts: dict[int, tuple[Part, Part]] = {}
         self._plan_dirty: set[int] = set()
+        # earlier (live part, copy) per uid, for the undo / redo of an edit (see plan_snapshot)
+        self._plan_prev: dict[int, tuple[Part, Part]] = {}
         self.plan_hits = self.plan_misses = 0
         ensure_unique_ids(self.document)
         self.blobs.register_document(self.document)
@@ -48,9 +56,16 @@ class DocumentService:
         self.listeners.append(fn)
         return lambda: self.listeners.remove(fn) if fn in self.listeners else None
 
-    def _notify(self, kind: str) -> None:
-        for fn in list(self.listeners):
-            fn(kind)
+    def _notify(self, kind: str, changed: Optional[Iterable[int]] = None) -> None:
+        """Tell the listeners; while they run, :attr:`changed` holds the uids of the parts the
+        change may have touched (None: unknown, treat every part as changed)."""
+        outer = self.changed
+        self.changed = frozenset(changed) if changed is not None else None
+        try:
+            for fn in list(self.listeners):
+                fn(kind)
+        finally:
+            self.changed = outer
 
     # ------------------------------------------------------------------ copies
     def lean_copy(self, obj: Any) -> Any:
@@ -75,31 +90,53 @@ class DocumentService:
         is not in the scope of an edit made since (:meth:`edit` marks its scope), and still
         compares equal to the copy by value (``Part.__eq__`` plus the part and contour uids and
         the glyph fingerprints): an in-place change that bypassed :meth:`edit`, or a change to a
-        copy, is detected and the part copied again (tests/test_services_undo.py)."""
+        copy, is detected and the part copied again (tests/test_services_undo.py).
+
+        The copy replaced last for each part is kept as well (about one generation): an undo or
+        redo puts back part objects that equal those copies by value, so they are reused
+        (``_same_part`` decides, as for the current copy) instead of copying the whole drawing
+        again after the undo of a select-all edit or of an open (UI evaluation F2)."""
         doc = doc if doc is not None else self.document
         cache = self._plan_parts
+        prev = self._plan_prev
         dirty = self._plan_dirty
         parts = []
         for p in doc.parts:
-            hit = cache.get(p.uid)
-            if hit is not None and hit[0] is p and p.uid not in dirty and _same_part(p, hit[1]):
+            uid = p.uid
+            hit = cache.get(uid)
+            if hit is not None and hit[0] is p and uid not in dirty and _same_part(p, hit[1]):
                 parts.append(hit[1])
                 self.plan_hits += 1
                 continue
-            c = self.lean_copy(p)
-            cache[p.uid] = (p, c)
+            # an earlier copy of this part that the live part equals again (undo / redo swap
+            # the pre-edit copies back in: the plan copies made before the edit still fit)
+            old = prev.get(uid)
+            if old is not None and _same_part(p, old[1]):
+                c = old[1]
+                self.plan_hits += 1
+            else:
+                c = self.blobs.copy_part(p)
+                self.plan_misses += 1
+            if hit is not None and hit[1] is not c:
+                prev[uid] = hit
+            cache[uid] = (p, c)
             parts.append(c)
-            self.plan_misses += 1
         dirty.difference_update(p.uid for p in doc.parts)
         if doc is self.document and len(cache) > len(doc.parts):
             live = {p.uid for p in doc.parts}
             for u in [u for u in cache if u not in live]:
-                del cache[u]
-        layers, extra = self.lean_copy((doc.layers, doc.extra))
+                prev[u] = cache.pop(u)       # a removed part: kept for its undo
+        if len(prev) > max(len(cache), 1000):          # about one earlier generation
+            for u in list(prev)[: len(prev) - max(len(cache), 1000)]:
+                del prev[u]
+        layers, extra = self.blobs.copy_doc_state(doc)
         return Document(parts=parts, layers=layers, version=doc.version, extra=extra)
 
     def _plan_invalidate(self, uids=None) -> None:
         if uids is None:
+            # a new document: its parts are other objects; the old copies are kept as
+            # candidates (undo of the open brings back the parts they were copied from)
+            self._plan_prev.update(self._plan_parts)
             self._plan_parts.clear()
             self._plan_dirty.clear()
         else:
@@ -177,8 +214,9 @@ class DocumentService:
         scope = set(scope_uids(doc, parts))
         self._plan_invalidate(scope)
         by_uid = {p.uid: p for p in live_before}
-        copies = {u: self.lean_copy(by_uid[u]) for u in order_before if u in scope}
-        doc_state = (self.lean_copy(doc.layers), self.lean_copy(doc.extra))
+        memo: dict = {}                      # one memo: sub-objects shared in the scope stay shared
+        copies = {u: self.blobs.copy_part(by_uid[u], memo) for u in order_before if u in scope}
+        doc_state = self.blobs.copy_doc_state(doc)
         self._depth += 1
         try:
             result = fn(doc)
@@ -214,20 +252,24 @@ class DocumentService:
         self.stack.push(PartsEdit(label, order_before, order_after, swap, doc_state, cost=cost))
         self.last_edit_ms = (time.perf_counter() - t0) * 1e3
         if notify:
-            self._notify("edit")
+            changed = set(swap) | scope
+            changed.update(p.uid for p in doc.parts if by_uid.get(p.uid) is not p)
+            self._notify("edit", changed)
         return result
 
     # ------------------------------------------------------------------ undo
     def undo(self) -> Optional[str]:
+        changed = _swapped(self.stack._undo[-1] if self.stack._undo else None)
         label = self.stack.undo(self)
         if label is not None:
-            self._notify("undo")
+            self._notify("undo", changed)
         return label
 
     def redo(self) -> Optional[str]:
+        changed = _swapped(self.stack._redo[-1] if self.stack._redo else None)
         label = self.stack.redo(self)
         if label is not None:
-            self._notify("redo")
+            self._notify("redo", changed)
         return label
 
     @property
@@ -239,16 +281,41 @@ class DocumentService:
         return self.stack.can_redo
 
 
+def _swapped(cmd: Any) -> Optional[set[int]]:
+    """uids of the parts an undo / redo of ``cmd`` exchanges (None: the whole document)."""
+    if isinstance(cmd, PartsEdit):
+        return set(cmd.swap)
+    return None
+
+
 def _same_part(live: Part, copy_: Part) -> bool:
     """``copy_`` is still an exact copy of ``live``: equal by value (``Part.__eq__`` covers the
     geometry, crafts, flags and the raw ``extra``), the same contour uids, glyph fingerprints
-    and attribute sets (the fields ``__eq__`` leaves out)."""
+    and attribute sets (the fields ``__eq__`` leaves out).
+
+    ``Part.__eq__`` / ``Contour.__eq__`` spelled out: with equal glyph fingerprints and equal
+    segments both contours' glyphs are current or both are not, so the comparison skips
+    ``glyphs_current`` (two segment fingerprints per contour, half the cost of a replan's
+    check of every part)."""
     if live.__dict__.keys() != copy_.__dict__.keys() or len(live.contours) != len(copy_.contours):
         return False
     for a, b in zip(live.contours, copy_.contours):
         if a.uid != b.uid or a.glyph_key != b.glyph_key or a.__dict__.keys() != b.__dict__.keys():
             return False
-    return live == copy_
+    if type(live) is not Part or type(copy_) is not Part:
+        return live == copy_
+    for a, b in zip(live.contours, copy_.contours):
+        if a is b:
+            continue
+        if type(a) is not Contour or type(b) is not Contour:
+            if a != b:
+                return False
+            continue
+        if not (a.segments == b.segments and a.closed == b.closed and a.craft == b.craft
+                and a.glyphs == b.glyphs and dict.__eq__(_raw_extra(a), _raw_extra(b))):
+            return False
+    return (live.craft == copy_.craft and live.name == copy_.name and live.selected == copy_.selected
+            and live.raster is copy_.raster and dict.__eq__(_raw_extra(live), _raw_extra(copy_)))
 
 
 def clone_parts(parts: Iterable[Part]) -> list[Part]:

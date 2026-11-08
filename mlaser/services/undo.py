@@ -28,7 +28,7 @@ from __future__ import annotations
 import copy
 import time
 from dataclasses import dataclass, field
-from typing import Any, Iterable, Optional, Protocol
+from typing import Any, Iterable, Optional, Protocol, cast
 
 from mlaser.model import Document, Part
 
@@ -47,6 +47,12 @@ def contour_blobs(c) -> list[tuple[str, Any]]:
     return out
 
 
+def _raw_extra_get(o: Any, key: str) -> Any:
+    """``o.extra[key]`` read from the stored dict (no LegacyExtra wrapping, no warning)."""
+    ex = o.__dict__.get("extra")
+    return dict.get(ex, key) if isinstance(ex, dict) else None
+
+
 class RoundTripTable:
     """Immutable round-trip records keyed by (owner uid, key).
 
@@ -54,10 +60,17 @@ class RoundTripTable:
     parity ordering read them there), but they are owned here: a record is never mutated after
     it is registered, and :meth:`memo` lets ``copy.deepcopy`` share it instead of copying it.
     Registering again under the same key replaces the entry (an edit that rebuilt the record);
-    the old record lives on only inside undo snapshots that still refer to it."""
+    the old record lives on only inside undo snapshots that still refer to it.
+
+    Copies (:meth:`copy`, :meth:`copy_part`) use :func:`fast_deepcopy`: the same result as
+    ``copy.deepcopy`` with the records shared, several times faster on the model's plain
+    dataclasses.  :meth:`copy_part` seeds its memo with the part's own records only: one
+    whole-table memo per part made a 2,700-part copy quadratic (5 s on the GUI thread after an
+    import, UI evaluation F2)."""
 
     def __init__(self) -> None:
         self._blobs: dict[tuple[int, str], Any] = {}
+        self._ids: Optional[dict[int, Any]] = None     # id(record) -> record (lazy)
 
     def __len__(self) -> int:
         return len(self._blobs)
@@ -65,24 +78,26 @@ class RoundTripTable:
     def get(self, uid: int, key: str) -> Any:
         return self._blobs.get((uid, key))
 
+    def _set(self, key: tuple[int, str], v: Any) -> None:
+        if v is not None:
+            if self._blobs.get(key) is not v:
+                self._blobs[key] = v
+                self._ids = None
+        elif self._blobs.pop(key, None) is not None:
+            self._ids = None
+
     def register_part(self, part: Part) -> None:
         ex = part.extra if isinstance(part.extra, dict) else {}
         for k in PART_BLOB_KEYS:
-            v = ex.get(k)
-            if v is not None:
-                self._blobs[(part.uid, k)] = v
-            else:
-                self._blobs.pop((part.uid, k), None)
+            self._set((part.uid, k), ex.get(k))
         for c in part.contours:
             for k, v in contour_blobs(c):
-                if v is not None:
-                    self._blobs[(c.uid, k)] = v
-                else:
-                    self._blobs.pop((c.uid, k), None)
+                self._set((c.uid, k), v)
 
     def register_document(self, doc: Document) -> None:
         """(Re)build the table from ``doc`` (open / replace)."""
         self._blobs.clear()
+        self._ids = None
         for p in doc.parts:
             self.register_part(p)
         ex = doc.extra if isinstance(doc.extra, dict) else {}
@@ -90,13 +105,176 @@ class RoundTripTable:
             if ex.get(k) is not None:
                 self._blobs[(0, k)] = ex[k]
 
+    def ids(self) -> dict[int, Any]:
+        """id(record) -> record of every registered record (cached until the table changes)."""
+        if self._ids is None:
+            self._ids = {id(v): v for v in self._blobs.values()}
+        return self._ids
+
     def memo(self) -> dict:
         """A fresh ``copy.deepcopy`` memo in which every record maps to itself (shared)."""
-        return {id(v): v for v in self._blobs.values()}
+        return dict(self.ids())
 
     def copy(self, obj):
         """``copy.deepcopy(obj)`` that shares the registered records."""
-        return copy.deepcopy(obj, self.memo())
+        return fast_deepcopy(obj, self.memo())
+
+    def part_memo(self, part: Part) -> dict:
+        """The deepcopy memo of one part: its registered records (under its own and its
+        contours' uids, and those its ``extra`` slots hold) map to themselves."""
+        ids = self.ids()
+        blobs = self._blobs
+        memo: dict = {}
+
+        def add(v: Any) -> None:
+            if v is not None and id(v) in ids:
+                memo[id(v)] = v
+
+        for k in PART_BLOB_KEYS:
+            add(blobs.get((part.uid, k)))
+            add(_raw_extra_get(part, k))
+        for c in part.contours:
+            for k in CONTOUR_BLOB_KEYS:
+                add(blobs.get((c.uid, k)))
+                add(_raw_extra_get(c, k))
+            for k in CONTOUR_BLOB_ATTRS:
+                add(blobs.get((c.uid, k)))
+                add(c.__dict__.get(k))
+        return memo
+
+    def copy_part(self, part: Part, memo: Optional[dict] = None) -> Part:
+        """A copy of one part that shares its registered records (equal by value to
+        :meth:`copy`; ``memo`` continues a copy of several parts, keeping shared sub-objects
+        shared as one ``deepcopy`` of all of them would)."""
+        if memo is None:
+            return fast_deepcopy(part, self.part_memo(part))
+        memo.update(self.part_memo(part))
+        return fast_deepcopy(part, memo)
+
+    def copy_parts(self, parts: Iterable[Part]) -> list[Part]:
+        """Copies of ``parts`` made with one memo (sub-objects shared between them stay shared)."""
+        memo: dict = {}
+        return [self.copy_part(p, memo) for p in parts]
+
+    def copy_doc_state(self, doc: Document) -> tuple:
+        """Copies of ``doc.layers`` and ``doc.extra`` (the document's own record shared)."""
+        memo: dict = {}
+        for k in DOC_BLOB_KEYS:
+            v = self._blobs.get((0, k))
+            if v is not None:
+                memo[id(v)] = v
+            v = doc.extra.get(k) if isinstance(doc.extra, dict) else None
+            if v is not None and id(v) in self.ids():
+                memo[id(v)] = v
+        return fast_deepcopy(doc.layers, memo), fast_deepcopy(doc.extra, memo)
+
+
+# --------------------------------------------------------------------------- fast deep copy
+_ATOMIC = frozenset({int, float, bool, str, bytes, complex, type(None), type})
+_PLAIN: Optional[frozenset] = None
+
+
+def _plain_classes() -> frozenset:
+    """The model classes ``copy.deepcopy`` copies by ``cls.__new__`` + a deep copy of
+    ``__dict__`` (no slots, no custom reduce / getstate / setstate / deepcopy): for those
+    :func:`fast_deepcopy` does the same directly."""
+    global _PLAIN
+    if _PLAIN is None:
+        from mlaser.model import Arc, Contour, Craft, Glyph, LayerParams, LeadParams, Line
+
+        ok = []
+        for cls in (Part, Contour, Craft, Line, Arc, LeadParams, Glyph, LayerParams, Document):
+            if ("__slots__" in cls.__dict__ or getattr(cls, "__deepcopy__", None) is not None
+                    or getattr(cls, "__setstate__", None) is not None
+                    or cls.__reduce_ex__ is not object.__reduce_ex__
+                    or cls.__reduce__ is not object.__reduce__
+                    or getattr(cls, "__getstate__", object.__getstate__) is not object.__getstate__):
+                continue
+            ok.append(cls)
+        _PLAIN = frozenset(ok)
+    return _PLAIN
+
+
+def fast_deepcopy(x: Any, memo: Optional[dict] = None) -> Any:
+    """``copy.deepcopy(x, memo)`` with fast paths for the document model.
+
+    The model's plain dataclasses (:func:`_plain_classes`), exact lists, dicts and tuples, and
+    the ``extra`` views (``LegacyExtra``) are copied here exactly as ``copy.deepcopy`` copies
+    them (same memo protocol: shared and cyclic references stay shared; objects in ``memo``
+    are returned as they are); every other object goes to ``copy.deepcopy`` with the same memo.
+    deepcopy's keep-alive list is left out: every original is reachable from ``x``, which the
+    caller holds while the memo is in use.
+    The result is equal by value and by structure to ``copy.deepcopy`` (tests/test_services_undo.py)."""
+    from mlaser.model import LegacyExtra
+
+    if memo is None:
+        memo = {}
+    plain = _plain_classes()
+    atomic = _ATOMIC
+    deep = copy.deepcopy
+    get = memo.get
+
+    def flat(v: Any) -> bool:
+        # a tuple of atomic values: deepcopy returns the tuple itself (and memoizes nothing)
+        for a in v:
+            if type(a) not in atomic:
+                return False
+        return True
+
+    def dc(o: Any) -> Any:
+        t = type(o)
+        if t in atomic:
+            return o
+        if t is tuple and flat(o):
+            return o
+        i = id(o)
+        y = get(i, memo)
+        if y is not memo:
+            return y
+        if t in plain:
+            y = cast(Any, t).__new__(t)
+            memo[i] = y
+            d = y.__dict__
+            for k, v in o.__dict__.items():
+                tv = type(v)
+                d[k] = v if tv in atomic or (tv is tuple and flat(v)) else dc(v)
+            return y
+        if t is list:
+            y = []
+            memo[i] = y
+            append = y.append
+            for v in o:
+                tv = type(v)
+                append(v if tv in atomic else dc(v))
+            return y
+        if t is dict:
+            y = {}
+            memo[i] = y
+            for k, v in o.items():
+                y[k if type(k) in atomic else dc(k)] = v if type(v) in atomic else dc(v)
+            return y
+        if t is tuple:
+            vals = [dc(v) for v in o]
+            if i in memo:                     # a cycle through the tuple (deepcopy's rule)
+                return memo[i]
+            for a, b in zip(vals, o):
+                if a is not b:
+                    y = tuple(vals)
+                    memo[i] = y
+                    return y
+            return o
+        if t is LegacyExtra:
+            owner = o._ref()
+            new_owner = memo.get(id(owner)) if owner is not None else None
+            if new_owner is not None:
+                y = LegacyExtra(new_owner)
+                memo[i] = y
+                for k, v in dict.items(o):
+                    dict.__setitem__(y, k, dc(v))
+                return y
+        return deep(o, memo)
+
+    return dc(x)
 
 
 def part_cost(p: Part) -> int:

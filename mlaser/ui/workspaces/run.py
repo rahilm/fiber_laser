@@ -991,8 +991,21 @@ class RunWorkspace:
         self.attach()
         self.tick_timer = QTimer(self.screen)
         self.tick_timer.setInterval(500)
-        self.tick_timer.timeout.connect(self.tick)
+        self.tick_timer.timeout.connect(self._timer_tick)
         self.tick_timer.start()
+        self._ticks = 0
+        # the inbox: watched (QFileSystemWatcher) instead of listed on the GUI thread every
+        # 500 ms (UI evaluation F12); polled as before where the folder cannot be watched
+        self._inbox_watch = None
+        self._inbox_timer = QTimer(self.screen)
+        self._inbox_timer.setSingleShot(True)
+        self._inbox_timer.setInterval(100)               # a burst of file events: one scan
+        self._inbox_timer.timeout.connect(self.scan_inbox)
+        self._watch_inbox()
+        pause = getattr(self.window, "idle_pause", None)
+        if pause is not None:
+            # minimised: the tick runs on only for the LAN monitor and a pending start request
+            pause.add(self.tick_timer, keep=self._tick_needed, on_resume=self.tick)
         if bool(self.settings["monitor_enabled"]):
             QTimer.singleShot(0, lambda: self.set_monitor(True, confirm=False))
 
@@ -1223,15 +1236,50 @@ class RunWorkspace:
                 pass
 
     def tick(self) -> None:
+        """The runner's start timeout, the inbox and the LAN monitor (also called directly)."""
         self.runner.tick()
+        self.scan_inbox()
+        if self.monitor is not None and self.monitor.running:
+            self.publish_monitor()
+
+    #: timer ticks (500 ms) between two scans of a watched inbox (a missed file event)
+    INBOX_RESCAN_TICKS = 60
+
+    def _timer_tick(self) -> None:
+        self._ticks += 1
+        self.runner.tick()
+        if self._inbox_watch is None or self._ticks % self.INBOX_RESCAN_TICKS == 0:
+            self.scan_inbox()
+        if self.monitor is not None and self.monitor.running:
+            self.publish_monitor()
+        pause = getattr(self.window, "idle_pause", None)
+        if pause is not None:
+            pause.check(self.tick_timer)
+
+    def _tick_needed(self) -> bool:
+        return bool((self.monitor is not None and self.monitor.running) or self.runner.state == "starting")
+
+    def scan_inbox(self) -> None:
         try:
             for job in self.intake.scan():
                 self.log(tr(self.window, "approval.msg.submitted", "Job submitted for approval: {name} ({src})",
                             name=job.name, src=f"{job.source} {job.client}".strip()))
         except OSError as exc:  # noqa: PERF203 - the inbox must never stop the Run screen
             log.debug("intake scan failed: %s", exc)
-        if self.monitor is not None and self.monitor.running:
-            self.publish_monitor()
+
+    def _watch_inbox(self) -> None:
+        from PySide6.QtCore import QFileSystemWatcher
+        try:
+            os.makedirs(self.intake.inbox, exist_ok=True)
+        except OSError:
+            return
+        w = QFileSystemWatcher(self.screen)
+        if not w.addPath(str(self.intake.inbox)):
+            w.deleteLater()
+            return
+        w.directoryChanged.connect(lambda _p: self._inbox_timer.start())
+        self._inbox_watch = w
+        self._inbox_timer.start()                        # what arrived while the app was closed
 
     # ------------------------------------------------------------------ LAN monitor
     def set_monitor(self, on: bool, confirm: bool = True, port: Optional[int] = None) -> bool:
@@ -1338,6 +1386,9 @@ class RunWorkspace:
             self.monitor.stop()
             self.monitor = None
         self.tick_timer.stop()
+        self._inbox_timer.stop()
+        if self._inbox_watch is not None:
+            self._inbox_watch.removePaths(self._inbox_watch.directories())
 
 
 def register(ctx: Any) -> RunWorkspace:

@@ -642,6 +642,9 @@ class CanvasView(QGraphicsView):
         self._raster_items: list[tuple[int, _RasterItem]] = []   # (part, item) of raster parts
         self._item_styles: list = []       # the pen key set on each of _items (refresh_styles)
         self._item_keys: list = []         # (its QPainterPath object, item class) per item
+        # part uid -> (part, its contours, [(path, points)]) of the last rebuild (see rebuild)
+        self._part_paths: dict[int, tuple] = {}
+        self._built: Optional[tuple] = None   # (document, its parts, item class) of that rebuild
         self._tp_paths: Optional[tuple] = None
         self._overlay_gen = 0
         self._overlay_job: Optional[tuple] = None        # (generation, steps) still to build   # (toolpath item ids, (cut, gap, rapid) paths)
@@ -856,11 +859,23 @@ class CanvasView(QGraphicsView):
             out.extend((pi, ci) for ci in idx)
         return out
 
-    def rebuild(self) -> None:
+    def rebuild(self, changed=None) -> None:
         """Show the document.  Incremental: a contour whose display path is unchanged (the
         path cache returns the same QPainterPath for the same segment values) keeps its scene
         item and pen; only changed, added and removed contours touch the scene.  A one-part
-        edit of a 2,000-part drawing re-created 5,000 items before (review 2 §1.2)."""
+        edit of a 2,000-part drawing re-created 5,000 items before (review 2 §1.2).
+
+        ``changed`` (``DocumentService.changed``): the uids of the parts an edit, undo or redo
+        may have changed.  The other parts are the same objects as at the last rebuild and
+        unchanged, so their contours' paths are taken from that build without looking at their
+        segments again (UI evaluation F2: 75 ms per arrow-key nudge at 2,700 parts).  None
+        (the default) checks every contour.
+
+        When the parts are the same objects in the same order as at the last rebuild and every
+        changed part keeps its number of contours, only the changed parts' items are updated
+        (:meth:`_rebuild_changed`)."""
+        if changed is not None and self._rebuild_changed(changed):
+            return
         for it in self._overlay:
             self._scene.removeItem(it)
         for _, rit in self._raster_items:
@@ -870,6 +885,8 @@ class CanvasView(QGraphicsView):
         old_items, old_styles, old_keys = self._items, self._item_styles, self._item_keys
         self._items, self._item_styles, self._item_keys = [], [], []
         doc = self.document
+        old_paths, self._part_paths = self._part_paths, {}
+        self._built = None
         if doc is None:
             for _, _, it, _ in old_items:
                 self._scene.removeItem(it)
@@ -882,14 +899,26 @@ class CanvasView(QGraphicsView):
         # keyed by the identity of the path objects, which old_keys keeps alive meanwhile
         for (_, _, it, _), (opath, ocls), style in zip(old_items, old_keys, old_styles):
             pool.setdefault((id(opath), ocls), []).append((it, style))
+        part_paths = self._part_paths
+        add_item = self._scene.addItem
+        items, keys, styles = self._items, self._item_keys, self._item_styles
         for pi, part in enumerate(doc.parts):
-            if isinstance(part.extra, dict) and "raster" in part.extra:
+            if getattr(part, "raster", None) is not None:      # the typed field of extra['raster']
                 rit = _RasterItem(part, display_layer_color(part.craft.layer))
                 if rit.raster is not None:
                     self._scene.addItem(rit)
                     self._raster_items.append((pi, rit))
-            for ci, c in enumerate(part.contours):
-                path, pts = _contour_path(c)
+            contours = part.contours
+            paths = None
+            if changed is not None and part.uid not in changed:
+                ent = old_paths.get(part.uid)
+                if (ent is not None and ent[0] is part and len(ent[1]) == len(contours)
+                        and all(a is b for a, b in zip(ent[1], contours))):
+                    paths = ent[2]
+            if paths is None:
+                paths = [_contour_path(c) for c in contours]
+            part_paths[part.uid] = (part, tuple(contours), paths, len(items))
+            for ci, (path, pts) in enumerate(paths):
                 key = (id(path), item_cls)
                 free = pool.get(key)
                 if free:
@@ -897,15 +926,58 @@ class CanvasView(QGraphicsView):
                 else:
                     it, style = item_cls(path), None
                     it.setZValue(1)
-                    self._scene.addItem(it)
-                self._items.append((pi, ci, it, pts))
-                self._item_keys.append((path, item_cls))
-                self._item_styles.append(style)
+                    add_item(it)
+                items.append((pi, ci, it, pts))
+                keys.append((path, item_cls))
+                styles.append(style)
         for free in pool.values():
             for it, _ in free:
                 self._scene.removeItem(it)
+        self._built = (doc, list(doc.parts), item_cls)
         self.refresh_styles()
         self._build_overlay()
+
+    def _rebuild_changed(self, changed) -> bool:
+        """:meth:`rebuild` for an edit that kept the part list: update the items of the
+        ``changed`` parts in place (new paths set on the existing items).  False when that does
+        not apply (another document or part list, a raster part, a changed contour count)."""
+        doc = self.document
+        built = self._built
+        if (doc is None or built is None or built[0] is not doc or self._raster_items
+                or len(built[1]) != len(doc.parts)
+                or not all(a is b for a, b in zip(built[1], doc.parts))):
+            return False
+        part_paths = self._part_paths
+        updates = []
+        for pi, part in enumerate(doc.parts):
+            if part.uid not in changed:
+                continue
+            ent = part_paths.get(part.uid)
+            if (ent is None or ent[0] is not part or len(ent[1]) != len(part.contours)
+                    or getattr(part, "raster", None) is not None):
+                return False
+            updates.append((pi, part, ent))
+        for it in self._overlay:
+            self._scene.removeItem(it)
+        self._overlay.clear()
+        items, keys, styles = self._items, self._item_keys, self._item_styles
+        for pi, part, ent in updates:
+            contours = part.contours
+            paths = [_contour_path(c) for c in contours]
+            start = ent[3]
+            for ci, (path, pts) in enumerate(paths):
+                k = start + ci
+                it = items[k][2]
+                if keys[k][0] is not path:
+                    it.setPath(path)
+                    keys[k] = (path, keys[k][1])
+                items[k] = (pi, ci, it, pts)
+                styles[k] = None             # contour colours depend on ``closed``: restyle
+            part_paths[part.uid] = (part, tuple(contours), paths, start)
+        self._order = self.contour_order()
+        self.refresh_styles()
+        self._build_overlay()
+        return True
 
     def set_toolpath(self, items) -> None:
         """Show the real CAM toolpath (mlaser.cam.build_toolpath): cut moves including leads and
