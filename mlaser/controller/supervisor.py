@@ -47,6 +47,12 @@ log = logging.getLogger(__name__)
 REFUSED_CODE = 9101
 # a monitor wake-up later than this means the host stalled (timer jitter is well below it)
 HOST_STALL_S = 0.3
+# the safety monitor's deadlines (link tick, heartbeat edges): the last part before a deadline is
+# slept in slices of this length; how late its timed waits come is remembered as the worst seen,
+# halving every LATE_HALF_LIFE_S (a host that recovers gets back to one wait per deadline)
+MONITOR_SLICE_S = 0.002
+LATE_HALF_LIFE_S = 10.0
+LATE_MAX_S = 1.0
 
 
 class CommandRefused(ControllerError):
@@ -491,36 +497,50 @@ class SafetySupervisor:
         return (self.link_deadline_ms if self.streaming else self.idle_link_deadline_ms) / 1000.0
 
     def _monitor(self) -> None:
+        # Absolute deadlines: the link / retry tick (monitor_s) and each heartbeat edge.  A
+        # timed wait on a host whose timers fire late (the macOS runners' VMs: a 16-50 ms wait
+        # comes 50-150 ms late, a 2 ms sleep 8-25 ms) overran the next deadline by its lateness;
+        # once that was more than half a heartbeat period the edge was resynchronised and lost
+        # (CI: 2.9-3.2 edges/s of 4 under 300 ms late waits).  So a timed wait ends ``late``
+        # before the deadline (``late``: the worst lateness of the timed waits, decaying with
+        # LATE_HALF_LIFE_S), and the rest is slept in short slices (MONITOR_SLICE_S), whose
+        # lateness is small: the edge comes within about one slice's lateness of its time,
+        # however late the long waits are.  Where timers are accurate ``late`` stays near zero
+        # (one wait and a slice or two per deadline).
         next_retry = 0.0
         next_tick = time.monotonic() + self.monitor_s
-        slack = 0.0                 # how late wake-ups come (moving average), for the heartbeat
+        late = 0.0
+        t_late = time.monotonic()
+        stop = self._mon_stop
         while True:
-            # wake for the link / retry tick (monitor_s) and for each heartbeat edge.  On a host
-            # whose timers fire late (macOS VMs: a 50 ms wait takes 80-100 ms, a 2 ms sleep
-            # 10 ms) the wait for an edge ends that much earlier (at most 80 % of the half
-            # period) and the rest is slept off in short sleeps, so the edge comes on time
             due = next_tick
-            hb = self.heartbeat_output and self.heartbeat_hz > 0 and self._hb_next > 0.0
-            half = 1.0 / (2.0 * self.heartbeat_hz) if hb else 0.0
-            if hb:
-                due = min(due, self._hb_next - slack)
+            if self.heartbeat_output and self.heartbeat_hz > 0 and self._hb_next > 0.0:
+                due = min(due, self._hb_next)
             t0 = time.monotonic()
-            req = max(0.0, due - t0)
-            if self._mon_stop.wait(req):
-                break
-            try:
+            late *= 0.5 ** ((t0 - t_late) / LATE_HALF_LIFE_S)
+            t_late = t0
+            req = due - t0 - late - MONITOR_SLICE_S
+            if req >= 0.001:
+                if stop.wait(req):
+                    break
                 now = time.monotonic()
-                if hb:
-                    slack = min(0.8 * slack + 0.2 * max(0.0, now - t0 - req), 0.8 * half)
-                    while 0.0 < self._hb_next - now <= slack + 0.002 and not self._mon_stop.is_set():
-                        time.sleep(min(0.002, self._hb_next - now))
-                        now = time.monotonic()
-                # this thread itself woke far too late: the whole host stalled (another thread
-                # held the interpreter), the poller's requests timed out on the wall clock
-                # without the card being at fault; while idle the card gets a full deadline
-                # again from the end of the stall
-                if now - t0 - req > HOST_STALL_S and not self.streaming:
-                    self._link_epoch = now
+                late = min(max(late, now - t0 - req), LATE_MAX_S)
+            else:
+                req = min(max(0.0, due - t0), MONITOR_SLICE_S)
+                if req > 0.0:
+                    time.sleep(req)
+                if stop.is_set():
+                    break
+                now = time.monotonic()
+            # this thread itself woke far too late: the whole host stalled (another thread
+            # held the interpreter), the poller's requests timed out on the wall clock
+            # without the card being at fault; while idle the card gets a full deadline
+            # again from the end of the stall
+            if now - t0 - req > HOST_STALL_S and not self.streaming:
+                self._link_epoch = now
+            if now < due:
+                continue                        # a slice before the deadline
+            try:
                 if now >= next_tick:
                     next_tick = now + self.monitor_s
                     self._tick_link(now)
@@ -566,6 +586,10 @@ class SafetySupervisor:
         if not alive:
             if self._hb_state:
                 self._heartbeat_write(False)
+            # no edge is due while stopped: a deadline left in the past made the monitor loop
+            # spin (a whole core, and the interpreter's lock, for as long as a fault stayed
+            # latched); the first edge after it comes at once, as after any stall
+            self._hb_next = 0.0
             return
         if now >= self._hb_next:
             half = 1.0 / (2.0 * self.heartbeat_hz)

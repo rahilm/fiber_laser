@@ -168,12 +168,15 @@ def test_interlock_trips_fault_and_halt(make_ctl, source):
 
 
 def test_heartbeat_keeps_its_rate_with_late_timers(make_ctl, monkeypatch):
-    """A host whose timers fire late (the macOS runners' VMs: a 50 ms wait takes 80-100 ms)
-    must not slow the heartbeat down: the monitor requests the edge wake-ups earlier by the
-    lateness it measures (at most a quarter period).  Here every wait of the safety monitor
-    comes 300 ms late, more than the 250 ms between the edges of a 2 Hz heartbeat (scaled down
-    so the host's own timer lateness stays small against it)."""
+    """A host whose timers fire late must not slow the heartbeat down.  Here every timed wait
+    of the safety monitor comes 300 ms late - more than the 250 ms between the edges of a 2 Hz
+    heartbeat - and each of its short sleeps 20 ms late (the macOS runners' VMs, measured: a
+    16-50 ms wait 50-150 ms late, a 2 ms sleep 8-25 ms).  Before, any wait started less than
+    its lateness before an edge overran it; an edge more than half a period late is
+    resynchronised, so edges were lost (macOS CI: 2.9-3.2 edges/s of 4).  The monitor now ends
+    its waits that much before the deadline and sleeps the rest in short slices."""
     import threading
+    import types
 
     import mlaser.controller.supervisor as SV
 
@@ -183,7 +186,11 @@ def test_heartbeat_keeps_its_rate_with_late_timers(make_ctl, monkeypatch):
                 return super().wait(timeout + 0.3)
             return super().wait(timeout)
 
+    real_sleep = time.sleep
+    late_time = types.SimpleNamespace(**{k: getattr(time, k) for k in dir(time) if not k.startswith("__")})
+    late_time.sleep = lambda s: real_sleep(s + 0.02 if s > 0 else s)
     monkeypatch.setattr(SV.threading, "Event", LateEvent)
+    monkeypatch.setattr(SV, "time", late_time)        # the supervisor's own sleeps only
     ctl = make_ctl(heartbeat_output=8, heartbeat_hz=2.0)
     assert isinstance(ctl._sup._mon_stop, LateEvent)
     time.sleep(1.0)                        # the lateness estimate settles
@@ -290,8 +297,13 @@ def test_heartbeat_output_toggles_and_stops_on_fault(make_ctl):
     time.sleep(0.3)
     assert not sim.state.outputs >> 7 & 1
     n = ctl._sup.heartbeat_toggles
-    time.sleep(0.3)
+    c0, t0 = time.process_time(), time.monotonic()
+    time.sleep(0.5)
     assert ctl._sup.heartbeat_toggles == n             # stopped: the watchdog relay drops out
+    # ... and the safety monitor idles: the stopped heartbeat's deadline, left in the past, made
+    # it spin (a whole core and the interpreter's lock, for as long as the fault was latched)
+    cpu = (time.process_time() - c0) / (time.monotonic() - t0)
+    assert cpu < 0.5, f"{cpu:.2f} s of CPU per second with the heartbeat stopped"
 
 
 OFF_COMMANDS = [

@@ -198,6 +198,8 @@ Two rules keep those assertions meaningful on busy CI or development hosts:
 - **Platform clocks.** On Windows before Python 3.13 `time.monotonic()` / `time.time()` tick in
   15.6 ms steps: measure short intervals with `time.perf_counter()` and select logged requests by
   position, not by timestamp. The macOS runners are VMs whose timers fire late (a 2 ms sleep
-  takes ~10 ms, a 50 ms wait 80-100 ms; measured in CI 2026-10-19): the safety monitor wakes
-  early for heartbeat edges by the lateness it measures (`tests/safety/test_arming_and_preflight.py`
+  takes 8-25 ms, a 16-50 ms wait 50-150 ms; measured in CI 2026-10-19 and 2026-11-08): the
+  safety monitor ends each wait before its deadline (link tick, heartbeat edge) by the worst
+  lateness it has seen and sleeps the rest in 2 ms slices, so an edge is never more than a short
+  sleep's lateness late (`tests/safety/test_arming_and_preflight.py`
   `test_heartbeat_keeps_its_rate_with_late_timers`).
