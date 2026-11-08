@@ -13,6 +13,7 @@ from ...machine.api import MachineState
 from ...machine.audit import audit
 from ...machine.safety import SafetyState
 from .. import alarms as A
+from .. import cardlock
 from ..client import ControllerError
 
 log = logging.getLogger("mlaser.controller.ui_adapter")
@@ -41,6 +42,17 @@ class ConnectionPart:
             self.cfg.host = host
         if port:
             self.cfg.port = int(port)
+        # one process drives a card at a time (controller/cardlock.py): an OS lock keyed by the
+        # address, taken before any socket exists and released by disconnect() or the OS
+        self.connect_error, self.card_busy = "", False
+        try:
+            self._card_lock = cardlock.acquire(self.cfg.host, self.cfg.port, self.cfg.transport)
+        except cardlock.CardBusy as e:
+            self.connect_error, self.card_busy = str(e), True
+            self._log(f"mf166: {e}", logging.WARNING)
+            audit("connect_refused", logging.WARNING, host=self.cfg.host, port=self.cfg.port,
+                  reason="card in use by another process", owner_pid=e.owner.get("pid"))
+            return False
         mc = self._sup.open(self.cfg, self.machine.pulses_per_mm_x)
         self._sup.guarded_outputs = self._guarded_outputs_mask()
         self._sup.heartbeat_output = int(self.heartbeat_output or 0)
@@ -52,7 +64,9 @@ class ConnectionPart:
                 cfgw, ver = mc.connect()
         except (ControllerError, OSError) as e:
             self._log(f"mf166: cannot connect to {self.cfg.host}:{self.cfg.port} ({e})", logging.WARNING)
+            self.connect_error = f"no answer from the motion card at {self.cfg.host}:{self.cfg.port} ({e})"
             self._sup.close()
+            self._release_card_lock()
             return False
         self.version = ver
         with self._slock:
@@ -87,6 +101,16 @@ class ConnectionPart:
             except Exception as e:  # noqa: BLE001
                 self._log(f"connect hook failed: {e}")
         return True
+
+    #: why the last connect() failed ("" after a success): the card in use elsewhere, no answer
+    connect_error = ""
+    card_busy = False                    # ... because another process holds the card (cardlock)
+    _card_lock = None
+
+    def _release_card_lock(self) -> None:
+        lock, self._card_lock = self._card_lock, None
+        if lock is not None:
+            lock.release()
 
     # False for a private controller (the procedures' simulator rig): it never takes part in
     # the laser-source decision of the process (devices.laser registry)
@@ -180,6 +204,7 @@ class ConnectionPart:
             self._poll_thread = None
         was = self._sup.connected
         self._sup.close()
+        self._release_card_lock()
         lifecycle.unregister(self)
         _laser.unregister_emission_guard(self)
         if self.sim is not None and not keep_sim:

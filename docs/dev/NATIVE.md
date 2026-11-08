@@ -36,7 +36,23 @@ Code:
 | Sleep during a job | App Nap off for the process; no idle sleep while a job runs | power request | a logind inhibitor (`systemd-inhibit --what=sleep:idle`, else `gnome-session-inhibit`) for the job's duration |
 | File dialogs | native (Qt default) | IFileDialog (Qt default) | the portal's (the bundle selects the `xdgdesktopportal` platform theme, because it ships no GTK theme plugin) |
 | Opening a file from the shell | Finder "Open With" and dropping on the Dock icon (`CFBundleDocumentTypes`, `QFileOpenEvent`) | command line | `.desktop` `Exec=mlaser %F` |
+| Single instance | LaunchServices routes Finder / Dock opens to the running app; a command-line launch hands its file over like the others | a second launch hands its file to the running instance (`QLocalServer` named pipe), which comes to the front (`AllowSetForegroundWindow`), and exits | the same over a Unix socket in `$XDG_RUNTIME_DIR/mlaser`; the window manager may only mark it urgent |
 | Window title | the file name; the close button shows the modified dot (`setWindowModified`); the proxy icon (`setWindowFilePath`) | `name* - mlaser` | `name* — mlaser` |
+
+## One instance, one card owner
+
+`mlaser/ui/single_instance.py`: the first launch for a user and configuration directory takes
+an OS file lock (`flock` / `LockFileEx`, released by the OS when the process ends, also on a
+crash) and listens on a `QLocalServer`. A later launch connects, exchanges a versioned hello
+(one JSON object per line), hands over its file and exits with 0. The files take the
+`QFileOpenEvent` path (`NativeIntegration.open_file`). `--new-instance` or
+`MLASER_SINGLE_INSTANCE=0` starts another instance anyway. `MLASER_RUNTIME_DIR` moves the
+lock and socket directory (tests).
+
+`mlaser/controller/cardlock.py`: `connect()` takes an exclusive OS lock keyed by the card's
+address before it opens a socket, and `disconnect()` releases it. A second process (another
+instance, a script) gets "the motion card at … is in use by another mlaser (process N)" and
+sends nothing. `MLASER_CARD_LOCK=0` turns it off for development.
 
 ## Why the macOS app had no Dock icon or menu bar (fixed)
 
