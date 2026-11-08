@@ -313,13 +313,26 @@ def test_canvas_and_part_list_update_incrementally(win, app, monkeypatch):
     real = C._contour_path
     monkeypatch.setattr(C, "_contour_path", lambda c: (calls.append(c), real(c))[1])
     win.canvas.select_parts([5])
-    n_items = len(canvas._scene.items())
+
+    def drawing_items() -> int:
+        # every scene item but the overlay (toolpath, markers, labels): the overlay is built in
+        # time slices over later event-loop turns and changes when the plan arrives, so its
+        # size at any moment depends on the runner's speed (macOS CI: +106 items)
+        overlay = set(canvas._overlay)
+        return sum(1 for it in canvas._scene.items() if it not in overlay)
+    n_items = drawing_items()
+    contour_items = [it for _, _, it, _ in canvas._items]
     for step in (lambda: win.nudge(1, 0), win.undo, win.redo, lambda: win.nudge(0, 1)):
         calls.clear()
         step()
         assert len(calls) <= 1, len(calls)                   # the changed part's one contour
         assert _scene_state(canvas) == _expected(win.document)
-    assert len(canvas._scene.items()) <= n_items + 5         # items updated, not added
+    # the unchanged parts' contour items are the same objects (kept, not re-created; the
+    # nudged part's item may be new when a plan's toolpath triggered a full rebuild meanwhile);
+    # nothing but the overlay was added (a few items of the machine head / track at most)
+    assert len(canvas._items) == len(contour_items)
+    assert all(a is b for a, (pi, _, b, _) in zip(contour_items, canvas._items) if pi != 5)
+    assert drawing_items() <= n_items + 5, (drawing_items(), n_items)
     rows = [tuple(win.part_list.topLevelItem(i).text(c) for c in range(5))
             for i in range(win.part_list.topLevelItemCount())]
     win.part_list.refresh()                                  # a full refresh shows the same
