@@ -24,7 +24,7 @@ Start / Dry run (``cam.preflight_lead_check``, default on).
 from __future__ import annotations
 
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from PySide6.QtWidgets import (
     QLabel,
@@ -409,22 +409,41 @@ class CuttingStrategyPanel(QWidget):
         return rep
 
 
-def install(ctx: Any, tabs: Any, store: Any = None) -> CuttingStrategyPanel:
-    """Add the panel as a tab of the Process workspace and register its commands."""
+def add_tab(ctx: Any, tabs: Any, store: Any = None) -> CuttingStrategyPanel:
+    """Add the panel as a tab of the Process workspace (no commands: :func:`register_commands`)."""
     panel = CuttingStrategyPanel(ctx, store=store)
     tabs.addTab(panel, tr(ctx.window, "cutstrat.tab", "Cutting strategy"))
-    for cmd, fn, label in (
-        ("cam.lead_check", panel.check_leads, "cutstrat.cmd.lead_check"),
-        ("cam.lead_fix", panel.fix_leads, "cutstrat.cmd.lead_fix"),
-        ("cam.lead_place", panel.place_leads, "cutstrat.cmd.lead_place"),
-        ("cam.tip_check", panel.check_tipping, "cutstrat.cmd.tip_check"),
-        ("cam.tip_fix", panel.fix_tipping, "cutstrat.cmd.tip_fix"),
-    ):
-        ctx.register_command(cmd, fn, label=label, workspace="process")
     return panel
 
 
-__all__ = ["CuttingStrategyPanel", "augment_preflight", "bed_of", "install", "recipe_rules", "RULE_DEFAULTS"]
+#: (command id, panel method, label)
+COMMANDS = (
+    ("cam.lead_check", "check_leads", "cutstrat.cmd.lead_check"),
+    ("cam.lead_fix", "fix_leads", "cutstrat.cmd.lead_fix"),
+    ("cam.lead_place", "place_leads", "cutstrat.cmd.lead_place"),
+    ("cam.tip_check", "check_tipping", "cutstrat.cmd.tip_check"),
+    ("cam.tip_fix", "fix_tipping", "cutstrat.cmd.tip_fix"),
+)
+
+
+def register_commands(ctx: Any, panel: Callable[[], CuttingStrategyPanel]) -> None:
+    """The panel's commands; ``panel()`` returns it, building the Process workspace on demand
+    when it was not opened yet (the workspace is built lazily, UI evaluation F11)."""
+    def run(meth: str) -> Callable[..., Any]:
+        return lambda *_a: getattr(panel(), meth)()
+
+    for cmd, meth, label in COMMANDS:
+        ctx.register_command(cmd, run(meth), label=label, workspace="process")
+
+
+def install(ctx: Any, tabs: Any, store: Any = None) -> CuttingStrategyPanel:
+    """Add the panel as a tab of the Process workspace and register its commands."""
+    panel = add_tab(ctx, tabs, store)
+    register_commands(ctx, lambda: panel)
+    return panel
+
+
+__all__ = ["CuttingStrategyPanel", "add_tab", "augment_preflight", "bed_of", "install", "register_commands", "recipe_rules", "RULE_DEFAULTS"]
 
 
 def _has_lead_in(doc: Any) -> bool:

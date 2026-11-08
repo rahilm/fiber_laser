@@ -45,7 +45,9 @@ def test_plugin_registers_workspace_docks_and_commands(win):
     ext = _ext(win)
     assert ext is not None
     assert "ext_process.process" in win.workspaces
-    assert win.workspaces["ext_process.process"][1] is ext.workspace
+    assert win.workspaces["ext_process.process"][1] is ext.page
+    ws = ext.workspace                               # built on demand (lazy, UI evaluation F11)
+    assert ext.page.content is ws
     for cmd in ("process.show", "process.apply", "process.rates", "props.show", "preview.play", "preview.clear"):
         assert cmd in win.commands
     assert len(ext.store.all()) == 9 and all(t.is_example for t in ext.store.all())
