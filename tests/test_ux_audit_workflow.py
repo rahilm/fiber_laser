@@ -135,8 +135,10 @@ def test_layer_table_shows_up_to_four_rows_in_full(win, app):
     tb = ws.layers
     assert tb.rowCount() == 4
     pump(app, 0.1)
-    rows = sum(tb.rowHeight(r) for r in range(4))
-    assert tb.minimumHeight() >= tb.horizontalHeader().sizeHint().height() + rows
+    # four rows at least a text line each, whatever the page's width (a minimum that grew
+    # with the wrapping pushed the Process page wider than the window, Windows CI)
+    line = tb.fontMetrics().height()
+    assert tb.minimumHeight() >= tb.horizontalHeader().sizeHint().height() + 4 * line
     assert tb.wordWrap()
     for r in range(tb.rowCount()):
         assert tb.rowHeight(r) >= tb.sizeHintForRow(r)                          # the state is not cut
@@ -554,3 +556,25 @@ def test_plugin_message_names_the_real_menu(win):
         assert path == "Tools › Plugins"
     text = win.tr_.format("main.plugin.not_enabled", names="onshape", where=path)
     assert "Options+" not in text and path in text
+
+
+def test_layer_table_does_not_take_the_canvas_width_with_larger_fonts(app, monkeypatch, tmp_path):
+    """Windows CI (Segoe UI metrics): the layer table's minimum grew with its wrapped rows, the
+    Process page no longer fitted the 1280 x 800 window's height and took the canvas's width
+    (a 5 mm lead 2.6 px at the fitted zoom).  An 11 pt font stands in for those metrics."""
+    from test_ui_process_paths import leads_via_ribbon, make_window, settle
+    old = app.font()
+    f = app.font()
+    f.setPointSizeF(11.0)
+    app.setFont(f)
+    try:
+        w = make_window(app, monkeypatch, tmp_path)
+        try:
+            leads_via_ribbon(w, app, 5.0)
+            settle(w, app)
+            assert 5.0 * abs(w.canvas.transform().m11()) >= 3.0
+        finally:
+            w._test_no_dialogs = True
+            w.close()
+    finally:
+        app.setFont(old)

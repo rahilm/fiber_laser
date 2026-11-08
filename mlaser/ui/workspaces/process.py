@@ -1034,7 +1034,7 @@ class ProcessWorkspace(QWidget):
         hh.setSectionResizeMode(2, QHeaderView.Stretch)
         self.layers.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.layers.setTextElideMode(Qt.ElideRight)
-        # the state is read in full ("Not defined: choose a recipe"): it wraps, the row grows
+        # the state is read in full: it wraps, the row grows (the table keeps one line a row as its minimum)
         self.layers.setWordWrap(True)
         self.layers.verticalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.layers.verticalHeader().hide()
@@ -1079,17 +1079,19 @@ class ProcessWorkspace(QWidget):
     LAYER_ROWS = 4
 
     def layers_min_height(self) -> int:
-        """The layer table's least height: its header and its rows, up to :attr:`LAYER_ROWS`
-        of them (each as tall as its wrapped state text needs)."""
+        """The layer table's least height: its header and one text line for each of its
+        rows, up to :attr:`LAYER_ROWS` of them.  Not the wrapped rows' height: a narrow page
+        wraps more, its minimum grew with it, and at the Windows metrics the Process page
+        no longer fitted the window's height and took the canvas's width instead (the
+        drawing fitted at half its zoom).  With room the rows show wrapped in full."""
         tb = self.layers
-        vh = tb.verticalHeader()
         n = min(max(tb.rowCount(), 1), self.LAYER_ROWS)
-        rows = sum(tb.rowHeight(r) if r < tb.rowCount() else vh.defaultSectionSize() for r in range(n))
-        return tb.horizontalHeader().sizeHint().height() + rows + 2 * tb.frameWidth() + 1
+        line = tb.fontMetrics().height() + style.SP1
+        return tb.horizontalHeader().sizeHint().height() + n * line + 2 * tb.frameWidth() + 1
 
     def _fit_layer_rows(self) -> None:
         """Rows as tall as their wrapped text at the current column widths; the table's least
-        height follows."""
+        height follows the number of rows."""
         self.layers.resizeRowsToContents()
         h = self.layers_min_height()
         if self.layers.minimumHeight() != h:
