@@ -47,6 +47,7 @@
   "a11y.run.sheet_progress.one": "{done} of {n} part cut",
   "a11y.run.sheet_progress.other": "{done} of {n} parts cut",
   "a11y.ws.toolbar": "{workspace} tools",
+  "a11y.ws.toolbar2": "{workspace} tools (continued)",
   "about.description": "Mlaser rebuild ({toolkit}): a cross-platform reimplementation of the Mlaser {version} user interface.  {licence} licence.",
   "about.kernel_unavailable": "Emitter kernel: status unavailable ({error})",
   "about.licences": "Uses {qt}, licensed under the {lgpl}: you may replace the {libs} libraries with your own build.  Licence texts: {paths}.  Bundled fonts: {fonts}.",
@@ -4836,6 +4837,9 @@
    "n"
   ],
   "a11y.ws.toolbar": [
+   "workspace"
+  ],
+  "a11y.ws.toolbar2": [
    "workspace"
   ],
   "about.kernel_unavailable": [

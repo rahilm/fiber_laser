@@ -140,6 +140,8 @@ class WorkspacePage(QWidget):
         self.toolbar2.setIconSize(QSize(20, 20))
         self.toolbar2.setToolButtonStyle(Qt.ToolButtonIconOnly)
         self.toolbar2.setVisible(False)
+        tr.bind(self.toolbar2, spec.title or spec.id, lambda t: self.toolbar2.setAccessibleName(
+            tr.format("a11y.ws.toolbar2", workspace=t)))
         v.addWidget(self.toolbar2)
         self._acts: list = []             # the tool bar's actions in order (both rows)
         self._split = 0                   # how many of them the first row holds
