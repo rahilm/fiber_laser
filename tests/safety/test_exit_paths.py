@@ -166,6 +166,10 @@ def test_close_event_halts_and_disconnects(make_ctl, monkeypatch):
     win.close()
     dt, travel = w.until_safe(1.0)
     assert dt is not None and dt < 0.5 and travel < 20.0
+    # the halt went out at once (above); the rest of the disconnect (job worker and poller
+    # joins, sockets closed) ends on the command worker so the window closes at once (issue #5):
+    # it completes - bounded - and leaves the card disconnected
+    assert ctl.wait_commands(30)
     assert not ctl._sup.connected
     sim.stop()
 

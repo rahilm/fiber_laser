@@ -222,6 +222,8 @@ class SafetySupervisor:
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
         self._halt_lock = threading.RLock()
+        self._soon: set = set()               # halts on their way (send_soon)
+        self._soon_lock = threading.Lock()
         # the controller's command executor (controller.commands): why the command running on
         # the calling thread must not move or fire any more (a Stop / halt since it was queued)
         self.request_veto: Optional[Callable[[], Optional[str]]] = None
@@ -265,6 +267,8 @@ class SafetySupervisor:
         return mc
 
     def close(self) -> None:
+        if not self.wait_halts(10.0):          # a halt on its way goes out on these channels
+            log.warning("closing the card channels with a halt still pending")
         self.stop_monitor()
         for m in (self._mc, self._halt):
             if m is not None:
@@ -377,17 +381,39 @@ class SafetySupervisor:
         starts are stale, motion is refused from now on), the sequence goes out at once from
         its own thread (with the card off a halt-channel sequence takes up to ~0.6 s).  Returns
         an Event set when it was sent."""
-        from .._sched import start_now
         self._mark_halt(reason, latch)
+        return self.send_soon(lambda: self._send_halt(reason, pause), "mlaser-halt")
+
+    def send_soon(self, fn: Callable[[], object], name: str) -> threading.Event:
+        """Run a halt sequence (``fn``) from its own thread at once; :meth:`wait_halts` and
+        :meth:`close` wait for it, so the channels never close under a halt still on its way
+        and every halt given before a disconnect is sent (and recorded) before it ends."""
+        from .._sched import start_now
         done = threading.Event()
+        with self._soon_lock:
+            self._soon.add(done)
 
         def run() -> None:
             try:
-                self._send_halt(reason, pause)
+                fn()
             finally:
+                with self._soon_lock:
+                    self._soon.discard(done)
                 done.set()
-        start_now(run, "mlaser-halt")
+        start_now(run, name)
         return done
+
+    def wait_halts(self, timeout: float = 10.0) -> bool:
+        """Block until every halt started by :meth:`send_soon` ended (bounded)."""
+        end = time.monotonic() + timeout
+        while True:
+            with self._soon_lock:
+                pending = list(self._soon)
+            if not pending:
+                return True
+            for ev in pending:
+                if not ev.wait(max(0.0, end - time.monotonic())):
+                    return False
 
     def _mark_halt(self, reason: str, latch: bool) -> None:
         self.halt_count += 1                  # every halt makes pending start requests stale

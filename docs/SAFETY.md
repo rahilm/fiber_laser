@@ -188,7 +188,9 @@ policy, ~3.5 s. The GUI thread never waits for it:
   one receive timeout, instead of the whole retry policy) and the monitor keeps repeating the
   full halt on the halt channel; a jog release then sends the full halt on the halt channel;
 * the window closes at once; the disconnect (halt first, then the worker and poller joins) ends
-  on the command worker, and the exit hooks halt again synchronously.
+  on the command worker, and the exit hooks halt again synchronously. Every halt sent from its
+  own thread is waited for (bounded) before the channels close, so a disconnect never ends
+  before the halts given ahead of it went out.
 
 ## 5. Pre-flight check
 
