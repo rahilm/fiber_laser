@@ -32,8 +32,10 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
     """Run ``job`` on a fresh simulator and return the recorded exchanges.
 
     The simulator's axes start at ``start_mm`` (position counts = mm x ``position_ppm``), its
-    step scale and period are the job machine's.  ``stop_after_s`` cancels the stream after
-    that many seconds of wall time and sends the rebuild's job stop (``stop_manu``, 103 := 3,
+    step scale and period are the job machine's.  ``stop_after_s`` cancels the stream that many
+    seconds of wall time after the job started on the card (its first progress report, i.e.
+    after 103 := 2; counted from the call it could fire before the start on a slow host and
+    leave no job in the capture) and sends the rebuild's job stop (``stop_manu``, 103 := 3,
     103 := 1), to produce a stop sequence.
 
     ``time_scale`` 2: the streamer keeps at most 1.2 s of card time in the FIFO, 600 ms of real
@@ -71,9 +73,15 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
             mc.read_status()
             js = JobStreamer(mc)
             cancel = threading.Event()
-            if stop_after_s is not None:
-                threading.Timer(stop_after_s, cancel.set).start()
-            js.run_job(job, cancel=cancel, timeout_s=120)
+            armed: list[threading.Timer] = []
+
+            def progress(_frac, _idx) -> None:
+                if stop_after_s is not None and not armed:
+                    armed.append(threading.Timer(stop_after_s, cancel.set))
+                    armed[0].start()
+            js.run_job(job, progress=progress, cancel=cancel, timeout_s=120)
+            for t in armed:
+                t.cancel()
             if cancel.is_set():
                 from .capture import expected_stop_sequence
                 for reg, words in expected_stop_sequence(m):
