@@ -14,6 +14,7 @@ delivers (``ctx.on_plan``): the same PlannedJob Start streams (preview = cut).
 
 from __future__ import annotations
 
+import html
 from typing import Any, Optional
 
 from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QSize, Qt, QTimer, Signal
@@ -382,7 +383,9 @@ class CostCardWidget(QWidget):
         self.setObjectName("cost_card")
         lay = QVBoxLayout(self)
         style.margins(lay, "tight")
-        self.title = QLabel(f"<b>{tr.tr('cost.title')}</b>")
+        self.title = QLabel(tr.tr("cost.title"))
+        self.title.setTextFormat(Qt.PlainText)
+        style.set_font(self.title, "label_strong")
         lay.addWidget(self.title)
         self.hint = QLabel(tr.tr("cost.hint"))
         self.hint.setWordWrap(True)
@@ -414,7 +417,7 @@ class CostCardWidget(QWidget):
                 continue
             note = t.format(ln.note, **dict(ln.args)) if ln.note else ""
             if ln.value is None:
-                txt = f"<i>{t.tr('cost.missing')}</i>"
+                txt = f"<i>{html.escape(t.tr('cost.missing'))}</i>"  # i18n: ok (markup around one text)
             else:
                 txt = self._fmt(ln)
                 if ln.kind == "estimate":

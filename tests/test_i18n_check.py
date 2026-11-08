@@ -61,3 +61,52 @@ def test_broken_tree_fails(tmp_path):
     r = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "i18n_check.py"), "--root", str(root),
                         "--no-legacy-scan"], capture_output=True, text=True)
     assert r.returncode == 1 and "error(s)" in r.stdout
+
+
+def _code_tree(tmp_path, code: str, strings: dict, other: dict | None = None):
+    cat = tmp_path / "mlaser" / "i18n"
+    cat.mkdir(parents=True)
+    import re
+    args = {k: list(dict.fromkeys(re.findall(r"\{(\w+)\}", v))) for k, v in strings.items()}
+    en = {"format": "mlaser-i18n/1", "language": "en", "name": "English", "strings": strings,
+          "args": {k: v for k, v in args.items() if v}, "legacy": {}}
+    (cat / "en.json").write_text(json.dumps(en), encoding="utf-8")
+    if other is not None:
+        (cat / "ru.json").write_text(json.dumps({"language": "ru", "name": "ru", "strings": other}),
+                                     encoding="utf-8")
+    (tmp_path / "mlaser" / "mod.py").write_text(code, encoding="utf-8")
+    return str(tmp_path)
+
+
+def test_literals_fragments_and_plurals_are_caught(tmp_path):
+    """UI evaluation F8: text that bypasses the catalogue, sentences glued from fragments and
+    English-only plurals fail the check; '# i18n: ok' exempts a line."""
+    root = _code_tree(tmp_path, (
+        "def f(w, tr, n, QMessageBox, QLabel, i18n):\n"
+        "    QMessageBox.question(w, 'Job running', tr('a.ok'))\n"
+        "    w.setText('Error: ' + str(n))\n"
+        "    QLabel('LayerPara.xml')  # i18n: ok (a file name)\n"
+        "    w.setText(tr('a.ok') + ' more')\n"
+        "    w.setText(f\"{tr('a.ok')} {n} left\")\n"
+        "    w.setText(f\"{n} part{'s' if n != 1 else ''}\")\n"
+        "    w.setText(tr.plural('a.parts', n))\n"
+        "    w.setText(i18n.plural('a.gone', n))\n"
+        "    w.setText(tr.format('a.parts.other', n=n))\n"
+        "    w.setText(u.fmt(n, 'length'))\n"), {
+            "a.ok": "OK", "a.parts.one": "{n} part", "a.parts.other": "{n} parts", "a.lost.one": "x",
+            "a.hack": "{n} file(s)"},
+        {"a.parts.few": "{n} детали", "a.parts.many": "{m} деталей"})
+    errors, _ = _mod().check(root, [], legacy_scan=False)
+    text = "\n".join(errors)
+    assert "question(): literal text 'Job running'" in text
+    assert "setText(): literal text 'Error: '" in text
+    assert "LayerPara" not in text                               # marked
+    assert text.count("translated fragments joined by code") == 2
+    assert "English-only plural" in text
+    assert "a.gone.other missing" in text and "a.parts.other missing" not in text
+    assert "plural a.lost.one without a.lost.other" in text
+    assert "a.hack: '(s)' plural" in text
+    assert "ru.json: a.parts.few" not in text                    # a category English does not use
+    assert "ru.json: a.parts.many: placeholders" in text
+    assert "'length'" not in text                                # a unit kind is not a text
+    _mod().main(["--root", root, "--report"])

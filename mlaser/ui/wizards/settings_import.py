@@ -149,7 +149,7 @@ class SettingsImportDialog(QDialog):
                 for code, name, cnt in plan.languages:
                     top.addChild(QTreeWidgetItem([code, name, "", T(self.w, "wizard.import.texts", n=cnt)]))
             if area == "layers" and plan.layers:
-                top.addChild(QTreeWidgetItem(["LayerPara.xml", T(self.w, "wizard.import.layers_note"), "",
+                top.addChild(QTreeWidgetItem(["LayerPara.xml", T(self.w, "wizard.import.layers_note"), "",  # i18n: ok (file name)
                                               T(self.w, "wizard.import.count", n=plan.layers)]))
             top.setExpanded(area != "params" or n <= 20)
         for i in range(4):

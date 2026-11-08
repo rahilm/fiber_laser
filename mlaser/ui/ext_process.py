@@ -165,7 +165,7 @@ class ProcessExtension:
         try:
             self.timeline = build_timeline(self.plan)
         except Exception as e:  # noqa: BLE001 - the preview must not break planning
-            self.ctx.log(f"preview: {type(e).__name__}: {e}")
+            self.ctx.log(self.ctx.tr.format("process.log.preview_error", error=f"{type(e).__name__}: {e}"))
             self.timeline = None
         self.overlay.set_timeline(self.timeline)
         self.scrubber.set_timeline(self.timeline)

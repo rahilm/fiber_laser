@@ -56,10 +56,18 @@ class _Place:
 class HelpBrowser(QDialog):
     """The help window.  ``docs_dir`` overrides :func:`helpdocs.docs_root` (tests)."""
 
+    def _plural(self, base: str, n: int, **kw) -> str:
+        tr = getattr(self, "_tr_obj", None)
+        if tr is not None and hasattr(tr, "plural"):
+            return tr.plural(base, n, **kw)
+        from mlaser import i18n
+        return i18n.plural(base, n, **kw)
+
     def __init__(self, parent: Optional[QWidget] = None, tr=None, docs_dir: Optional[str] = None,
                  about: Optional[Callable[[], str]] = None):
         super().__init__(parent)
         self.t = _translator(tr)
+        self._tr_obj = tr
         self.root = docs_dir or H.docs_root() or ""
         self.about = about or H.about_text
         self.topics = H.topics(self.root) if self.root else []
@@ -336,13 +344,14 @@ class HelpBrowser(QDialog):
         self.results.clear()
         for h in hits:
             head = h.heading if h.heading != h.topic.title else ""
-            it = QListWidgetItem(f"{h.topic.title}" + (f" › {head}" if head else "") + f"\n{h.snippet}")
+            title = self.t("help.result_heading", "{title} › {heading}", title=h.topic.title, heading=head) \
+                if head else h.topic.title
+            it = QListWidgetItem(f"{title}\n{h.snippet}")
             it.setToolTip(f"{h.topic.rel}:{h.line}")
             it.setData(ROLE_REL, h)
             self.results.addItem(it)
         if hits:
-            self.results_label.setText(self.t("help.search_results", "{count} results for “{query}”",
-                                              count=len(hits), query=q))
+            self.results_label.setText(self._plural("help.search_results", len(hits), query=q))
             self.results.setCurrentRow(0)
         else:
             self.results_label.setText(self.t("help.search_none", "No results for “{query}”", query=q))

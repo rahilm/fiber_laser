@@ -528,7 +528,7 @@ class AutomationServer(MonitorServer):
         self._thread = threading.Thread(target=httpd.serve_forever, kwargs={"poll_interval": 0.25},
                                         name="mlaser-automation-api", daemon=True)
         self._thread.start()
-        log.warning("automation API serving on %s:%d (read-only; queue intake %s)", *self.address,
+        log.warning("automation API serving on %s:%d (read-only; queue intake %s)", *self.address,  # i18n: ok (log file)
                     "on, operator approval required" if self.allow_queue else "off")
         return self
 

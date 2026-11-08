@@ -344,7 +344,7 @@ class TechField:
                 rng = f"{d.min:g} … {d.max:g} {self.unit}".strip()
         tip = (self.help + "\n\n" if self.help else "") + self._name + f"  [{self.key}]"
         if rng:
-            tip += f"\n{tr.tr('tech.range')}: {rng}"
+            tip += "\n" + tr.format("tech.range_value", range=rng)  # i18n: ok (one more line)
         return tip
 
     def units_changed(self) -> None:
@@ -407,8 +407,8 @@ class TechField:
         if self.here_label:
             self.chip.setText(self.here_label if self.overridden else "")
             self.chip.setVisible(self.overridden)
-            tip = self.tooltip + "\n\n" + (self.here_label if self.overridden else
-                                             self.tr_.format("techform.from", base=base_label))
+            tip = "\n\n".join((self.tooltip, self.here_label if self.overridden else
+                                self.tr_.format("techform.from", base=base_label)))
             self.widget.setToolTip(tip)
         if self.overridden:
             self.reset.setToolTip(self.tr_.format("techform.reset_tip", base=base_label,
@@ -588,7 +588,9 @@ class TechForm(QWidget):
         form = self._forms["piercing"]
         t = self.tr_
         for s in range(MAX_STAGES):
-            lab = QLabel(f"<b>{t.format('techform.stage', n=s + 1)}</b>")
+            lab = QLabel(t.format("techform.stage", n=s + 1))
+            lab.setTextFormat(Qt.PlainText)
+            style.set_font(lab, "label_strong")
             lab.setObjectName(f"techform_stage{s}")
             self._stage_labels.append(lab)
             form.addRow(lab)

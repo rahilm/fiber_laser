@@ -136,7 +136,8 @@ class EditInLink(QLabel):
                  parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
         self.window_, self.vid, self.target = window, vid, target
-        self.setText(f"<a href='#'>{edit_in_text(vid, tr)}</a>")
+        from .shell.theme import link_html                # the theme's link colour (F7)
+        self.setText(link_html(edit_in_text(vid, tr), "#", self))
         self.setTextFormat(Qt.RichText)
         self.linkActivated.connect(lambda _h: edit_in(self.window_, self.vid, self.target))
         bind_mirror(self, vid, tr)

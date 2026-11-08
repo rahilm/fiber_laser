@@ -127,6 +127,7 @@ FIXED_KEYS: list[tuple[str, str, str]] = [
     ("F12", "shell.key.stop", "shell.key.ctx_any"),
     ("Esc", "shell.key.deselect", "shell.key.ctx_idle"),
     ("← ↑ → ↓", "shell.key.nudge", "shell.key.ctx_canvas"),
+    ("PgDn / PgUp / Home / End", "shell.key.next_part", "shell.key.ctx_canvas"),
     ("Shift / Ctrl + click", "shell.key.multiselect", "shell.key.ctx_canvas"),
     ("Wheel", "shell.key.zoom", "shell.key.ctx_canvas"),
     ("Middle button drag", "shell.key.pan", "shell.key.ctx_canvas"),

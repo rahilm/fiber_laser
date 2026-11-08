@@ -5,6 +5,7 @@ without running PyInstaller.
 """
 from __future__ import annotations
 
+import os
 import re
 import sys
 from pathlib import Path
@@ -70,6 +71,9 @@ def excludes() -> list[str]:
 QT_GPL_ONLY = ["Charts", "DataVisualization", "Graphs", "Lottie", "NetworkAuth", "Quick3D",
                "VirtualKeyboard", "WaylandCompositor", "Designer", "HttpServer", "Coap", "Mqtt",
                "OpcUa", "QuickTimeline", "ShaderTools", "CanvasPainter", "LabsStyleKit"]
+#: Qt's base translations kept in the bundle: the languages of mlaser.ui.i18n.LANGUAGES
+#: (Vietnamese has none in Qt)
+QT_KEEP_TRANSLATIONS = {f"qtbase_{c}.qm" for c in ("zh_CN", "ru", "de", "es", "pt_BR", "fr", "it", "pl", "tr")}
 # large Qt libraries / plugin folders the app does not use
 QT_DROP_LIBS = ["WebEngine", "Pdf", "Quick", "Qml", "3D", "Multimedia", "Location", "Positioning",
                 "Bluetooth", "Nfc", "Sensors", "SerialBus", "SerialPort", "TextToSpeech",
@@ -149,10 +153,11 @@ def drop_binary(dest: str) -> bool:
 
 def drop_data(dest: str) -> bool:
     p = dest.replace("\\", "/")
-    # Qt's own translations (99 .qm files, 7 MB): mlaser installs no QTranslator for Qt's
-    # strings (its own catalogues are mlaser/i18n, English only so far), so they are never read
+    # Qt's own translations (99 .qm files, 7 MB): mlaser installs Qt's base strings (buttons,
+    # file dialogs, context menus) for the languages it offers (mlaser.ui.i18n
+    # install_qt_translations); every other Qt catalogue and language is never read
     if p.startswith("PySide6/") and "/translations/" in p and p.endswith(".qm"):
-        return True
+        return os.path.basename(p) not in QT_KEEP_TRANSLATIONS
     if "/qml/" in p or p.endswith("/qml") or "/Qt/qml" in p:
         return True
     if "qtwebengine" in p.lower():

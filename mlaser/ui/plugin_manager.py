@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .workspaces import TOUCH_MIN, tr
+from .workspaces import TOUCH_MIN, tr, trn
 
 WARNING = ("A plugin is program code that runs inside mlaser with your user account's rights. The "
            "permissions it declares are enforced on mlaser's own interfaces (network hosts, credentials, "
@@ -57,14 +57,25 @@ def _tr(window: Any, key: str, default: str, **kw: Any) -> str:
     return tr(window, key, default, **kw)
 
 
-def _perm_lines(perms: Optional[dict]) -> list[str]:
+def _perm_lines(perms: Optional[dict], window: Any = None) -> list[str]:
     if perms is None:
-        return ["legacy plugin (no manifest): no declared permissions, full API-1 access"]
+        return [_tr(window, "plugin_manager.perm.legacy",
+                    "legacy plugin (no manifest): no declared permissions, full API-1 access")]
     from mlaser.services.plugin_manifest import Permissions
     try:
         return Permissions.from_dict(perms).lines()
     except ValueError as exc:
-        return [f"invalid permissions: {exc}"]
+        return [_tr(window, "plugin_manager.perm.invalid", "invalid permissions: {error}", error=exc)]
+
+
+#: the catalogue's status words (data) -> their display ids
+_STATUS_IDS = {"enabled": "enabled", "disabled": "disabled", "loaded": "loaded", "failed": "failed",
+               "changed": "changed", "enabled (restart)": "enabled_restart"}
+
+
+def _status_text(window: Any, status: str) -> str:
+    sid = _STATUS_IDS.get(status)
+    return _tr(window, f"plugin_manager.status.{sid}", status) if sid else status
 
 
 class _Bridge(QObject):
@@ -247,7 +258,7 @@ class PluginManagerDialog(QDialog):
         row = QHBoxLayout()
         self.repo_edit = QLineEdit()
         self.repo_edit.setObjectName("plugin_manager_repo_url")
-        self.repo_edit.setPlaceholderText("github:owner/repo")
+        self.repo_edit.setPlaceholderText("github:owner/repo")      # i18n: ok (syntax example)
         self.repo_edit.setMinimumHeight(TOUCH_MIN)
         row.addWidget(self.repo_edit, 1)
         self.btn_repo_add = self._button(_tr(self.w, "plugin_manager.repo_add", "Add"), self.add_repository, True)
@@ -299,7 +310,7 @@ class PluginManagerDialog(QDialog):
         self.status.setText(text)
         log = getattr(self.w, "log", None)
         if callable(log):
-            log(f"plugin manager: {text}")
+            log(_tr(self.w, "plugin_manager.log", "Plugin manager: {text}", text=text))
         if error and not getattr(self.w, "_test_no_dialogs", False):
             QMessageBox.warning(self, self.windowTitle(), text)
 
@@ -343,16 +354,18 @@ class PluginManagerDialog(QDialog):
         t = self.table
         t.setRowCount(len(rows))
         for i, r in enumerate(rows):
-            perms = "; ".join(_perm_lines(r["permissions"]))
+            perms = "; ".join(_perm_lines(r["permissions"], self.w))
             ver = r["version"] or "-"
             if r.get("update"):
                 ver += f" -> {r['update']}"
             origin = {"site": _tr(self.w, "plugin_manager.origin_site", "plugin manager"),
                       "environment": _tr(self.w, "plugin_manager.origin_env", "Python environment")}.get(
                 r["origin"], r["origin"])
-            status = r["status"] + (" (legacy)" if not r["manifest"] else "")
+            status = _status_text(self.w, r["status"])
+            if not r["manifest"]:
+                status = _tr(self.w, "plugin_manager.status.legacy", "{status} (legacy)", status=status)
             if r.get("manifest_error"):
-                status = "invalid manifest"
+                status = _tr(self.w, "plugin_manager.status.invalid_manifest", "invalid manifest")
             for c, text in enumerate((f"{r['name']} ({r['id']})", ver, origin, status, perms)):
                 it = QTableWidgetItem(text)
                 it.setToolTip(text)
@@ -378,17 +391,24 @@ class PluginManagerDialog(QDialog):
         if r is None:
             self.installed_detail.setText(_tr(self.w, "plugin_manager.none", "No third-party plugin is installed."))
         else:
-            lines = [f"{r['name']} {r['version']}", r.get("summary") or "",
-                     f"entry point: {r['entry']}" + (f"  ({r['dist']})" if r.get("dist") else ""),
-                     "permissions:"] + [f"  - {x}" for x in _perm_lines(r["permissions"])]
+            w = self.w
+            entry = _tr(w, "plugin_manager.detail.entry_dist", "entry point: {entry}  ({dist})", entry=r["entry"],
+                        dist=r["dist"]) if r.get("dist") else \
+                _tr(w, "plugin_manager.detail.entry", "entry point: {entry}", entry=r["entry"])
+            lines = [f"{r['name']} {r['version']}", r.get("summary") or "", entry,  # i18n: ok (name, version)
+                     _tr(w, "plugin_manager.detail.permissions", "permissions:")] + \
+                [f"  - {x}" for x in _perm_lines(r["permissions"], w)]
             if r.get("unknown_keys"):
-                lines.append("unknown manifest keys (ignored): " + ", ".join(r["unknown_keys"]))
+                lines.append(_tr(w, "plugin_manager.detail.unknown_keys", "unknown manifest keys (ignored): {keys}",
+                                 keys=", ".join(r["unknown_keys"])))
             if r.get("granted_hosts"):
-                lines.append("granted hosts: " + ", ".join(r["granted_hosts"]))
+                lines.append(_tr(w, "plugin_manager.detail.hosts", "granted hosts: {hosts}",
+                                 hosts=", ".join(r["granted_hosts"])))
             if r.get("authority"):
-                lines.append("machine authority: granted")
+                lines.append(_tr(w, "plugin_manager.detail.authority", "machine authority: granted"))
             if r.get("manifest_error"):
-                lines.append(f"invalid manifest: {r['manifest_error']}")
+                lines.append(_tr(w, "plugin_manager.detail.invalid_manifest", "invalid manifest: {error}",
+                                 error=r["manifest_error"]))
             self.installed_detail.setText("\n".join(x for x in lines if x))
         enabled = on and r is not None and r["status"].startswith(("enabled", "loaded", "failed"))
         for b, ok in ((self.btn_enable, on and not enabled and not (r or {}).get("manifest_error")),
@@ -406,7 +426,7 @@ class PluginManagerDialog(QDialog):
         perms = r["permissions"]
         text = _tr(self.w, "plugin_manager.confirm_enable",
                    "Enable {name}?\n\nIt declares:\n{permissions}\n\n{warning}", name=f"{r['name']} {r['version']}",
-                   permissions="\n".join(f"  - {x}" for x in _perm_lines(perms)),
+                   permissions="\n".join(f"  - {x}" for x in _perm_lines(perms, self.w)),
                    warning=_tr(self.w, "plugin_manager.warning", WARNING))
         if not r["manifest"]:
             text += "\n\n" + _tr(self.w, "plugin_manager.legacy_warning",
@@ -468,7 +488,7 @@ class PluginManagerDialog(QDialog):
                     self.w, "plugin_manager.confirm_update_perms",
                     "{name} {version} declares different permissions:\n{permissions}\n\nUpdate? It will be "
                     "disabled until you enable it again.", name=r["name"], version=up["available"],
-                    permissions="\n".join(f"  - {x}" for x in _perm_lines(up.get("permissions"))))):
+                    permissions="\n".join(f"  - {x}" for x in _perm_lines(up.get("permissions"), self.w)))):
                 return False
 
         def done(res: dict) -> None:
@@ -532,7 +552,7 @@ class PluginManagerDialog(QDialog):
     def check_updates(self) -> None:
         def done(ups: list) -> None:
             self.updates = {u["id"]: u for u in ups}
-            self._say(_tr(self.w, "plugin_manager.updates_found", "{n} update(s) available.", n=len(ups))
+            self._say(trn(self.w, "plugin_manager.updates_found", len(ups))
                       if ups else _tr(self.w, "plugin_manager.up_to_date", "Every plugin is up to date."))
             self.refresh_installed()
         self.run(lambda: self.pm.check_updates(refresh=True), done)
@@ -579,21 +599,31 @@ class PluginManagerDialog(QDialog):
         if p is None:
             return
         best = p.best(self.pm.plugin_api)
+        w = self.w
         lines = [f"{p.name} ({p.id})", p.summary, p.description.strip()[:600]]
         if p.authors:
-            lines.append("by " + ", ".join(p.authors) + (f"  - {p.license}" if p.license else ""))
-        lines.append(f"repository: {p.repository}")
+            authors = ", ".join(p.authors)
+            lines.append(_tr(w, "plugin_manager.detail.by_license", "by {authors}  - {license}", authors=authors,
+                             license=p.license) if p.license else
+                         _tr(w, "plugin_manager.detail.by", "by {authors}", authors=authors))
+        lines.append(_tr(w, "plugin_manager.detail.repository", "repository: {url}", url=p.repository))
         if best is None:
             newest = max(p.versions, key=lambda v: v.version)
-            lines.append("no compatible version: " + ("; ".join(newest.compatible(self.pm.plugin_api)) or "pre-release only"))
+            lines.append(_tr(w, "plugin_manager.detail.incompatible", "no compatible version: {reasons}",
+                             reasons="; ".join(newest.compatible(self.pm.plugin_api))
+                             or _tr(w, "plugin_manager.detail.prerelease_only", "pre-release only")))
         else:
-            lines.append(f"version {best.version}  (api {best.api or '-'}, mlaser {best.mlaser or '-'})")
+            lines.append(_tr(w, "plugin_manager.detail.version", "version {version}  (api {api}, mlaser {mlaser})",
+                             version=best.version, api=best.api or "-", mlaser=best.mlaser or "-"))
             if best.synthetic:
-                lines.append("permissions: shown from the wheel before installing")
+                lines.append(_tr(w, "plugin_manager.detail.permissions_wheel",
+                                 "permissions: shown from the wheel before installing"))
             else:
-                lines += ["permissions:"] + [f"  - {x}" for x in _perm_lines(best.permissions)]
+                lines.append(_tr(w, "plugin_manager.detail.permissions", "permissions:"))
+                lines += [f"  - {x}" for x in _perm_lines(best.permissions, w)]
             if best.requires:
-                lines.append("requires: " + ", ".join(best.requires))
+                lines.append(_tr(w, "plugin_manager.detail.requires", "requires: {requirements}",
+                                 requirements=", ".join(best.requires)))
         self.browse_detail.setText("\n".join(x for x in lines if x))
 
     def install_selected(self) -> bool:
@@ -613,7 +643,7 @@ class PluginManagerDialog(QDialog):
             text = _tr(self.w, "plugin_manager.confirm_install",
                        "Install {name} {version}?\n\nIt declares:\n{permissions}\n\nsha256 {sha256}\n\n"
                        "Installing does not enable it.", name=s["name"], version=s["version"],
-                       permissions="\n".join(f"  - {x}" for x in _perm_lines(s["permissions"])), sha256=s["sha256"])
+                       permissions="\n".join(f"  - {x}" for x in _perm_lines(s["permissions"], self.w)), sha256=s["sha256"])
             if not prep.verified_hash:
                 text += "\n\n" + _tr(self.w, "plugin_manager.unverified",
                                      "No checksum was given for this download: compare the sha256 above with "

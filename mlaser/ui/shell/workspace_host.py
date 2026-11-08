@@ -129,6 +129,9 @@ class WorkspacePage(QWidget):
         self.toolbar.setObjectName("shell_ws_toolbar")
         self.toolbar.setIconSize(QSize(20, 20))
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+        tr = host.tr
+        tr.bind(self.toolbar, spec.title or spec.id, lambda t: self.toolbar.setAccessibleName(
+            tr.format("a11y.ws.toolbar", workspace=t)))
         v.addWidget(self.toolbar)
         self.body = QWidget()
         self.body_lay = QHBoxLayout(self.body)
@@ -440,7 +443,7 @@ class WorkspaceHost:
         self.current: str = ""
         self.aliases: dict[str, str] = {}        # contributed id ("run.run") -> its slot ("run")
         self.listeners: list[Callable[[str], None]] = []
-        self.rail = QToolBar("Workspaces")
+        self.rail = QToolBar()
         self.rail.setObjectName("shell_rail")
         self.rail.setOrientation(Qt.Vertical)
         self.rail.setMovable(False)
@@ -450,7 +453,6 @@ class WorkspaceHost:
         self.rail.toggleViewAction().setVisible(False)
         self._rail_fit = _RailFit(self.rail)
         tr.bind(self.rail, "shell.rail", self.rail.setWindowTitle)
-        self.rail.setAccessibleName("Workspaces")
         tr.bind(self.rail, "shell.rail", self.rail.setAccessibleName)
         self._group = QActionGroup(self.rail)
         self._group.setExclusive(True)

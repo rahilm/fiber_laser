@@ -24,15 +24,17 @@ from . import style as S
 from .style import Dialog
 
 
-def _tr(window, key: str, default: str) -> str:
+def _tr(window, key: str, default: str, **values) -> str:
     tr = getattr(window, "tr_", None)
-    if tr is None:
-        return default
-    try:
-        s = tr.tr(key)
-    except Exception:  # noqa: BLE001
-        return default
-    return s if s and s != key else default
+    s = None
+    if tr is not None:
+        try:
+            s = tr.format(key, **values) if values and tr.has(key) else tr.tr(key)
+        except Exception:  # noqa: BLE001
+            s = None
+    if not s or s == key:
+        s = default.format(**values) if values else default
+    return s
 
 
 
@@ -42,8 +44,8 @@ class AlarmListDialog(Dialog):
 
     def __init__(self, window, alarms: list):
         super().__init__(window, _tr(window, "mf123", "Alarm"), buttons=QDialogButtonBox.Close,
-                         explanation="" if alarms else "No active alarms.")
-        t = S.table([S.Col("Code", priority=1), S.Col(_tr(window, "gp85", "Description"), stretch=True)])
+                         explanation="" if alarms else _tr(window, "card.alarms.none", "No active alarms."))
+        t = S.table([S.Col(_tr(window, "card.alarms.code", "Code"), priority=1), S.Col(_tr(window, "gp85", "Description"), stretch=True)])
         t.setRowCount(len(alarms))
         tr = getattr(window, "tr_", None)
         for i, a in enumerate(alarms):
@@ -52,7 +54,8 @@ class AlarmListDialog(Dialog):
         self.table = t
         self.body.addWidget(t, 1)
         clr = self.buttons.addButton(_tr(window, "gp90", "Clear Alarm"), QDialogButtonBox.ActionRole)
-        S.set_enabled(clr, bool(alarms), "" if alarms else "No alarm to clear")
+        S.set_enabled(clr, bool(alarms), "" if alarms else _tr(window, "card.alarms.nothing_to_clear",
+                                                                    "No alarm to clear"))
         clr.clicked.connect(lambda: (window.ctl.clear_alarms(), self.accept()))
 
 
@@ -99,21 +102,26 @@ class CardExtension:
             from .resume import resume
             resume(ctl, "exact", self.w.document)
         elif not ctl.resume_saved(self.w.document):
-            self.w.log_panel.log("mp64: no breakpoint to continue from")
+            self.w.log_panel.log(_tr(self.w, "card.log.no_breakpoint",
+                                     "Resume from breakpoint: no breakpoint to continue from"))
 
     def params(self) -> None:
         sc = self.w.ctl.scaling
         m = getattr(self.w, "machine", None)
         from .units_qt import fmt
-        txt = sc.summary() if sc is not None else "card parameters not read (not connected)"
+        txt = sc.summary() if sc is not None else _tr(self.w, "card.log.not_read",
+                                                        "Card parameters not read (not connected)")
         if m is not None:
-            txt += (f"\nMachine: {m.pulses_per_mm_x:g} x {m.pulses_per_mm_y:g} pulses/mm, "
-                    f"period {m.period_ms:g} ms, step speed cap {fmt(m.max_step_speed, 'speed', decimals=0)}")
+            txt += "\n" + _tr(self.w, "card.log.machine",
+                              "Machine: {ppm_x} x {ppm_y} pulses/mm, period {period} ms, step speed cap {speed}",
+                              ppm_x=f"{m.pulses_per_mm_x:g}", ppm_y=f"{m.pulses_per_mm_y:g}",
+                              period=f"{m.period_ms:g}", speed=fmt(m.max_step_speed, "speed", decimals=0))
         self.w.log_panel.log(txt)
 
     def stream_process(self, on: bool) -> None:
         self.w.ctl.stream_process = bool(on)
-        self.w.log_panel.log(f"streaming in a separate process: {'on' if on else 'off'}")
+        self.w.log_panel.log(_tr(self.w, "card.log.stream_on", "Streaming in a separate process: on") if on
+                             else _tr(self.w, "card.log.stream_off", "Streaming in a separate process: off"))
 
 
 def register(ctx) -> CardExtension:

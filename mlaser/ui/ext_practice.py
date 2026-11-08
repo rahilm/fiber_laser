@@ -25,7 +25,7 @@ from mlaser.services.procedures import engine as PE
 from mlaser.ui import style
 from mlaser.ui.units_qt import on_units_changed
 
-from .workspaces import TOUCH_MIN, tr
+from .workspaces import TOUCH_MIN, tr, trn
 
 #: the practice sheet (mlaser.services.practice.practice_document): 300 x 200 mm
 PRACTICE_SHEET_MM = (300.0, 200.0)
@@ -173,7 +173,7 @@ class CoachWindow(QWidget):
             mark = "✓" if prog.passed else "○"
             bits = [f"{mark}  {_t(w, cls.title)}"]
             if prog.attempts:
-                bits.append(tr(w, "practice.attempts", "{n} attempt(s)", n=prog.attempts))
+                bits.append(trn(w, "practice.attempts", prog.attempts))
             if prog.best_s:
                 bits.append(tr(w, "practice.best", "best {time}", time=fmt_duration(prog.best_s)))
             it = QListWidgetItem("  ·  ".join(bits))
@@ -282,7 +282,7 @@ class PracticePlugin:
         try:
             self.ctx.replace_document(doc, tr(self.window, "practice.undo.load", "practice: load the sheet"))
         except Exception as exc:  # noqa: BLE001 - DocumentLockedError: shown as the step's failure
-            self.ctx.log(f"practice: {exc}")
+            self.ctx.log(tr(self.window, "practice.log.error", "Practice: {error}", error=exc))
             return False
         return True
 

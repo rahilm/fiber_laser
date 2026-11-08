@@ -42,14 +42,31 @@ class LeadDiagram(QWidget):
         self.kerf_comp, self.kerf_width = -1, 0.0
         self.setMinimumSize(160, 110)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.setAccessibleName("lead diagram")
 
     def sizeHint(self) -> QSize:
         return QSize(240, 130)
 
     def set_leads(self, lin: LeadParams, lout: LeadParams) -> None:
         self.lead_in_p, self.lead_out_p = lin, lout
+        self._a11y()
         self.update()
+
+    def _a11y(self) -> None:
+        """Accessible name and the leads' lengths as text (F7: the diagram is painted)."""
+        from .. import a11y
+        from ...services import units as U
+        t = a11y.translator_for(self)
+        u = U.current()
+
+        def lead(lp: LeadParams) -> str:
+            return (u.fmt(float(getattr(lp, "length", 0.0) or 0.0), "length")
+                    if int(getattr(lp, "kind", 0) or 0) else t.tr("a11y.lead.none"))
+        a11y.name(self, t.tr("a11y.lead.name"),
+                  t.format("a11y.lead.desc", lead_in=lead(self.lead_in_p), lead_out=lead(self.lead_out_p)))
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._a11y()
 
     def set_kerf(self, comp: int, width: float) -> None:
         """Kerf compensation shown as the beam's path: offset by ``width`` (the compensation

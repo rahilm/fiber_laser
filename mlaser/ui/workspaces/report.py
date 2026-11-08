@@ -161,11 +161,26 @@ class DayChart(QWidget):
         self.setMinimumHeight(140)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
         self.days: list[dict] = []
-        self.setAccessibleName("run time per day")
 
     def set_days(self, days: list[dict]) -> None:
         self.days = list(reversed(days[:30]))
+        self._a11y()
         self.update()
+
+    def _a11y(self) -> None:
+        """The chart's data for a screen reader: days shown and the longest day (F7)."""
+        from .. import a11y
+        t = a11y.translator_for(self)
+        if self.days:
+            mx = max(d["run_s"] for d in self.days) / 3600.0
+            desc = t.plural("a11y.report.chart_desc", len(self.days), hours=f"{mx:.1f}")
+        else:
+            desc = t.tr("report.no_data")
+        a11y.name(self, t.tr("report.chart"), desc)
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._a11y()
 
     def paintEvent(self, _ev) -> None:  # noqa: N802 - Qt API
         p = QPainter(self)
@@ -182,7 +197,8 @@ class DayChart(QWidget):
             n = len(self.days)
             bw = max(4.0, (self.width() - 2 * m) / n)
             p.setPen(pal.color(QPalette.Text))
-            p.drawText(m, 14, tr(self.window(), "report.chart", "Cutting time per day (h)") + f"  max {mx / 3600:.1f} h")
+            p.drawText(m, 14, tr(self.window(), "report.chart_max", "Cutting time per day (h)  max {max} h",
+                                 max=f"{mx / 3600:.1f}"))
             for i, d in enumerate(self.days):
                 x = m + i * bw
                 h = (bottom - top) * d["run_s"] / mx
@@ -198,9 +214,10 @@ class DayChart(QWidget):
 
 
 # ============================================================================== workspace
-def _table(cols: list[str], name: str) -> QTableWidget:
+def _table(cols: list[str], name: str, label: str = "") -> QTableWidget:
     t = QTableWidget(0, len(cols))
     t.setObjectName(name)
+    t.setAccessibleName(label)
     t.setHorizontalHeaderLabels(cols)
     t.setEditTriggers(QAbstractItemView.NoEditTriggers)
     t.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -306,19 +323,23 @@ class ReportWorkspace(QWidget):
                             tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut"),
                             tr(w, "report.col.pierces", "Pierces"), tr(w, "report.col.util", "Util. %"),
                             tr(w, "report.col.cost", "Cost"), tr(w, "report.col.alarms", "Alarms"),
-                            tr(w, "report.col.alarm_time", "Alarm time")], "report_days")
+                            tr(w, "report.col.alarm_time", "Alarm time")], "report_days",
+                           tr(w, "a11y.report.days", "Production per day"))
         self.jobs = _table([tr(w, "report.col.start", "Start"), tr(w, "report.col.name", "Job"),
                             tr(w, "report.col.result", "Result"), tr(w, "report.col.run", "Cutting time"),
                             tr(w, "report.col.est", "Estimated"), tr(w, "report.col.cut", "Cut"),
                             tr(w, "report.col.pierces", "Pierces"), tr(w, "report.col.material", "Material"),
                             tr(w, "report.col.util", "Util. %"), tr(w, "report.col.cost", "Cost"),
-                            tr(w, "report.col.source", "Run")], "report_jobs")
+                            tr(w, "report.col.source", "Run")], "report_jobs",
+                           tr(w, "a11y.report.jobs", "Jobs run"))
         self.per_job = _table([tr(w, "report.col.name", "Job"), tr(w, "report.col.sheets", "Sheets"),
                                tr(w, "report.col.ok", "Done"), tr(w, "report.col.run", "Cutting time"),
-                               tr(w, "report.col.cut", "Cut"), tr(w, "report.col.cost", "Cost")], "report_per_job")
+                               tr(w, "report.col.cut", "Cut"), tr(w, "report.col.cost", "Cost")], "report_per_job",
+                              tr(w, "a11y.report.per_job", "Totals per job"))
         self.alarms = _table([tr(w, "report.col.time", "Time"), tr(w, "report.col.code", "Code"),
                               tr(w, "report.col.text", "Alarm"), tr(w, "report.col.duration", "Duration"),
-                              tr(w, "report.col.job", "Job"), tr(w, "report.col.remedy", "Remedy")], "report_alarms")
+                              tr(w, "report.col.job", "Job"), tr(w, "report.col.remedy", "Remedy")], "report_alarms",
+                             tr(w, "a11y.report.alarms", "Alarm history"))
         # no sideways scrolling (docs/dev/RESPONSIVE.md rule 1): the least important columns
         # hide while a table is narrower than its columns; the key column (None) never does
         ColumnFitter(self.days, {0: None, 1: 6, 2: 4, 3: 3, 4: 5, 5: 4, 6: 1, 7: 2, 8: 3, 9: 2, 10: 0})

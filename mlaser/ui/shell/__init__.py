@@ -165,6 +165,10 @@ class Shell:
         app = QApplication.instance()
         if app is not None:
             app.styleHints().colorSchemeChanged.connect(self._scheme_changed)
+            acc = getattr(app.styleHints(), "accessibility", None)        # Qt 6.10+
+            self._acc_hints = acc() if acc is not None else None
+            if self._acc_hints is not None:
+                self._acc_hints.contrastPreferenceChanged.connect(self._contrast_changed)
         self._watch = _WindowWatch(self)
         w.installEventFilter(self._watch)
         w.setProperty("userMode", self.modes.mode)          # before the style sheet: one polish
@@ -484,6 +488,12 @@ class Shell:
             self.config.set("shell.theme", self.theme)
         return self.theme
 
+    def _contrast_changed(self, *_a) -> None:
+        """The OS high-contrast setting changed: theme ``system`` follows it (F7)."""
+        theme.os_high_contrast(refresh=True)
+        if self.theme == theme.SYSTEM:
+            self.set_theme(theme.SYSTEM, persist=False)
+
     def _scheme_changed(self, *_a) -> None:
         """The system switched light/dark: the canvas (theme ``system``) and the title bar."""
         from PySide6.QtWidgets import QApplication
@@ -491,6 +501,7 @@ class Shell:
         eff = theme.effective(self.theme, app)
         if self.theme == theme.SYSTEM:
             theme.apply_canvas_theme(eff, getattr(self.w, "canvas", None))
+            theme.schedule_link_refresh(self.w)         # links follow the new palette (F7)
             self.w.update()
         if self.native is not None:
             self.native.color_scheme_changed(eff != theme.LIGHT)

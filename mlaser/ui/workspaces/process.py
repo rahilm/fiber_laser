@@ -410,7 +410,8 @@ class TechCompareDialog(style.Dialog):
                 continue
             if q and not f.matches(q):
                 continue
-            label = f.label_text if f.stage is None else f"{self.tr_.format('techform.stage', n=f.stage + 1)}: {f.label_text}"
+            label = f.label_text if f.stage is None else self.tr_.format("techform.stage_field", n=f.stage + 1,
+                                                                          field=f.label_text)
             out.append((sec_title.get(f.section, f.section), label, f.text_value(va), f.text_value(vb), differs))
         for name, a_v, b_v in self._craft_rows(ta, tb):
             differs = a_v != b_v
@@ -911,6 +912,7 @@ class ProcessWorkspace(QWidget):
         lt.setFont(f)
         ll.addWidget(lt)
         self.layers = QTableWidget(0, 3)
+        self.layers.setAccessibleName(t("process.layers"))
         self.layers.setHorizontalHeaderLabels([t("process.col.layer"), t("process.col.technology"),
                                                t("process.col.state")])
         hh = self.layers.horizontalHeader()
@@ -1120,13 +1122,13 @@ class ProcessWorkspace(QWidget):
         if tech is None:
             return self.technology_name(layer), t("process.state.missing")
         n = len(I.layer_overrides(lp)) if I.OVERRIDES in (lp.extra or {}) else len(T.layer_changes(lp, tech))
-        state = self.tr_.format("process.state.modified", n=n) if n else t("process.state.as_applied")
+        states = [self.tr_.format("process.state.modified", n=n) if n else t("process.state.as_applied")]
         if ref.get("example"):
-            state += " · " + t("process.state.example")
+            states.append(t("process.state.example"))
         head = self._newer(layer)
         if head is not None:
-            state += " · " + self.tr_.format("process.state.newer", v=head.version)
-        return self.technology_name(layer), state
+            states.append(self.tr_.format("process.state.newer", v=head.version))
+        return self.technology_name(layer), " · ".join(states)
 
     def select_layer(self, layer: int) -> None:
         for r in range(self.layers.rowCount()):

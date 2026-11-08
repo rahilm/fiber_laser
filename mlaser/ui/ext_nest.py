@@ -38,6 +38,15 @@ from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed,
 PROJECT_FILTER = "Nest project (*.nestproj);;All (*)"
 
 
+def _trf(window, key: str, **values) -> str:
+    """Catalogue text of the readable id ``key`` with its ``{placeholders}`` filled."""
+    tr = getattr(window, "tr_", None)
+    if tr is None:
+        from mlaser import i18n
+        return i18n.tr(key, **values)
+    return tr.format(key, **values)
+
+
 def _tr(window, key: str, default: str = "") -> str:
     tr = getattr(window, "tr_", None)
     if tr is None:
@@ -106,7 +115,8 @@ class NestPanel(QWidget):
         v.addWidget(QLabel(_tr(w, "np_Part", "Part")))
         self.parts = QTableWidget(0, 5)
         self.parts.setHorizontalHeaderLabels([_tr(w, "np_PartName", "Part Name"), _tr(w, "np_PartNum", "Part Num"),
-                                              "Max", "Priority", "Mirror"])
+                                              _trf(w, "nest.col.max"), _trf(w, "nest.col.priority"),
+                                              _trf(w, "nest.col.mirror")])
         self.parts.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.parts.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.parts.itemChanged.connect(self._part_edited)
@@ -160,7 +170,7 @@ class NestPanel(QWidget):
         self.results.setRowCount(len(lays))
         for r, lay in enumerate(lays):
             sh = job.sheet(lay.sheet_id)
-            for c, val in enumerate([f"{_tr(self.ext.window, 'np_Reslut_', 'Result_')}{r + 1} ({sh.name})",
+            for c, val in enumerate([_trf(self.ext.window, "nest.result_row", n=r + 1, sheet=sh.name),
                                      str(len(lay.placements)), f"{100 * lay.utilisation:.1f}"]):
                 it = QTableWidgetItem(val)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -280,7 +290,7 @@ class NestExtension:
         try:
             self.job = load_project(path)
         except Exception as exc:  # noqa: BLE001 - report bad files to the user
-            self.log(f"{_tr(self.window, 'MsgBox_Nest_InvalieFileSuffix')}: {exc}")
+            self.log(_trf(self.window, "nest.invalid_file_error", error=exc))
             return False
         self.path = path
         self.dirty = False
@@ -297,7 +307,7 @@ class NestExtension:
         save_project(self.job, path)
         self.path = path
         self.dirty = False
-        self.log(f"{_tr(self.window, 'np_FileSaveDone')} {path}")
+        self.log(_trf(self.window, "nest.file_saved_path", path=path))
         return True
 
     # -------------------------------------------------- parts / sheets
@@ -436,7 +446,7 @@ class NestExtension:
         base = self.window.document
         for k, lay in enumerate(self.job.result.layouts):
             doc = Document(parts=layout_parts(self.job, lay), layers=copy.deepcopy(base.layers))
-            path = os.path.join(directory, f"{_tr(self.window, 'np_Reslut_', 'Result_')}{k + 1}.chf")
+            path = os.path.join(directory, _trf(self.window, "nest.result_file", n=k + 1))
             from ..cam.raster_engraving import expand_document
             save_chf(expand_document(doc), path)
             out.append(path)
@@ -516,7 +526,7 @@ class SortExtension:
         cv.select_parts([])
         cv.selectionChanged.connect(self._picked)
         self.set_mode(O.MODE_KEEP)
-        self.log(_tr(self.window, "mv21", "Manual sort start: ") + _tr(self.window, "mv22", "Manual Sort: Step 0"))
+        self.log(_trf(self.window, "view.manual_sort_started_step", n=0))
         return True
 
     def pick(self, index: int) -> None:
@@ -528,7 +538,7 @@ class SortExtension:
         step = self.step
         nxt = self._order_edit(lambda doc: O.manual_pick(doc, index, step), "manual sort")
         if nxt != self.step:
-            self.log(f"{_tr(self.window, 'mv19', 'Manual Sort: Step')} {self.step}")
+            self.log(_trf(self.window, "view.manual_sort_step_n", n=self.step))
             self.step = nxt
         if self.step == 0:
             self.finish_manual()

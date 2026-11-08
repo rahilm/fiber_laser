@@ -100,7 +100,11 @@ def test_review2_trims():
                  "PySide6/Qt/lib/libQt6DBus.so.6", "PySide6/Qt/lib/libQt6OpenGL.so.6",
                  "PIL/_imaging.cpython-312-x86_64-linux-gnu.so", "libcrypto-3.dll", "libssl-3.dll"):
         assert not cfg.drop_binary(keep), keep
-    assert cfg.drop_data("PySide6/Qt/translations/qtbase_de.qm")
+    # Qt's own strings in the languages mlaser offers stay (mlaser.ui.i18n installs them)
+    assert not cfg.drop_data("PySide6/Qt/translations/qtbase_de.qm")
+    assert not cfg.drop_data("PySide6/Qt/translations/qtbase_zh_CN.qm")
+    assert cfg.drop_data("PySide6/Qt/translations/qtbase_ja.qm")
+    assert cfg.drop_data("PySide6/Qt/translations/qtdeclarative_de.qm")
     assert cfg.drop_data("PySide6/translations/qt_help_de.qm")
     assert not cfg.drop_data("mlaser/i18n/qm/mlaser_de.qm")          # the app's own catalogues
     excluded = cfg.excludes()

@@ -75,7 +75,7 @@ def test_bad_rows_are_reported_and_good_rows_kept(drawings):
     assert "whole" in lines[6] and "between 0 and 100" in lines[7] and "not a number" in lines[8]
     assert "not a date" in lines[9] and "priority" in lines[10] and "not a drawing" in lines[11]
     assert "empty" in lines[12]
-    assert res.summary() == "2 line(s) read, 10 row(s) refused"
+    assert res.summary() == "2 lines read, 10 rows refused"
 
 
 def test_no_header_uses_the_template_order(drawings):

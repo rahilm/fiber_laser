@@ -98,3 +98,22 @@ def test_qm_is_loaded_by_translator(tmp_path, monkeypatch):
     assert t.tr(other) == en.strings[other]
     t.set_language("en")
     assert t.tr(sid) == en.strings[sid]
+
+
+def test_plural_categories_of_the_language_are_offered():
+    """A Russian .ts carries the 'few' and 'many' forms English has no id for; importing it
+    keeps them (UI evaluation F8, plural forms)."""
+    from mlaser.i18n import Catalogue
+    en = Catalogue("en", "English", {"a.parts.one": "{n} part", "a.parts.other": "{n} parts", "a.ok": "OK"},
+                   {"a.parts.one": ["n"], "a.parts.other": ["n"]})
+    assert L.language_plural_categories("ru") == ["one", "few", "many", "other"]
+    assert L.language_plural_categories("zh") == ["other"]
+    ts = L.build_ts("ru", translations={}, en=en)
+    got = ts.by_id()
+    assert {"a.parts.few", "a.parts.many", "a.parts.one", "a.parts.other", "a.ok"} == set(got)
+    assert got["a.parts.few"].source == "{n} parts" and "plural form 'few'" in got["a.parts.few"].comment
+    for sid, t in (("a.parts.one", "{n} деталь"), ("a.parts.few", "{n} детали"), ("a.parts.many", "{n} деталей")):
+        got[sid].translation, got[sid].finished = t, True
+    data = L.ts_to_catalogue(L.parse_ts(L.dumps_ts(ts)), en=en)
+    assert data["strings"]["a.parts.many"] == "{n} деталей"
+    assert L.build_ts("zh", translations={}, en=en).by_id().keys() == en.strings.keys()

@@ -274,6 +274,10 @@ class CraftExtension:
     def t(self, key: str, default: Optional[str] = None) -> str:
         return self.w.tr_.tr(key, default)
 
+    def count(self, base: str, title_key: str, n: int) -> str:
+        """``<title>: <n> <things>`` (the plural text ``base``)."""
+        return self.w.tr_.plural(base, n, title=self.t(title_key))
+
     def edit(self, fn: Callable[[Document], Any], label: str = "craft") -> Any:
         """Undoable edit; the views are rebuilt without zoom-fit (keeps the view while a click
         tool is active)."""
@@ -326,7 +330,7 @@ class CraftExtension:
         if h is not None and closed_only and not doc.parts[h.part].contours[h.contour].closed:
             h = None
         if h is None:
-            self.log("no contour under the cursor")
+            self.log(self.t("craft.log.no_contour"))
         return h
 
     # ---------------------------------------------------------------- start point (tool 6)
@@ -544,7 +548,7 @@ class CraftExtension:
         for pi, _ci in marked:
             self.w.document.parts[pi].selected = True
         self.w.canvas.refresh_styles()
-        self.log(f"mf89: {len(marked)} contour(s) marked")
+        self.log(self.count("craft.log.contours_marked", "mf89", len(marked)))
         if not any(c.lead_in.kind for p in self.w.document.parts
                    for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
             self.log(self.t("craft.msg.no_leads"))
@@ -552,16 +556,16 @@ class CraftExtension:
     def lead_clear_mark(self) -> None:
         n = M.clear_lead_marks(self.w.document)          # no undo step in the original
         self.refresh()
-        self.log(f"mf91: {n} mark(s) cleared")
+        self.log(self.count("craft.log.marks_cleared", "mf91", n))
 
     # ---------------------------------------------------------------- optimize sub-commands
     def replace_circle(self) -> None:
         n = self.edit(M.replace_circles)
-        self.log(f"mf472: {n} circle(s) replaced")
+        self.log(self.count("craft.log.circles_replaced", "mf472", n))
 
     def adjust_start(self) -> None:
         n = self.edit(lambda d: M.adjust_starts([p for p in d.parts if p.selected]))
-        self.log(f"mf604: {n} start point(s) adjusted")
+        self.log(self.count("craft.log.starts_adjusted", "mf604", n))
 
     # ---------------------------------------------------------------- scan engraving
     def _engrave_dialog(self, title: str = "mf112_5") -> bool:
@@ -582,7 +586,7 @@ class CraftExtension:
         """A251104_0 (0x35b7, FUN_004b3870): pick G-code files (A251104_1 filter), new document,
         per file (<= 100 MB, .g/.nc/.cnc) the mode-2 dialog, load, then the type-5 scan."""
         if paths is None:
-            flt = "Supported (*.nc *.cnc *.g)"
+            flt = self.t("craft.filter.gcode")
             paths, _ = QFileDialog.getOpenFileNames(self.w, self.t("A251104_0"), "", flt)
         paths = [p for p in (paths or []) if p]
         if not paths:
@@ -617,7 +621,7 @@ class CraftExtension:
         try:
             from mlaser.ui.engrave_dialog import BitmapDialog
         except Exception as exc:  # noqa: BLE001
-            self.log(f"A250622_0: mlaser.engrave unavailable ({exc})")
+            self.log(self.w.tr_.format("craft.log.engrave_unavailable", title=self.t("A250622_0"), error=exc))
             return None
         os.makedirs(self.bitmap_dir, exist_ok=True)
         d = BitmapDialog(self.w.tr_, self.w, out_dir=self.bitmap_dir)
@@ -636,8 +640,8 @@ class CraftExtension:
         if doc is not None:
             # the in-process generator: one RasterEngraving part (not one Part per burn segment)
             self.ctx.replace_document(doc, "bitmap engraving")
-            self.log(f"A250622_0: raster engraving, {len(doc.parts[0].extra['raster'])} burn runs"
-                     if doc.parts and "raster" in doc.parts[0].extra else "A250622_0")
+            self.log(self.count("craft.log.raster_runs", "A250622_0", len(doc.parts[0].extra["raster"]))
+                     if doc.parts and "raster" in doc.parts[0].extra else self.t("A250622_0"))
             return "raster"
         from mlaser.engrave import raster
         if raster.read_status_ini(self.bitmap_dir) != 1:

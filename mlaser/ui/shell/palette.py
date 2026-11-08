@@ -85,7 +85,6 @@ class CommandPalette(QFrame):
         self.empty.setObjectName("shell_palette_empty")
         self.empty.setWordWrap(True)
         self.empty.setAlignment(Qt.AlignCenter)
-        self.empty.setAccessibleName("No command matches")
         self.empty.hide()
         v.addWidget(self.empty, 1)
         self.hint = QLabel()

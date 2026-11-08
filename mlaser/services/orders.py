@@ -37,6 +37,7 @@ from dataclasses import asdict, dataclass, field, fields
 from pathlib import Path
 from typing import Any, Callable, Iterable, Optional
 
+from mlaser import i18n as _i18n
 from mlaser.model import Document
 
 FORMAT = "mlaser-orders/1"
@@ -137,9 +138,9 @@ class CsvResult:
         return not self.errors
 
     def summary(self) -> str:
-        s = f"{len(self.lines)} line(s) read"
+        s = _i18n.plural("orders.summary.read", len(self.lines))
         if self.errors:
-            s += f", {len(self.errors)} row(s) refused"
+            s = _i18n.plural("orders.summary.refused", len(self.errors), text=s)
         return s
 
 
@@ -472,11 +473,11 @@ def nest_parts_for(lines: Iterable[OrderLine], rules: Any = None,
             r = RecognitionRules.from_dict({**base.to_dict(), "mode": ln.recognition})
         ps = recognize(doc, r, base=ln.name)
         if not ps.groups:
-            problems.append(f"{os.path.basename(ln.file)}: no closed contour, nothing to nest")
+            problems.append(_i18n.tr("orders.problem.nothing", file=os.path.basename(ln.file)))
             continue
         ln.per_file = ps.count
         if ps.loose:
-            problems.append(f"{os.path.basename(ln.file)}: {len(ps.loose)} open contour(s) in no part were left out")
+            problems.append(_i18n.plural("orders.problem.loose", len(ps.loose), file=os.path.basename(ln.file)))
         for np_ in ps.nest_parts(doc, multiplier=ln.quantity, extra={"order": ln.ref()}):
             np_.priority = ln.priority
             parts.append(np_)

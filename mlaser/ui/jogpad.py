@@ -99,6 +99,8 @@ class JogPad(QWidget):
         v = style.vbox(self)
         cross = QWidget()
         cross.setObjectName("jog_cross")
+        # machine axes do not mirror in a right-to-left UI: X+ stays on the right, as on the table
+        cross.setLayoutDirection(Qt.LeftToRight)
         g = QGridLayout(cross)
         g.setContentsMargins(0, 0, 0, 0)
         g.setSpacing(style.SP1)

@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, QSize, Qt, Signal
+from PySide6.QtCore import QLocale, QObject, QSize, Qt, Signal
 from PySide6.QtGui import QValidator
 from PySide6.QtWidgets import QAbstractSpinBox, QLabel, QStyle, QStyleOptionSpinBox, QTableWidgetItem, QWidget
 
@@ -69,6 +69,28 @@ def on_units_changed(widget: QObject, fn: Callable[[Units], None], now: bool = T
     if now:
         fn(U.current())
     return r
+
+
+def follow_locale(locale: Optional[QLocale] = None) -> str:
+    """Display numbers as the UI locale writes them (default ``QLocale()``, the locale Qt's own
+    spin boxes use), so a window never shows "1.50 mm" next to "1,50"; in a right-to-left
+    layout a number and its unit stay "0.1 mm" (not "mm 0.1"). Display only: values, files
+    and card data are unchanged; typed input accepts both separators. Follows later layout
+    direction changes. Returns the decimal separator in force."""
+    from PySide6.QtGui import QGuiApplication
+    loc = locale or QLocale()
+    sep = loc.decimalPoint()
+    app = QGuiApplication.instance()
+    rtl = app is not None and QGuiApplication.layoutDirection() == Qt.RightToLeft
+    U.set_display_locale(sep if sep in (".", ",") else ".", rtl)
+    if app is not None and not _LOCALE_HOOK:
+        _LOCALE_HOOK.append(True)
+        app.layoutDirectionChanged.connect(
+            lambda d: U.set_display_locale(U.decimal_point(), d == Qt.RightToLeft))
+    return U.decimal_point()
+
+
+_LOCALE_HOOK: list = []
 
 
 # --------------------------------------------------------------------------- text helpers
@@ -416,9 +438,9 @@ def range_text(lo: Optional[float], hi: Optional[float], unit: str = "", kind: O
     if lo is None or hi is None:
         return ""
     if k is None:
-        return f"{lo:g} … {hi:g} {unit}".rstrip()
+        return U.localise(f"{lo:g} … {hi:g} {unit}".rstrip())
     u = U.current()
-    return f"{u.to_display(lo, k):.{u.decimals(k)}g} … {u.to_display(hi, k):.{max(u.decimals(k), 4)}g} {u.suffix(k)}"
+    return U.localise(f"{u.to_display(lo, k):.{u.decimals(k)}g} … {u.to_display(hi, k):.{max(u.decimals(k), 4)}g} {u.suffix(k)}")
 
 
 def spin_for_unit(unit: str, lo: float, hi: float, decimals: int = 3, step: float = 1.0,

@@ -759,8 +759,9 @@ class SettingsDialog(QDialog):
         tr, w = self.tr, self.w
         mode = tr.tr(f"shell.mode.{w.user_mode}") if tr.has(f"shell.mode.{w.user_mode}") else w.user_mode
         pins = [tr.tr(f"settings.users.pin_{m}") for m in ("engineer", "service") if self.cfg.get(f"shell.pin.{m}", "")]
-        return "\n".join([f"{tr.tr('settings.machine.mode')}: {mode}",
-                          f"{tr.tr('settings.users.pins')}: " + (", ".join(pins) or tr.tr("settings.users.no_pins"))])
+        return "\n".join([tr.format("settings.field_line", label=tr.tr("settings.machine.mode"), value=mode),
+                          tr.format("settings.field_line", label=tr.tr("settings.users.pins"),
+                                    value=", ".join(pins) or tr.tr("settings.users.no_pins"))])
 
     def _machine_summary(self, page: SettingsPage) -> None:
         """Read-only: the connection, the card address, the machine profile, the user mode."""
@@ -790,7 +791,7 @@ class SettingsDialog(QDialog):
                  (tr.tr("settings.machine.profile"), self.cfg.profile.base),
                  (tr.tr("settings.machine.mode"), tr.tr(f"shell.mode.{w.user_mode}")
                   if tr.has(f"shell.mode.{w.user_mode}") else w.user_mode)]
-        return "\n".join(f"{a}: {b}" for a, b in lines)
+        return "\n".join(tr.format("settings.field_line", label=a, value=b) for a, b in lines)
 
     def _initial_size(self) -> QSize:
         """What the content wants, within the screen it opens on."""

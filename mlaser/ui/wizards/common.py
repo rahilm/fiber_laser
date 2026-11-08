@@ -38,6 +38,11 @@ def T(window: Any, key: str, **values: Any) -> str:
     if tr is None:
         from mlaser.ui.i18n import translator
         tr = translator()
+    if f"{key}.other" in tr.en.strings and key not in tr.en.strings:
+        # a plural text (``<key>.one`` / ``<key>.other``): the count is ``n`` or ``count``
+        rest = dict(values)
+        n = rest.pop("n", rest.get("count", 0))
+        return tr.plural(key, n, **rest)
     if values:
         return tr.format(key, **values)
     return tr.tr(key)
@@ -79,7 +84,7 @@ class SafetyNotes(QFrame):
     def set_notes(self, window: Any, keys: Iterable[str]) -> None:
         keys = list(keys)
         self.setVisible(bool(keys))
-        self.text.setText("<b>" + T(window, "wizard.safety.heading") + "</b><ul style='margin:0'>"
+        self.text.setText("<b>" + T(window, "wizard.safety.heading") + "</b><ul style='margin:0'>"  # i18n: ok (markup)
                           + "".join(f"<li>{T(window, k)}</li>" for k in keys) + "</ul>")
 
 

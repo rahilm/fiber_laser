@@ -24,6 +24,7 @@ from mlaser.services import safety_io as S
 from mlaser.services.config import MAX_INPUT, MAX_OUTPUT
 
 from . import style
+from .dialogs import suffix_for
 from .workspaces import tr
 
 TITLE_KEYS = {"gas": "safety.io.gas", "door": "safety.io.door", "laser": "safety.io.laser",
@@ -105,7 +106,8 @@ class SafetyIOBinding:
             parts.append(tr(self.w, "safety.notice.refused", "the last change was refused by the controller"))
         if not parts:
             return ""
-        return tr(self.w, "safety.notice.prefix", "Safety I/O:") + " " + " · ".join(parts)
+        return tr(self.w, "safety.notice.line", "Safety I/O: {notices}",
+                  notices=tr(self.w, "safety.notice.sep", " · ").join(parts))
 
     def preflight_issues(self, action: str, emits: bool) -> list:
         """Warnings for the pre-flight dialog of a laser job on a real machine."""
@@ -207,7 +209,7 @@ class SafetyIODialog(QDialog):
         self.hb_hz.setObjectName("safety_io_heartbeat_hz")
         self.hb_hz.setRange(0.5, 50.0)
         self.hb_hz.setDecimals(1)
-        self.hb_hz.setSuffix(" Hz")
+        self.hb_hz.setSuffix(suffix_for("Hz"))
         self.hb_hz.setValue(float(self.cfg.get("safety.heartbeat_hz")))
         f.addRow(tr(window, "safety.io.heartbeat_hz", "Frequency"), self.hb_hz)
         lay.addWidget(hb)

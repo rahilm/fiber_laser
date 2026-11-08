@@ -574,7 +574,7 @@ class CanvasHud(QFrame):
         items = (("lead_in", "canvas.legend.lead_in"), ("lead_out", "canvas.legend.lead_out"),
                  ("kerf", "canvas.legend.kerf"), ("gap", "canvas.legend.gap"), ("rapid", "canvas.legend.rapid"))
         self.legend.setText(" &nbsp; ".join(
-            f"<span style='color:{c[role]}; font-weight:bold'>&#9473;&#9473;</span>&nbsp;"
+            f"<span style='color:{c[role]}; font-weight:bold'>&#9473;&#9473;</span>&nbsp;"  # i18n: ok (legend markup)
             + tr(key).replace(" ", "&nbsp;") for role, key in items))
         self.legend.setToolTip(tr("canvas.legend.tip"))
         self.set_status(self.view.plan_state)

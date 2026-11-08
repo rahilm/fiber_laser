@@ -60,6 +60,7 @@ class InheritedField(QWidget):
         # a link to the parent level's home when there is one
         self.chip = ElidedToolButton()
         self.chip.setObjectName("inherited_chip")
+        self.chip.setAccessibleName(tr.tr("a11y.inherit.source"))   # until set_state names the source
         self.chip.setAutoRaise(True)
         self.chip.setToolButtonStyle(Qt.ToolButtonTextOnly)
         self.chip.muted = True

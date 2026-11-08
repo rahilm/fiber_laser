@@ -30,6 +30,8 @@ import math
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
+from .. import i18n as _i18n
+
 ERROR, WARNING = "error", "warning"
 ACTIONS = ("start", "dry_run", "frame", "resume", "move", "laser_test")
 
@@ -226,11 +228,12 @@ def check_geometry(document, rep: PreflightReport, selected_only: bool = False) 
                 except Exception:  # noqa: BLE001
                     length += math.dist(pts[0], pts[1])
             if bad or not math.isfinite(length):
-                rep.add("bad_geometry", ERROR, f"part {pi + 1} contour {ci + 1}: NaN or infinite "
-                        "coordinates", (pi, ci))
+                rep.add("bad_geometry", ERROR, _i18n.tr("preflight.msg.bad_geometry", part=pi + 1,
+                                                         contour=ci + 1), (pi, ci))
                 continue
             if segs and length <= 1e-9:
-                rep.add("zero_length", WARNING, f"part {pi + 1} contour {ci + 1}: zero length", (pi, ci))
+                rep.add("zero_length", WARNING, _i18n.tr("preflight.msg.zero_length", part=pi + 1,
+                                                                   contour=ci + 1), (pi, ci))
             if segs and not getattr(c, "closed", True):
                 opened.append((pi, ci))
     if opened:
@@ -239,11 +242,11 @@ def check_geometry(document, rep: PreflightReport, selected_only: bool = False) 
         pi, ci = opened[0]
         n_parts = len({p for p, _c in opened})
         if len(opened) == 1:
-            msg = f"part {pi + 1} contour {ci + 1} is open"
+            msg = _i18n.tr("preflight.msg.open_one", part=pi + 1, contour=ci + 1)
         else:
-            msg = (f"{len(opened)} open contours in {n_parts} part{'s' if n_parts != 1 else ''} "
-                   f"(first: part {pi + 1} contour {ci + 1})")
-        rep.add("open_contour", WARNING, msg + ": Repair... closes small gaps", (pi, ci))
+            msg = _i18n.plural("preflight.msg.open_many", n_parts, count=len(opened), part=pi + 1,
+                               contour=ci + 1)
+        rep.add("open_contour", WARNING, msg, (pi, ci))
 
 
 # ============================================================================ check
@@ -259,24 +262,23 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
     ``homed``: X/Y homed per the card (None = unknown)."""
     rep = PreflightReport(action, travel=travel)
     if fault:
-        rep.add("fault", ERROR, f"a fault is latched: {fault} (reset it first)")
+        rep.add("fault", ERROR, _i18n.tr("preflight.msg.fault", fault=fault))
     alarms = list(alarms or ())
     if alarms:
         txt = ", ".join(getattr(a, "text_en", str(a)) for a in alarms[:4])
-        rep.add("alarm", ERROR, f"card alarm active: {txt} (Clear Alarm first)")
+        rep.add("alarm", ERROR, _i18n.tr("preflight.msg.alarm", alarms=txt))
     if require_homed and action != "laser_test":
         if homed is None:
-            rep.add("homed_unknown", WARNING, "homing state unknown")
+            rep.add("homed_unknown", WARNING, _i18n.tr("preflight.msg.homed_unknown"))
         elif not homed:
-            rep.add("not_homed", ERROR, "X/Y are not homed: run Home X/Y first")
+            rep.add("not_homed", ERROR, _i18n.tr("preflight.msg.not_homed"))
     if emits and not armed:
-        rep.add("not_armed", ERROR, "the job fires the laser but the machine is not armed")
+        rep.add("not_armed", ERROR, _i18n.tr("preflight.msg.not_armed"))
     if document is not None:
         missing = sorted(li for li in used_layers(document) if not layer_is_defined(document, li, layer_table))
         for li in missing:
             sev = ERROR if emits else WARNING
-            rep.add("layer_undefined", sev, f"layer {li} has no cutting parameters "
-                    "(set them in the layer table; it would otherwise cut at 100 % power)", (li,))
+            rep.add("layer_undefined", sev, _i18n.tr("preflight.msg.layer_undefined", layer=li), (li,))
         check_geometry(document, rep, selected_only)
     if job is not None and extent is None:
         extent = job_extent_mm(job)
@@ -295,23 +297,23 @@ def check(action: str, *, document=None, job=None, extent=None, target=None,
             extent = (x0, y0, x1, y1)
         rep.extent = extent
         if not all(math.isfinite(v) for v in extent):
-            rep.add("bad_geometry", ERROR, "the job extent is not finite")
+            rep.add("bad_geometry", ERROR, _i18n.tr("preflight.msg.extent_not_finite"))
         elif travel is None:
-            rep.add("travel_unknown", WARNING, "machine travel limits unknown: bounds not checked")
+            rep.add("travel_unknown", WARNING, _i18n.tr("preflight.msg.travel_unknown_bounds"))
         elif not (travel.contains(x0, y0) and travel.contains(x1, y1)):
             rep.add("out_of_travel", ERROR,
-                    f"job extent X {TEXT_FORMAT['range'](x0, x1, '.1f')}, "
-                    f"Y {TEXT_FORMAT['range'](y0, y1, '.1f')} is outside the "
-                    f"travel {travel.describe()}")
+                    _i18n.tr("preflight.msg.out_of_travel", x=TEXT_FORMAT['range'](x0, x1, '.1f'),
+                             y=TEXT_FORMAT['range'](y0, y1, '.1f'), travel=travel.describe()))
     if target is not None:
         tx, ty = target
         if not (math.isfinite(tx) and math.isfinite(ty)):
-            rep.add("bad_geometry", ERROR, "move target is not finite")
+            rep.add("bad_geometry", ERROR, _i18n.tr("preflight.msg.target_not_finite"))
         elif travel is None:
-            rep.add("travel_unknown", WARNING, "machine travel limits unknown: target not checked")
+            rep.add("travel_unknown", WARNING, _i18n.tr("preflight.msg.travel_unknown_target"))
         elif not travel.contains(tx, ty):
-            rep.add("out_of_travel", ERROR, f"target {TEXT_FORMAT['point'](tx, ty)} is outside the travel "
-                    f"{travel.describe()}")
+            rep.add("out_of_travel", ERROR, _i18n.tr("preflight.msg.target_out_of_travel",
+                                                      target=TEXT_FORMAT['point'](tx, ty),
+                                                      travel=travel.describe()))
     return rep
 
 
@@ -341,14 +343,15 @@ def cutting_issues(document, cam_params=None, *, leads: bool = True, bed=None, s
             out.append(Issue("lead_collision", WARNING, i.message, i.key))
         if len(found) > MAX_CUT_ISSUES:
             out.append(Issue("lead_collision", WARNING,
-                             f"{len(found) - MAX_CUT_ISSUES} more lead-ins collide (Process: Check leads)"))
+                             _i18n.plural("preflight.msg.more_leads", len(found) - MAX_CUT_ISSUES)))
     if bed is not None:
         from ..cam.tipping import analyse as tip_analyse
         risk = [t for t in tip_analyse(doc, bed) if t.at_risk]
         for t in risk[:MAX_CUT_ISSUES]:
             out.append(Issue("tip_risk", WARNING, t.message, t.key))
         if len(risk) > MAX_CUT_ISSUES:
-            out.append(Issue("tip_risk", WARNING, f"{len(risk) - MAX_CUT_ISSUES} more pieces can tip"))
+            out.append(Issue("tip_risk", WARNING, _i18n.plural("preflight.msg.more_tips",
+                                                                 len(risk) - MAX_CUT_ISSUES)))
     return out
 
 

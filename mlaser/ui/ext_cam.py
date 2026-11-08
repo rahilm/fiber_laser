@@ -155,6 +155,12 @@ class CamExtension:
     def log(self, msg: str) -> None:
         self.ctx.log(msg)
 
+    def _count(self, base: str, title_key: str, n) -> None:
+        """Log ``<title>: <n> <things>`` (the plural text ``base``) when ``n`` is a count."""
+        if isinstance(n, int):
+            tr = self.w.tr_
+            self.log(tr.plural(base, n, title=tr.tr(title_key)))
+
     def edit(self, fn: Callable[[Document], Any], label: str = "CAM", parts=None) -> Any:
         """Undoable document edit (``ctx.edit``); an :class:`OpError` is logged and undone."""
         try:
@@ -191,22 +197,24 @@ class CamExtension:
              ("col_dir", "pd338", "enum", ["pd305", "pd306"])]
         if self.ask("mf79", self.array, f):
             n = self.edit(lambda doc: OC.rect_array(doc, self.array), "array", parts=())
-            self.log(f"mf79: {n} copies")
+            self._count("camx.log.copies", "mf79", n)
 
     def circular_array_dialog(self) -> None:
-        f = [("count", "Count", "int", (2, 10000)), ("center_x", "Centre X", "len", (-1e5, 1e5)),
-             ("center_y", "Centre Y", "len", (-1e5, 1e5)),
-             ("total_angle_deg", "Total angle (deg)", "float", (-360, 360)),
-             ("rotate_items", "Rotate copies", "bool", None),
-             ("use_bbox_center", "Centre relative to selection centre", "bool", None)]
-        if self.ask("Circular array", self.circ, f):
-            self.log(f"circular array: {self.edit(lambda doc: OC.circular_array(doc, self.circ), 'circular array', parts=())} copies")
+        f = [("count", "camx.circ.count", "int", (2, 10000)), ("center_x", "camx.circ.center_x", "len", (-1e5, 1e5)),
+             ("center_y", "camx.circ.center_y", "len", (-1e5, 1e5)),
+             ("total_angle_deg", "camx.circ.total_angle", "float", (-360, 360)),
+             ("rotate_items", "camx.circ.rotate", "bool", None),
+             ("use_bbox_center", "camx.circ.use_bbox_center", "bool", None)]
+        if self.ask("camx.cmd.array_circular", self.circ, f):
+            n = self.edit(lambda doc: OC.circular_array(doc, self.circ), "circular array", parts=())
+            self._count("camx.log.copies", "camx.cmd.array_circular", n)
 
     def sheet_array_dialog(self) -> None:
-        f = [("width", "Sheet width", "len", (1, 1e5)), ("height", "Sheet height", "len", (1, 1e5)),
+        f = [("width", "camx.sheet.width", "len", (1, 1e5)), ("height", "camx.sheet.height", "len", (1, 1e5)),
              ("gap", "pd302", "len", (0, 1e4)), ("margin", "pd727", "len", (0, 1e4))]
-        if self.ask("Fill sheet", self.sheet, f):
-            self.log(f"fill sheet: {self.edit(lambda doc: OC.sheet_fill(doc, self.sheet), 'fill sheet')} instances")
+        if self.ask("camx.cmd.array_sheet", self.sheet, f):
+            n = self.edit(lambda doc: OC.sheet_fill(doc, self.sheet), "fill sheet")
+            self._count("camx.log.instances", "camx.cmd.array_sheet", n)
 
     # ---------------------------------------------------------------- fill (mf100_1, A250707_10)
     def _fill(self, linear: bool) -> None:
@@ -224,7 +232,7 @@ class CamExtension:
             return
         n = self.edit(lambda doc: OC.fill(doc, prm, linear), title)
         if n is not None:
-            self.log(f"{title}: {n} items")
+            self._count("camx.log.items", title, n)
 
     def fill_circle(self) -> None:
         self._fill(False)
@@ -236,26 +244,30 @@ class CamExtension:
     def cleanup_dialog(self) -> None:
         f = [("remove_small", "pd363", "bool", None), ("small_gate", "pd364", "slen", (0.01, 10)),
              ("remove_overlap", "pd365", "bool", None), ("overlap_gate", "pd366", "slen", (0.01, 0.5)),
-             ("merge_type", "pd367", "enum", ["None", "Direction first", "Length first", "Distance first"]),
+             ("merge_type", "pd367", "enum", ["camx.cleanup.merge_none", "camx.cleanup.merge_direction",
+                                              "camx.cleanup.merge_length", "camx.cleanup.merge_distance"]),
              ("connect_gate", "pd368", "slen", (0.01, 100)), ("smooth", "pd369", "bool", None),
-             ("smooth_accuracy", "pd370", "slen", (0.01, 10)), ("close_gap", "Close gaps up to", "slen", (0, 100))]
+             ("smooth_accuracy", "pd370", "slen", (0.01, 10)), ("close_gap", "camx.cleanup.close_gap", "slen", (0, 100))]
         if self.ask("mf470", self.cleanup, f):
             # a one-off run: it starts from the import clean-up defaults (Settings › Import, their
             # one home) and does not change them
             prm = self.cleanup
             res = self.edit(lambda doc: OC.cleanup(doc, prm), "optimize")
-            self.log(f"mf470: {res['before']} -> {res['after']} contours")
+            if res is not None:
+                self.log(self.w.tr_.format("camx.log.contours_before_after", title=self.w.tr_.tr("mf470"),
+                                           before=res["before"], after=res["after"]))
 
     def dedup(self) -> None:
-        self.log(f"Remove: {self.edit(lambda doc: OC.dedup(doc, self.cleanup.overlap_gate), 'remove duplicates')}")
+        self.log(self.w.tr_.format("camx.log.removed",
+                                   n=self.edit(lambda doc: OC.dedup(doc, self.cleanup.overlap_gate), "remove duplicates")))
 
     def join(self) -> None:
         n = self.edit(lambda doc: OC.join(doc, self.cleanup.connect_gate, self.cleanup.merge_type), "join")
-        self.log(f"mf476: {n} contours")
+        self._count("camx.log.contours", "mf476", n)
 
     def smooth(self) -> None:
         n = self.edit(lambda doc: OC.smooth(doc, self.cleanup.smooth_accuracy), "smooth", parts=self._targets())
-        self.log(f"mf474: {n} segments removed")
+        self._count("camx.log.segments_removed", "mf474", n)
 
     # ---------------------------------------------------------------- corners / cool / common edge
     def fillet_auto(self) -> None:
@@ -263,26 +275,28 @@ class CamExtension:
              ("max_angle", "pd602", "float", (0, 180))]
         if self.ask("mf401", self.fillet_p, f):
             n = self.edit(lambda doc: OC.fillet(doc, self.fillet_p), "fillet", parts=self._targets())
-            self.log(f"mf401: {n} contours")
+            self._count("camx.log.contours", "mf401", n)
 
     def unload(self) -> None:
         if self.ask("mf404", self.unload_p, [("radius", "pd603", "len", (0.1, 10))]):
             n = self.edit(lambda doc: OC.unload(doc, self.unload_p), "unload loop", parts=self._targets())
-            self.log(f"mf404: {n} contours")
+            self._count("camx.log.contours", "mf404", n)
 
     def alpha(self) -> None:
         f = [("max_angle", "pd607", "float", (1, 170)), ("min_edge", "pd608", "len", (1, 50)),
              ("lead", "pd609", "len", (0.5, 10)), ("mode", "pd614", "enum", ["pd610", "pd611", "pd612", "pd613"])]
         if self.ask("mf485", self.alpha_p, f):
-            self.log(f"mf485: {self.edit(lambda doc: OC.alpha(doc, self.alpha_p), 'alpha corner', parts=self._targets())} contours")
+            self._count("camx.log.contours", "mf485",
+                        self.edit(lambda doc: OC.alpha(doc, self.alpha_p), "alpha corner", parts=self._targets()))
 
     def alpha_clear(self) -> None:
-        self.log(f"mf403: {self.edit(OC.alpha_clear, 'clear alpha corner', parts=self._targets())} contours")
+        self._count("camx.log.contours", "mf403", self.edit(OC.alpha_clear, "clear alpha corner", parts=self._targets()))
 
     def cool_auto(self) -> None:
         """Automatic cooling points with the rule of Process › Properties › Cooling points (its
         one editor; cool_p holds it)."""
-        self.log(f"mf407: {self.edit(lambda doc: OC.cool_auto(doc, self.cool_p), 'cool points', parts=self._targets())} points")
+        self._count("camx.log.points", "mf407",
+                    self.edit(lambda doc: OC.cool_auto(doc, self.cool_p), "cool points", parts=self._targets()))
 
     def cool_clear(self) -> None:
         self.edit(OC.cool_clear, "clear cool points", parts=self._targets())
@@ -291,7 +305,8 @@ class CamExtension:
         r = self.edit(lambda doc: OC.share_edge(doc, c_type), "common edge")
         if r is not None:
             u = units.current()
-            self.log(f"mf250: cut length {u.fmt(r[0], 'length', decimals=1)} -> {u.fmt(r[1], 'length', decimals=1)}")
+            self.log(self.w.tr_.format("camx.log.cut_length", title=self.w.tr_.tr("mf250"),
+                                       before=u.fmt(r[0], "length", decimals=1), after=u.fmt(r[1], "length", decimals=1)))
 
     def share_edge(self) -> None:
         self._share(False)
@@ -305,7 +320,7 @@ class CamExtension:
         if self.ask("A250707_11", self.rect_p, f):
             n = self.edit(lambda doc: OC.rect_share(doc, self.rect_p), "rectangle common edge")
             if n is not None:
-                self.log(f"A250707_11: {n} paths")
+                self._count("camx.log.paths", "A250707_11", n)
 
     # ---------------------------------------------------------------- fly cut (mf112)
     def _flycut(self, kind) -> None:
@@ -315,7 +330,7 @@ class CamExtension:
         if part is None:
             self.log(self.w.tr_.tr("mf161"))
         else:
-            self.log(f"mf112: {len(part.extra.get('scan_paths', []))} scan path(s)")
+            self._count("camx.log.scan_paths", "mf112", len(part.extra.get("scan_paths", [])))
 
     def flycut_circle(self) -> None:
         from mlaser.cam import flycut as F
@@ -355,8 +370,8 @@ FEATURE_REWIRE: dict[str, str] = {
 }
 EXTRA_BUTTONS = [
     ("camx.fill_circle", "mf100_1", "fill_circle"),
-    ("camx.array_circular", "Circular array", "circular_array_dialog"),
-    ("camx.array_sheet", "Fill sheet", "sheet_array_dialog"),
+    ("camx.array_circular", "camx.cmd.array_circular", "circular_array_dialog"),
+    ("camx.array_sheet", "camx.cmd.array_sheet", "sheet_array_dialog"),
     ("camx.cleanup", "mf470", "cleanup_dialog"),
 ]
 FEATURE_BUTTONS: list[tuple[str, str, str]] = [
@@ -374,5 +389,5 @@ def register(ctx, exec_dialogs: bool = True) -> CamExtension:
     for cmd, key, name in EXTRA_BUTTONS + FEATURE_BUTTONS:
         ctx.register_command(cmd, getattr(ext, name), label=key)
         tab.append(cmd)
-    ext.tab = ctx.add_ribbon_tab("CAM+", tab)
+    ext.tab = ctx.add_ribbon_tab(ctx.window.tr_.tr("camx.tab", "CAM+"), tab)
     return ext

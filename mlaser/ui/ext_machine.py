@@ -34,15 +34,31 @@ from .style import Dialog
 UPGRADE_WORD = "UPGRADE"
 
 
-def _tr(window, key: str, default: str) -> str:
+def _tr(window, key: str, default: str, **values) -> str:
+    """Text of ``key`` (``default`` when unknown), ``{placeholders}`` filled from ``values``."""
     tr = getattr(window, "tr_", None)
-    if tr is None:
-        return default
-    try:
-        s = tr.tr(key)
-    except Exception:  # noqa: BLE001
-        return default
-    return s if s and s != key else default
+    s = None
+    if tr is not None:
+        try:
+            s = tr.format(key, **values) if values and tr.has(key) else tr.tr(key)
+        except Exception:  # noqa: BLE001
+            s = None
+    if not s or s == key:
+        s = default
+        if values:
+            try:
+                s = default.format(**values)
+            except (KeyError, IndexError, ValueError):
+                pass
+    return s
+
+
+def _plural(window, base: str, n: int, **values) -> str:
+    tr = getattr(window, "tr_", None)
+    if tr is not None and hasattr(tr, "plural"):
+        return tr.plural(base, n, **values)
+    from mlaser import i18n
+    return i18n.plural(base, n, **values)
 
 
 class _Bridge(QObject):
@@ -54,19 +70,28 @@ class UpgradeConfirmDialog(Dialog):
     the board)."""
 
     def __init__(self, window, what: str, fw):
+        """``what``: ``"mc"`` / ``"af"`` / ``"ec"`` (the board), or a name of the board."""
+        if what in ("mc", "af", "ec"):
+            heading = _tr(window, f"machine.upgrade.heading_{what}", "Firmware upgrade")
+        else:
+            heading = _tr(window, "machine.upgrade.heading", "Firmware upgrade of the {what}", what=what)
         super().__init__(window, _tr(window, "mf132", "Upgrade"),
-                         heading_text=f"Firmware upgrade of the {what}",
-                         explanation=f"File: {fw.path.name} ({len(fw.data)} bytes). A wrong file or an "
-                                     "interrupted transfer can make the board unusable. Do not switch off "
-                                     "the machine or disconnect the network until it has finished.")
+                         heading_text=heading,
+                         explanation=_tr(window, "machine.upgrade.explanation",
+                                         "File: {file} ({size} bytes). A wrong file or an interrupted transfer "
+                                         "can make the board unusable. Do not switch off the machine or "
+                                         "disconnect the network until it has finished.",
+                                         file=fw.path.name, size=len(fw.data)))
         self.edit = QLineEdit()
-        lab = S.form_row(self.form(), f"Type {UPGRADE_WORD} to continue", self.edit)
+        # the confirmation word itself stays UPGRADE in every language (typed, not read)
+        lab = S.form_row(self.form(), _tr(window, "machine.upgrade.type", "Type {word} to continue",
+                                          word=UPGRADE_WORD), self.edit)
         lab.setWordWrap(True)
         self.bb = self.buttons
         ok = self.bb.button(QDialogButtonBox.Ok)
-        S.set_enabled(ok, False, f"Type {UPGRADE_WORD} first")
-        self.edit.textChanged.connect(lambda t: S.set_enabled(ok, t.strip() == UPGRADE_WORD,
-                                                              f"Type {UPGRADE_WORD} first"))
+        first = _tr(window, "machine.upgrade.first", "Type {word} first", word=UPGRADE_WORD)
+        S.set_enabled(ok, False, first)
+        self.edit.textChanged.connect(lambda t: S.set_enabled(ok, t.strip() == UPGRADE_WORD, first))
 
 
 class RegistryValues(NamespaceView):
@@ -105,10 +130,14 @@ class RegistryValues(NamespaceView):
                     self._svc.set(key, shadow)
                     moved.append(key)
                     if log is not None:
-                        log(f"settings: {key} = {shadow!r} (moved from machine_ops.{key})")
+                        log(_tr(None, "machine.log.setting_moved",
+                                "Settings: {setting} = {value} (moved from machine_ops.{setting})", setting=key,
+                                value=repr(shadow)))
                 except ValueError as exc:
                     if log is not None:
-                        log(f"settings: machine_ops.{key} = {shadow!r} not moved ({exc})")
+                        log(_tr(None, "machine.log.setting_not_moved",
+                                "Settings: machine_ops.{setting} = {value} not moved ({error})", setting=key,
+                                value=repr(shadow), error=exc))
             self._svc.reset(self._p + key)
         return moved
 
@@ -201,7 +230,8 @@ class MachineExtension:
         self.ops.save_values()
         if set_origin and self.ops.coords.can_set_or_return:
             self.ops.set_origin()
-        self.log(f"A250211_2: Current memory scouting Angle : {res.angle_deg:.2f}")
+        self.log(_tr(self.w, "machine.log.edge_angle", "Current memorised edge-seek angle: {angle}",
+                     angle=f"{res.angle_deg:.2f}"))
 
     def apply_edge_result(self, res: E.EdgeSeekResult) -> None:
         """The edge-seek wizard's Apply (GUI thread)."""
@@ -209,7 +239,7 @@ class MachineExtension:
 
     def edge_clear(self) -> None:
         self.ctx.edit(E.clear_document, "clear edge seek", parts=())
-        self.log("A250211_3: edge-seek angle cleared")
+        self.log(_tr(self.w, "machine.log.edge_cleared", "Edge-seek angle cleared"))
 
     # ------------------------------------------------------------------ wizards / workspace
     def allowed(self, cmd: str) -> bool:
@@ -220,7 +250,8 @@ class MachineExtension:
         need = COMMAND_MIN_MODES.get(cmd, "operator")
         if mode_allows(current_mode(self.ctx), need):
             return True
-        msg = _tr(self.w, "ws.machine.mode_needed", "needs a higher user mode") + f" ({need})"
+        msg = _tr(self.w, "machine.log.mode_needed", "{text} ({mode})",
+                  text=_tr(self.w, "ws.machine.mode_needed", "needs a higher user mode"), mode=need)
         self.log(msg)
         if not getattr(self.w, "_test_no_dialogs", False):
             QMessageBox.information(self.w, _tr(self.w, "ws.machine.title", "Machine"), msg)
@@ -330,12 +361,14 @@ class MachineExtension:
         if ok and item in names:
             self.select_coord(names.index(item))
         else:
-            self.log(f"mf307: coordinate system {names[self.ops.coords.kind]}")
+            self.log(_tr(self.w, "machine.log.coord_current", "Coordinate: coordinate system {name}",
+                         name=names[self.ops.coords.kind]))
 
     def select_coord(self, kind: int) -> None:
         self.ops.select_coord(kind)
         self.w.ctl.coords = self.ops.coords
-        self.log(f"mf307: {_tr(self.w, C.NAMES[kind], C.NAMES[kind])}")
+        self.log(_tr(self.w, "machine.log.coord_selected", "Coordinate: {name}",
+                     name=_tr(self.w, C.NAMES[kind], C.NAMES[kind])))
 
     # ------------------------------------------------------------------ hardware
     def net_test(self) -> None:
@@ -343,23 +376,25 @@ class MachineExtension:
         ip = self.ctx.config.get("ip", None) or {}
         card = self.w.ctl.endpoint() or (ip.get("pd445", "10.1.1.168"), 502)   # MachineAPI
         follower = (ip.get("pd448", "10.1.1.169"), 502)      # pd448: FTC IP (pd447 is a gateway)
-        self.log(f"mf436: testing {card[0]} and {follower[0]} ...")
+        self.log(_tr(self.w, "machine.log.nettest", "Network test: testing {card} and {follower} ...",
+                     card=card[0], follower=follower[0]))
         self.ops.run_async("net-test", lambda: [self.log(r.summary()) for r in network_test(card, follower)])
 
     def restart(self) -> None:
         if not self.ops.require_card("mf131 restart"):
             return
-        if self._ask(_tr(self.w, "mf131", "Restart"), "Restart the motion card now?"):
+        if self._ask(_tr(self.w, "mf131", "Restart"),
+                     _tr(self.w, "machine.restart.confirm", "Restart the motion card now?")):
             self.ops.restart()
 
     def _upgrade(self, kind: str) -> None:
         from mlaser.controller import upgrade as U
-        what = {"mc": "motion card", "af": "autofocus head", "ec": "extension card"}[kind]
         key = {"mc": "mf132", "af": "mf440", "ec": "mf625"}[kind]
+        title = _tr(self.w, key, "Upgrade")
         if not self.ops.require_card(f"{key} upgrade"):
             return
         if self.ops.busy():
-            self.log(f"{key}: machine busy")
+            self.log(_tr(self.w, "machine.log.machine_busy", "{what}: machine busy", what=title))
             return
         path, _ = QFileDialog.getOpenFileName(self.w, _tr(self.w, "mf174", "Upgrade file"), "",
                                               f"{U.EXTENSIONS[kind][1:]} (*{U.EXTENSIONS[kind]})")
@@ -371,22 +406,25 @@ class MachineExtension:
             QMessageBox.critical(self.w, _tr(self.w, key, "Upgrade"), str(e))
             self.log(str(e))
             return
-        if not UpgradeConfirmDialog(self.w, what, fw).exec():
+        if not UpgradeConfirmDialog(self.w, kind, fw).exec():
             return
         ops = self.ops
 
         def run():
-            prog = lambda pc: self.log(f"{key}: {pc}%") if pc % 10 == 0 else None
+            prog = lambda pc: self.log(_tr(self.w, "machine.log.upgrade_progress", "{what}: {percent}%",
+                                           what=title, percent=pc)) if pc % 10 == 0 else None
             if kind == "mc":
                 U.upload_mc(ops.mc, fw, prog, ops.cancel.is_set)
-                self.log(f"{key}: done, card restarting (100 := 8888); mf179")
+                self.log(_tr(self.w, "machine.log.upgrade_done_mc", "{what}: done, card restarting (100 := 8888)",
+                             what=title))
             else:
                 rtu = self._device_rtu(kind)
                 try:
                     U.upload_device(rtu, fw, prog, ops.cancel.is_set)
                 finally:
                     rtu.close()
-                self.log(f"{key}: done ({'mf439' if kind == 'af' else 'mf624'})")
+                self.log(_tr(self.w, "machine.log.upgrade_done_device", "{what}: done. Please restart the software.",
+                             what=title))
         ops.run_async(f"upgrade-{kind}", run)
 
     def _device_rtu(self, kind: str):
@@ -403,7 +441,7 @@ class MachineExtension:
         from mlaser.nc.offline import export_offline
         doc = self.w.document
         if not doc.parts:
-            self.log("mp76: graphic data is empty")
+            self.log(_tr(self.w, "machine.log.drawing_empty", "The drawing is empty"))
             return
         ext = "enc" if self.ops.laser_type == FIBER else "encex"
         path, _ = QFileDialog.getSaveFileName(self.w, _tr(self.w, "A241115_1", "Offline Process"), "",
@@ -424,7 +462,7 @@ class MachineExtension:
                 return
             jobs.on_planned.remove(done)
             out = export_offline(path, plan.job, doc, laser_type=self.ops.laser_type)
-            self.log(f"A241115_1: offline job written to {out} ({plan.job.steps} steps)")
+            self.log(_plural(self.w, "machine.log.offline_written", plan.job.steps, path=out))
         jobs.on_planned.append(done)
         if ticket.done_event.is_set():
             jobs.settle(ticket)
@@ -444,7 +482,8 @@ class MachineExtension:
                                            _tr(self.w, "ss11", "Password"), QLineEdit.Password)
             return bool(ok) and txt == pw
         r = QMessageBox.question(self.w, _tr(self.w, "ss11", "Password"),
-                                 "This transfers hardware parameters between the PC and the card. Continue?",
+                                 _tr(self.w, "machine.hw.confirm",
+                                     "This transfers hardware parameters between the PC and the card. Continue?"),
                                  QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
         return r == QMessageBox.Yes
 
@@ -455,7 +494,8 @@ class MachineExtension:
             self._backup().export_to_hardware(self.ops.mc)
             self.log(_tr(self.w, "mf236", "mf236: parameters exported to the hardware"))
         except Exception as e:  # noqa: BLE001
-            self.log(f"mf237: {e}")
+            self.log(_tr(self.w, "machine.log.hw_export_failed",
+                         "Writing the parameters to the hardware failed: {error}", error=e))
 
     def restore_hw(self) -> None:
         if not self.ops.require_card("mf481") or not self._password():
@@ -464,15 +504,16 @@ class MachineExtension:
             return
         try:
             n = self._backup().import_from_hardware(self.ops.mc)
-            self.log(f"mf239: {n} hardware parameters read; restart the software")
+            self.log(_plural(self.w, "machine.log.hw_read", n))
         except Exception as e:  # noqa: BLE001
-            self.log(f"mf240: {e}")
+            self.log(_tr(self.w, "machine.log.hw_import_failed",
+                         "Reading the parameters from the hardware failed: {error}", error=e))
 
     def backup_file(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self.w, _tr(self.w, "lp12", "Export"), "", "xml file(*.xml)")
         if path:
             out = self._backup().export_to_file(path)
-            self.log(f"lp13: parameters exported to {out}")
+            self.log(_tr(self.w, "machine.log.params_exported", "Parameters exported to {path}", path=out))
 
     def restore_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self.w, _tr(self.w, "lp9", "Import"), "", "xml file(*.xml)")
@@ -481,15 +522,16 @@ class MachineExtension:
         layers = self._ask(_tr(self.w, "mf235", "Import"), _tr(self.w, "A250107_0", "Also restore layer parameters?"))
         try:
             counts = self._backup().import_from_file(path, layers)
-            self.log(f"lp14: parameters imported {counts}")
+            self.log(_tr(self.w, "machine.log.params_imported", "Parameters imported {counts}", counts=counts))
         except Exception as e:  # noqa: BLE001
-            self.log(f"A250105_1: {e}")
+            self.log(_tr(self.w, "machine.log.params_import_failed", "Importing the parameters failed: {error}",
+                         error=e))
 
     def task_save(self) -> None:
         from mlaser.formats.backup import save_task
         doc = self.w.document
         if not doc.parts:
-            self.log("mp76: graphic data is empty")
+            self.log(_tr(self.w, "machine.log.drawing_empty", "The drawing is empty"))
             return
         path, _ = QFileDialog.getSaveFileName(self.w, _tr(self.w, "mf152", "Save"), "", "aut file(*.aut)")
         if not path:
@@ -498,7 +540,7 @@ class MachineExtension:
         from mlaser.cam.raster_engraving import expand_document
         out = save_task(path, expand_document(doc), self.params().layer, self.ops.laser_type,
                         ctl.autosave_dir, int(ctl.breakpoint is not None))
-        self.log(f"A250320_2: task saved to {out}")
+        self.log(_tr(self.w, "machine.log.task_saved", "Task saved to {path}", path=out))
 
     def task_import(self) -> None:
         from mlaser.formats.backup import load_task
@@ -511,7 +553,8 @@ class MachineExtension:
             self.log(str(e))
             return
         self._set_doc(doc, "import task")
-        self.log(f"A250320_1: task {Path(path).name} imported ({len(doc.parts)} parts, break {t.is_break})")
+        self.log(_plural(self.w, "machine.log.task_imported", len(doc.parts), name=Path(path).name,
+                         brk=t.is_break))
         if t.is_break:
             self.w.ctl.resume_saved(doc, str(self.ops.temp_dir))
 
@@ -532,7 +575,7 @@ class MachineExtension:
             pr.document = doc                     # the document of the job being prepared
             self.autosave_store().save(pr)
         except Exception as e:  # noqa: BLE001
-            self.log(f"autosave not written: {e}")
+            self.log(_tr(self.w, "machine.log.autosave_failed", "Autosave not written: {error}", error=e))
 
     def recovery(self, confirm: bool = True) -> None:
         """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.mlz (else
@@ -540,7 +583,8 @@ class MachineExtension:
         store = self.autosave_store()
         p = store.available()
         if p is None:
-            self.log(f"mf138: no {self.ops.file_dir / 'autosave.chf'}")
+            self.log(_tr(self.w, "machine.log.no_autosave", "System recovery: no {path}",
+                         path=self.ops.file_dir / "autosave.chf"))
             return
         if confirm and not self._ask(_tr(self.w, "mf138", "System Recovery"),
                                      _tr(self.w, "mf167", "Recover the last state?")):
@@ -548,7 +592,7 @@ class MachineExtension:
         try:
             rec = store.recover()
         except Exception as e:  # noqa: BLE001 - the project and the .chf are unreadable
-            self.log(f"mf138: {e}")
+            self.log(_tr(self.w, "machine.log.recovery_failed", "System recovery: {error}", error=e))
             return
         if rec is None:
             return
@@ -560,7 +604,8 @@ class MachineExtension:
         if proj is not None:
             proj.apply(rec.project)
         resumed = self.w.ctl.resume_saved(doc, str(self.ops.file_dir))
-        self.log(f"mf169: system recovered from {rec.path.name}" + (" (resuming breakpoint)" if resumed else ""))
+        self.log(_tr(self.w, "machine.log.recovered_resuming" if resumed else "machine.log.recovered",
+                     "System recovered from {name}", name=rec.path.name))
 
     def startup_homing(self, ctl) -> None:
         """After the card connected: FUN_00596320's red light off, go-origin prompt (mp119,
@@ -597,7 +642,7 @@ class MachineExtension:
         self.normal_exit = sec.get("NormalExit", "1") != "0"
         if sec.get("NormalExit", "1") == "0":
             # a real dialog, not a log line (docs/review/ux.md P0-7)
-            self.log("The last run ended abnormally")
+            self.log(_tr(self.w, "machine.log.abnormal_exit", "The last run ended abnormally"))
             try:
                 from PySide6.QtCore import QTimer
 

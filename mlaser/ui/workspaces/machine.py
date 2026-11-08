@@ -415,8 +415,9 @@ class SettingsPanel(QWidget):
                 n += 1
             except ValueError as e:
                 self.errors.append(str(e))
-        self.status.setText(T(self.w, "ws.machine.hw_applied", n=n)
-                            + (("  ⚠ " + "; ".join(self.errors)) if self.errors else ""))
+        done = T(self.w, "ws.machine.hw_applied", n=n)
+        self.status.setText(T(self.w, "ws.machine.hw_applied_errors", text=done, errors="; ".join(self.errors))
+                            if self.errors else done)
         self.build()
         return n
 
@@ -459,6 +460,7 @@ class MachineWorkspace(QWidget):
         outer = QHBoxLayout(self)
         self.nav = QListWidget()
         self.nav.setObjectName("machine_nav")
+        self.nav.setAccessibleName(T(self.w, "a11y.machine.sections"))
         self.nav.setProperty("responsive_views", True)     # the layout harness visits each row
         self.nav.setIconSize(self.nav.iconSize() * 1.4)
         self.stack = CurrentPageStack()
@@ -534,10 +536,12 @@ class MachineWorkspace(QWidget):
         ip = self.ctx.config.get("ip", None) or {}
         self.host = QLineEdit(ip.get("pd445", "10.1.1.168"))
         self.host.setMinimumHeight(32)
+        self.host.setAccessibleName(T(w, "ws.machine.host"))
         self.port = QSpinBox()
         self.port.setRange(1, 65535)
         self.port.setValue(502)
         self.port.setMinimumHeight(32)
+        self.port.setAccessibleName(T(w, "ws.machine.port"))
         g.addWidget(QLabel(T(w, "ws.machine.host")), 1, 0)
         g.addWidget(self.host, 1, 1)
         g.addWidget(QLabel(T(w, "ws.machine.port")), 2, 0)
@@ -562,6 +566,7 @@ class MachineWorkspace(QWidget):
         v.setContentsMargins(0, 0, 0, 0)
         self.selftest = QPlainTextEdit()
         self.selftest.setReadOnly(True)
+        self.selftest.setAccessibleName(T(w, "ws.machine.selftest_box"))
         self.selftest.setMinimumHeight(self.selftest.fontMetrics().lineSpacing() * 5)
         v.addWidget(self.selftest)
         row = QHBoxLayout()
@@ -623,6 +628,7 @@ class MachineWorkspace(QWidget):
         h.setContentsMargins(0, 0, 0, 0)
         self.pos_lbl = _big(QLabel("X –   Y –   Z –"), "display")
         self.pos_lbl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.pos_lbl.setLayoutDirection(Qt.LeftToRight)      # axis readout: X Y Z never mirror
         h.addWidget(self.pos_lbl, 1)
         self.homed_lbl = QLabel()
         h.addWidget(self.homed_lbl)

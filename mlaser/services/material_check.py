@@ -26,6 +26,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
+from mlaser import i18n as _i18n
 from mlaser.machine.audit import audit
 from mlaser.machine.preflight import ERROR, WARNING, Issue, used_layers
 from mlaser.services.orders import material_key
@@ -51,7 +52,7 @@ class SheetSpec:
 
     def label(self) -> str:
         if not self.material and not self.thickness_mm:
-            return "(not declared)"
+            return _i18n.tr("material.not_declared")
         return f"{self.material or '?'} {_units.mm_text(self.thickness_mm)}"
 
     def to_dict(self) -> dict:

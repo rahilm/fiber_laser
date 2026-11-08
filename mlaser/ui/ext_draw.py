@@ -244,6 +244,10 @@ class DrawExtension:
     def t(self, key, default=None):
         return self.w.tr_.tr(key, default)
 
+    def tf(self, key: str, **values) -> str:
+        """The text of ``key`` with its ``{placeholders}`` filled."""
+        return self.w.tr_.format(key, **values)
+
     def edit(self, fn, label: str = "draw", parts=None):
         """One undoable transaction.  ``parts`` is its scope: the parts ``fn`` changes in place
         (DocumentService.edit copies only those for undo; None = every part).  Each command
@@ -271,7 +275,7 @@ class DrawExtension:
         self.driver = CanvasToolDriver(self, tool, on_done, snap)
         self.w.canvas.set_tool(self.driver)
         self.w.canvas.setFocus()
-        self.log(f"{tool.name}: {self.t('mv2')} = right click / Enter, {self.t('mv3')} = Esc")
+        self.log(self.tf("draw.log.tool_keys", tool=tool.name, finish=self.t("mv2"), end=self.t("mv3")))
 
     def end_tool(self) -> None:
         if self.driver is not None and self.w.canvas.tool is self.driver:
@@ -354,9 +358,9 @@ class DrawExtension:
         sz = d.add("A260420_2", _lspin(10, 100, p.size, 2))
         dn = d.add("A260420_4", _ispin(3, 30, p.density))
         md = QComboBox()
-        md.addItems(["Scan lines", "Outline squares"])
+        md.addItems([self.t("draw.qr.mode_scan"), self.t("draw.qr.mode_squares")])
         md.setCurrentIndex(p.mode)
-        d.add_row("Mode", md)
+        d.add_row(self.t("draw.qr.mode"), md)
         d.finish()
         if not self._run_dialog(d):
             return
@@ -442,7 +446,7 @@ class DrawExtension:
             doc.parts.extend(new)
             return len(new)
         n = self.edit(do, parts=sel)
-        self.log(f"mf254: {n} part(s)" if n else self.t("A251103_0"))
+        self.log(self.w.tr_.plural("draw.log.fill_parts", n) if n else self.t("A251103_0"))
 
     # ------------------------------------------------------------ trim / extend / split
     def pick(self, name: str, op: Callable[[list, tuple, float], bool]) -> None:
@@ -542,7 +546,7 @@ class DrawExtension:
     def select_similar(self):
         n = AR.select_similar(self.w.document)
         self._sync_selection()
-        self.log(f"mf37: {n} contour(s) selected")
+        self.log(self.w.tr_.plural("draw.log.similar", n))
 
     def select_depth(self, sub: int):
         AR.select_by_topology(self.w.document, sub)

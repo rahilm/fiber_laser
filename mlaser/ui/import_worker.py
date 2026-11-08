@@ -40,7 +40,7 @@ def busy() -> bool:
     return _busy.is_set()
 
 
-def run_import(parent, fn: Callable[[], Any], label: str = "Opening...") -> Any:
+def run_import(parent, fn: Callable[[], Any], label: str = "") -> Any:
     """``fn()`` in a worker thread (see the module doc); returns its result or raises its
     exception, :class:`ImportCancelled` after Cancel, :class:`ImportBusy` while another import
     runs."""
@@ -92,8 +92,10 @@ def _run(parent, fn: Callable[[], Any], label: str) -> Any:
     th.join(0.02)                       # most files are read before a dialog would show
     dlg: Optional[QProgressDialog] = None
     if not box.get("finished"):
-        dlg = QProgressDialog(label, "Cancel", 0, 0, parent)
-        dlg.setWindowTitle("Opening file")
+        from .i18n import translator
+        tr = getattr(parent, "tr_", None) or translator()
+        dlg = QProgressDialog(label or tr.tr("import.progress.opening"), tr.tr("import.progress.cancel"), 0, 0, parent)
+        dlg.setWindowTitle(tr.tr("import.progress.title"))
         dlg.setWindowModality(Qt.WindowModal)
         dlg.setAutoClose(False)
         dlg.setAutoReset(False)
