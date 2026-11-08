@@ -63,7 +63,12 @@ def test_stop_is_asynchronous_and_halts_first(make_ctl, process):
     # the parity stop order comes first: decelerated stop ... FIFO stop, FIFO clear
     from mlaser.parity.capture import expected_stop_sequence
     want = [w for r, w in expected_stop_sequence(ctl.machine) if r == 101]
-    cmds = sim.state.commands
+    # the commands as given: a request the client sent again after a reply timeout (the same
+    # transaction id, at once after the first; the original's retry policy) is one command
+    # (Windows CI: a slow reply made [9999, 3, ...] and [9999, 17, ...] arrive twice each)
+    st = sim.state
+    cmds = [c for k, c in enumerate(st.commands)
+            if not (k and st.command_tids[k] == st.command_tids[k - 1] and c == st.commands[k - 1])]
     i = cmds.index(want[0])
     assert cmds[i:i + len(want)] == want
 

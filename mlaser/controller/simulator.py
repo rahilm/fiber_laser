@@ -105,6 +105,9 @@ class SimState:
     reboots: int = 0                                 # 100 := 8888 after a download (I: firmware reboot)
     hw_blocks: dict = field(default_factory=dict)    # 59600 + slot -> words [0xffffffff, 0xe0, ...]
     commands: list = field(default_factory=list)     # mailbox commands received
+    #: the transaction id of each of ``commands`` (same index): a request the client sent again
+    #: after a reply timeout (the original's retry policy) arrives again with the same id
+    command_tids: list = field(default_factory=list)
     fast_map: list = field(default_factory=lambda: list(FAST_MAP))   # 60000 map (FUN_1003ee50)
     fast_map_writes: int = 0
     lag_left_s: float = 0.0   # pessimistic mode: buffered motion still executed after a halt
@@ -413,6 +416,8 @@ class CardSimulator:
                     resp = F.Response(F.FUNC_READ, req.tid, req.addr, req.count, vals)
                 elif req.func == F.FUNC_WRITE:
                     self._write(req.addr, req.values)
+                    if req.addr == F.REG_MAILBOX:
+                        self.state.command_tids.append(req.tid)
                     resp = F.Response(F.FUNC_WRITE, req.tid, req.addr, req.count)
                 else:
                     resp = F.Response(req.func, req.tid, exception=EXC_ILLEGAL_FUNCTION)
