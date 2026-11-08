@@ -55,6 +55,7 @@ class DockPolicy(QObject):
         self.room: Optional[QSize] = None        # a screen smaller than the content (update_min)
         self._moving = False
         self._min = (0, 0)                       # the explicit minimum this set
+        self._reactivated: Optional[tuple] = None  # update_min: the stale minimum re-laid out
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.apply)
@@ -543,6 +544,18 @@ class DockPolicy(QObject):
             self._min = (want_w, want_h)
             # 0: that dimension is the layout's own minimum
             self.w.setMinimumSize(want_w, want_h)
+        # a dimension left to the layout keeps the minimum of its last activation: after the
+        # docks under the page folded (or a page got shorter) that was the old, larger one,
+        # and the window could not go back to the user's size (Windows CI: 885 px kept with
+        # 731 needed).  Re-activated, the layout applies its present minimum.
+        hint = self.w.minimumSizeHint()
+        lay = self.w.layout()
+        stale = ((want_h == 0 and self.w.minimumHeight() > hint.height())
+                 or (want_w == 0 and self.w.minimumWidth() > hint.width()))
+        key = (self.w.minimumSize().toTuple(), hint.toTuple())
+        if lay is not None and stale and key != self._reactivated:
+            self._reactivated = key          # once per state: never a loop of layout requests
+            lay.invalidate()
 
     @staticmethod
     def _shown(group: list) -> QDockWidget:

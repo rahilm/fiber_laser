@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogB
 from mlaser.model import LeadParams
 from mlaser.services import technology as T
 from mlaser.ui.techform import quantity
-from mlaser.ui.responsive import FlowLayout, ResponsiveForm, TabsWhenNarrow
+from mlaser.ui.responsive import ElidedLabel, FlowLayout, ResponsiveForm, TabsWhenNarrow
 from mlaser.ui.techform import TechForm
 
 from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label, thickness_label  # noqa: F401
@@ -59,12 +59,14 @@ class TechnologyEditor(QWidget):
         self._loading = False
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
-        self.header = QLabel()
-        self.header.setWordWrap(True)
-        self.header.setTextFormat(Qt.RichText)
+        # one line each, elided in a narrow (half-screen) page with the whole text in the
+        # tooltip: wrapped, they took two lines each and the form under them its room
+        self.header = ElidedLabel()
+        hf = self.header.font()
+        hf.setBold(True)
+        self.header.setFont(hf)
         lay.addWidget(self.header)
-        self.badge = QLabel()
-        self.badge.setWordWrap(True)
+        self.badge = ElidedLabel()
         self.badge.setObjectName("tech_example_badge")
         lay.addWidget(self.badge)
         self.form = TechForm(tr, pressure_unit, scope="recipe")
@@ -201,7 +203,7 @@ class TechnologyEditor(QWidget):
                 self.header.setText(t("tech.none"))
                 self.badge.setText("")
                 return
-            self.header.setText(f"<b>{tech.key.label()}</b> · {t('tech.version')} {tech.version or '-'}")
+            self.header.setText(f"{tech.key.label()} · {t('tech.version')} {tech.version or '-'}")
             if tech.is_example:
                 self.badge.setText(t("tech.example_badge"))
                 self.badge.setProperty("chip", "warning")
@@ -212,7 +214,7 @@ class TechnologyEditor(QWidget):
                 self.badge.setText(t("tech.verified_badge"))
             else:
                 self.badge.setText("")
-            self.badge.setVisible(bool(self.badge.text()))
+            self.badge.setVisible(bool(self.badge.full_text()))
             base = self.base_fn(tech) if self.base_fn is not None else None
             base_full = base.full_params() if base is not None else T.registry_defaults()
             label = (t("tech.base.factory") if base is not None and base.version != tech.version
