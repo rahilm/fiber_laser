@@ -581,9 +581,47 @@ def refresh_links(root) -> int:
     return n
 
 
+def watch_link_palette(window) -> None:
+    """Re-colour ``window``'s links whenever its palette really changes, however late it arrives:
+    a platform colour-scheme switch (Windows, macOS) reaches the widgets' palettes asynchronously,
+    after :func:`apply` returned; an OS light/dark switch arrives without :func:`apply` at all."""
+    from PySide6.QtCore import QEvent, QObject, QTimer
+
+    if window.property("mlaser_link_watch"):
+        return
+
+    class _LinkWatch(QObject):
+        EVENTS = (QEvent.PaletteChange, QEvent.ApplicationPaletteChange, QEvent.ThemeChange,
+                  QEvent.StyleChange)
+
+        def __init__(self, w) -> None:
+            super().__init__(w)
+            self._pending = False
+
+        def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+            if ev.type() in self.EVENTS and not self._pending:
+                self._pending = True
+                QTimer.singleShot(0, self._run)
+            return False
+
+        def _run(self) -> None:
+            self._pending = False
+            w = self.parent()
+            if w is not None:
+                try:
+                    refresh_links(w)
+                except RuntimeError:
+                    pass
+
+    window.installEventFilter(_LinkWatch(window))
+    window.setProperty("mlaser_link_watch", True)
+
+
 def schedule_link_refresh(window) -> None:
     """:func:`refresh_links` now and once more after the event loop delivered the palette
-    change (a platform colour-scheme switch reaches the widgets' palettes asynchronously)."""
+    change (a platform colour-scheme switch reaches the widgets' palettes asynchronously);
+    later palette changes are followed by :func:`watch_link_palette`."""
+    watch_link_palette(window)
     refresh_links(window)
     from PySide6.QtCore import QTimer
     import weakref
