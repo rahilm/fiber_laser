@@ -106,6 +106,32 @@ def mime_for(doc: Document, parts: Iterable[Part], file_dir: Optional[str] = Non
     return md
 
 
+def native_mime(md: QMimeData) -> QMimeData:
+    """A copy of ``md`` allocated by Qt itself, for :meth:`QClipboard.setMimeData`.
+
+    A ``QMimeData()`` made in Python is PySide's C++ subclass whose virtual methods call back
+    into Python.  The clipboard owns what it is given and keeps it until the application is
+    destroyed; destroying the Python-made object there crashed the interpreter on exit
+    (SIGSEGV after the last test, every platform; ``tests/test_clipboard_undo.py``,
+    ``test_exit_is_clean_after_copy``).  A ``QMimeData`` created by Qt (the item model's
+    ``mimeData`` factory) is a plain one: same formats, no Python in its destructor."""
+    from PySide6.QtGui import QStandardItem, QStandardItemModel
+    model = QStandardItemModel()
+    model.appendRow(QStandardItem(""))
+    out = model.mimeData([model.index(0, 0)])
+    for f in list(out.formats()):
+        out.removeFormat(f)
+    for f in md.formats():
+        out.setData(f, md.data(f))
+    return out
+
+
+def set_clipboard(md: QMimeData) -> None:
+    """Put ``md`` on the system clipboard (as a Qt-made copy: :func:`native_mime`)."""
+    from PySide6.QtWidgets import QApplication
+    QApplication.clipboard().setMimeData(native_mime(md))
+
+
 def _safe_name(name: str) -> str:
     s = re.sub(r"[^\w\- ]+", "_", name).strip(" ._") or "parts"
     return s[:60]

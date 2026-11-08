@@ -110,7 +110,7 @@ def test_paste_plain_svg_and_dxf_from_other_programs(win, app):
     win.set_document(Document())
     md = QMimeData()
     md.setData("image/svg+xml", svg_text(Document(parts=src.parts[:1])).encode())
-    QApplication.clipboard().setMimeData(md)
+    clipboard.set_clipboard(md)          # a Qt-made copy (a Python QMimeData crashes the exit)
     assert win.can_paste()
     win.run("edit.paste")
     assert len(win.document.parts) >= 1
@@ -118,7 +118,7 @@ def test_paste_plain_svg_and_dxf_from_other_programs(win, app):
     win.set_document(Document())
     md = QMimeData()
     md.setData("image/vnd.dxf", clipboard.dxf_bytes(Document(parts=src.parts[:2])))
-    QApplication.clipboard().setMimeData(md)
+    clipboard.set_clipboard(md)          # a Qt-made copy (a Python QMimeData crashes the exit)
     win.run("edit.paste")
     assert len(win.document.parts) >= 2
     win.set_document(Document())
@@ -133,7 +133,7 @@ def test_paste_plain_svg_and_dxf_from_other_programs(win, app):
 def test_unreadable_clipboard_is_reported_not_raised(win, app):
     md = QMimeData()
     md.setData(clipboard.MIME_PARTS, b"not a project")
-    QApplication.clipboard().setMimeData(md)
+    clipboard.set_clipboard(md)          # a Qt-made copy (a Python QMimeData crashes the exit)
     win.set_document(Document())
     assert win.paste() == 0
     assert len(win.document.parts) == 0
@@ -153,6 +153,49 @@ def test_cut_is_copy_and_delete_in_one_undo_step(win, app):
     assert win.ribbon.actions["edit.redo"].text().replace("&", "") == "Redo Cut"
     win.run("edit.paste")
     assert len(win.document.parts) == n0 + len(sel)
+
+
+_EXIT_SCRIPT = r"""
+import os, sys
+sys.path.insert(0, sys.argv[1]); sys.path.insert(0, os.path.join(sys.argv[1], "tests"))
+from PySide6.QtWidgets import QApplication, QMenu
+app = QApplication([])
+from mlaser import ops
+from wiring import real_window
+w = real_window(user_mode="engineer")
+w.show(); app.processEvents()
+w.set_document(ops.demo_document())
+w.canvas.select_parts([0, 1])
+w.run("edit.copy"); w.run("edit.paste"); w.run("edit.cut")
+w.nudge(1, 0); w.run("edit.undo")
+w.part_list.mimeData(w.part_list.selectedItems())        # a drag's data
+for m in w.shell.menubar.findChildren(QMenu):             # access keys, window list, recent
+    m.aboutToShow.emit()
+app.processEvents()
+w.close()
+app.processEvents()
+assert QApplication.clipboard().mimeData().hasFormat("application/x-mlaser-parts")
+print("ok", flush=True)
+"""
+
+
+def test_exit_is_clean_after_copy(tmp_path):
+    """Regression: a Python-made QMimeData left on the clipboard crashed the interpreter when
+    the application was destroyed (SIGSEGV after the last test; the copy is now a Qt-made
+    QMimeData, clipboard.native_mime).  Copy, paste, cut, undo, a drag's data, every menu
+    opened, the window closed: the process exits with 0, the parts still on the clipboard."""
+    import os
+    import subprocess
+    import sys
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", MLASER_PLAN_PROCESS="0")
+    for var in ("MLASER_CONFIG_DIR", "MLASER_APP_DIR", "MLASER_DATA_DIR"):
+        env[var] = str(tmp_path / var)
+    script = tmp_path / "exit_after_copy.py"
+    script.write_text(_EXIT_SCRIPT)
+    r = subprocess.run([sys.executable, "-X", "faulthandler", str(script), root], env=env, cwd=str(tmp_path),
+                       capture_output=True, text=True, timeout=300)
+    assert r.returncode == 0 and "ok" in r.stdout, (r.returncode, r.stdout[-2000:], r.stderr[-4000:])
 
 
 # --------------------------------------------------------------------------- drag and drop

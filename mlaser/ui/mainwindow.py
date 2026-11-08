@@ -1147,7 +1147,8 @@ class MainWindow(QMainWindow):
         if old:                                   # the previous drag's file (that drag is over)
             shutil.rmtree(old, ignore_errors=True)
         self._drag_dir = tempfile.mkdtemp(prefix="mlaser-drag-")
-        return clipboard.mime_for(self.document, sel, file_dir=self._drag_dir)
+        # a Qt-made copy (clipboard.native_mime): QDrag owns it, no Python in its destructor
+        return clipboard.native_mime(clipboard.mime_for(self.document, sel, file_dir=self._drag_dir))
 
     def _operator_blocked(self) -> bool:
         """Operator mode (mlaser.services.usermodes): the drawing and the parameters are not
@@ -1194,7 +1195,7 @@ class MainWindow(QMainWindow):
         from . import clipboard
         self._clipboard = clone_parts(sel)          # what was copied (the feedback counts it)
         try:
-            QApplication.clipboard().setMimeData(clipboard.mime_for(self.document, sel))
+            clipboard.set_clipboard(clipboard.mime_for(self.document, sel))
         except Exception as exc:  # noqa: BLE001 - the copy is kept in the window
             self.log_panel.log(f"clipboard: {exc}")
         return len(sel)
