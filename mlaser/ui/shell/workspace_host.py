@@ -670,6 +670,40 @@ class WorkspacePage(QWidget):
         if need != self._toolbar_need:
             self._toolbar_need = need
             self.updateGeometry()
+        if not self._overflow_check:
+            self._overflow_check = True
+            QTimer.singleShot(0, self, self._no_overflow)
+
+    _overflow_check = False
+
+    def _no_overflow(self) -> None:
+        """Once the tool bar is laid out: if its extension button shows after all (a style lays
+        it out wider than its size hint said: macOS), a label goes, then the second row is
+        used, until every command is in a row.  Bounded by the number of commands."""
+        self._overflow_check = False
+        tb = self.toolbar
+        for _ in range(len(self._acts) + 1):
+            ext = tb.findChild(QToolButton, "qt_toolbar_ext_button")
+            if ext is None or not ext.isVisible():
+                return
+            labelled = [tb.widgetForAction(a) for a in reversed(self._label_order())
+                        if isinstance(tb.widgetForAction(a), QToolButton) and not a.icon().isNull()
+                        and tb.widgetForAction(a).toolButtonStyle() != Qt.ToolButtonIconOnly]
+            if labelled:
+                labelled[0].setToolButtonStyle(Qt.ToolButtonIconOnly)
+            elif self._split == len(self._acts) and len(self._acts) > 2:
+                ws = [tb.widgetForAction(a).sizeHint().width() if tb.widgetForAction(a) is not None else 0
+                      for a in self._acts]
+                total = sum(ws)
+                mid = min(range(1, len(ws)), key=lambda i: abs(sum(ws[:i]) - total / 2))
+                self._place(mid)
+                self._toolbar_need = max(self._toolbar_need, tb.sizeHint().width(), self.toolbar2.sizeHint().width())
+                self.updateGeometry()
+            else:
+                return
+            if tb.layout() is not None:
+                tb.layout().invalidate()
+                tb.layout().activate()
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         return super().minimumSizeHint().expandedTo(QSize(self._toolbar_need, 0))
