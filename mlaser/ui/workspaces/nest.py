@@ -25,7 +25,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen,
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QCompleter, QDoubleSpinBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QLabel,
                                QLineEdit, QListView, QListWidget, QListWidgetItem, QProgressBar,
-                               QPushButton, QSizePolicy, QSpinBox, QSplitter, QTabWidget,
+                               QPushButton, QSizePolicy, QSpinBox, QTabWidget,
                                QTableWidget, QTableWidgetItem, QToolButton, QVBoxLayout,
                                QWidget)
 
@@ -38,7 +38,7 @@ from mlaser.services.nesting import NestRun, NestService, send_to_queue
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
 
 from .. import homes, style
-from ..responsive import ColumnFitter, FlowLayout
+from ..responsive import ColumnFitter, FlowLayout, TabsWhenNarrow
 from . import TOUCH_MIN, show_workspace, tr, trn
 
 #: per-part rotation choices of the parts table: (id, label key, default text, NestPart.angles, grain)
@@ -258,7 +258,10 @@ class NestWorkspace(QWidget):
         self._sync = False
         root = QHBoxLayout(self)
         style.margins(root, "dense")
-        split = QSplitter(Qt.Horizontal)
+        # the parts, the sheet and the results side by side; in tabs in a narrow (half-screen)
+        # window, so the parts table keeps its Qty / Max / Priority columns and the page its
+        # height (the results column 157 px wide wrapped the page taller than a 14" screen)
+        split = TabsWhenNarrow(extra=240)
         root.addWidget(split)
 
         # ---------------- left: parts, sheets, remnants
@@ -330,7 +333,7 @@ class NestWorkspace(QWidget):
             srow.addWidget(x)
         srow.addWidget(self._button("nestws.btn.add_sheet", "Add sheet", self.add_sheet))
         lv.addLayout(srow)
-        split.addWidget(left)
+        split.addWidget(left, tr(w, "nestws.parts", "Parts"))
 
         # ---------------- centre: sheet view, parameters, run
         mid = QWidget()
@@ -406,7 +409,7 @@ class NestWorkspace(QWidget):
         self.status.setObjectName("nestws_status")
         self.status.setWordWrap(True)
         mv.addWidget(self.status)
-        split.addWidget(mid)
+        split.addWidget(mid, tr(w, "nestws.tab.sheet", "Sheet"))
 
         # ---------------- right: results, compare, send
         right = QWidget()
@@ -443,9 +446,9 @@ class NestWorkspace(QWidget):
         rv.addWidget(self.queue_btn)
         self.main_btn = self._button("nestws.btn.to_drawing", "Copy sheet to drawing", self.to_drawing)
         rv.addWidget(self.main_btn)
-        split.addWidget(right)
-        split.setSizes([300, 540, 380])
-        split.setStretchFactor(1, 1)
+        split.addWidget(right, tr(w, "nestws.results", "Results"))
+        split.splitter.setSizes([300, 540, 380])
+        split.splitter.setStretchFactor(1, 1)
         self._update_buttons()
         # the default sheet is remembered from the last nest (nest.*; this panel is its home)
         self._sheet_defaults("*")

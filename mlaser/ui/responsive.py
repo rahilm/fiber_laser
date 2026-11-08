@@ -1473,6 +1473,88 @@ class ColumnFitter(QObject):
 
 
 # --------------------------------------------------------------------------- page stack
+class TabsWhenNarrow(QWidget):
+    """Panes side by side in a splitter while the width has room for them, tabs (one pane at a
+    time, each with the whole width) in a narrower window (a half-screen one).  The choice is
+    made from the width alone (the height follows it, never the reverse).  ``extra``: how much
+    more than the panes' minimum widths side by side needs (the room their content wants, e.g.
+    a table's important columns), so a narrow window gets whole panes in tabs instead of
+    squeezed ones side by side.  Its minimum width is the widest pane's."""
+
+    def __init__(self, extra: int = 0, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        from PySide6.QtWidgets import QSplitter, QTabWidget
+        self.extra = extra
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.tabs = QTabWidget()
+        self.tabs.setDocumentMode(True)
+        self.tabs.hide()
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        lay.addWidget(self.splitter)
+        lay.addWidget(self.tabs)
+        self.panes: list[tuple[QWidget, str]] = []
+        self.tabbed = False
+
+    def addWidget(self, w: QWidget, title: str = "") -> None:  # noqa: N802 - like QSplitter
+        self.panes.append((w, title))
+        if self.tabbed:
+            self.tabs.addTab(w, title)
+        else:
+            self.splitter.addWidget(w)
+
+    def set_title(self, w: QWidget, title: str) -> None:
+        self.panes = [(p, title if p is w else t) for p, t in self.panes]
+        i = self.tabs.indexOf(w)
+        if i >= 0:
+            self.tabs.setTabText(i, title)
+
+    def side_by_side_need(self) -> int:
+        ws = [p.minimumSizeHint().expandedTo(p.minimumSize()).width() for p, _t in self.panes]
+        return sum(ws) + self.splitter.handleWidth() * max(len(ws) - 1, 0) + self.extra
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        ws = [p.minimumSizeHint().expandedTo(p.minimumSize()).width() for p, _t in self.panes]
+        return QSize(max(ws, default=s.width()), s.height())
+
+    def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
+        # its minimum height is the panes' minimums (as a splitter's): the tab widget's
+        # height-for-width is the tallest pane's *preferred* height, which a parent taking it
+        # as a minimum (FitArea) would hold the window to
+        return False
+
+    def set_tabbed(self, on: bool) -> None:
+        if on == self.tabbed:
+            return
+        self.tabbed = on
+        current = self.tabs.currentIndex()
+        if on:
+            sizes = self.splitter.sizes()
+            self._sizes = sizes
+            for p, t in self.panes:
+                self.tabs.addTab(p, t)
+            self.splitter.hide()
+            self.tabs.show()
+        else:
+            for p, _t in self.panes:
+                self.splitter.addWidget(p)
+                p.show()
+            self.tabs.hide()
+            self.splitter.show()
+            if getattr(self, "_sizes", None):
+                self.splitter.setSizes(self._sizes)
+        del current
+        self.updateGeometry()
+
+    def fit(self) -> None:
+        self.set_tabbed(self.width() < self.side_by_side_need())
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self.fit()
+
+
 class CurrentPageStack(QStackedWidget):
     """A stacked widget whose minimum and preferred sizes are the *current* page's (a plain
     QStackedWidget takes the largest of all its pages, so one tall page would set the window's
@@ -1593,5 +1675,5 @@ class FitArea(QScrollArea):
         return w.sizeHint() if w is not None else super().sizeHint()
 
 
-__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
+__all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "TabsWhenNarrow", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
            "CompactWhenNarrow", "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]

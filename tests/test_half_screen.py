@@ -169,3 +169,28 @@ def test_page_tool_bar_wraps_instead_of_overflowing(win, app):
     win.resize(*WIDE)
     settle(app)
     assert not page.toolbar2.isVisible()
+
+
+@pytest.mark.parametrize("size", [(756, 945), (683, 875)])
+def test_a_workspace_switch_reflows_instead_of_resizing(win, app, size):
+    """W14: at half screen a workspace switch never widens the window into the other half;
+    a page taller than the window may raise its height, and the next workspace that fits goes
+    back to the user's size.  Design keeps a workable canvas (the docks fold before it is
+    squeezed below CANVAS_FOLD)."""
+    from mlaser.ops import demo_document
+    from mlaser.ui.shell.dock_policy import CANVAS_FOLD
+    win.set_document(demo_document())
+    win.resize(*size)
+    settle(app)
+    assert win.size().toTuple() == size
+    if size[0] >= 756:      # at 683 px the folded docks (Run Control 251 px) leave about 350
+        assert win.canvas.width() >= CANVAS_FOLD, win.canvas.width()
+    seen = {}
+    for ws in [*win.shell.host.visible_ids(), "design"]:
+        win.shell.show_workspace(ws)
+        settle(app, 0.3)
+        seen[ws] = win.size().toTuple()
+        assert win.width() == size[0], (ws, seen)                       # never wider
+        if win.minimumSize().height() <= size[1]:
+            assert win.height() == size[1], (ws, seen)                  # back to the user's size
+    assert seen["design"] == size, seen

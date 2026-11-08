@@ -1228,6 +1228,7 @@
   "nestws.remnant_item": "◩ remnant {label}",
   "nestws.result_item": "Sheet {n}  {util:.0f} %  ·  {parts} parts\n{sheet}",
   "nestws.results": "Results",
+  "nestws.tab.sheet": "Sheet",
   "nestws.rot.none": "no rotation",
   "nestws.rotation": "Rotation",
   "nestws.rotp.fixed": "fixed 0°",

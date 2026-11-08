@@ -110,6 +110,34 @@ class EmptyState(QWidget):
         self.grid.setRowStretch(n // cols + 1, 1)
 
 
+class CanvasSplitter(QSplitter):
+    """The canvas and the page beside it: side by side while both have their minimum widths,
+    the page under the canvas in a narrower window (a half-screen one), so the page's minimum
+    width is the wider of the two, not their sum (a workspace switch then reflows instead of
+    widening the window)."""
+
+    def _side_by_side_need(self) -> int:
+        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
+              for i in range(self.count()) if not self.widget(i).isHidden()]
+        return sum(ws) + self.handleWidth() * max(len(ws) - 1, 0)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
+              for i in range(self.count()) if not self.widget(i).isHidden()]
+        return QSize(max(ws, default=s.width()), s.height())
+
+    def fit_orientation(self) -> None:
+        # by the width alone (the height follows the choice, never the reverse)
+        want = Qt.Horizontal if self.width() >= self._side_by_side_need() else Qt.Vertical
+        if self.orientation() != want:
+            self.setOrientation(want)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self.fit_orientation()
+
+
 class WorkspacePage(QWidget):
     """One workspace: toolbar + body (see the module docstring)."""
 
@@ -183,7 +211,7 @@ class WorkspacePage(QWidget):
         spec = self.spec
         own = self._own_widget()
         if spec.canvas:
-            self.splitter = QSplitter(Qt.Horizontal)
+            self.splitter = CanvasSplitter(Qt.Horizontal)
             self.splitter.setChildrenCollapsible(True)
             self.canvas_slot = QWidget()
             self.canvas_slot.setMinimumWidth(CANVAS_MIN)       # the drawing stays workable
@@ -353,7 +381,8 @@ class WorkspacePage(QWidget):
         so narrow that its wrapped rows pushed the window taller than the screen with the
         Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
         sp = self.splitter
-        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+        if (sp is None or sp.count() < 2 or self._user_split or not sp.isVisible()
+                or sp.orientation() != Qt.Horizontal):
             return
         own = sp.widget(1)
         total = sp.width() - sp.handleWidth()
@@ -528,6 +557,29 @@ class _RailFit(QObject):
         return False
 
 
+class _UserSize(QObject):
+    """The window size the user chose (or the application placed): a resize that only grew the
+    window to its minimum (a page that needs more room) is not one, so a workspace switch can
+    go back to the user's size when the next page fits it (W14: a half-screen window stays in
+    its half)."""
+
+    def __init__(self, window: QWidget) -> None:
+        super().__init__(window)
+        self.w = window
+        self.size: Optional[QSize] = None
+        self.switching = False
+        window.installEventFilter(self)
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if obj is self.w and ev.type() == QEvent.Resize and not self.switching:
+            old, new = ev.oldSize(), ev.size()
+            m = self.w.minimumSize()
+            forced = old.isValid() and new == old.expandedTo(m) and new != old
+            if not forced:
+                self.size = QSize(new)
+        return False
+
+
 class WorkspaceHost:
     """Pages, rail and switching.  Created by the main window before the plugins load (so
     ``ctx.add_workspace`` works from ``register``)."""
@@ -535,6 +587,7 @@ class WorkspaceHost:
     def __init__(self, window, tr, actions: Callable[[str], Optional[QAction]],
                  allowed: Callable[[str], bool], mode: Callable[[], str]):
         self.w = window
+        self.user_size = _UserSize(window)
         self.tr = tr
         self._action = actions
         self._allowed = allowed
@@ -665,8 +718,11 @@ class WorkspaceHost:
         prev = self.specs.get(self.current)
         page = self.pages[ws_id]
         win = self.w
-        before = win.size() if (win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen))) \
-            else None
+        before = None
+        if win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen)):
+            # the user's size (not one an earlier page's minimum grew the window to)
+            before = QSize(self.user_size.size) if self.user_size.size is not None else win.size()
+        self.user_size.switching = True
         canvas = self.canvas_widget()
         if spec.canvas and canvas is not None:
             page.show_canvas(canvas)
@@ -678,6 +734,11 @@ class WorkspaceHost:
         self.current = ws_id
         self.rail_actions[ws_id].setChecked(True)
         self._apply_docks(prev, spec, hide=False)
+        pol = getattr(getattr(win, "shell", None), "dock_policy", None)
+        if before is not None and pol is not None:
+            # the new workspace's docks fold now if the window is too narrow for them side by
+            # side: its minimum must not widen the window first (a switch reflows, W14)
+            pol.fit_width(before.width())
         if before is not None:
             # the new page's minimum is first asked for before its wrapper knows the room around
             # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
@@ -687,6 +748,7 @@ class WorkspaceHost:
             for _ in range(4):
                 QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
             self._keep_size(before)
+        self.user_size.switching = False
         for fn in list(self.listeners):
             fn(ws_id)
         return True
@@ -696,9 +758,11 @@ class WorkspaceHost:
         if not win.isVisible() or win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen):
             return
         size = win.size()
-        if size.width() > before.width() or size.height() > before.height():
-            want = before.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
-            if want != size and want.width() <= size.width() and want.height() <= size.height():
+        if size != before:
+            # back to the user's size as far as this page's minimum allows (the minimum Qt
+            # keeps: the dock policy's explicit one while the docks can fold)
+            want = before.expandedTo(win.minimumSize())
+            if want != size:
                 win.resize(want)
 
     def resolve(self, ws_id: str) -> str:

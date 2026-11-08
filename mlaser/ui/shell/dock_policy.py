@@ -32,6 +32,8 @@ CANVAS_MIN = 260
 #: logical px: the canvas width the docks give way to (down to their minimums) when the window
 #: has the room: a comfortable drawing, CANVAS_MIN only when the window is too narrow for more
 CANVAS_COMFORT = 480
+#: logical px: below this canvas width the side docks fold into one tab group (fold)
+CANVAS_FOLD = 400
 SIDE = (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea)
 
 
@@ -91,6 +93,16 @@ class DockPolicy(QObject):
     def page_min(self) -> int:
         c = self.w.centralWidget()
         return c.minimumSizeHint().width() if c is not None else 0
+
+    def unfolded_need(self) -> int:
+        """The window width the docks stay side by side at: the layout's minimum, with the
+        shared canvas at least CANVAS_FOLD wide (the docks fold before they squeeze it to its
+        bare minimum)."""
+        need = self.w.minimumSizeHint().width()
+        canvas = getattr(self.w, "canvas", None)
+        if canvas is not None and canvas.isVisible():
+            need += CANVAS_FOLD - CANVAS_MIN
+        return need
 
     def page_want(self) -> int:
         """The page width the docks give way to: its minimum, and with the shared canvas on it
@@ -234,7 +246,7 @@ class DockPolicy(QObject):
     def fold(self) -> None:
         """The visible side docks into one tab group (in the right-hand area when it has docks)
         and the bottom docks into another, remembering their arrangement (:meth:`unfold`)."""
-        need = self.w.minimumSizeHint().width()
+        need = self.unfolded_need()
         narrow = self.fold_need()
         parts = self._parts(self.arrangement())
         if not parts:
@@ -330,12 +342,35 @@ class DockPolicy(QObject):
             # the need recorded is no longer this layout's; unfolded, and folded again if the
             # window is still too narrow
             gone = len(shown) < len(self.folded["docks"])
-            if gone or new or width >= self.folded["need"]:
+            if width >= self.folded["need"]:
                 self.unfold()
                 return True
+            if gone or new:
+                # folded again at once for the docks shown now: never a turn with the docks
+                # side by side in a narrow window (its minimum widened the window)
+                self.unfold()
+                self._refold()
+                return True
             return False
-        need = self.w.minimumSizeHint().width()
-        if width < need and self.fold_need() < need and not QApplication.closingDown():
+        return self._refold()
+
+    def fit_width(self, width: int) -> None:
+        """Fold, at once, the docks a workspace switch has just shown when ``width`` is too
+        narrow for them side by side (WorkspaceHost.activate, before the window's minimum
+        follows the new page)."""
+        if not self.enabled or self.user_arranged:
+            return
+        if self.folded is not None:
+            self.unfold()
+        hint = self.w.minimumSizeHint().width()
+        if width < self.unfolded_need() and self.fold_need() < hint:
+            self.fold()
+        self.update_min()
+
+    def _refold(self) -> bool:
+        hint = self.w.minimumSizeHint().width()
+        if (self.w.width() < self.unfolded_need() and self.fold_need() < hint
+                and not QApplication.closingDown()):
             self.fold()
             return True
         return False
