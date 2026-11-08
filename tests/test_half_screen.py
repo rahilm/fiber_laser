@@ -80,8 +80,14 @@ def heights(w) -> list:
     out = [(type(c).__name__, c.objectName(), c.height(), c.minimumSizeHint().height())
            for c in w.findChildren(QWidget) if c.parent() is w and c.isVisible()]
     page = w.centralWidget()
-    out += [(type(c).__name__, c.objectName(), c.width(), c.minimumSizeHint().height())
-            for c in page.findChildren(QWidget) if c.isVisible() and c.minimumSizeHint().height() >= 60][:25]
+    for c in page.findChildren(QWidget):
+        if c.isVisible() and max(c.minimumSizeHint().height(), c.minimumHeight()) >= 20:
+            depth, p = 0, c.parentWidget()
+            while p is not None and p is not page:
+                depth, p = depth + 1, p.parentWidget()
+            text = c.text()[:24] if hasattr(c, "text") and callable(c.text) and isinstance(c.text(), str) else ""
+            out.append(("  " * depth + type(c).__name__, c.objectName(), f"{c.width()}x{c.height()}",
+                        c.minimumSizeHint().height(), c.minimumHeight(), text))
     return out
 
 
@@ -298,7 +304,13 @@ def test_process_pages_fit_half_screen(win, app, size):
                      if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
                      and a.verticalScrollBar().isVisible()]
         assert not scrolling, (size, b.objectName(), scrolling)
-        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize(), heights(win))
+        if win.size().toTuple() != size:
+            # the details in full in the captured output (the assertion's repr is cut)
+            print("HEIGHTS", b.objectName(), win.size().toTuple(), win.minimumSize().toTuple(),
+                  win.minimumSizeHint().toTuple())
+            for row in heights(win):
+                print("HEIGHTS", *row)
+        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
         if page.view_tabs.isVisible():
             page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height
             settle(app, 0.2)
