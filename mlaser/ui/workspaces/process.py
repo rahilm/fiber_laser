@@ -34,7 +34,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogB
 from mlaser.model import LeadParams
 from mlaser.services import technology as T
 from mlaser.ui.techform import quantity
-from mlaser.ui.responsive import FlowLayout, ResponsiveForm
+from mlaser.ui.responsive import FlowLayout, ResponsiveForm, TabsWhenNarrow
 from mlaser.ui.techform import TechForm
 
 from .recipe_picker import MaterialPicker, RecipePicker, _nz, _nz_label, thickness_label  # noqa: F401
@@ -497,8 +497,12 @@ class LibraryPage(QWidget):
         t = self.tr_.tr
         root = QVBoxLayout(self)
         root.setContentsMargins(0, 0, 0, 0)
-        self.split = QSplitter(Qt.Horizontal)
-        self.split.setChildrenCollapsible(False)
+        # the record list and the editor side by side while the list's natural width and the
+        # editor's minimum fit; tabs in a narrower (half-screen) window, each with the page's
+        # whole height (one above the other needed more than a 14" screen has)
+        self.split = TabsWhenNarrow(need=lambda: self.split.panes[0][0].sizeHint().width()
+                                    + self.split.panes[1][0].minimumSizeHint().width() + 24)
+        self.split.splitter.setChildrenCollapsible(False)
         root.addWidget(self.split)
         left = QWidget()
         lv = QVBoxLayout(left)
@@ -524,12 +528,16 @@ class LibraryPage(QWidget):
             b.clicked.connect(lambda _c=False, f=fn: f())
             bfl.addWidget(b)
         lv.addWidget(brow)
-        self.split.addWidget(left)
+        self.split.addWidget(left, t("library.tab.records"))
         right = QWidget()
         rv = QVBoxLayout(right)
         rv.setContentsMargins(0, 0, 0, 0)
+        # one line, elided at the width it has, the whole text in its tooltip (wrapped, a long
+        # list of layers took several lines of a narrow page)
         self.used_by = QLabel()
-        self.used_by.setWordWrap(True)
+        self.used_by.setObjectName("library_used_by")
+        self.used_by.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        self._used_by_text = ""
         rv.addWidget(self.used_by)
         # the selected record to the drawing's layers (UX audit W7): the layer selected on the
         # Drawing page, or any layer of the drawing
@@ -628,9 +636,9 @@ class LibraryPage(QWidget):
         tabs.addTab(hw, t("process.tab.history"))
         self.tabs = tabs
         rv.addWidget(tabs, 1)
-        self.split.addWidget(right)
-        self.split.setStretchFactor(0, 1)
-        self.split.setStretchFactor(1, 3)
+        self.split.addWidget(right, t("library.tab.record"))
+        self.split.splitter.setStretchFactor(0, 1)
+        self.split.splitter.setStretchFactor(1, 3)
         self.current_layer: Optional[int] = None      # for "layer vs recipe"
         #: the layers cannot be changed now (Operator mode, a job running): set by the workspace
         self.read_only: Callable[[], bool] = lambda: False
@@ -640,23 +648,18 @@ class LibraryPage(QWidget):
     # ---------------------------------------------------------------- layout
     def resizeEvent(self, ev) -> None:   # noqa: N802 - Qt
         super().resizeEvent(ev)
-        # side by side while the list's natural width and the editor's minimum fit
-        need = self.split.widget(0).sizeHint().width() + self.split.widget(1).minimumSizeHint().width() + 24
-        want = Qt.Vertical if self.width() < need else Qt.Horizontal
-        if self.split.orientation() != want:
-            self.split.setOrientation(want)
-        self._fit_panes()
+        self._show_used_by()
 
-    def _fit_panes(self) -> None:
-        """A splitter does not ask its panes for their height at their width: the wrapped
-        "Used by" text of a narrow page was one line in its minimum, and the technology form
-        under it got what was left and scrolled (a half-screen window).  The label's minimum
-        height is its height at its width, so the pane's (and the page's) minimum holds it."""
-        lab = self.used_by
-        width = lab.width() if lab.width() > 0 else self.width()
-        h = lab.heightForWidth(width) if lab.text() else 0
-        if h > 0 and lab.minimumHeight() != h:
-            lab.setMinimumHeight(h)
+    def _show_used_by(self) -> None:
+        lab, text = self.used_by, self._used_by_text
+        width = max(lab.width(), 1)
+        shown = lab.fontMetrics().elidedText(text, Qt.ElideRight, width) if text else ""
+        if lab.text() != shown:
+            lab.setText(shown)
+        tip = text if shown != text else ""
+        if lab.toolTip() != tip:
+            lab.setToolTip(tip)
+        lab.setAccessibleName(text)
 
     # ---------------------------------------------------------------- records
     def _factory_of(self, tech: T.Technology) -> Optional[T.Technology]:
@@ -800,12 +803,14 @@ class LibraryPage(QWidget):
         tech = self.editor.tech
         self.refresh_assign()
         if tech is None:
-            self.used_by.setText("")
+            self._used_by_text = ""
+            self._show_used_by()
             return
         used = [li for li, lp in sorted(self.ctx.document.layers.items())
                 if (T.layer_technology_ref(lp) or {}).get("id") == tech.id]
-        self.used_by.setText(self.tr_.format("library.used_by", layers=", ".join(map(str, used))) if used
-                             else self.tr_.tr("library.unused"))
+        self._used_by_text = (self.tr_.format("library.used_by", layers=", ".join(map(str, used))) if used
+                              else self.tr_.tr("library.unused"))
+        self._show_used_by()
 
     # ---------------------------------------------------------------- editor actions
     def _editor_changed(self) -> None:

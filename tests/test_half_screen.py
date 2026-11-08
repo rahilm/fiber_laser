@@ -255,3 +255,42 @@ def test_canvas_bar_is_compact_and_folds(win, app):
     settle(app, 0.2)
     assert not hud.collapsed and hud.toggle.isVisible()
     assert win.config.get("shell.canvas_hud_collapsed") is False
+
+
+@pytest.mark.parametrize("size", [(756, 945), (683, 875)])
+def test_process_pages_fit_half_screen(win, app, size):
+    """Every Process page at half screen: no form scrolls, the canvas (when shown) keeps a
+    workable height (CANVAS_MIN_H: when the page under it would leave less, the canvas and the
+    page are tabs), and the Library keeps the window's height (its record list and editor are
+    tabs, the "Used by" line elided).  At 756x945 the window never grows."""
+    from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea
+    from mlaser.ops import demo_document
+    from mlaser.ui.shell.workspace_host import CANVAS_MIN_H
+    win.set_document(demo_document())
+    win.canvas.select_parts([0])
+    win.shell.host.activate("process")
+    win.resize(*size)
+    settle(app)
+    page = win.shell.host.pages["process"]
+    pages = sorted((b for b in win.findChildren(QAbstractButton) if b.objectName().startswith("process_page_")),
+                   key=lambda b: b.objectName())
+    assert pages
+    for b in pages:
+        if page.view_tabs.isVisible():
+            page.view_tabs.setCurrentIndex(1)             # the page's tab, to reach its buttons
+            settle(app, 0.2)
+        b.setChecked(True)
+        settle(app)
+        scrolling = [a.objectName() for a in win.findChildren(QAbstractScrollArea)
+                     if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
+                     and a.verticalScrollBar().isVisible()]
+        assert not scrolling, (size, b.objectName(), scrolling)
+        if b.objectName() == "process_page_1" or size == (756, 945):
+            assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
+        if page.view_tabs.isVisible():
+            page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height
+            settle(app, 0.2)
+        if win.canvas.isVisible():
+            assert win.canvas.height() >= CANVAS_MIN_H, (size, b.objectName(), win.canvas.height())
+    pages[0].setChecked(True)
+    settle(app, 0.2)
