@@ -104,10 +104,24 @@ def test_second_launch_hands_its_file_over_and_exits(env, tmp_path):
 def test_the_instance_lock_dies_with_a_crashed_process(env, tmp_path):
     report = tmp_path / "first.json"
     first = _start_first(env, report, crash=True)
-    assert _stop(first, report) == 3                     # os._exit: no clean-up ran
+    assert _stop(first, report) == 3                     # terminated: no clean-up ran
     # its lock file stays (the OS dropped the lock itself), and so may its socket (in the
     # runtime directory, or in Qt's temp directory when that path is too long for a socket)
-    assert [f for f in os.listdir(env["MLASER_RUNTIME_DIR"]) if f.endswith(".lock")]
+    locks = [f for f in os.listdir(env["MLASER_RUNTIME_DIR"]) if f.endswith(".lock")]
+    assert locks
+    # the OS releases the dead process' lock (Windows: soon after the process ended, not
+    # necessarily at once: LockFileEx), and nothing else is needed for the next launch
+    from mlaser._oslock import FileLock, LockHeld
+    lock = FileLock(os.path.join(env["MLASER_RUNTIME_DIR"], locks[0]))
+    t_end = time.monotonic() + 30
+    while True:
+        try:
+            lock.acquire()
+            break
+        except LockHeld:
+            assert time.monotonic() < t_end, "the crashed instance's lock was never released"
+            time.sleep(0.1)
+    lock.release()
     # the next launch is the first instance again (it does not try to hand over to the dead one)
     report2 = tmp_path / "second.json"
     second = _start_first(env, report2)

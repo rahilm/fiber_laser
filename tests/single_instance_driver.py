@@ -6,7 +6,7 @@ Writes ``{"ready": true, "pid": N}`` to REPORT.json once the main window is show
 100 ms, the drawings it has opened (``opened``: the paths ``load_path`` was given), the recent
 files and how many hand-over requests the instance served.  It quits by itself after
 ``MLASER_DRIVER_SECONDS`` (default 60) or when ``REPORT.json.quit`` appears; with
-``MLASER_DRIVER_CRASH=1`` it ends with ``os._exit`` (no clean-up, like a crash) on quit.
+``MLASER_DRIVER_CRASH=1`` it ends without clean-up, like a crash, on quit (:func:`_crash`).
 """
 from __future__ import annotations
 
@@ -15,6 +15,19 @@ import os
 import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
+
+
+def _crash(code: int) -> None:
+    """End now, like a crash: no clean-up.  Windows: TerminateProcess, because os._exit runs
+    the DLLs' detach code, and Qt's tearing down there ended in an access violation
+    (0xC0000005) instead of ``code``."""
+    if sys.platform.startswith("win"):
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        k32.TerminateProcess(k32.GetCurrentProcess(), code)
+    os._exit(code)
 
 
 def main() -> int:
@@ -60,7 +73,7 @@ def main() -> int:
         write()
         if os.path.exists(report + ".quit"):
             if os.environ.get("MLASER_DRIVER_CRASH") == "1":
-                os._exit(3)
+                _crash(3)
             QApplication.instance().exit(0)
 
     def arm() -> None:

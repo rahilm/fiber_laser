@@ -22,10 +22,20 @@ sys.path.insert(0, sys.argv[1])
 from mlaser.controller.ui_adapter import UiController
 ctl = UiController(laser_enabled=False)
 ok = ctl.connect("127.0.0.1", int(sys.argv[2]))
-print("connected" if ok else "refused " + ctl.connect_error, flush=True)
+# its own PID: on Windows a venv's python.exe is a launcher that runs the interpreter as a child,
+# so the test's Popen.pid is not the process that holds the lock
+print(("connected " + str(os.getpid())) if ok else "refused " + ctl.connect_error, flush=True)
 if sys.argv[3] == "crash":
     sys.stdin.readline()
-    os._exit(9)                      # no disconnect, no clean-up: the OS drops the lock
+    # a crash: no disconnect, no clean-up, the OS drops the lock.  Windows: TerminateProcess
+    # (os._exit runs the DLLs' detach code; the exit code would not be ours)
+    if sys.platform.startswith("win"):
+        import ctypes
+        k32 = ctypes.windll.kernel32
+        k32.GetCurrentProcess.restype = ctypes.c_void_p
+        k32.TerminateProcess.argtypes = [ctypes.c_void_p, ctypes.c_uint]
+        k32.TerminateProcess(k32.GetCurrentProcess(), 9)
+    os._exit(9)
 sys.stdin.readline()
 ctl.disconnect()
 print("released", flush=True)
@@ -85,27 +95,33 @@ def test_another_process_holds_the_card_until_it_lets_go(runtime, sim, how):
                          stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
     me = _ctl()
     try:
-        assert p.stdout.readline().strip() == "connected"
+        word, _, pid = p.stdout.readline().strip().partition(" ")
+        assert word == "connected", (word, pid)
         assert not me.connect("127.0.0.1", sim.port)
-        assert me.card_busy and f"process {p.pid}" in me.connect_error
+        assert me.card_busy and f"process {pid}" in me.connect_error
         p.stdin.write("\n")
         p.stdin.flush()
         if how == "exit":
             assert p.stdout.readline().strip() == "released"
         else:
             assert p.wait(30) == 9
-        t_end = time.monotonic() + 10
+        # Windows releases the locks of a terminated process "depending on available system
+        # resources" (LockFileEx): soon, not necessarily at once
+        t_end = time.monotonic() + 30
         while not me.connect("127.0.0.1", sim.port) and time.monotonic() < t_end:
             time.sleep(0.1)
         assert me.state().connected and not me.card_busy
     finally:
         me.disconnect(quiet=True)
         try:
-            p.stdin.write("\n")
-            p.stdin.flush()
+            p.stdin.close()                   # EOF: every readline of the holder returns, it exits
         except (OSError, ValueError):
             pass
-        p.wait(30)
+        try:
+            p.wait(30)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait(10)
 
 
 def test_simulators_on_their_own_ports_do_not_collide(runtime):
