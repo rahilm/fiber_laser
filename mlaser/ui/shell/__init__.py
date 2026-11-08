@@ -54,6 +54,8 @@ SETTINGS = [
     Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
     # splitter positions and current tabs (shell/view_state.py), saved with the dock layout
     Setting("shell.view_state", "json", {}, label="shell.reset_layout", section="shell", source="app"),
+    # the canvas | page tab chosen per workspace when they are tabs (workspace_host.CanvasSplitter)
+    Setting("shell.view_tabs", "json", {}, label="shell.view.canvas", section="shell", source="app"),
     # the canvas bar folded to its arrow (canvas.CanvasHud)
     Setting("shell.canvas_hud_collapsed", "bool", False, label="canvas.hud.collapse", section="shell",
             source="app"),

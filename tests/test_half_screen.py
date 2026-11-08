@@ -255,3 +255,69 @@ def test_canvas_bar_is_compact_and_folds(win, app):
     settle(app, 0.2)
     assert not hud.collapsed and hud.toggle.isVisible()
     assert win.config.get("shell.canvas_hud_collapsed") is False
+
+
+@pytest.mark.parametrize("size", [(756, 945), (683, 875)])
+def test_process_pages_fit_half_screen(win, app, size):
+    """Every Process page at half screen: no form scrolls, the canvas (when shown) keeps a
+    workable height (CANVAS_MIN_H: when the page under it would leave less, the canvas and the
+    page are tabs), and the Library keeps the window's height (its record list and editor are
+    tabs, the "Used by" line elided; the docks under the page join the side docks' tab group
+    when the window is short for them).  The window never grows."""
+    from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea
+    from mlaser.ops import demo_document
+    from mlaser.ui.shell.workspace_host import CANVAS_MIN_H
+    win.set_document(demo_document())
+    win.canvas.select_parts([0])
+    win.shell.host.activate("process")
+    win.resize(*size)
+    settle(app)
+    page = win.shell.host.pages["process"]
+    pages = sorted((b for b in win.findChildren(QAbstractButton) if b.objectName().startswith("process_page_")),
+                   key=lambda b: b.objectName())
+    assert pages
+    for b in pages:
+        if page.view_tabs.isVisible():
+            page.view_tabs.setCurrentIndex(1)             # the page's tab, to reach its buttons
+            settle(app, 0.2)
+        b.setChecked(True)
+        settle(app)
+        scrolling = [a.objectName() for a in win.findChildren(QAbstractScrollArea)
+                     if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
+                     and a.verticalScrollBar().isVisible()]
+        assert not scrolling, (size, b.objectName(), scrolling)
+        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
+        if page.view_tabs.isVisible():
+            page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height
+            settle(app, 0.2)
+        if win.canvas.isVisible():
+            assert win.canvas.height() >= CANVAS_MIN_H, (size, b.objectName(), win.canvas.height())
+    pages[0].setChecked(True)
+    settle(app, 0.2)
+
+
+def test_docks_under_the_page_fold_when_short_and_come_back(win, app):
+    """A window too short for the log and the preview under the page: they join the side
+    docks' tab group, and go back under the page, as they were, when the height is back; no
+    stale tab bar (Process at 683x875)."""
+    from mlaser.ops import demo_document
+    pol = win.shell.dock_policy
+    win.set_document(demo_document())
+    win.canvas.select_parts([0])
+    win.shell.host.activate("process")
+    settle(app)
+    before, bars = arrangement(win), tab_bars(win)
+    assert any(a == 8 for a, _t in before.values()), before            # docks under the page
+    short = (HALF[0], 790)
+    win.resize(*short)
+    settle(app)
+    assert win.size().toTuple() == short, (win.size(), win.minimumSize())
+    assert pol.vfolded is not None
+    assert not any(a == 8 for a, _t in arrangement(win).values())
+    for bar in tab_bars(win):
+        assert bar in groups(win), (bar, groups(win))
+    win.resize(WIDE[0], 1080)       # the height back, with room to spare (larger fonts)
+    settle(app)
+    assert pol.vfolded is None and pol.folded is None
+    assert arrangement(win) == before
+    assert tab_bars(win) == bars

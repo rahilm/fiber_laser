@@ -1488,10 +1488,13 @@ class TabsWhenNarrow(QWidget):
     a table's important columns), so a narrow window gets whole panes in tabs instead of
     squeezed ones side by side.  Its minimum width is the widest pane's."""
 
-    def __init__(self, extra: int = 0, parent: Optional[QWidget] = None) -> None:
+    def __init__(self, extra: int = 0, parent: Optional[QWidget] = None,
+                 need: Optional[Callable[[], int]] = None) -> None:
         super().__init__(parent)
         from PySide6.QtWidgets import QSplitter, QTabWidget
         self.extra = extra
+        #: ``need``: the width side by side needs, when the panes' minimums are not the measure
+        self.need_fn = need
         self.splitter = QSplitter(Qt.Horizontal)
         self.tabs = QTabWidget()
         self.tabs.setDocumentMode(True)
@@ -1517,6 +1520,8 @@ class TabsWhenNarrow(QWidget):
             self.tabs.setTabText(i, title)
 
     def side_by_side_need(self) -> int:
+        if self.need_fn is not None:
+            return int(self.need_fn())
         ws = [p.minimumSizeHint().expandedTo(p.minimumSize()).width() for p, _t in self.panes]
         return sum(ws) + self.splitter.handleWidth() * max(len(ws) - 1, 0) + self.extra
 
