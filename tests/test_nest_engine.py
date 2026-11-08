@@ -25,6 +25,33 @@ def lshape(w, h, t):
     return Contour([Line(pts[i], pts[(i + 1) % 6]) for i in range(6)], True)
 
 
+#: seconds :func:`_reference_work` takes on the development host (Linux x86-64, Python 3.12)
+REFERENCE_WORK_S = 0.035
+
+
+def _reference_work() -> float:
+    """Seconds a fixed mix of what nesting does (shapely buffers / unions / predicates and
+    plain Python geometry) takes now: the speed of this runner under its current load."""
+    t = time.perf_counter()
+    polys = [shapely.box(x * 7.0, (x % 13) * 5.0, x * 7.0 + 6.0, (x % 13) * 5.0 + 4.0).buffer(0.5)
+             for x in range(300)]
+    u = shapely.union_all(polys)
+    hits = sum(1 for p in polys if u.intersects(p) and not p.disjoint(u))
+    acc = 0.0
+    for i in range(60_000):
+        acc += (i % 97) * 0.5 - (i % 31) * 0.25
+    assert hits == len(polys) and acc
+    return time.perf_counter() - t
+
+
+def _budget(seconds: float) -> float:
+    """``seconds`` (the bound on the development host) scaled by how much slower this runner
+    is right now (a shared Windows runner was 6x slower: 5.6 s for a 0.85 s nest), never less.
+    A real slowdown of the nesting (e.g. trying all 10,000 sheet copies) is still far over."""
+    slow = min(_reference_work() for _ in range(3)) / REFERENCE_WORK_S
+    return seconds * max(1.0, slow)
+
+
 def placed_geoms(job, lay):
     return [(pl, parts_geometry([transform_part(p, pl) for p in job.part(pl.part_id).parts]))
             for pl in lay.placements]
@@ -132,15 +159,17 @@ def test_apply_result_document():
         assert parts_geometry([p]).area == pytest.approx(parts_geometry(job.part(p.extra["nest"]["part_id"]).parts).area, rel=1e-6)
 
 
+@pytest.mark.flaky(reruns=1)            # a timing bound on a shared runner (one rerun, like the other timing tests)
 def test_hundred_parts_fast():
     job = NestJob(params=NestParams(spacing=3, margin=5, rotation_step=90))
     for k in range(10):
         job.add_part(NestPart([Part([lshape(80 + 10 * k, 60 + 5 * k, 20)])], quantity=6))
     job.add_part(NestPart([Part([circle(0, 0, 25), circle(0, 0, 10)])], quantity=40))
     job.add_sheet(NestSheet(2500, 1250, quantity=2))
+    budget = _budget(10.0)
     t = time.monotonic()
     res = nest(job)
-    assert time.monotonic() - t < 10.0
+    assert time.monotonic() - t < budget
     assert sum(res.placed.values()) == 100
     check_valid(job, res, 3)
 
@@ -161,15 +190,17 @@ def test_common_line_parts_touch_and_share_edges():
     assert cut < 6 * 300 - 4 * 50    # common edges are cut once
 
 
+@pytest.mark.flaky(reruns=1)            # a timing bound on a shared runner (one rerun, like the other timing tests)
 def test_auto_direction_and_unlimited_sheet_copies():
     from mlaser.nest import GRAVITY_AUTO
     job = NestJob(params=NestParams(spacing=2, margin=2, gravity=GRAVITY_AUTO))
     job.add_part(NestPart([Part([rect(0, 0, 150, 40)])], quantity=8))
     job.add_part(NestPart([Part([rect(0, 0, 900, 900)])], quantity=1))   # never fits
     job.add_sheet(NestSheet(300, 600, quantity=10000))
+    budget = _budget(5.0)
     t = time.monotonic()
     res = nest(job)
-    assert time.monotonic() - t < 5
+    assert time.monotonic() - t < budget
     assert res.placed[0] == 8 and res.unplaced == {1: 1}
     assert len(res.layouts) == 1 and res.gravity in ("left", "bottom")
     check_valid(job, res, 2)
