@@ -30,7 +30,7 @@ Code:
 | Shortcut text | ⌘K, ⇧⌘Z, …: every translated text and the shortcut sheet | Ctrl+K | Ctrl+K |
 | Identity | the `.app` (`io.github.mlaser`), icon, the "mlaser" name. A source run renames the process and its LaunchServices display name, and sets the Dock icon | AppUserModelID `io.github.mlaser.mlaser`: taskbar grouping, icon, pinning | desktop file name `io.github.mlaser` (Wayland app id, `_KDE_NET_WM_DESKTOP_FILE`), `WM_CLASS` mlaser, icon |
 | Activation | regular activation policy, brought to the front at start (a terminal keeps focus under macOS 14+ cooperative activation otherwise) | the system's | the window manager's |
-| Recent files | File > Open Recent, the Dock menu | File > Open Recent, the jump list | File > Open Recent |
+| Recent files | File > Open Recent, the Dock menu, the system's recent documents (`NSDocumentController`) | File > Open Recent, the jump list, Explorer's Recent (`SHAddToRecentDocs`) | File > Open Recent (GTK's `recently-used.xbel` is not written) |
 | Job progress | the Dock badge "42%" | taskbar button progress (red while an alarm is active) | launcher progress (Unity LauncherEntry: KDE, Ubuntu Dock) |
 | Alarm | Dock bounce (`QApplication.alert`) | taskbar flash | urgency hint |
 | Sleep during a job | App Nap off for the process; no idle sleep while a job runs | power request | a logind inhibitor (`systemd-inhibit --what=sleep:idle`, else `gnome-session-inhibit`) for the job's duration |

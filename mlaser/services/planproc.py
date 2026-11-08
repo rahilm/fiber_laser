@@ -62,6 +62,18 @@ class ChildLost(RuntimeError):
     """The plan process died or stopped answering."""
 
 
+class ProtocolMismatch(ChildLost):
+    """The plan process is of another mlaser version (:data:`PLAN_PROTO` differs): it is ended
+    and the plans are compiled in a thread from then on (no message is ever guessed at)."""
+
+
+#: version of the messages between the application and the plan process.  The parent passes
+#: it at spawn, the child answers ``("ready", {"proto": ..., "pid": ...})`` and ends at once
+#: when they differ; the parent refuses a child that answers another version (or the old
+#: ``("ready", pid)``).  Raise it on any change of the request / event tuples below.
+PLAN_PROTO = 1
+
+
 # =============================================================================== codec
 class _Entry:
     __slots__ = ("obj", "token", "data", "digest", "used")
@@ -287,8 +299,16 @@ def _shm_room(nbytes: int) -> bool:
 
 
 # =============================================================================== child
-def _child_main(conn, cancel) -> None:
-    """Entry point of the plan process (spawned): decode, compile, send the result."""
+def _child_main(conn, cancel, proto: object = None) -> None:
+    """Entry point of the plan process (spawned): decode, compile, send the result.  ``proto``:
+    the parent's :data:`PLAN_PROTO` (another version: answer with ours and end)."""
+    if proto != PLAN_PROTO:
+        try:
+            conn.send(("ready", {"proto": PLAN_PROTO, "pid": os.getpid(),
+                                 "error": f"the application speaks plan protocol {proto!r}"}))
+        except OSError:
+            pass
+        return
     import mlaser.model as M
     from mlaser.toolpath import items as _I  # noqa: F401 - warm the imports before "ready"
     import mlaser.nc.compiler  # noqa: F401
@@ -320,7 +340,7 @@ def _child_loop(conn, cancel) -> None:
     blob_cache: dict[int, Any] = {}
     held: list = []                       # SharedJob blocks until the parent has copied them
     try:
-        conn.send(("ready", os.getpid()))
+        conn.send(("ready", {"proto": PLAN_PROTO, "pid": os.getpid()}))
     except OSError:                       # the parent went away while this process started
         return
     while True:
@@ -454,6 +474,7 @@ class PlanProcess:
     """The parent's handle of the plan process (used by one JobService worker thread)."""
 
     STARTUP_S = 120.0          # interpreter start + imports, on a loaded host or a slow PC
+    MAX_FAILURES = 3           # JobService compiles in a thread after this many (services/jobs.py)
     CANCEL_GRACE_S = 60.0      # a cancelled compile that does not stop is killed
 
     def __init__(self) -> None:
@@ -479,7 +500,8 @@ class PlanProcess:
             # not a daemon: a daemonic process may not start the per-chain compile pool
             # (nc/parallel.py); _close_all (atexit) ends it, and it exits by itself when the
             # parent's end of the pipe closes
-            p = self.ctx.Process(target=_child_main, args=(b, self.cancel), name="mlaser-plan", daemon=False)
+            p = self.ctx.Process(target=_child_main, args=(b, self.cancel, PLAN_PROTO), name="mlaser-plan",
+                                 daemon=False)
             p.start()
             b.close()
             self.proc, self.conn, self.have, self._ready = p, a, set(), False
@@ -503,7 +525,18 @@ class PlanProcess:
                 break
             if ready:
                 if msg[0] == "ready":
-                    self.pid = msg[1]
+                    info = msg[1] if len(msg) > 1 and isinstance(msg[1], dict) else {}
+                    if info.get("proto") != PLAN_PROTO or info.get("error"):
+                        why = (f"the plan process speaks protocol {info.get('proto')!r}, this mlaser "
+                               f"{PLAN_PROTO}" + (f" ({info['error']})" if info.get("error") else ""))
+                        self.failures = max(self.failures, self.MAX_FAILURES)
+                        try:
+                            self._kill(self.proc)
+                        except Exception:  # noqa: BLE001
+                            pass
+                        self.proc = None
+                        raise ProtocolMismatch(why)
+                    self.pid = int(info.get("pid") or 0) or None
                     self._ready = True
                     return
             elif not self.proc.is_alive():
@@ -516,6 +549,8 @@ class PlanProcess:
             self.start()
         try:
             self._wait_ready()
+        except ProtocolMismatch:
+            raise
         except ChildLost:
             raise self._lost("the plan process did not start") from None
 

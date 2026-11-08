@@ -130,6 +130,10 @@ class LazyPage(QWidget):
                 except Exception:  # noqa: BLE001 - one broken hook must not lose the page
                     log.exception("LazyPage %s: built hook failed", self.objectName())
             self._built.clear()
+            # the splitters and tabs of the page as the user left them (shell/view_state.py)
+            restore = getattr(getattr(self.window(), "shell", None), "restore_view_state", None)
+            if callable(restore):
+                restore(w)
             self.updateGeometry()
         return self._content
 

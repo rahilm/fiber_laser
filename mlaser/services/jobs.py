@@ -485,7 +485,7 @@ class JobService:
             except (ChildLost, ChildSetupError) as exc:
                 if t.cancelled:
                     raise Cancelled() from exc
-                if isinstance(exc, ChildLost) and pp.failures >= 3:
+                if isinstance(exc, ChildLost) and pp.failures >= pp.MAX_FAILURES:
                     log.warning("plan process failed %d times, compiling in a thread from now on: %s",
                                 pp.failures, exc)
                     self.planproc = None

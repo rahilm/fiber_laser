@@ -563,6 +563,35 @@ def init_application(app) -> None:
 
 
 # ---------------------------------------------------------------------------------- recent files
+def os_add_recent_document(path: str) -> bool:
+    """The OS's recent documents, best effort: macOS ``NSDocumentController
+    noteNewRecentDocumentURL:`` (the Dock's and the Apple menu's recent items), Windows
+    ``SHAddToRecentDocs`` (Explorer's Recent, Start).  Linux: the freedesktop
+    ``recently-used.xbel`` belongs to GTK's recent manager; mlaser does not write it."""
+    if not path:
+        return False
+    path = os.path.abspath(path)
+    plat = platform_id()
+    try:
+        if plat == WINDOWS:
+            SHARD_PATHW = 3
+            ctypes.windll.shell32.SHAddToRecentDocs(SHARD_PATHW, ctypes.c_wchar_p(path))
+            return True
+        if plat == MACOS:
+            oc = _objc()
+            if oc is None:
+                return False
+            url = oc.send(ctypes.c_void_p, oc.cls("NSURL"), "fileURLWithPath:",
+                          (ctypes.c_void_p, oc.nsstring(path)))
+            dc = oc.send(ctypes.c_void_p, oc.cls("NSDocumentController"), "sharedDocumentController")
+            if url and dc:
+                oc.send(None, dc, "noteNewRecentDocumentURL:", (ctypes.c_void_p, url))
+                return True
+    except Exception as exc:  # noqa: BLE001
+        log.info("OS recent documents not updated: %s", exc)
+    return False
+
+
 class RecentFiles:
     """The recent drawings (ConfigService ``file.recent``): File > Open Recent, the macOS Dock
     menu and the Windows jump list.  Qt-free apart from nothing: plain list logic."""
@@ -671,18 +700,28 @@ class NativeIntegration:
 
     # ------------------------------------------------------------------ files
     def open_file(self, path: str) -> bool:
-        """A file from the OS (Finder, Dock, jump list, the recent menu)."""
+        """A file from the OS (Finder, Dock, jump list, the recent menu, another launch)."""
         if not path:
             return False
         ok = bool(self.w.load_path(path))
         if ok:
-            self.recent.add(path)
+            self.note_recent(path)
         return ok
 
     def document_path(self, path: Optional[str]) -> None:
         """The document's path changed (opened or saved as): it is recent."""
         if path:
-            self.recent.add(path)
+            self.note_recent(path)
+
+    def note_recent(self, path: str) -> None:
+        """``path`` was opened or saved: File > Open Recent (and the Dock menu, the jump list)
+        and the OS's own recent documents (:func:`os_add_recent_document`)."""
+        if not path:
+            return
+        before = self.recent.paths[:1]
+        self.recent.add(path)
+        if before != self.recent.paths[:1]:       # newly first: tell the OS once, not per title update
+            os_add_recent_document(path)
 
     def _recent_changed(self, paths: list[str], initial: bool = False) -> None:
         if self.plat == MACOS:
@@ -770,6 +809,6 @@ def create_application(argv: list[str]):
     return MlaserApplication(argv)
 
 
-__all__ = ["APP_NAME", "APP_ID", "WINDOWS_AUMID", "platform_id", "before_qapplication",
+__all__ = ["APP_NAME", "APP_ID", "WINDOWS_AUMID", "platform_id", "before_qapplication", "os_add_recent_document",
            "init_application", "create_application", "NativeIntegration", "RecentFiles", "desktop_entry", "app_icon",
            "linux_platform_theme", "mac_activate", "windows_set_app_id", "windows_dark_title_bar"]

@@ -156,7 +156,7 @@ def test_child_treats_a_refusal_after_the_cancel_as_the_cancel(monkeypatch):
         cfg = TransportConfig(host="127.0.0.1", port=sim.port)
         evt_q = queue.Queue()
         S._child_main(asdict(cfg), 1000.0, _job(10), {}, queue.Queue(), evt_q, flags,
-                      {**ARMED, "parent_timeout_s": 60.0})
+                      {**ARMED, "parent_timeout_s": 60.0, "proto": S.STREAM_PROTO})
         events = []
         while not evt_q.empty():
             events.append(evt_q.get())

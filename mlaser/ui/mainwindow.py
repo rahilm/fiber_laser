@@ -1072,7 +1072,14 @@ class MainWindow(QMainWindow):
         self.set_document(doc, path if ext == ".chf" else None)
         self.log_panel.log(f"{os.path.basename(path)}: {len(doc.parts)} parts")
         self.hooks.emit("document_imported", path, self.document)   # import review (orders plugin)
+        self._note_recent(path)          # DXF / SVG / NC too: they have no document path to save to
         return True
+
+    def _note_recent(self, path: str) -> None:
+        """File > Open Recent and the OS's recent documents (ui/native.py)."""
+        native = getattr(getattr(self, "shell", None), "native", None)
+        if native is not None:
+            native.note_recent(path)
 
     def file_open(self) -> None:
         if self._job_locked("File > Open"):

@@ -22,7 +22,8 @@ Layout of the main window with the shell::
   original's ribbon instead of the top bar and the rail; the palette and every key still work.
 
 Persisted in the ConfigService: ``shell.theme``, ``shell.classic_ribbon``, ``shell.user_mode``,
-``shell.pin.*`` (hashes), ``shell.recent_commands``, ``shell.welcome_done``, ``shell.layout``.
+``shell.pin.*`` (hashes), ``shell.recent_commands``, ``shell.welcome_done``, ``shell.layout``,
+``shell.view_state`` (splitters and tabs, :mod:`.view_state`).
 """
 from __future__ import annotations
 
@@ -51,6 +52,8 @@ SETTINGS = [
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
     Setting("shell.workspace", "str", "design", label="shell.rail", section="shell", source="app"),
     Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
+    # splitter positions and current tabs (shell/view_state.py), saved with the dock layout
+    Setting("shell.view_state", "json", {}, label="shell.reset_layout", section="shell", source="app"),
 ]
 LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
@@ -618,10 +621,20 @@ class Shell:
             except Exception:  # noqa: BLE001 - a broken saved layout falls back to the default
                 pass
             self.host.activate(self.host.current, force=True)
+        self.restore_view_state()
         ws = self.config.get("shell.workspace", "design")
         if ws in self.host.specs and ws != self.host.current:
             self.host.activate(ws)
         pol.apply()
+
+    def restore_view_state(self, under=None) -> int:
+        """Splitter positions and current tabs as saved (:mod:`.view_state`); ``under``: only
+        that part of the window (a workspace built later, ``LazyPage``)."""
+        from . import view_state
+        try:
+            return view_state.restore(self.w, self.config.get(view_state.KEY, {}) or {}, under)
+        except Exception:  # noqa: BLE001 - a broken saved state falls back to the defaults
+            return 0
 
     def fit_docks(self) -> None:
         """Dock sizes for the window as it is now (:mod:`.dock_policy`): the remembered or
@@ -650,6 +663,7 @@ class Shell:
         self.dock_policy.forget()
         self.fit_docks()
         self.config.set("shell.layout", "")
+        self.config.set("shell.view_state", {})
         self.host.activate("design" if "design" in self.host.visible_ids() else self.host.visible_ids()[0],
                            force=True)
         w.statusBar().showMessage(self.tr.tr("shell.layout_reset"), 3000)
@@ -661,6 +675,8 @@ class Shell:
         if self._default_state is not None:
             try:
                 self.config.set("shell.layout", bytes(self.w.saveState(LAYOUT_VERSION).toBase64()).decode("ascii"))
+                from . import view_state
+                self.config.set(view_state.KEY, view_state.collect(self.w, self.config.get(view_state.KEY, {}) or {}))
                 if self._fit_screen:
                     self.config.set("shell.geometry", bytes(self.w.saveGeometry().toBase64()).decode("ascii"))
             except Exception:  # noqa: BLE001
