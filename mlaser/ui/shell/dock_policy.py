@@ -103,7 +103,9 @@ class DockPolicy(QObject):
         need = self.w.minimumSizeHint().width()
         canvas = getattr(self.w, "canvas", None)
         if canvas is not None and canvas.isVisible():
-            need += CANVAS_FOLD - CANVAS_MIN
+            # the canvas view sits in its slot with a frame: a separator's width of slack, so
+            # the view itself keeps CANVAS_FOLD (it came out 1 px short with an 11 pt font)
+            need += CANVAS_FOLD - CANVAS_MIN + self._sep()
         return need
 
     def page_want(self) -> int:

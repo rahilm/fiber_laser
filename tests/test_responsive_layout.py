@@ -674,13 +674,27 @@ def test_width_and_height_sweep(win, app):
     assert not text and not bad, text + "\n" + "\n".join(bad)
 
 
-def test_half_screen_window(win, app):
-    """Every workspace takes half a screen (683 px wide): the window gets that width."""
-    for ws in win.shell.host.visible_ids():
-        win.shell.host.activate(ws)
-        s = _fit(win, app, HALF[0])
-        assert s.width() == HALF[0][0], (ws, s, win.minimumSize(), win.minimumSizeHint())
-    _fit(win, app, SAMPLES[2])
+@pytest.mark.parametrize("pt", [0, 10])
+def test_half_screen_window(win, app, pt):
+    """Every workspace takes half a screen (683 px wide): the window gets that width, also
+    with a 10 pt font (Windows' metrics are wider than the offscreen default's)."""
+    f0 = app.font()
+    if pt:
+        f = app.font()
+        f.setPointSizeF(pt)
+        app.setFont(f)
+        _restyle(app)
+        _pump(app, 0.1)
+    try:
+        for ws in win.shell.host.visible_ids():
+            win.shell.host.activate(ws)
+            s = _fit(win, app, HALF[0])
+            assert s.width() == HALF[0][0], (pt, ws, s, win.minimumSize(), win.minimumSizeHint())
+    finally:
+        if pt:
+            app.setFont(f0)
+            _pump(app, 0.1)
+        _fit(win, app, SAMPLES[2])
 
 
 def test_dock_width_sweep(win, app):

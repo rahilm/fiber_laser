@@ -28,8 +28,8 @@ from mlaser.services import units as U
 from mlaser.services.procedures import MIN_MODES, mode_allows
 
 from .. import homes, icons, style
-from ..responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, CurrentPageStack, FlowLayout, ResponsiveForm, flow,
-                          mark_list)
+from ..responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, CurrentPageStack, FlowLayout, ResponsiveForm,
+                          WrapCheckBox, flow, mark_list)
 from ..units_qt import QuantitySpinBox, kind_for, on_units_changed, spin_for_unit
 from ..wizards.common import MIN_TARGET, JogPad, T
 
@@ -574,12 +574,11 @@ class MachineWorkspace(QWidget):
         self.selftest.setAccessibleName(T(w, "ws.machine.selftest_box"))
         self.selftest.setMinimumHeight(self.selftest.fontMetrics().lineSpacing() * 5)
         v.addWidget(self.selftest)
-        row = QHBoxLayout()
-        self.probe = QCheckBox(T(w, "ws.machine.selftest_probe"))
-        row.addWidget(self.probe)
-        row.addStretch(1)
-        row.addWidget(_button(w, "ws.machine.selftest_run", self.run_selftest, "network"))
-        v.addLayout(row)
+        # the option and Run side by side while they fit, the option's text wrapping and Run
+        # under it in a narrow (half-screen) window
+        self.probe = WrapCheckBox(T(w, "ws.machine.selftest_probe"))
+        v.addWidget(flow([self.probe, _button(w, "ws.machine.selftest_run", self.run_selftest, "network")],
+                         justify=False))
         page.add_section(CollapsibleSection(T(w, "ws.machine.selftest_box"), nc, priority=1))
         self._load_selftest()
         return page
