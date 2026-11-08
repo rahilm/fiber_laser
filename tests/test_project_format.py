@@ -320,6 +320,27 @@ def test_autosave_writes_both_and_recovers(tmp_path):
     assert a.available().name == "autosave.chf"
 
 
+def test_autosave_project_is_never_older_than_its_chf(tmp_path, monkeypatch):
+    """The project and the .chf of one save: however long the writes take, recovery uses the
+    project (Windows CI: the .chf, written second, more than 1 s after the project, was taken
+    for one of another program and recovery lost what only the project keeps)."""
+    import mlaser.project.autosave as AS
+    clock = [os.stat(tmp_path).st_mtime + 100.0]
+    real = AS.atomic_write
+
+    def slow_write(path, data):                 # each write lands 2 s after the one before
+        real(path, data)
+        clock[0] += 2.0
+        os.utime(path, (clock[0], clock[0]))
+    monkeypatch.setattr(AS, "atomic_write", slow_write)
+    a = Autosave(tmp_path / "File")
+    doc = load_chf(str(DATA / "chf" / "sample_v5.chf"))
+    doc.parts[0].craft.cool_points = [3.0]          # only the project keeps it
+    assert [w.name for w in a.save(doc)] == ["autosave.mlz", "autosave.chf"]
+    assert a.available().name == "autosave.mlz"
+    assert a.recover().document.parts[0].craft.cool_points == [3.0]
+
+
 def test_open_document_reads_both_formats(tmp_path):
     doc = load_chf(str(DATA / "chf" / "sample_v5.chf"))
     save_project(tmp_path / "a.mlz", doc)

@@ -83,12 +83,21 @@ class Autosave:
             if ticket < self._written:
                 return []
             self.dir.mkdir(parents=True, exist_ok=True)
-            out = []
-            atomic_write(self.project_path, mlz)
-            out.append(self.project_path)
+            # the .chf first: the project of the same save is then never older than it, however
+            # long the writes take (recover() takes a .chf newer than the project by more than
+            # 1 s for one of another program; written second, a .chf a slow disk or a virus
+            # scanner held for over a second made System Recovery drop to it and lose what only
+            # the project keeps - Windows CI).  A failed .chf write still writes the project.
+            chf_error: Optional[BaseException] = None
             if data is not None:
-                atomic_write(self.chf_path, data)
-                out.append(self.chf_path)
+                try:
+                    atomic_write(self.chf_path, data)
+                except OSError as e:
+                    chf_error = e
+            atomic_write(self.project_path, mlz)
+            if chf_error is not None:
+                raise chf_error
+            out = [self.project_path] + ([self.chf_path] if data is not None else [])
             self._written = ticket
             self.last_saved = time.time()
             return out
