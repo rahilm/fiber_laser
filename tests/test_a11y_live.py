@@ -48,11 +48,14 @@ def test_announce_once_per_change():
     from PySide6.QtWidgets import QLabel
     from mlaser.ui import a11y
     lb = QLabel()
-    n = len(a11y.last_announcements)
+    other = QLabel()
+    for i in range(a11y.last_announcements.maxlen + 10):     # a full history (CI: the safety
+        a11y.announce(other, f"earlier {i}")                    # tests ran first on that worker)
+    n = a11y.mark()
     assert a11y.announce(lb, "ALARM 8030: Emergency stop", assertive=True)
     assert not a11y.announce(lb, "ALARM 8030: Emergency stop", assertive=True)    # a refresh tick
     assert a11y.announce(lb, "Alarms cleared")
-    assert list(a11y.last_announcements)[n:] == [("ALARM 8030: Emergency stop", True), ("Alarms cleared", False)]
+    assert a11y.since(n) == [("ALARM 8030: Emergency stop", True), ("Alarms cleared", False)]
     assert not a11y.announce(lb, "  ")
 
 
@@ -66,13 +69,13 @@ def test_alarm_and_job_transitions_are_announced(window):
 
         def text(self, tr=None):
             return "Emergency stop"
-    n = len(a11y.last_announcements)
+    n = a11y.mark()
     alarms = [_Alarm()]
     type(w.ctl).active_alarms = property(lambda self: alarms)
     try:
         ui.refresh()
         ui.refresh()                        # the same alarm: spoken once
-        said = list(a11y.last_announcements)[n:]
+        said = a11y.since(n)
         assert len(said) == 1 and said[0][1] is True and "8030" in said[0][0] and "Reset" in said[0][0]
         assert "8030" in ui.alarm.accessibleName()
         alarms.clear()
@@ -81,7 +84,7 @@ def test_alarm_and_job_transitions_are_announced(window):
     finally:
         del type(w.ctl).active_alarms
     # job start / end
-    m = len(a11y.last_announcements)
+    m = a11y.mark()
     orig = safety_ui.job_running
     try:
         safety_ui.job_running = lambda _w: True
@@ -91,7 +94,7 @@ def test_alarm_and_job_transitions_are_announced(window):
         ui.refresh()
     finally:
         safety_ui.job_running = orig
-    said = [t for t, _a in list(a11y.last_announcements)[m:]]
+    said = [t for t, _a in a11y.since(m)]
     assert said == [w.tr_.tr("a11y.job.started"), w.tr_.tr("a11y.job.ended")]
 
 
@@ -150,10 +153,23 @@ def test_links_follow_a_live_light_to_dark_switch(window):
     w.show_workspace("process")
     w.canvas.select_parts([0])          # Properties shows its links for a selection (UX audit O14)
     _pump(0.2)
+    # the layer link where it lives (the Properties dock may be a background tab or its section
+    # collapsed, depending on the platform's metrics: Windows' larger ones)
+    from mlaser.ui.homes import reveal
+    shown = w.findChild(EditInLink, "props_layer_link")
+    assert shown is not None
+    reveal(shown)
+    _pump(0.2)
+    assert shown.isVisible()
     w.config.set("shell.theme", "dark")
     _pump(0.5)
     links = [lb for lb in w.findChildren(EditInLink) if lb.isVisible()]
-    assert links
+    assert shown in links
+    # every link, shown or not, carries the dark theme's link colour in its text
+    for lb in w.findChildren(EditInLink):
+        want = lb.palette().color(QPalette.Link).name()
+        assert f"color:{want}" in lb.text(), (lb.objectName(), lb.text())
+        assert _wcag(want, lb.palette().color(QPalette.Window).name()) >= 4.5
     for lb in links:
         bg = lb.palette().color(QPalette.Window)
         img = lb.grab().toImage()

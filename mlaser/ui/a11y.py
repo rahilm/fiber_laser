@@ -12,7 +12,8 @@ same banner text every tick stays silent).
 
 ``name(widget, text, description="")`` sets an accessible name (and description) and is a
 no-op when the text has not changed. ``last_announcements`` keeps the recent announcements for
-tests and diagnostics.
+diagnostics; ``mark()`` / ``since(mark)`` give the ones made after a point (the deque is
+bounded, so its length is no position: once full it stays full).
 """
 from __future__ import annotations
 
@@ -25,6 +26,8 @@ from PySide6.QtGui import QAccessible, QAccessibleEvent
 
 #: (text, assertive) of the latest announcements, newest last (tests, diagnostics)
 last_announcements: collections.deque = collections.deque(maxlen=50)
+#: announcements made since the start (never wraps, unlike the bounded deque's length)
+_sent = [0]
 _last_text: "weakref.WeakKeyDictionary[QObject, str]" = weakref.WeakKeyDictionary()
 
 
@@ -41,11 +44,24 @@ def announce(widget: Optional[QObject], text: str, assertive: bool = False, *, f
     except TypeError:                       # not weak-referenceable: always announce
         pass
     last_announcements.append((text, assertive))
+    _sent[0] += 1
     try:
         _send(widget, text, assertive)
     except RuntimeError:                    # the widget was deleted meanwhile
         return False
     return True
+
+
+def mark() -> int:
+    """A position in the announcement history (see :func:`since`)."""
+    return _sent[0]
+
+
+def since(position: int) -> list:
+    """(text, assertive) of the announcements made after :func:`mark` returned ``position``,
+    oldest first (at most the deque's length)."""
+    n = _sent[0] - position
+    return list(last_announcements)[-n:] if n > 0 else []
 
 
 def reset(widget: QObject) -> None:
@@ -98,4 +114,4 @@ def translator_for(widget: Any) -> Any:
     return t
 
 
-__all__ = ["announce", "name", "reset", "last_announcements", "translator_for"]
+__all__ = ["announce", "name", "reset", "last_announcements", "mark", "since", "translator_for"]
