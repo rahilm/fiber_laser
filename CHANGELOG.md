@@ -167,6 +167,22 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Fixed
 
+- **Safety**: the heartbeat output (the external watchdog relay) keeps its rate on a host whose
+  timers fire late (macOS: a 16-50 ms wait came 50-150 ms late). A wait of the safety monitor
+  that ended past a heartbeat edge by more than half a period resynchronised the edge, so edges
+  were lost (2.9-3.2 edges/s of 4 under 300 ms late waits); the monitor now ends its waits
+  before each deadline by the lateness it has seen and sleeps the rest in 2 ms slices.
+- **Safety**: with the heartbeat configured, the safety monitor no longer spins (a whole core,
+  and the interpreter lock the window and the poller need) for as long as a fault, a lost link
+  or the commissioning hold stops the heartbeat.
+- Run screen: "Ready" no longer shows for a moment while a job or a resume starts (progress 0
+  after Continue), nor "Running" again after the job ended; a Stop given while a job is still
+  starting now stops and joins it instead of leaving a stale hold.
+- System Recovery uses `autosave.mlz` whenever it was written in the same save as
+  `autosave.chf`: the `.chf` is written first, so a slow write (a busy disk, a virus scanner)
+  can no longer make the project look older and recovery fall back to the `.chf`.
+- Closing the window (and every counters save) tells the settings' listeners once instead of
+  once per counter: the GUI thread's close takes about a quarter of the time.
 - **Safety**: the Run screen's STOP, HOLD, START and Arm can no longer be squeezed out of view by
   docked panels (the classic Nest dock at 1440 x 900): the Run workspace hides other docks.
 - A plugin pre-claiming `run.stop` no longer stops the application from starting.
