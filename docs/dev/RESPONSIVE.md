@@ -52,9 +52,24 @@ or "two columns of the widest section no longer fit".
   saved layout) or its content's `sizeHint`. It is never less than the content's minimum.
 * When the window shrinks, the docks give way in proportion, down to their minimums. When the
   window grows again, they return to their remembered or natural widths.
-* The canvas keeps `CANVAS_MIN` (480 px), because the drawing has to stay workable. Docks are
-  never moved between areas automatically. Earlier versions did this, and it left stale tab bars
-  drawn over the panels.
+* The canvas keeps `CANVAS_MIN` (260 px), because the drawing has to stay workable, also in a
+  half-screen window.
+* **Half a screen** (683 px: a Windows Snap half of 1366 px, half a 14" MacBook Pro): when the
+  window is narrower than the docks side by side and the page need, the side docks fold into
+  one tab group, and bottom docks wider together than the page fold into another
+  (`DockPolicy.fold`). When the window is wide enough again they go back to the arrangement
+  they had: the same areas, splits, tab order and tab on top (`unfold`), rebuilt dock by dock
+  and never with `restoreState` (which would also bring back docks a workspace switch hid).
+  While the docks can fold, the window's minimum width is an explicit one: what the folded
+  docks and the page need. Docks move only in these two steps. Moving them on every resize
+  once left stale tab bars drawn over the panels: folding joins the others to the largest tab
+  group and unfolding moves only those back, and `tests/test_half_screen.py` checks that no
+  tab bar is left behind. A dock the user drags while folded ends the automatic folding (the
+  user's arrangement wins) until *Reset layout*.
+* In a narrow window the workspace tool bar wraps into a second row (icons only) instead of
+  hiding commands behind its extension button, the run bar wraps into two rows (break after
+  Stop; every control whole, docs/SAFETY.md §10), and the status bar drops the cursor position,
+  speed and head position (in that order) while the device chips always stay.
 * On a workspace switch, the docks that the new workspace does not use are hidden before the
   page changes, and its own docks are shown after. The window's minimum never combines the old
   docks with the new page.
@@ -98,8 +113,9 @@ or "two columns of the widest section no longer fit".
 plugin when it is installed) and runs `tests/layout_audit.py` on every view: each workspace,
 each tab of a tabbed workspace, each dock of a tabbed dock group, and each Machine section.
 
-* sample sizes 1280×800, 1440×900, 1512×875, 1800×1169 and 1920×1080 (these are sample points,
-  not design targets);
+* sample sizes 1280×800, 1440×900, 1512×875, 1800×1169 and 1920×1080, and the half-screen
+  683×875 and 756×945 (these are sample points, not design targets); every workspace gets a
+  683 px wide window (`test_half_screen_window`);
 * a sweep of widths from the window minimum to 2560 px in 40 px steps
   (`MLASER_LAYOUT_STEP`), at several heights;
 * a sweep of the side docks from their minimum width to wide;
@@ -122,8 +138,8 @@ and `overlap` (siblings drawn over each other).
   `QToolBarLayout` from the style's metrics (the macOS style draws the dock buttons 18 px wide
   against a 20 px hint). The dock buttons are still checked for being cut by their parent. A
   *visible* extension button is a violation: the tool bar's actions do not fit and hide behind
-  the chevron. A workspace tool bar goes icon-only first, and the page's minimum width is the
-  icon-only tool bar's, so the window's minimum follows instead.
+  the chevron. A workspace tool bar goes icon-only first, then into two rows, and the page's
+  minimum width is the wider of the two icon-only rows, so the window's minimum follows instead.
 * On a window server, a sample larger than the screen is not reachable: the window server keeps
   the window smaller than its minimum (the macOS runner's windows are at most 649 px high).
   Such samples are listed as "not reachable on this screen" in the report, not audited, and the

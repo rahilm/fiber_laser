@@ -9,6 +9,7 @@
   a remedy (:mod:`.safety_texts`), *Reset* and *Details* (the alarm list dialog);
 * the **run bar** (bottom toolbar, never inside a scroll area): state pill, Start (F5),
   Hold (Space), Stop (Esc / F12), Frame (F6), Dry run, Arm, progress and ETA, 56 px targets;
+  one row, or two (the break after Stop) in a narrow window, every control in full;
 * **global keys** while a job runs: Space = Hold/continue (not while typing in a text field),
   Esc and F12 = Stop.  An application event filter, so they work whatever has the focus;
 * the **pre-flight dialog** before Start / Frame / Dry run / Resume: errors block, warnings must
@@ -368,6 +369,73 @@ class AlarmBanner(QWidget):
         return False
 
 
+class _RunStrip(QWidget):
+    """The run bar's controls in their order, in one row while it fits and in two rows when
+    the window is narrower (a half-screen window): every control keeps its full text and its
+    size, nothing goes into an overflow menu, the order (and so the keyboard order) is the
+    same.  The row break is after Stop; the width the bar needs is that of the wider row."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.setObjectName("run_bar_strip")
+        from PySide6.QtWidgets import QHBoxLayout, QVBoxLayout
+        self._v = QVBoxLayout(self)
+        self._v.setContentsMargins(0, 0, 0, 0)
+        self._v.setSpacing(style.SP1)
+        self._rows = (QHBoxLayout(), QHBoxLayout())
+        for r in self._rows:
+            r.setContentsMargins(0, 0, 0, 0)
+            r.setSpacing(style.SP1)
+            self._v.addLayout(r)
+        self.items: list[QWidget] = []
+        self.first_row = 0          # how many items the first row holds when wrapped
+        self.one_row_need = 0
+        self.wrapped = False
+
+    def add(self, w: QWidget, stretch: int = 0) -> None:
+        w.setProperty("run_strip_stretch", stretch)
+        self.items.append(w)
+        self._rows[0].addWidget(w, stretch)
+
+    def row_needs(self) -> tuple[int, int, int]:
+        """(one row, first row, second row): the minimum widths of the arrangements."""
+        sp = self._rows[0].spacing()
+
+        def need(ws: list[QWidget]) -> int:
+            shown = [w for w in ws if not w.isHidden()]
+            return sum(max(w.minimumWidth(), w.minimumSizeHint().width()) for w in shown) + sp * max(len(shown) - 1, 0)
+        k = self.first_row
+        return need(self.items), need(self.items[:k]), need(self.items[k:])
+
+    def set_wrapped(self, on: bool) -> None:
+        if on == self.wrapped:
+            return
+        self.wrapped = on
+        k = self.first_row if on else len(self.items)
+        for r in self._rows:
+            while r.count():
+                r.takeAt(0)
+        for i, w in enumerate(self.items):
+            self._rows[0 if i < k else 1].addWidget(w, int(w.property("run_strip_stretch") or 0))
+        self._v.invalidate()
+        self.updateGeometry()
+
+    def fit(self) -> None:
+        self.set_wrapped(self.width() < self.one_row_need)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        # the width of the wrapped arrangement whichever is shown: the window may narrow to it
+        # (it then wraps); the height of the arrangement shown
+        s = super().minimumSizeHint()
+        _one, first, second = self.row_needs()
+        return QSize(max(first, second), s.height())
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        # the width is the window's (the bar spans it), never this choice's: no feedback
+        self.fit()
+
+
 class RunBar(QToolBar):
     """Persistent run controls (bottom of the main window, never scrolled away)."""
 
@@ -387,8 +455,9 @@ class RunBar(QToolBar):
         self.pill.setObjectName("run_state")
         self.pill.setAlignment(Qt.AlignCenter)
         style.set_font(self.pill, "label_strong")
-        self.addWidget(self.pill)
         self.buttons: dict[str, QPushButton] = {}
+        self.strip = _RunStrip()
+        self.strip.add(self.pill)
         # one factory for the run controls (style.run_button: the glossary's words, icon before
         # the text, 56 px, STOP filled in the danger colour), the same as the Run screen's
         for key, fn in (("start", ui.start), ("hold", ui.hold), ("stop", ui.stop), ("frame", ui.frame),
@@ -396,7 +465,10 @@ class RunBar(QToolBar):
             b = style.run_button(key, tr, fn)
             self.buttons[key] = b
             if key != "start":
-                self.addWidget(b)
+                self.strip.add(b)
+                if key == "stop":
+                    # two rows when narrow: the state, Start, Hold and Stop on the first
+                    self.strip.first_row = len(self.strip.items)
             else:
                 # explicit scope: "Start selection only" (it used to hide in a Run Control check
                 # box that silently changed what Start did)
@@ -418,16 +490,18 @@ class RunBar(QToolBar):
                 bl = style.hbox(box, sp=0)
                 bl.addWidget(b)
                 bl.addWidget(more)
-                self.addWidget(box)
+                self.strip.add(box)
                 self.start_menu = more
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
         self.progress.setTextVisible(True)
         self.progress.setFormat("")
         self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.addWidget(self.progress)
+        self.strip.add(self.progress, 1)
         self.eta = QLabel("")
-        self.addWidget(self.eta)
+        self.strip.add(self.eta)
+        self.strip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.addWidget(self.strip)
         # the longer texts the buttons take in their other state
         self._alt = {k: style.run_text(k, tr, alt=True) for k in ("start", "hold", "arm")}
         self.fit()
@@ -435,8 +509,9 @@ class RunBar(QToolBar):
 
     def fit(self) -> None:
         """Every button's full text fits, also its longer state (Continue, Disarm), and the bar
-        never hides a button in its overflow menu: its minimum width is what they need, so the
-        window's minimum follows (docs/dev/RESPONSIVE.md)."""
+        never hides a button in its overflow menu: its minimum width is what they need in two
+        rows (:class:`_RunStrip`: one row when the window has room), so the window's minimum
+        follows (docs/dev/RESPONSIVE.md)."""
         fm = self.fontMetrics()
         for key, b in self.buttons.items():
             bfm = b.fontMetrics()
@@ -450,18 +525,21 @@ class RunBar(QToolBar):
         self.progress.setMinimumWidth(fm.horizontalAdvance("100 %") * 2)
         self.eta.setMinimumWidth(fm.horizontalAdvance("00:00:00") + fm.horizontalAdvance("M"))
         lay = self.layout()
-        sp = lay.spacing() if lay is not None else 0
         st = self.style()
-        need = sum(w.minimumWidth() + sp for w in (self.pill, *self.buttons.values(), self.start_menu,
-                                                   self.progress, self.eta))
+        chrome = 0
         if lay is not None:
             m = lay.contentsMargins()
-            need += m.left() + m.right()
-        need += 2 * st.pixelMetric(QStyle.PM_ToolBarFrameWidth, None, self) + 2 * st.pixelMetric(
+            chrome += m.left() + m.right()
+        chrome += 2 * st.pixelMetric(QStyle.PM_ToolBarFrameWidth, None, self) + 2 * st.pixelMetric(
             QStyle.PM_ToolBarItemMargin, None, self)
         if self.isMovable():
-            need += st.pixelMetric(QStyle.PM_ToolBarHandleExtent, None, self)
-        self.setMinimumWidth(need)
+            chrome += st.pixelMetric(QStyle.PM_ToolBarHandleExtent, None, self)
+        one, first, second = self.strip.row_needs()
+        # one row while the strip has the width every control needs side by side; the bar's
+        # minimum is the wider of the two rows (a half-screen window wraps it)
+        self.strip.one_row_need = one
+        self.setMinimumWidth(max(first, second) + chrome)
+        self.strip.fit()
 
     def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().changeEvent(ev)

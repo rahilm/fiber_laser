@@ -7,8 +7,15 @@
   minimum (the canvas: :data:`CANVAS_MIN`, a content need: the drawing must stay workable).
 * When the window shrinks the docks give way in proportion, down to their minimums; when it
   grows again they return to their remembered or natural widths (the layout recovers).
-* No dock is moved between areas automatically (that left stale tab bars over the panels); the
-  window's minimum width is what the visible docks and the page need.
+* A narrow window (a half-screen one) folds the side docks: when the window is narrower than
+  the docks side by side and the page need, they stack into one tab group (:meth:`fold`), and
+  when it is wide enough again they go back to the arrangement they had (:meth:`unfold`: the
+  same areas, splits and tab groups, rebuilt dock by dock; not ``restoreState``, which would
+  also bring back docks a workspace switch hid).  So the window's minimum width is what the
+  folded docks and the page need (an explicit minimum while unfolded).  A dock the user moves
+  or floats while folded ends the automatic folding: the user's arrangement wins (until Reset
+  layout).  Docks are only ever moved by these two steps (moving them on every resize once
+  left stale tab bars over the panels; a test checks that unfolding leaves none).
 
 Applied on every window resize, workspace switch and dock visibility change (coalesced).
 """
@@ -16,11 +23,12 @@ from __future__ import annotations
 
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer
-from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow
+from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer
+from PySide6.QtWidgets import QApplication, QDockWidget, QMainWindow, QStyle, QTabBar
 
-#: logical px: the canvas width a workspace with the shared canvas keeps (a content need)
-CANVAS_MIN = 480
+#: logical px: the canvas width a workspace with the shared canvas keeps (a content need: the
+#: drawing stays workable, also in a half-screen window)
+CANVAS_MIN = 260
 SIDE = (Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea)
 
 
@@ -34,6 +42,12 @@ class DockPolicy(QObject):
         self._applying = False
         self._watched: set[int] = set()
         self._tried: Optional[tuple] = None      # the last resize asked for (see apply)
+        #: folded (see fold): the arrangement to go back to and the width it needs
+        self.folded: Optional[dict] = None
+        self.user_arranged = False               # the user moved a dock while folded
+        self.room: Optional[QSize] = None        # a screen smaller than the content (update_min)
+        self._moving = False
+        self._min = (0, 0)                       # the explicit minimum this set
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.apply)
@@ -57,8 +71,8 @@ class DockPolicy(QObject):
             self._watched.add(id(d))
             d.installEventFilter(self)
             d.visibilityChanged.connect(lambda _v: self.schedule())
-            d.dockLocationChanged.connect(lambda _a: self.schedule())
-            d.topLevelChanged.connect(lambda _f: self.schedule())
+            d.dockLocationChanged.connect(lambda _a: self._moved())
+            d.topLevelChanged.connect(lambda _f: self._moved())
             d.destroyed.connect(lambda *_a, k=id(d): self._watched.discard(k))
 
     @staticmethod
@@ -105,6 +119,238 @@ class DockPolicy(QObject):
         self.prefs.clear()
         self.vprefs.clear()
         self._tried = None
+        self.folded = None
+        self.user_arranged = False
+
+    def _moved(self) -> None:
+        # the user's own arrangement wins over the automatic one: a dock dragged (the mouse
+        # is down; Qt also reports the moves of fold / unfold, and some of them only after
+        # their layout pass) to another place or out of the window while folded
+        if (not self._moving and self.folded is not None and not QApplication.closingDown()
+                and QApplication.mouseButtons() & Qt.LeftButton):
+            self.folded = None
+            self.user_arranged = True
+        self.schedule()
+
+    # ------------------------------------------------------------------ folding
+    def _sep(self) -> int:
+        return self.w.style().pixelMetric(QStyle.PM_DockWidgetSeparatorExtent, None, self.w)
+
+    def arrangement(self) -> list[tuple]:
+        """The visible docked docks of the side and bottom areas as (area, groups,
+        orientations): the tab groups of each area in order (each a list of docks, the shown
+        tab first) and how each group sits next to the one before it."""
+        out: list[tuple] = []
+        docks = [d for d in self.docks() if d.isVisible() and not d.isFloating()]
+        for area in (*SIDE, Qt.BottomDockWidgetArea):
+            ds = [d for d in docks if self.w.dockWidgetArea(d) == area]
+            groups: list[list[QDockWidget]] = []
+            for d in ds:
+                g = next((g for g in groups if d in self.w.tabifiedDockWidgets(g[0])), None)
+                if g is None:
+                    groups.append([d])
+                else:
+                    g.append(d)
+            groups = [self._tab_order(g) for g in groups]
+            # placed by the tab on top (a tab behind keeps a stale geometry)
+            groups.sort(key=lambda g: (self._shown(g).x(), self._shown(g).y()))
+            orients = []
+            for a, b in zip(groups, groups[1:]):
+                pa, pb = self._shown(a), self._shown(b)
+                dx, dy = abs(pb.x() - pa.x()), abs(pb.y() - pa.y())
+                orients.append(Qt.Vertical if dy > dx else Qt.Horizontal)
+            if groups:
+                out.append((area, groups, orients))
+        return out
+
+    def _tab_order(self, g: list) -> list:
+        """A tab group's docks in the order of its tab bar."""
+        if len(g) < 2:
+            return g
+        titles = {d.windowTitle(): d for d in g}
+        for bar in self.w.findChildren(QTabBar):
+            if bar.parent() is not self.w:
+                continue
+            texts = [bar.tabText(i) for i in range(bar.count())]
+            if set(texts) == set(titles):
+                return [titles[t] for t in texts]
+        return g
+
+    def _area_min(self, groups: list, orients: list) -> int:
+        """The minimum width of an area's docks: groups side by side add up."""
+        cols = [max(self.min_width(d) for d in groups[0])]
+        for g, o in zip(groups[1:], orients):
+            m = max(self.min_width(d) for d in g)
+            if o == Qt.Horizontal:
+                cols.append(m)
+            else:
+                cols[-1] = max(cols[-1], m)
+        return sum(cols) + self._sep() * (len(cols) - 1)
+
+    def _parts(self, arr: list) -> list[tuple[int, list]]:
+        """(saving, part) for the parts of ``arr`` folding narrows the window by: the side docks
+        in one tab group instead of their columns; the bottom docks (under the page) in one tab
+        group when side by side they are wider than the page.  A part that saves nothing is
+        left as it is."""
+        out: list[tuple[int, list]] = []
+        side = [x for x in arr if x[0] in SIDE]
+        if sum(len(gs) for _a, gs, _o in side) > 1:
+            cols = sum(self._area_min(gs, os_) + self._sep() for _a, gs, os_ in side)
+            one = max(self.min_width(d) for _a, gs, _o in side for g in gs for d in g)
+            save = cols - one - self._sep()
+            if save > 0:
+                out.append((save, side))
+        bottom = [x for x in arr if x[0] == Qt.BottomDockWidgetArea]
+        if bottom and len(bottom[0][1]) > 1:
+            _a, gs, os_ = bottom[0]
+            c = self.w.centralWidget()
+            page = c.minimumSizeHint().width() if c is not None else 0
+            one = max(self.min_width(d) for g in gs for d in g)
+            save = max(page, self._area_min(gs, os_)) - max(page, one)
+            if save > 0:
+                out.append((save, bottom))
+        return out
+
+    def fold_need(self) -> int:
+        """The window's minimum width with the docks folded (:meth:`fold`); its minimum as it is
+        when they already are, or folding saves nothing."""
+        need = self.w.minimumSizeHint().width()
+        if self.folded is not None:
+            return need
+        return need - sum(save for save, _p in self._parts(self.arrangement()))
+
+    def fold(self) -> None:
+        """The visible side docks into one tab group (in the right-hand area when it has docks)
+        and the bottom docks into another, remembering their arrangement (:meth:`unfold`)."""
+        need = self.w.minimumSizeHint().width()
+        narrow = self.fold_need()
+        parts = self._parts(self.arrangement())
+        if not parts:
+            return
+        arr = [x for _s, p in parts for x in p]
+        shown = [self._shown(g) for _a, gs, _o in arr for g in gs]
+        side = [x for x in arr if x[0] in SIDE]
+        bottom = [x for x in arr if x[0] == Qt.BottomDockWidgetArea]
+        kept: list[list] = []                # the tab groups the others join (left in place)
+        self._moving = True
+        try:
+            if side:
+                # onto the largest tab group (emptying a tab group by moving its docks away
+                # left its tab bar drawn over the page), on its tab on top
+                area, big = max(((a, g) for a, gs, _o in side for g in gs), key=lambda x: len(x[1]))
+                head = self._shown(big)
+                kept.append(big)
+                for a, gs, _o in side:
+                    for g in gs:
+                        for d in g:
+                            if d in big:
+                                continue
+                            if a != area:
+                                self.w.addDockWidget(area, d)      # tabify alone leaves it there
+                            self.w.tabifyDockWidget(head, d)
+                head.raise_()
+            if bottom:
+                big = max(bottom[0][1], key=len)
+                head = self._shown(big)
+                kept.append(big)
+                for g in bottom[0][1]:
+                    for d in g:
+                        if d not in big:
+                            self.w.tabifyDockWidget(head, d)
+                head.raise_()
+        finally:
+            self._moving = False
+        self.folded = {"arrangement": arr, "need": need, "narrow": narrow,
+                       "shown": shown, "kept": kept,
+                       "docks": [d for _a, gs, _o in arr for g in gs for d in g]}
+        self._tried = None
+
+    def unfold(self) -> None:
+        """The docks back in the arrangement :meth:`fold` recorded."""
+        rec = self.folded
+        self.folded = None
+        if rec is None:
+            return
+        self._moving = True
+        try:
+            # the docks that joined a kept group go back next to it; a kept group stays where
+            # it is (moving its docks out and back in left its tab bar behind)
+            for area, groups, orients in rec["arrangement"]:
+                prev = None
+                for i, g in enumerate(groups):
+                    first = g[0]
+                    if any(g is k for k in rec["kept"]):
+                        prev = first
+                        continue
+                    if first.isFloating():
+                        continue
+                    if prev is None:
+                        self.w.addDockWidget(area, first)
+                    else:
+                        # out of the folded group, after the group before it (splitDockWidget
+                        # next to a tabbed dock only adds another tab)
+                        self.w.addDockWidget(area, first, orients[i - 1])
+                    for d in g[1:]:
+                        if not d.isFloating():
+                            if self.w.dockWidgetArea(d) != area:
+                                self.w.addDockWidget(area, d)   # tabify alone leaves it there
+                            self.w.tabifyDockWidget(first, d)
+                    prev = first
+            for d in rec["shown"]:
+                if not d.isFloating():
+                    d.raise_()                       # the tab that was on top is again
+        finally:
+            self._moving = False
+        self._tried = None
+
+    def _fold_step(self) -> bool:
+        """Fold or unfold for the window's width; True when docks moved."""
+        if self.user_arranged:
+            return False
+        width = self.w.width()
+        if self.folded is not None:
+            shown = [d for d in self.folded["docks"] if d.isVisible() and not d.isFloating()]
+            # a dock shown since (another workspace's) that folding would move, not in the
+            # folded groups: unfolded and folded again with it
+            new = [d for _s, part in self._parts(self.arrangement()) for _a, gs, _o in part
+                   for g in gs for d in g if d not in self.folded["docks"]]
+            # a folded dock hidden or floated since (a workspace switch, the user closed it):
+            # the need recorded is no longer this layout's; unfolded, and folded again if the
+            # window is still too narrow
+            gone = len(shown) < len(self.folded["docks"])
+            if gone or new or width >= self.folded["need"]:
+                self.unfold()
+                return True
+            return False
+        need = self.w.minimumSizeHint().width()
+        if width < need and self.fold_need() < need and not QApplication.closingDown():
+            self.fold()
+            return True
+        return False
+
+    def update_min(self) -> None:
+        """The window's explicit minimum: while unfolded the window may be as narrow as the
+        folded docks need (it folds them then), else the layout's own minimum; on a screen
+        smaller than that (:attr:`room`, set by Shell._clamp_to_screen) at most the screen,
+        where a page too large scrolls."""
+        want_w = 0
+        if self.folded is not None:
+            # what the folded docks and the page need (measured before folding: the layout's
+            # own minimum still counts the docks side by side until it is laid out again)
+            want_w = self.folded["narrow"]
+        elif not self.user_arranged:
+            f = self.fold_need()
+            if f < self.w.minimumSizeHint().width():
+                want_w = f
+        want_h = 0
+        if self.room is not None:
+            hint = self.w.minimumSizeHint()
+            want_w = min(want_w or hint.width(), self.room.width())
+            want_h = min(hint.height(), self.room.height())
+        if (want_w, want_h) != self._min:
+            self._min = (want_w, want_h)
+            # 0: that dimension is the layout's own minimum
+            self.w.setMinimumSize(want_w, want_h)
 
     @staticmethod
     def _shown(group: list) -> QDockWidget:
@@ -165,6 +411,10 @@ class DockPolicy(QObject):
             self._timer.start(50)          # not while the user drags a separator
             return
         self.watch()
+        if self._fold_step():
+            self._timer.start(0)             # sized once the docks have their new places
+            return
+        self.update_min()
         t = self.targets()
         changed = {d: w for d, w in t.items() if abs(d.width() - w) > 1}
         log = getattr(self.w, "log_dock", None)

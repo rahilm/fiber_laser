@@ -335,7 +335,10 @@ the pessimistic mode. A halt completes the step being executed (the 1-pulse resu
 State banner (FAULT dark red with Reset, ARMED red with Disarm, DRY-RUN amber, SIMULATOR blue,
 DISARMED grey with Arm), alarm banner with remedy texts (`ui/safety_texts.py`) and Details, the
 status bar never shows Ready while an alarm or fault is latched, a run bar at the bottom (not in
-a scroll area, 56 px targets; checked at 1280×720 = 1920×1080 at 150 %; on the Run operator
+a scroll area, 56 px targets; one row, or two rows in a narrow window such as a half-screen one,
+the break after Stop: every control keeps its full text, size, order, keys and enabled rules,
+none goes into an overflow menu or icon-only; checked at 1280×720 = 1920×1080 at 150 % and at
+683 px wide, `tests/test_half_screen.py`; on the Run operator
 screen, which is a workspace page in the shell's scroll area, Stop, Hold, Start, Frame, Dry run
 and Arm are always in view, the resume and queue controls below them may need a vertical
 scroll at that size), the laser fire button

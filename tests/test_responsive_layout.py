@@ -32,6 +32,9 @@ import layout_audit as A
 #: the smallest window the application supports (docs/dev/RESPONSIVE.md)
 SUPPORTED_MIN = (1280, 800)
 SAMPLES = [(1280, 800), (1440, 900), (1512, 875), (1800, 1169), (1920, 1080)]
+#: half a screen (a Windows Snap half of 1366 px, half of a 14" MacBook Pro): the side docks
+#: fold into tabs, the run bar and the workspace tool bar wrap (docs/dev/RESPONSIVE.md)
+HALF = [(683, 875), (756, 945)]
 SWEEP_HEIGHTS = (800, 875, 1169)
 STEP = int(os.environ.get("MLASER_LAYOUT_STEP", "40") or 40)
 MAX_W = 2560
@@ -146,13 +149,15 @@ def _fit(win, app, size) -> QSize:
     settle = 0.03 if real_screen() else 0.0     # a window server answers a resize asynchronously
     stable = 0
     for _ in range(8):            # a page that needs more room at this size raises the minimum
-        s = want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
+        # the window's minimum as Qt keeps it: the layout's, or the explicit one the dock
+        # policy sets while the docks can fold (below the layout's own)
+        s = want.expandedTo(win.minimumSize())
         if win.size() != s:
             win.resize(s)
             stable = 0
         _pump(app, settle, rounds=2)
         at_rest(win, app)         # the minimum is read once the relayout has run its course
-        if win.size() == want.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize()):
+        if win.size() == want.expandedTo(win.minimumSize()):
             stable += 1
             if stable >= 2:
                 break
@@ -178,7 +183,7 @@ def settle(win, app) -> None:
         # window manager): wait for that condition, not for a time
         t_end = time.monotonic() + 5.0
         while time.monotonic() < t_end:
-            m = win.minimumSizeHint().expandedTo(win.minimumSize())
+            m = win.minimumSize()               # Qt's: the layout's or the dock policy's
             frame = win.frameGeometry().size() - win.size()
             want = m.boundedTo(_screen_size(win) - frame)
             if win.width() >= want.width() and win.height() >= want.height():
@@ -242,7 +247,7 @@ def unreachable(win) -> bool:
     screen can hold is audited as usual, and test_fits_this_screen checks the screen itself."""
     if not real_screen():
         return False
-    m = win.minimumSizeHint().expandedTo(win.minimumSize())
+    m = win.minimumSize()
     return win.width() < m.width() or win.height() < m.height()
 
 
@@ -515,7 +520,7 @@ def test_minimum_size_fits_the_smallest_sample(win, app):
 
 def test_sample_sizes(win, app):
     rep = Report()
-    for size in SAMPLES:
+    for size in SAMPLES + HALF:
         s = _fit(win, app, size)
         _pump(app, 0.05)
         for label in views(win, app):
@@ -555,7 +560,7 @@ def test_fits_this_screen(win, app):
         win.shell.host.activate(ws)
         _pump(app, rounds=8)
         frame = win.frameGeometry().size() - win.size()
-        m = win.minimumSizeHint().expandedTo(win.minimumSize())
+        m = win.minimumSize()
         over = m.width() + frame.width() > avail.width() or m.height() + frame.height() > avail.height()
         if over and small:
             # the window's minimum (at most 1280 x 800: test_minimum_size_fits_the_smallest_sample)
@@ -623,7 +628,7 @@ def test_safety_controls_visible_everywhere(win, app):
 
 
 def _sweep_sizes(win):
-    m = win.minimumSizeHint().expandedTo(win.minimumSize())
+    m = win.minimumSize()
     w0 = max(m.width(), 1)
     heights = sorted({max(m.height(), h) for h in (m.height(), *SWEEP_HEIGHTS)})
     if real_screen():
@@ -662,11 +667,20 @@ def test_width_and_height_sweep(win, app):
     assert not text and not bad, text + "\n" + "\n".join(bad)
 
 
+def test_half_screen_window(win, app):
+    """Every workspace takes half a screen (683 px wide): the window gets that width."""
+    for ws in win.shell.host.visible_ids():
+        win.shell.host.activate(ws)
+        s = _fit(win, app, HALF[0])
+        assert s.width() == HALF[0][0], (ws, s, win.minimumSize(), win.minimumSizeHint())
+    _fit(win, app, SAMPLES[2])
+
+
 def test_dock_width_sweep(win, app):
     """The side docks dragged from their minimum to wide: their panels reflow, nothing clips."""
     rep = Report()
     host = win.shell.host
-    for size in ((1280, 800), (1512, 875), (1920, 1080)):
+    for size in (HALF[0], (1280, 800), (1512, 875), (1920, 1080)):
         s = _fit(win, app, size)
         for ws in ("design", "process"):
             if ws not in host.visible_ids():

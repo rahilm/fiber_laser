@@ -518,7 +518,7 @@ class CanvasHud(QFrame):
 
     def __init__(self, view: "CanvasView") -> None:
         super().__init__(view)
-        from PySide6.QtWidgets import QCheckBox, QHBoxLayout, QLabel, QToolButton, QVBoxLayout
+        from PySide6.QtWidgets import QCheckBox, QLabel, QToolButton, QVBoxLayout
         from .i18n import tr
         self.view = view
         self.setObjectName("canvas_hud")
@@ -527,8 +527,9 @@ class CanvasHud(QFrame):
         outer = QVBoxLayout(self)
         outer.setContentsMargins(SP2, SP1, SP2, SP1)
         outer.setSpacing(SP1 // 4)
-        lay = QHBoxLayout()
-        lay.setSpacing(SP2)
+        # the row wraps when the view is narrow (a half-screen window): every control whole
+        from .responsive import FlowLayout
+        lay = FlowLayout(justify=False, hspacing=SP2, vspacing=SP1 // 2)
         outer.addLayout(lay)
         self.toggle = QCheckBox(tr("canvas.hud.toolpath"))
         self.toggle.setObjectName("canvas_hud_toolpath")
@@ -603,11 +604,17 @@ class CanvasHud(QFrame):
         if self.legend.isVisible():
             # the legend wraps to the bar's width; it goes when even a short line does not fit
             w = min(max(w, self.legend.sizeHint().width() + pad), avail)
-        h = self.layout().heightForWidth(w) if self.layout().hasHeightForWidth() else self.sizeHint().height()
+        def height() -> int:
+            # the layout's height at the width inside the frame (the row may wrap in a narrow
+            # view), plus the frame
+            if not lay.hasHeightForWidth():
+                return self.sizeHint().height()
+            return lay.heightForWidth(w - fm.left() - fm.right()) + fm.top() + fm.bottom()
+        h = height()
         if self.legend.isVisible() and h > self.view.height() // 3:
             self.legend.setVisible(False)
             lay.activate()
-            h = self.sizeHint().height()
+            h = height()
         self.setGeometry(8, 8, w, max(h, self.minimumSizeHint().height()))
         self.raise_()
 
