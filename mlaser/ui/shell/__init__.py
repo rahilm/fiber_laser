@@ -366,10 +366,7 @@ class Shell:
                 chain.append(b)
         page = self.host.pages.get(self.host.current)
         if page is not None:
-            for act in page.toolbar.actions():
-                b = page.toolbar.widgetForAction(act)
-                if b is not None and isinstance(b, QToolButton):
-                    chain.append(b)
+            chain.extend(page.toolbar_buttons())          # both rows of a wrapped tool bar
             if page.spec.canvas:
                 chain.append(w.canvas)
             elif page.placeholder is not None:
@@ -524,6 +521,7 @@ class Shell:
         self.host.rail.setVisible(not on)
         for page in self.host.pages.values():
             page.toolbar.setVisible(not on and bool(page.toolbar.actions()))
+            page.toolbar2.setVisible(not on and bool(page.toolbar2.actions()))
         combo = w.lang_combo
         if on:
             w.ribbon.setCornerWidget(combo, Qt.TopRightCorner)
@@ -708,12 +706,15 @@ class Shell:
         # window still fits the screen and the workspace page scrolls (docs/dev/RESPONSIVE.md);
         # otherwise the minimum wins over the resize and the window hangs off the screen
         need = w.minimumSizeHint().expandedTo(w.minimumSize())
+        # the side docks fold into one tab group in a narrow window (DockPolicy.fold)
+        need.setWidth(min(need.width(), max(self.dock_policy.fold_need(), w.minimumWidth())))
         small = avail.width() < SUPPORTED_SCREEN.width() or avail.height() < SUPPORTED_SCREEN.height()
         if small or need.width() >= room.width() or need.height() >= room.height():
             # an explicit minimum: Qt's layouts keep it, so a workspace with a taller page cannot
             # raise the window past the screen (FitArea's screen cap alone crept by the frame
             # margins on every relayout); that page scrolls instead
-            w.setMinimumSize(need.boundedTo(room))
+            self.dock_policy.room = QSize(room)
+            self.dock_policy.update_min()
         size = w.size().boundedTo(room)
         if size != w.size():
             w.resize(size)

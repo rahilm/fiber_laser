@@ -196,7 +196,7 @@ class SheetView(QWidget):
 
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(360, 160)
+        self.setMinimumSize(260, 160)          # as the shared canvas (CANVAS_MIN): a half-screen window
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.setAccessibleName("nest sheet")
         self.job: Optional[NestJob] = None

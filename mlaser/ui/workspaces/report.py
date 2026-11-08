@@ -25,7 +25,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPalette, QPen
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame, QGridLayout,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame,
                                QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
@@ -36,7 +36,7 @@ from mlaser.services import units as U
 from mlaser.services.operator import fmt_duration
 from mlaser.ui.units_qt import on_units_changed
 
-from ..responsive import ColumnFitter
+from ..responsive import ColumnFitter, FlowLayout
 from ..safety_texts import remedy
 from .. import style
 from . import TOUCH_MIN, show_workspace, tr
@@ -242,7 +242,19 @@ class ReportWorkspace(QWidget):
         self.setObjectName("report_workspace")
         v = QVBoxLayout(self)
         style.margins(v, "dense")
-        top = QHBoxLayout()
+        # the controls wrap to more rows in a narrow window (a half-screen one), each label with
+        # its field; the tiles below are an auto-fit grid
+        top_w = QWidget()
+        top_w.setObjectName("report_controls")
+        top = FlowLayout(top_w, justify=False)
+
+        def pair(label: QWidget, field: QWidget) -> QWidget:
+            box = QWidget()
+            h = QHBoxLayout(box)
+            h.setContentsMargins(0, 0, 0, 0)
+            h.addWidget(label)
+            h.addWidget(field)
+            return box
         self.period = QComboBox()
         self.period.setObjectName("report_period")
         self.period.setMinimumHeight(TOUCH_MIN)
@@ -250,8 +262,7 @@ class ReportWorkspace(QWidget):
             self.period.addItem(tr(w, tid, text), key)
         self.period.setCurrentIndex(1)
         self.period.currentIndexChanged.connect(lambda _i: self.refresh())
-        top.addWidget(QLabel(tr(w, "report.period", "Period")))
-        top.addWidget(self.period)
+        top.addWidget(pair(QLabel(tr(w, "report.period", "Period")), self.period))
         # simulator, dry-run and practice runs are not production: hidden unless asked for
         self.runs = QComboBox()
         self.runs.setObjectName("report_runs")
@@ -259,9 +270,7 @@ class ReportWorkspace(QWidget):
         for key, tid, text, _src in RUN_FILTERS:
             self.runs.addItem(tr(w, tid, text), key)
         self.runs.currentIndexChanged.connect(lambda _i: self.refresh())
-        top.addWidget(QLabel(tr(w, "report.runs", "Runs")))
-        top.addWidget(self.runs)
-        top.addStretch(1)
+        top.addWidget(pair(QLabel(tr(w, "report.runs", "Runs")), self.runs))
         for key, tid, text, fn in (("refresh", "report.btn.refresh", "Refresh", self.refresh),
                                    ("csv", "report.btn.csv", "Export CSV...", self.export_csv),
                                    ("pdf", "report.btn.pdf", "Export PDF...", self.export_pdf),
@@ -271,11 +280,11 @@ class ReportWorkspace(QWidget):
             b.setMinimumHeight(TOUCH_MIN)
             b.clicked.connect(lambda _=False, f=fn: f())
             top.addWidget(b)
-        v.addLayout(top)
+        v.addWidget(top_w)
         # tiles
         tiles = QFrame()
         tiles.setObjectName("report_tiles")
-        g = QGridLayout(tiles)
+        g = FlowLayout(tiles, uniform=True)
         self.tiles: dict[str, QLabel] = {}
         for n, (key, tid, text) in enumerate((("jobs", "report.tile.jobs", "Jobs"),
                                               ("run", "report.tile.run", "Cutting time"),
@@ -289,10 +298,13 @@ class ReportWorkspace(QWidget):
             val = QLabel("-")
             val.setObjectName(f"report_tile_{key}")
             style.set_font(val, "display")
-            box = QVBoxLayout()
+            tile = QWidget()
+            tile.setObjectName(f"report_tile_box_{key}")
+            box = QVBoxLayout(tile)
+            box.setContentsMargins(0, 0, 0, 0)
             box.addWidget(cap)
             box.addWidget(val)
-            g.addLayout(box, 0, n)
+            g.addWidget(tile)
             self.tiles[key] = val
         v.addWidget(tiles)
         self.chart = DayChart()
@@ -332,6 +344,7 @@ class ReportWorkspace(QWidget):
         v.addWidget(self.tabs, 1)
         self.note = QLabel()
         self.note.setObjectName("report_note")
+        self.note.setWordWrap(True)                  # a narrow window: more lines
         v.addWidget(self.note)
         self.data: dict = {}
         ledger.listeners.append(self._ledger_changed)

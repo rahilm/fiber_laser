@@ -130,6 +130,16 @@ class WorkspacePage(QWidget):
         self.toolbar.setIconSize(QSize(20, 20))
         self.toolbar.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         v.addWidget(self.toolbar)
+        # the second row of the tool bar in a narrow window (fit_toolbar): icons only, the
+        # commands after the separator nearest the middle; never an overflow menu
+        self.toolbar2 = QToolBar()
+        self.toolbar2.setObjectName("shell_ws_toolbar_2")
+        self.toolbar2.setIconSize(QSize(20, 20))
+        self.toolbar2.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        self.toolbar2.setVisible(False)
+        v.addWidget(self.toolbar2)
+        self._acts: list = []             # the tool bar's actions in order (both rows)
+        self._split = 0                   # how many of them the first row holds
         self.body = QWidget()
         self.body_lay = QHBoxLayout(self.body)
         self.body_lay.setContentsMargins(0, 0, 0, 0)
@@ -247,6 +257,8 @@ class WorkspacePage(QWidget):
     def fill_toolbar(self) -> None:
         tb = self.toolbar
         tb.clear()
+        self.toolbar2.clear()
+        self.toolbar2.setVisible(False)
         last_sep = True
         for cmd in self.spec.toolbar:
             if cmd == "-":
@@ -258,15 +270,58 @@ class WorkspacePage(QWidget):
             if act is None or not self.host.allowed(cmd):
                 continue
             tb.addAction(act)
-            btn = tb.widgetForAction(act)
-            if btn is not None:
-                btn.setAccessibleName(act.text().replace("&", ""))
-                btn.setFocusPolicy(Qt.TabFocus)
-                if act.icon().isNull():
-                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+            self._dress(tb, act)
             last_sep = False
+        self._acts = list(tb.actions())
+        self._split = len(self._acts)
         tb.setVisible(bool(tb.actions()))
         self.fit_toolbar()
+
+    @staticmethod
+    def _dress(tb: QToolBar, act) -> None:
+        btn = tb.widgetForAction(act)
+        if btn is not None and not act.isSeparator():
+            btn.setAccessibleName(act.text().replace("&", ""))
+            btn.setFocusPolicy(Qt.TabFocus)
+            if act.icon().isNull():
+                btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+
+    def toolbar_actions(self) -> list:
+        """The tool bar's actions in order, both rows."""
+        return list(self._acts)
+
+    def toolbar_buttons(self) -> list:
+        """The tool bar's buttons in order (the keyboard order), both rows."""
+        out = []
+        for act in self._acts:
+            for tb in (self.toolbar, self.toolbar2):
+                b = tb.widgetForAction(act)
+                if b is not None and isinstance(b, QToolButton):
+                    out.append(b)
+                    break
+        return out
+
+    def _place(self, split: int) -> None:
+        """The first ``split`` actions in the first row, the rest in the second."""
+        if split == self._split:
+            return
+        self._split = split
+        tb, tb2 = self.toolbar, self.toolbar2
+        for t in (tb, tb2):
+            for act in list(t.actions()):
+                t.removeAction(act)
+        first, second = self._acts[:split], self._acts[split:]
+        while second and second[0].isSeparator():
+            second = second[1:]
+        while first and first[-1].isSeparator():
+            first = first[:-1]
+        for act in first:
+            tb.addAction(act)
+            self._dress(tb, act)
+        for act in second:
+            tb2.addAction(act)
+            self._dress(tb2, act)
+        tb2.setVisible(bool(second) and tb.isVisibleTo(self))
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
@@ -342,12 +397,44 @@ class WorkspacePage(QWidget):
                     btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
             if tb.layout() is not None:
                 tb.layout().invalidate()     # its size hint is cached until the next layout pass
-        # icons only is the narrowest the tool bar gets: the page never goes below that width
-        # (the window's minimum follows), so no action hides behind the extension button
+        # icons only in two rows is the narrowest the tool bar gets: the page never goes
+        # below that width (the window's minimum follows), so no action hides behind the
+        # extension button; one row (icons only, or with their labels) while it fits
+        tb2 = self.toolbar2
         apply(Qt.ToolButtonIconOnly)
-        need = tb.sizeHint().width() if tb.isVisibleTo(self) else 0
-        apply(Qt.ToolButtonTextBesideIcon)
-        if tb.sizeHint().width() > max(self.width(), 1):
+        tb2.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        acts = self._acts
+        sp = tb.layout().spacing() if tb.layout() is not None else 0
+
+        def width(act) -> int:
+            for t in (tb, tb2):
+                b = t.widgetForAction(act)
+                if b is not None:
+                    return b.sizeHint().width()
+            if act.isSeparator():            # left out at the row break
+                return tb.style().pixelMetric(QStyle.PM_ToolBarSeparatorExtent, None, tb)
+            return 0
+        ws = [width(a) for a in acts]
+        on1 = [i for i, a in enumerate(acts) if tb.widgetForAction(a) is not None]
+        chrome = max(tb.sizeHint().width() - sum(ws[i] for i in on1) - sp * max(len(on1) - 1, 0), 0)
+        one = sum(ws) + sp * max(len(ws) - 1, 0) + chrome
+        need = one if tb.isVisibleTo(self) else 0
+        split = len(acts)
+        if tb.isVisibleTo(self) and len(acts) > 2:
+            total = sum(ws)
+            # the row break at the separator nearest the middle (else the middle action)
+            mid = min(range(1, len(ws)), key=lambda i: abs(sum(ws[:i]) - total / 2))
+            seps = [i for i, a in enumerate(acts) if a.isSeparator() and 0 < i < len(ws)]
+            k = min(seps, key=lambda i: abs(sum(ws[:i]) - total / 2)) if seps else mid
+            need = max(sum(ws[:k]) + sp * max(k - 1, 0), sum(ws[k:]) + sp * max(len(ws) - k - 1, 0)) + chrome
+            if self.width() < one:
+                split = k
+        self._place(split)
+        if split == len(acts):
+            apply(Qt.ToolButtonTextBesideIcon)
+            if tb.sizeHint().width() > max(self.width(), 1):
+                apply(Qt.ToolButtonIconOnly)
+        else:
             apply(Qt.ToolButtonIconOnly)
         if tb.layout() is not None:
             tb.layout().invalidate()

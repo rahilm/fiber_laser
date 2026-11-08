@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QTabWidget)
+                               QMessageBox, QTabWidget, QWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
@@ -180,6 +180,40 @@ class StatusChip(QLabel):
                     f"border-radius: {style.SP2}px; padding: 0 {style.SP2}px; "
                     f"color: {style.css('muted' if muted else 'text')}; }}")
         style.styled(self, qss)
+
+
+class _StatusFit(QObject):
+    """The status bar in a narrow window (a half-screen one): the device chips always (they
+    carry a latched fault or alarm), the head position, speed and cursor position while they
+    fit whole, dropped in that order from the last (never cut)."""
+
+    def __init__(self, bar: QWidget, fixed: list, optional: list) -> None:
+        super().__init__(bar)
+        self.bar, self.fixed, self.optional = bar, fixed, optional
+        self._queued = False
+        bar.installEventFilter(self)
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if obj is self.bar and ev.type() in (QEvent.Resize, QEvent.LayoutRequest) and not self._queued:
+            self._queued = True
+            QTimer.singleShot(0, self, self.fit)
+        return False
+
+    def fit(self) -> None:
+        self._queued = False
+        bar = self.bar
+        lay = bar.layout()
+        sp = lay.spacing() if lay is not None and lay.spacing() > 0 else 6
+        grip = 2 * bar.fontMetrics().height()          # the size grip and the bar's margins
+        room = bar.width() - grip
+        need = sum(w.sizeHint().width() + sp for w in self.fixed if not w.isHidden())
+        for w in self.optional:                          # in the order they are kept
+            want = need + w.sizeHint().width() + sp
+            show = want <= room
+            if show:
+                need = want
+            if w.isHidden() == show:
+                w.setVisible(show)
 
 
 class MainWindow(QMainWindow):
@@ -488,6 +522,8 @@ class MainWindow(QMainWindow):
         for w in (self.st_mc, self.st_zf, self.st_lf, self.st_xy, self.st_cv, self.st_pd):
             sb.addWidget(w)
         sb.addPermanentWidget(self.st_da)
+        self._status_fit = _StatusFit(sb, [self.st_mc, self.st_zf, self.st_lf, self.st_pd],
+                                      [self.st_xy, self.st_cv, self.st_da])
         self.tr_.bind(self.st_da, "status.cursor_tip", self.st_da.setToolTip)
         self.tr_.bind(self.st_xy, "status.head_tip", self.st_xy.setToolTip)
         from .units_qt import on_units_changed

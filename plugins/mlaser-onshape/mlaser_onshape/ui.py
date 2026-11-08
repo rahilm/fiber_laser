@@ -7,7 +7,7 @@ import re
 import threading
 from typing import Any, Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer
+from PySide6.QtCore import QSize, Qt, QTimer
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleSpinBox, QFormLayout, QFrame,
                                QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit, QListWidget,
                                QListWidgetItem, QMenu, QProgressBar, QPushButton, QRadioButton, QScrollArea,
@@ -36,6 +36,27 @@ def _flow_layout() -> Any:
     except ImportError:
         return None
     return FlowLayout(justify=False)
+
+
+class _StackingSplitter(QSplitter):
+    """Side by side while both panes fit their minimum widths, one above the other in a
+    narrower window (a half-screen one); its minimum width is the wider pane's."""
+
+    def _side_by_side_need(self) -> int:
+        ws = [self.widget(i).minimumSizeHint().width() for i in range(self.count())]
+        return sum(ws) + self.handleWidth() * max(self.count() - 1, 0)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        w = max((self.widget(i).minimumSizeHint().width() for i in range(self.count())), default=0)
+        return QSize(w, s.height())
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        # decided by the width alone (the height follows the choice, never the reverse)
+        want = Qt.Horizontal if self.width() >= self._side_by_side_need() else Qt.Vertical
+        if self.orientation() != want:
+            self.setOrientation(want)
 
 
 def _fit_columns(table: Any, priorities: dict, key: int) -> None:
@@ -102,7 +123,7 @@ class OnshapeWorkspace(QWidget):
     # ================================================================== layout
     def _build(self) -> None:
         root = QHBoxLayout(self)
-        split = QSplitter(Qt.Horizontal)
+        split = _StackingSplitter(Qt.Horizontal)
         root.addWidget(split)
         self.tabs = QTabWidget()
         self.tabs.addTab(self._browse_tab(), "Browse")
