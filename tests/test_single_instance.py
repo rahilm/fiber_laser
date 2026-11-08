@@ -105,8 +105,9 @@ def test_the_instance_lock_dies_with_a_crashed_process(env, tmp_path):
     report = tmp_path / "first.json"
     first = _start_first(env, report, crash=True)
     assert _stop(first, report) == 3                     # os._exit: no clean-up ran
-    sock = [f for f in os.listdir(env["MLASER_RUNTIME_DIR"]) if f.endswith(".sock")]
-    assert sock, "the crashed instance left its socket (the next one must cope with it)"
+    # its lock file stays (the OS dropped the lock itself), and so may its socket (in the
+    # runtime directory, or in Qt's temp directory when that path is too long for a socket)
+    assert [f for f in os.listdir(env["MLASER_RUNTIME_DIR"]) if f.endswith(".lock")]
     # the next launch is the first instance again (it does not try to hand over to the dead one)
     report2 = tmp_path / "second.json"
     second = _start_first(env, report2)
@@ -172,7 +173,8 @@ def test_client_refuses_a_server_of_another_protocol(tmp_path):
     from PySide6.QtWidgets import QApplication
     QApplication.instance() or QApplication([])
     from mlaser.ui import single_instance as SI
-    path = str(tmp_path / "s.sock")
+    import tempfile
+    path = os.path.join(tempfile.mkdtemp(prefix="mli-", dir="/tmp" if os.path.isdir("/tmp") else None), "s.sock")
     p = subprocess.Popen([sys.executable, "-c", FAKE_SERVER, path, str(SI.PROTO + 1)],
                          stdout=subprocess.PIPE, text=True)
     try:
