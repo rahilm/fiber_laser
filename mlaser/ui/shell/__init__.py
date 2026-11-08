@@ -54,6 +54,9 @@ SETTINGS = [
     Setting("shell.geometry", "str", "", label="shell.reset_layout", section="shell", source="app"),
     # splitter positions and current tabs (shell/view_state.py), saved with the dock layout
     Setting("shell.view_state", "json", {}, label="shell.reset_layout", section="shell", source="app"),
+    # the canvas bar folded to its arrow (canvas.CanvasHud)
+    Setting("shell.canvas_hud_collapsed", "bool", False, label="canvas.hud.collapse", section="shell",
+            source="app"),
 ]
 LAYOUT_VERSION = 4    # 4: side docks run the full height (dock_policy)
 
@@ -153,6 +156,10 @@ class Shell:
         self._register_commands()
         self._apply_keys()
         from .palette import CommandPalette
+        hud = getattr(getattr(w, "canvas", None), "hud", None)
+        if hud is not None:          # the canvas bar's fold is remembered
+            hud.set_collapsed(bool(self.config.get("shell.canvas_hud_collapsed", False)))
+            hud.collapsedChanged.connect(lambda on: self.config.set("shell.canvas_hud_collapsed", bool(on)))
         self.palette = CommandPalette(w, self.entries, lambda: list(self.recent.ids), self.tr)
         self.palette.commandChosen.connect(self._palette_run)
         self._build_menu()

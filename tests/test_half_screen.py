@@ -218,3 +218,32 @@ def test_tool_bar_labels_most_used_first(win, app):
             assert n == len(first) or not [a for a in labelled if a not in first], ws
         ext = page.toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
         assert ext is None or not ext.isVisible()
+
+
+def test_canvas_bar_is_compact_and_folds(win, app):
+    """O10: the canvas bar (Toolpath, Fit drawing, Fit table, legend) covers a small part of
+    the drawing, also at half screen, and folds to its arrow, remembered."""
+    from mlaser.ops import demo_document
+    from wiring import dispose, real_window
+    win.set_document(demo_document())
+    hud = win.canvas.hud
+    for size in (WIDE, (756, 945), HALF):
+        win.resize(*size)
+        settle(app)
+        v, g = win.canvas, hud.geometry()
+        assert g.width() * g.height() <= hud.AREA_SHARE * v.width() * v.height() + 1, (size, g, v.size())
+        assert hud.toggle.isVisible() and hud.fit_drawing.isVisible() and hud.fit_table.isVisible()
+    hud.fold.click()
+    settle(app, 0.2)
+    assert hud.collapsed and not hud.toggle.isVisible() and not hud.legend.isVisible()
+    assert hud.width() < 3 * hud.fold.width()
+    assert win.config.get("shell.canvas_hud_collapsed") is True
+    other = real_window(config=win.config)
+    try:
+        assert other.canvas.hud.collapsed                               # remembered
+    finally:
+        dispose(other)
+    hud.fold.click()
+    settle(app, 0.2)
+    assert not hud.collapsed and hud.toggle.isVisible()
+    assert win.config.get("shell.canvas_hud_collapsed") is False

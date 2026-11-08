@@ -513,8 +513,14 @@ class _Ring(QGraphicsEllipseItem):
 class CanvasHud(QFrame):
     """The canvas's own bar (top left of the view): the **Toolpath** toggle with the colour
     legend of the planned path, the plan state ("Computing toolpath…") and *Fit drawing* /
-    *Fit table*.  It adapts to the view's width: the legend is dropped first, then the button
-    texts shorten to icons-free short labels; nothing is a fixed width."""
+    *Fit table*.  It adapts to the view: its row wraps in a narrow view, and the legend shows
+    only while the bar covers a small part of the drawing (:data:`AREA_SHARE`).  The arrow at
+    its start folds it to that arrow (and the plan state), so it covers the drawing no more;
+    the choice is remembered (``shell.canvas_hud_collapsed``)."""
+
+    #: the share of the view the bar may cover with its legend shown
+    AREA_SHARE = 0.12
+    collapsedChanged = Signal(bool)
 
     def __init__(self, view: "CanvasView") -> None:
         super().__init__(view)
@@ -531,6 +537,13 @@ class CanvasHud(QFrame):
         from .responsive import FlowLayout
         lay = FlowLayout(justify=False, hspacing=SP2, vspacing=SP1 // 2)
         outer.addLayout(lay)
+        self.collapsed = False
+        self.fold = QToolButton()
+        self.fold.setObjectName("canvas_hud_fold")
+        self.fold.setAutoRaise(True)
+        self.fold.setFocusPolicy(Qt.TabFocus)
+        self.fold.clicked.connect(lambda _=False: self.set_collapsed(not self.collapsed))
+        lay.addWidget(self.fold)
         self.toggle = QCheckBox(tr("canvas.hud.toolpath"))
         self.toggle.setObjectName("canvas_hud_toolpath")
         self.toggle.setToolTip(tr("canvas.hud.toolpath_tip"))
@@ -559,7 +572,27 @@ class CanvasHud(QFrame):
             b.setFocusPolicy(Qt.TabFocus)
             lay.addWidget(b)
         outer.addWidget(self.legend)
+        self._fold_look()
         self.refresh()
+
+    def _fold_look(self) -> None:
+        from .i18n import tr
+        self.fold.setArrowType(Qt.RightArrow if self.collapsed else Qt.LeftArrow)
+        tip = tr("canvas.hud.expand" if self.collapsed else "canvas.hud.collapse")
+        self.fold.setToolTip(tip)
+        self.fold.setAccessibleName(tip)
+
+    def set_collapsed(self, on: bool) -> None:
+        """Folded to its arrow (and the plan state while there is one), or the whole bar."""
+        on = bool(on)
+        if on == self.collapsed:
+            return
+        self.collapsed = on
+        for w in (self.toggle, self.fit_drawing, self.fit_table):
+            w.setVisible(not on)
+        self._fold_look()
+        self.place()
+        self.collapsedChanged.emit(on)
 
     def refresh(self) -> None:
         from .i18n import tr
@@ -593,7 +626,7 @@ class CanvasHud(QFrame):
         """Size and position for the view's current width (content-driven: the legend shows
         only when the whole bar fits)."""
         avail = max(0, self.view.width() - 16)
-        self.legend.setVisible(self.view.options.show_toolpath)
+        self.legend.setVisible(self.view.options.show_toolpath and not self.collapsed)
         lay = self.layout()
         lay.activate()
         # what surrounds the row: the layout's margins and the frame's own (the style sheet's
@@ -602,8 +635,9 @@ class CanvasHud(QFrame):
         pad = lm.left() + lm.right() + fm.left() + fm.right()
         w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
         if self.legend.isVisible():
-            # the legend wraps to the bar's width; it goes when even a short line does not fit
-            w = min(max(w, self.legend.sizeHint().width() + pad), avail)
+            # the legend wraps to the bar's width (at most the row's when that is wider than
+            # half the view: it then takes more lines, not more of the drawing)
+            w = min(max(w, min(self.legend.sizeHint().width() + pad, max(w, avail // 2))), avail)
         def height() -> int:
             # the layout's height at the width inside the frame (the row may wrap in a narrow
             # view), plus the frame
@@ -611,7 +645,10 @@ class CanvasHud(QFrame):
                 return self.sizeHint().height()
             return lay.heightForWidth(w - fm.left() - fm.right()) + fm.top() + fm.bottom()
         h = height()
-        if self.legend.isVisible() and h > self.view.height() // 3:
+        area = max(self.view.width() * self.view.height(), 1)
+        if self.legend.isVisible() and (h > self.view.height() // 3 or w * h > self.AREA_SHARE * area):
+            # the legend would cover too much of the drawing (a half-screen window): the
+            # toggle's tooltip and View › Show keep it reachable
             self.legend.setVisible(False)
             lay.activate()
             h = height()
