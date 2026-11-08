@@ -33,6 +33,7 @@ class DockPolicy(QObject):
         self.enabled = False                     # after the first show
         self._applying = False
         self._watched: set[int] = set()
+        self._tried: Optional[tuple] = None      # the last resize asked for (see apply)
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(self.apply)
@@ -103,6 +104,7 @@ class DockPolicy(QObject):
     def forget(self) -> None:
         self.prefs.clear()
         self.vprefs.clear()
+        self._tried = None
 
     @staticmethod
     def _shown(group: list) -> QDockWidget:
@@ -166,18 +168,33 @@ class DockPolicy(QObject):
         t = self.targets()
         changed = {d: w for d, w in t.items() if abs(d.width() - w) > 1}
         log = getattr(self.w, "log_dock", None)
+        vert: list = []
+        if log is not None and log.isVisible() and not log.isFloating():
+            h = self.vprefs.get(log.objectName(), log.widget().sizeHint().height() if log.widget() else 0)
+            central = self.w.centralWidget()
+            if central is not None:
+                spare = central.height() + log.height() - central.minimumSizeHint().height()
+                h = max(log.minimumSizeHint().height(), min(h, spare))
+            if abs(log.height() - h) > 1:
+                vert = [log, h]
+        # the same resize asked again of the same geometry: the window cannot give it (smaller
+        # than its content's minimum, on a screen below that).  Not asked again: each
+        # resizeDocks relaid the window out, which scheduled this again, for ever (97 % idle
+        # CPU on an 800 x 800 screen)
+        tried = (self.w.size().toTuple(), tuple((id(d), d.width(), wd) for d, wd in changed.items()),
+                 (id(vert[0]), vert[0].height(), vert[1]) if vert else None)
+        if not changed and not vert:
+            self._tried = None
+            return
+        if tried == self._tried:
+            return
+        self._tried = tried
         self._applying = True
         try:
             if changed:
                 self.w.resizeDocks(list(changed), list(changed.values()), Qt.Horizontal)
-            if log is not None and log.isVisible() and not log.isFloating():
-                h = self.vprefs.get(log.objectName(), log.widget().sizeHint().height() if log.widget() else 0)
-                central = self.w.centralWidget()
-                if central is not None:
-                    spare = central.height() + log.height() - central.minimumSizeHint().height()
-                    h = max(log.minimumSizeHint().height(), min(h, spare))
-                if abs(log.height() - h) > 1:
-                    self.w.resizeDocks([log], [h], Qt.Vertical)
+            if vert:
+                self.w.resizeDocks([vert[0]], [vert[1]], Qt.Vertical)
         finally:
             self._applying = False
 
