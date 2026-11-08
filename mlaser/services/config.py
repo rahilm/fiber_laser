@@ -28,10 +28,12 @@ old ``settings`` dict (diag ``ParamSet``, extensions).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import sys
 import tempfile
+import threading
 from collections.abc import MutableMapping
 from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
@@ -467,6 +469,11 @@ class ConfigService:
         self._listeners: list[Callable[[str], None]] = []
         self._machine_cache: Any = None
         self._dirty = False
+        self._batch = 0                      # batch(): the listeners are told at its end
+        self._pending: list[str] = []
+        self._write_lock = threading.Lock()  # save(): one writer at a time, never an older state
+        self._issued = 0
+        self._written = 0
         if load:
             self.load()
             self.migrate_legacy()
@@ -525,8 +532,29 @@ class ConfigService:
     def _changed(self, key: str) -> None:
         self._dirty = True
         self._machine_cache = None
+        if self._batch:
+            if key not in self._pending:
+                self._pending.append(key)
+            return
         for fn in list(self._listeners):
             fn(key)
+
+    @contextlib.contextmanager
+    def batch(self) -> Iterator[None]:
+        """Set several values, then tell the listeners (each changed key once, in order): a
+        listener that recomputes from all the values (the window's machine profile, 5-10 ms)
+        then does so once, not once per value (closing the window wrote 11 counters: 80 ms of
+        the GUI thread's 85 ms close, 0.3 s on a slow runner)."""
+        self._batch += 1
+        try:
+            yield
+        finally:
+            self._batch -= 1
+            if not self._batch:
+                keys, self._pending = self._pending, []
+                for key in keys:
+                    for fn in list(self._listeners):
+                        fn(key)
 
     def subscribe(self, fn: Callable[[str], None]) -> Callable[[], None]:
         self._listeners.append(fn)
@@ -558,25 +586,55 @@ class ConfigService:
         self._dirty = False
         self._machine_cache = None
 
-    def save(self, path: Optional[os.PathLike | str] = None) -> Path:
-        p = Path(path) if path is not None else self.path
-        p.parent.mkdir(parents=True, exist_ok=True)
+    def _snapshot(self) -> tuple[int, str]:
         vals = {k: v for k, v in self.values.items() if _jsonable(v)}
         data = {
             "version": 1,
             "profile": {"base": self.profile.base, "overrides": self.profile.overrides},
             "values": vals,
         }
-        atomic_write_text(p, json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True))
+        self._issued += 1
+        return self._issued, json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True)
+
+    def _write(self, p: Path, ticket: int, text: str) -> None:
+        with self._write_lock:
+            if p == self.path and ticket < self._written:
+                return                       # a newer state is on disk already
+            p.parent.mkdir(parents=True, exist_ok=True)
+            atomic_write_text(p, text)
+            if p == self.path:
+                self._written = ticket
+
+    def save(self, path: Optional[os.PathLike | str] = None) -> Path:
+        p = Path(path) if path is not None else self.path
+        ticket, text = self._snapshot()
+        self._write(p, ticket, text)
         self._dirty = False
         return p
 
-    def flush(self) -> None:
-        if self._dirty:
+    def flush(self, background: bool = False) -> None:
+        """Write the settings if they changed.  ``background``: the state is taken here and
+        written by a (non-daemon) thread, so the caller - the GUI thread closing the window or
+        saving the counters - never waits on the disk (Windows CI: a settings write held a
+        close for 0.1-0.8 s); a later save never loses to it, and the interpreter waits for
+        the write before it exits."""
+        if not self._dirty:
+            return
+        if not background:
             try:
                 self.save()
             except OSError:
                 pass
+            return
+        ticket, text = self._snapshot()
+        self._dirty = False
+
+        def write() -> None:
+            try:
+                self._write(self.path, ticket, text)
+            except OSError:
+                self._dirty = True
+        threading.Thread(target=write, name="mlaser-config-save", daemon=False).start()
 
     # ------------------------------------------------------------------ original XML files
     def machine_params(self):
@@ -758,6 +816,10 @@ class SettingsView(MutableMapping):
 
     def __setitem__(self, key: str, value: Any) -> None:
         self._svc.set(key, value)
+
+    def batch(self) -> contextlib.AbstractContextManager:
+        """:meth:`ConfigService.batch`."""
+        return self._svc.batch()
 
     def __delitem__(self, key: str) -> None:
         if key not in self._svc.values:

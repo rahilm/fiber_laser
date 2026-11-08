@@ -68,6 +68,49 @@ def test_mapping_view_behaves_like_the_old_settings_dict(cfg):
     assert cfg.get("machine_ops.coord") == 3
 
 
+def test_batch_tells_the_listeners_once_at_its_end(cfg):
+    """Several values set in a batch: the listeners hear each changed key once, after the last
+    value is in, so a listener recomputing from all of them (the window's machine) does it
+    once; outside a batch every set is told at once, as before."""
+    heard = []
+    cfg.subscribe(lambda key: heard.append((key, cfg.mapping().get("a"), cfg.mapping().get("b"))))
+    view = cfg.mapping()
+    with view.batch():
+        view["a"] = 1
+        view["b"] = 2
+        view["a"] = 3
+        assert heard == []
+    assert heard == [("a", 3, 2), ("b", 3, 2)]
+    m = cfg.machine()
+    with cfg.batch():
+        view["c"] = 1
+    assert cfg.machine() is not m                        # a change in a batch drops the cache
+    view["d"] = 4
+    assert heard[-1] == ("d", 3, 2)
+
+
+def test_background_flush_writes_the_state_of_the_call_and_never_an_older_one(tmp_path):
+    import json
+    import threading
+    a = ConfigService(tmp_path / "c.json")
+    view = a.mapping()
+    view["x"] = 1
+    a.flush(background=True)
+    view["x"] = 2
+    a.flush()                                            # a later save waits, then wins
+    for t in [t for t in threading.enumerate() if t.name == "mlaser-config-save"]:
+        t.join(5)
+    assert json.loads((tmp_path / "c.json").read_text("utf-8"))["values"]["x"] == 2
+    view["x"] = 3
+    a.flush(background=True)
+    for t in [t for t in threading.enumerate() if t.name == "mlaser-config-save"]:
+        t.join(5)
+    assert ConfigService(tmp_path / "c.json").mapping()["x"] == 3
+    a._issued, a._written = 10, 10                       # an older ticket never replaces the file
+    a._write(a.path, 5, "{}")
+    assert ConfigService(tmp_path / "c.json").mapping()["x"] == 3
+
+
 def test_persistence(tmp_path):
     a = ConfigService(tmp_path / "c.json")
     a.set("GC.GasDelay", 300)

@@ -1419,7 +1419,8 @@ class DiagExtension:
         self.store = ReportStore(self.data_dir, lang)
         self.svc = ProductionService(self.settings, self.data_dir, stop=lambda: QTimer.singleShot(0, self.w.ctl.stop),
                                      notify=self._notify, stats=StatsRecorder(self.store, self._job_snapshot),
-                                     flush=cfg.flush if cfg is not None else (lambda: None),
+                                     # the counters' settings written off the GUI thread
+                                     flush=(lambda: cfg.flush(background=True)) if cfg is not None else (lambda: None),
                                      job_source=lambda mode: window_job_source(self.w, mode))
         self.counters, self.use_timer = self.svc.counters, self.svc.use_timer
         self.watcher, self.stats, self.production = self.svc.watcher, self.svc.stats, self.svc.production

@@ -31,6 +31,7 @@ behaviour, FUN_004b9260 area, docs/re/diag.md).
 
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import time
@@ -203,10 +204,12 @@ class ProductionService:
     def save_state(self, batch_list=None) -> None:
         """Counters, maintenance plan and batch list into the settings (ConfigService), then
         written to disk."""
-        self.counters.to_settings(self.settings)
-        self.settings[M.PARAM_KEY] = self.maintain_plan.to_text()
-        if batch_list is not None:
-            self.settings[B.TABLE_KEY] = batch_list.to_text()
+        batch = getattr(self.settings, "batch", None)     # the settings' listeners told once
+        with batch() if batch is not None else contextlib.nullcontext():
+            self.counters.to_settings(self.settings)
+            self.settings[M.PARAM_KEY] = self.maintain_plan.to_text()
+            if batch_list is not None:
+                self.settings[B.TABLE_KEY] = batch_list.to_text()
         self.flush()
 
 
