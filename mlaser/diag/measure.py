@@ -70,7 +70,8 @@ class DataRecorder:
 
     def save_csv(self, path: str) -> int:
         keys = sorted({k for s in self.samples if s.extra for k in s.extra})
-        with open(path, "w", newline="", encoding="utf-8") as f:
+        from mlaser._atomic import atomic_open
+        with atomic_open(path, "w", newline="", encoding="utf-8") as f:
             w = csv.writer(f)
             w.writerow(list(COLUMNS) + keys)
             for s in self.samples:

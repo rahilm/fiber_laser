@@ -200,5 +200,6 @@ def read_gcode(path: str) -> Document:
 
 
 def write_gcode(path: str, doc: Document, feed: float = 10.0) -> None:
-    with open(path, "w", newline="") as f:
+    from mlaser._atomic import atomic_open
+    with atomic_open(path, "w", newline="") as f:   # the platform's default encoding, as before
         f.write(document_to_gcode(doc, feed))

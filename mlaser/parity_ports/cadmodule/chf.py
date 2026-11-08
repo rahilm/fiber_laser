@@ -28,6 +28,7 @@ from enum import IntEnum
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from ..._atomic import atomic_write
 from ...geom import curves as _geom
 from ...model import Arc, Contour, Craft, Document, Glyph, GlyphKind, LeadParams, Line, Part, Segment
 from .scio import ScFormatError, ScReader, ScWriter
@@ -886,5 +887,8 @@ def dumps_chf(doc: Document, version: int = CURRENT_VERSION) -> bytes:
 
 @port("FUN_100ebdd0", source="CADModule", parity=("chf", "import_bytes"))
 def save_chf(doc: Document, path, version: int = CURRENT_VERSION) -> None:
-    """Write ``doc`` as a .chf file of the given format version (default 9, as Mlaser writes)."""
-    Path(path).write_bytes(dumps_chf(doc, version))
+    """Write ``doc`` as a .chf file of the given format version (default 9, as Mlaser writes).
+
+    The bytes are :func:`dumps_chf`'s; the file is replaced atomically (mlaser._atomic: a crash
+    mid-write leaves the old file, where the original truncated it first)."""
+    atomic_write(path, dumps_chf(doc, version))

@@ -115,7 +115,8 @@ def export_offline(path: PathLike, job, doc=None, layer_xml: bytes = b"", thumbn
     items = manu_items(job)
     info = (f"Version=1\nSteps={job.steps}\nItems={len(items)}\nDuration={job.total_time_s:.3f}\n"
             f"LaserType={int(laser_type)}\n").encode()
-    p.write_bytes(pack_container({"_tempProcessInfo.olpi": info,
+    from mlaser._atomic import atomic_write
+    atomic_write(p, pack_container({"_tempProcessInfo.olpi": info,
                                   "_tempManuItem.olpf": olpf_text(items).encode(),
                                   "_tempthumbnail.jpg": thumbnail_jpg, "_tempLayer.xml": layer_xml,
                                   "_tempSource.chf": chf}))

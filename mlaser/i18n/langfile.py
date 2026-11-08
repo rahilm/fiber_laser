@@ -132,7 +132,8 @@ class Translator:
                 out.append(ln)
         if not done:
             out.append("Lang=" + name)
-        ini.write_bytes(("\n".join(out) + "\n").encode(encoding, "replace"))
+        from mlaser._atomic import atomic_write
+        atomic_write(ini, ("\n".join(out) + "\n").encode(encoding, "replace"))
 
     # ------------------------------------------------------------------ lookup
     def index_of(self, lang: Union[str, int, None]) -> int:

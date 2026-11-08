@@ -14,6 +14,8 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from mlaser._atomic import atomic_write_text
+
 FILE = "alarm_history.jsonl"
 
 
@@ -158,10 +160,7 @@ class AlarmHistory:
         with self._lock:
             data = "".join(json.dumps(asdict(r), ensure_ascii=False) + "\n" for r in self.records)
         try:
-            self.path.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.path.with_name(self.path.name + ".tmp")
-            tmp.write_text(data, "utf-8")
-            tmp.replace(self.path)
+            atomic_write_text(self.path, data)
         except OSError:
             pass
 

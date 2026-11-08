@@ -43,6 +43,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .._atomic import atomic_write
 from ..formats.chf import _TYPE_OF, _read_graph, _write_graph, graph_from_part, part_from_graph
 from ..formats.scio import ScReader, ScWriter
 from .apply import layout_parts
@@ -240,7 +241,7 @@ def _utilisation(job: NestJob, result: NestResult) -> None:
 
 
 def save_project(job: NestJob, path) -> None:
-    Path(path).write_bytes(dumps_project(job))
+    atomic_write(path, dumps_project(job))   # never a truncated project after a crash
 
 
 def load_project(path) -> NestJob:

@@ -24,12 +24,12 @@ import hashlib
 import io
 import json
 import os
-import tempfile
 import zipfile
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Optional, Union
 
+from .._atomic import atomic_write
 from ..io.limits import ImportCancelled, tick
 from ..model import Document
 from . import migrations as M
@@ -86,6 +86,21 @@ def _now() -> str:
 
 def _dump(v: Any) -> bytes:
     return json.dumps(v, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")
+
+
+def _dump_document(ddoc: dict) -> bytes:
+    """``_dump(ddoc)``, byte for byte, one part at a time: ``json.dumps`` holds the interpreter
+    for the whole call (0.1 s for 2,700 parts), and Save / autosave run it in a worker while
+    the window must stay responsive."""
+    def enc(v: Any) -> str:
+        return json.dumps(v, ensure_ascii=False, separators=(",", ":"), allow_nan=False)
+    items = []
+    for k, v in ddoc.items():
+        if k == "parts" and isinstance(v, list):
+            items.append(enc(k) + ":[" + ",".join(enc(p) for p in v) + "]")
+        else:
+            items.append(enc(k) + ":" + enc(v))
+    return ("{" + ",".join(items) + "}").encode("utf-8")
 
 
 # =========================================================================== writing
@@ -150,7 +165,7 @@ def dumps_project(project: Union[Project, Document], embed_fonts: Union[bool, st
             chf_info = {"member": "chf/records.chf", "version": int(doc.version)}
         except Exception as e:  # noqa: BLE001 - the export is rebuilt from the model then
             notes.append(f".chf records not kept ({type(e).__name__}: {e}); a .chf export is rebuilt")
-    members["document.json"] = _dump(ddoc)
+    members["document.json"] = _dump_document(ddoc)
     sections = dict(project.sections)
     if project.technology:
         sections["technology"] = project.technology
@@ -188,35 +203,6 @@ def _info(name: str) -> zipfile.ZipInfo:
     zi = zipfile.ZipInfo(name, date_time=(1980, 1, 1, 0, 0, 0))
     zi.external_attr = 0o644 << 16
     return zi
-
-
-def atomic_write(path: PathLike, data: bytes) -> None:
-    """Write ``data`` to ``path`` through a temporary file in the same folder and ``os.replace``
-    (a crash leaves either the old file or the new one, never a half-written file)."""
-    p = Path(path)
-    p.parent.mkdir(parents=True, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=f".{p.name}.", suffix=".tmp", dir=str(p.parent))
-    try:
-        with os.fdopen(fd, "wb") as f:
-            f.write(data)
-            f.flush()
-            os.fsync(f.fileno())
-        os.replace(tmp, p)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
-    if hasattr(os, "O_DIRECTORY"):
-        try:
-            dfd = os.open(str(p.parent), os.O_DIRECTORY)
-            try:
-                os.fsync(dfd)
-            finally:
-                os.close(dfd)
-        except OSError:
-            pass
 
 
 def save_project(path: PathLike, project: Union[Project, Document], embed_fonts: Union[bool, str] = "auto") -> None:

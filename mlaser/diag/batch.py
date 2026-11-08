@@ -155,7 +155,9 @@ class BatchRunner:
             return False
         self.entry = e
         if self._loaded_path != e.path:
-            if not self.w.load_path(e.path):
+            # the unsaved-changes question before the batch replaces the user's drawing, not
+            # between its own files
+            if not self.w.load_path(e.path, confirm=self._loaded_path is None):
                 self.active = False
                 return False
             self._loaded_path = e.path

@@ -6,7 +6,7 @@ import copy
 import os
 from typing import Callable, Optional
 
-from PySide6.QtCore import QEvent, QObject, Qt, QTimer, Signal
+from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
                                QMessageBox, QTabWidget)
@@ -104,24 +104,6 @@ class _Bridge(QObject):
     def __init__(self, parent) -> None:
         super().__init__(parent)
         self.call.connect(lambda fn: fn())
-
-
-class _CloseWatch(QObject):
-    """Runs the plugins' ``close`` hooks before the window's closeEvent (an event filter, so the
-    window's own close handling stays untouched)."""
-
-    def __init__(self, window) -> None:
-        super().__init__(window)
-        self._w = window
-        self._done = False
-
-    def eventFilter(self, obj, ev) -> bool:
-        if obj is self._w and ev.type() == QEvent.Close and not self._done:
-            self._done = True
-            self._w.hooks.emit("close")
-            self._w.jobs.shutdown()
-            self._w.config.flush()
-        return False
 
 
 _LEAD_IDS = tuple(f"craft.lead_{n}.{f}" for n in ("in", "out") for f in ("kind", "angle_deg", "length", "radius"))
@@ -277,8 +259,6 @@ class MainWindow(QMainWindow):
         self._timer.start(100)
         self.docs.subscribe(self._document_changed)
         self.set_document(Document())
-        self._close_watch = _CloseWatch(self)
-        self.installEventFilter(self._close_watch)
         self.plugin_catalog: list = []           # entry-point plugins found (services.plugins)
         self._load_extensions(extensions)
         # --- safety I/O (ui/safety_io.py): the interlocks and the heartbeat from the ConfigService
@@ -441,26 +421,163 @@ class MainWindow(QMainWindow):
         super().showEvent(ev)
         QTimer.singleShot(0, self.canvas.zoom_fit)   # fit once the view has its real size
 
+    # ------------------------------------------------------------------ closing
+    _closing = False            # a close question is open (a second close request waits for it)
+    _shut_down = False          # the close was accepted and the shutdown ran
+
     def closeEvent(self, ev) -> None:
-        # --- safety: leave the machine halted (program stop, PWM 0, outputs off, FIFO
-        # stop/clear) before the connection goes; a failure is logged, never swallowed
+        """Decide first, then shut down (UI evaluation F4): a job running ("Stop it and quit?")
+        and unsaved changes (Save / Don't Save / Cancel) are asked before anything stops; only
+        an accepted close runs the plugins' ``close`` hooks (the Run timer, the pendant, the
+        monitor, NormalExit=1 for the crash-recovery check), shuts the job service down and
+        halts the machine.  Declined, the application goes on exactly as before.  The macOS
+        Quit (⌘Q, the Dock, logging out) reaches this as a close event as well and is cancelled
+        when the close is."""
+        if self._shut_down:
+            super().closeEvent(ev)
+            return
+        if self._closing or not self.may_close():
+            ev.ignore()
+            return
+        self.shutdown()
+        super().closeEvent(ev)
+
+    def may_close(self) -> bool:
+        """Ask what closing would lose; True when the window may close (nothing changes here)."""
         from . import safety_ui
-        if safety_ui.job_running(self) and not getattr(self, "_test_no_dialogs", False):
-            if QMessageBox.question(self, "Job running", "A job is running. Stop it and quit?",
-                                    QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
-                ev.ignore()
-                return
+        no_dialogs = getattr(self, "_test_no_dialogs", False)
+        self._closing = True
+        try:
+            if safety_ui.job_running(self) and not no_dialogs:
+                if self._ask_stop_job() != QMessageBox.Yes:
+                    return False
+            return self.confirm_unsaved(closing=True)
+        finally:
+            self._closing = False
+
+    def _ask_stop_job(self):
+        box = self._message_box(QMessageBox.Warning, self.tr_.tr("app.close.job_running"),
+                                self.tr_.tr("app.close.job_running_info"))
+        box.setStandardButtons(QMessageBox.Yes | QMessageBox.No)
+        box.setDefaultButton(QMessageBox.No)
+        box.setEscapeButton(QMessageBox.No)
+        try:
+            return box.exec()
+        finally:
+            box.deleteLater()
+
+    def shutdown(self) -> None:
+        """The accepted close, once: first the machine left halted (program stop, PWM 0, outputs
+        off, FIFO stop/clear), then the plugins' ``close`` hooks, the job service and the
+        settings, and last the connection.  A failure is logged, never swallowed, and never
+        stops the rest."""
+        if self._shut_down:
+            return
+        self._shut_down = True
         import logging
+        log = logging.getLogger("mlaser.ui")
+        # --- safety: halted at once, before the plugins take their time
         try:
             self.ctl.safe_halt("main window closed")
         except Exception:  # noqa: BLE001
-            logging.getLogger("mlaser.ui").exception("safe_halt on close failed")
+            log.exception("safe_halt on close failed")
+        # ---
+        for what, fn in (("close hooks", lambda: self.hooks.emit("close")), ("job service", self.jobs.shutdown),
+                         ("settings", self.config.flush)):
+            try:
+                fn()
+            except Exception:  # noqa: BLE001
+                log.exception("%s on close failed", what)
         try:
             self.ctl.disconnect()
         except Exception:  # noqa: BLE001
-            logging.getLogger("mlaser.ui").exception("disconnect on close failed")
-        # ---
-        super().closeEvent(ev)
+            log.exception("disconnect on close failed")
+
+    def commit_session(self, manager) -> None:
+        """``QGuiApplication.commitDataRequest`` (logging out / shutting down on Windows and
+        Linux; macOS asks through the Quit above): the unsaved-changes question when the
+        session lets the application interact, ``manager.cancel()`` when the user cancels."""
+        if self._shut_down:
+            return
+        try:
+            interact = manager.allowsInteraction()
+        except Exception:  # noqa: BLE001
+            interact = False
+        if interact:
+            ok = self.may_close()
+            try:
+                manager.release()
+            except Exception:  # noqa: BLE001
+                pass
+            if not ok:
+                manager.cancel()
+
+    def about_to_quit(self) -> None:
+        """``QCoreApplication.aboutToQuit``: an application that quits without closing its window
+        (the session ends) still shuts down as an accepted close does: the machine halted."""
+        self.shutdown()
+
+    # ------------------------------------------------------------------ unsaved changes
+    def _message_box(self, icon, text: str, info: str = "") -> QMessageBox:
+        """A window-modal message box (a sheet on macOS), the platform's look: a question has no
+        icon on Windows and macOS (their own save prompts: none, the application icon), the
+        warning icon on Linux (GNOME, KDE).  The title is the application's (a sheet has none)."""
+        from PySide6.QtWidgets import QApplication
+
+        from .native import LINUX, platform_id
+        box = QMessageBox(self)
+        box.setObjectName("mlaser_close_question")
+        if icon == QMessageBox.Question:
+            icon = QMessageBox.Warning if platform_id() == LINUX else QMessageBox.NoIcon
+        box.setIcon(icon)
+        box.setWindowTitle(QApplication.applicationDisplayName() or "mlaser")
+        box.setText(text)
+        if info:
+            box.setInformativeText(info)
+        box.setWindowModality(Qt.WindowModal)
+        return box
+
+    def document_name(self) -> str:
+        path = self.docs.path
+        return os.path.basename(path) if path else self.tr_.tr("shell.untitled")
+
+    def _ask_save_changes(self, closing: bool):
+        """Save / Don't Save / Cancel: the standard buttons, so the order is the platform's
+        (macOS: Don't Save on the left, Cancel and Save on the right; Windows: Save, Don't Save,
+        Cancel; GNOME / KDE their own); the texts from the catalogue (GNOME's "Close without
+        Saving" when the window closes)."""
+        from .native import LINUX, platform_id
+        box = self._message_box(QMessageBox.Question,
+                                self.tr_.format("app.unsaved.text", name=self.document_name()),
+                                self.tr_.tr("app.unsaved.info"))
+        box.setStandardButtons(QMessageBox.Save | QMessageBox.Discard | QMessageBox.Cancel)
+        box.setDefaultButton(QMessageBox.Save)
+        box.setEscapeButton(QMessageBox.Cancel)
+        discard = "app.unsaved.close_without" if closing and platform_id() == LINUX else "app.unsaved.dont_save"
+        for btn, key in ((QMessageBox.Save, "app.unsaved.save"), (QMessageBox.Discard, discard),
+                         (QMessageBox.Cancel, "app.unsaved.cancel")):
+            b = box.button(btn)
+            if b is not None:
+                b.setText(self.tr_.tr(key))
+        try:
+            return box.exec()
+        finally:
+            box.deleteLater()
+
+    def confirm_unsaved(self, closing: bool = False) -> bool:
+        """Before the document is closed or replaced (closing the window or quitting, File > New,
+        Open, a recent drawing, a file from the OS): with unsaved changes, Save / Don't Save /
+        Cancel.  Save saves (Save As for a new drawing) and goes on only when the file was
+        written.  True: go on."""
+        shell = getattr(self, "shell", None)
+        if shell is None or not shell.dirty:
+            return True
+        if getattr(self, "_test_no_dialogs", False):
+            return True
+        ans = self._ask_save_changes(closing)
+        if ans == QMessageBox.Save:
+            return bool(self.file_save())
+        return ans == QMessageBox.Discard
 
     # ------------------------------------------------------------------ setup
     def _dock(self, key: str, w, area) -> QDockWidget:
@@ -1016,13 +1133,17 @@ class MainWindow(QMainWindow):
         return safety_ui.job_locked(self, what)
 
     def file_new(self) -> None:
-        if self._job_locked("File > New"):
+        if self._job_locked("File > New") or not self.confirm_unsaved():
             return
         self._snapshot()
         self.set_document(Document())
 
-    def load_path(self, path: str) -> bool:
+    def load_path(self, path: str, confirm: bool = True) -> bool:
+        """Open ``path`` as the document (a drawing, a project).  ``confirm``: the unsaved-changes
+        question first (False: the caller asked it, or merges instead of replacing)."""
         if self._job_locked("open"):
+            return False
+        if confirm and not self.confirm_unsaved():
             return False
         ext = os.path.splitext(path)[1].lower()
         if ext == ".mlz":                                   # ext_project: native projects
@@ -1075,11 +1196,11 @@ class MainWindow(QMainWindow):
         return True
 
     def file_open(self) -> None:
-        if self._job_locked("File > Open"):
+        if self._job_locked("File > Open") or not self.confirm_unsaved():
             return
         path, _ = QFileDialog.getOpenFileName(self, self.tr_.tr("mf150"), "", self.FILTER)
         if path:
-            self.load_path(path)
+            self.load_path(path, confirm=False)
 
     def file_import(self) -> None:
         if self._job_locked("File > Import"):
@@ -1088,15 +1209,28 @@ class MainWindow(QMainWindow):
         if not path:
             return
         before = self.document
-        if self.load_path(path) and before.parts:
+        if self.load_path(path, confirm=False) and before.parts:     # merged: nothing is lost
             merged = copy.deepcopy(before)
             merged.parts.extend(self.document.parts)
             self.set_document(merged, self.path)
 
-    def file_save(self, save_as: bool = False) -> None:
+    _saving = False
+
+    def file_save(self, save_as: bool = False) -> bool:
         """Save: a new drawing (or Save As) asks for a file, ``.mlz`` project by default
         (``project.save`` provider of ext_project); a document opened from a ``.chf`` is saved
-        back as ``.chf``; File > Export CHF (``file.export_chf``) writes the interchange file."""
+        back as ``.chf``; File > Export CHF (``file.export_chf``) writes the interchange file.
+        The file is serialised and written in a worker, atomically (:mod:`mlaser.ui.save_worker`).
+        True when it was written (False: cancelled or failed, the reason logged)."""
+        if self._saving:                         # Save again while the window waits for one
+            return False
+        self._saving = True
+        try:
+            return self._file_save(save_as)
+        finally:
+            self._saving = False
+
+    def _file_save(self, save_as: bool) -> bool:
         project_save = self.hooks.provider("project.save")
         path = self.path
         if save_as or not path:
@@ -1106,21 +1240,36 @@ class MainWindow(QMainWindow):
             if path and project_save is not None and not os.path.splitext(path)[1]:
                 path += ".mlz"
         if not path:
-            return
+            return False
         if not path.lower().endswith(".chf") and project_save is not None:
             if project_save(path):
                 self.shell.mark_saved()
-            return
+                return True
+            return False
         saver = _lazy("mlaser.formats.chf", "save_chf")
         if saver is None:
             self.log_panel.log("mf153: .chf writer not available yet")
-            return
-        if path:
-            from mlaser.cam.raster_engraving import expand_document
-            saver(expand_document(self.document), path)    # raster parts as their burn segments
-            self.path = path
-            self.log_panel.log(f"np_FileSaveDone: {path}")
-            self.shell.mark_saved()
+            return False
+        from mlaser.cam.raster_engraving import expand_document
+
+        from .save_worker import run_in_worker, snapshot_now
+        name = os.path.basename(path)
+        try:
+            snap = snapshot_now(self.docs, self)
+            # raster parts as their burn segments; written atomically (save_chf)
+            run_in_worker(self, lambda: saver(expand_document(snap), path),
+                          self.tr_.format("project.saving", name=name), self.tr_.tr("cmd.file.save"))
+        except Exception as e:  # noqa: BLE001 - the file is not written: shown, the document stays modified
+            self.log_panel.log(self.tr_.format("project.save_error", error=f"{name}: {type(e).__name__}: {e}"))
+            from .import_worker import show_error
+            show_error(self, self.tr_.tr("app.save_failed"), f"{name}\n\n{e}")
+            return False
+        self.path = path
+        self.log_panel.log(f"np_FileSaveDone: {path}")
+        self.shell.mark_saved()
+        from .save_worker import seal_undo
+        seal_undo(self.docs)
+        return True
 
     # ------------------------------------------------------------------ dialogs
     def settings_dialog(self, key: Optional[str] = None):

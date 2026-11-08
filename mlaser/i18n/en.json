@@ -101,6 +101,15 @@
   "api.warn.intake": ", and accepts jobs for the queue, which wait for your approval on the Run screen",
   "api.warn.text": "The automation API serves the machine status and events on {host}:{port} to programs that have its token{intake}. It cannot start, stop, hold, arm or move the machine. Keep it on this PC (127.0.0.1) unless the shop network is trusted.\n\nEnable it?",
   "api.warn.title": "Enable the automation API",
+  "app.close.job_running": "A job is running. Stop it and quit?",
+  "app.close.job_running_info": "Quitting stops the job and leaves the machine halted.",
+  "app.save_failed": "The file was not saved",
+  "app.unsaved.cancel": "Cancel",
+  "app.unsaved.close_without": "Close without saving",
+  "app.unsaved.dont_save": "Don’t save",
+  "app.unsaved.info": "Your changes will be lost if you don’t save them.",
+  "app.unsaved.save": "Save",
+  "app.unsaved.text": "Do you want to save the changes you made to “{name}”?",
   "approval.btn.approve": "Approve",
   "approval.btn.reject": "Reject",
   "approval.col.from": "From",
@@ -2522,6 +2531,7 @@
   "project.save": "Save project…",
   "project.save_error": "Not saved: {error}",
   "project.saved": "Saved: {path}",
+  "project.saving": "Saving {name}…",
   "props.applies_to": "Applies to",
   "props.apply": "Apply",
   "props.cam_in_process": "Leads, kerf and the other cut settings of the selection are edited in the Process workspace.",
@@ -4210,6 +4220,9 @@
   "alarm.axis_soft_positive_limit_alarm": [
    "axis"
   ],
+  "app.unsaved.text": [
+   "name"
+  ],
   "aux.burn_in_progress": [
    "done",
    "total"
@@ -4381,6 +4394,9 @@
   "plugins.confirm": [
    "names",
    "warning"
+  ],
+  "project.saving": [
+   "name"
   ],
   "repair.done.closed": [
    "n"

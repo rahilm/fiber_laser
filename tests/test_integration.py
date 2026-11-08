@@ -124,6 +124,7 @@ def test_ui_runs_job_on_simulator(dxf_path):
         assert win.estimate["total"] > 0 and win.canvas.simulation_running()
         win.canvas.stop_simulation(clear=True)
     finally:
+        win._test_no_dialogs = True           # an imported drawing: no Save question
         win.close()
 
 
@@ -151,4 +152,5 @@ def test_ui_cam_commands(dxf_path):
         assert all(p.craft.kerf_comp == 1 for p in win.document.parts)
         app.processEvents()
     finally:
+        win._test_no_dialogs = True           # an imported drawing: no Save question
         win.close()

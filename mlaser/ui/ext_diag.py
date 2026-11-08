@@ -631,7 +631,8 @@ class DeviceMonitor(QDialog):
         if not path:
             return None
         raw = self._zf().read_props()
-        with open(path, "w", newline="") as f:
+        from mlaser._atomic import atomic_open
+        with atomic_open(path, "w", newline="") as f:
             f.write(f"{len(raw)}\r\n" + "".join(f"{R.s32(v)}\r\n" for v in raw) + "eof")
         self.info.setText(_tr(self.ext.w, "zf105", "The param data export success"))
         return path
@@ -1181,8 +1182,8 @@ class InterferometerPanel(QWidget):
         if path is None:
             path, _ = QFileDialog.getSaveFileName(self, _tr(self.ext.w, "cp3", "Save"), "pitch.csv", "*.csv")
         if path:
-            with open(path, "w", encoding="utf-8") as f:
-                f.write(self.table.to_csv())
+            from mlaser._atomic import atomic_write_text
+            atomic_write_text(path, self.table.to_csv())
             return path
         return None
 

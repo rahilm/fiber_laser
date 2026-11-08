@@ -137,6 +137,11 @@ def main(argv=None) -> int:
                      config=config, entry_points=True)
     if ctl is not None:
         ctl.machine, ctl.cam_params = win.machine, win.cam_params
+    # the session ends (logging out, shutting down): the unsaved-changes question, then the
+    # shutdown of an accepted close even when the window gets no close event (UI evaluation F3/F4)
+    from PySide6.QtCore import Qt as _Qt
+    app.commitDataRequest.connect(win.commit_session, _Qt.DirectConnection)
+    app.aboutToQuit.connect(win.about_to_quit)
     last = str(config.get("app.last_file", "") or "")
     if args.file:
         win.load_path(args.file)

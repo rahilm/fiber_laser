@@ -205,6 +205,7 @@ def test_main_window_screenshot(app, tmp_path):
     os.makedirs(os.path.dirname(SHOT), exist_ok=True)
     assert win.grab().save(SHOT)
     assert os.path.getsize(SHOT) > 10_000
+    win._test_no_dialogs = True                # the demo drawing: no Save question
     win.close()
 
 

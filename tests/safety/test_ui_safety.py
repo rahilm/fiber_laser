@@ -36,6 +36,7 @@ def win(app, monkeypatch):
     app.processEvents()
     yield w
     w.ctl.stop()
+    w._test_no_dialogs = True                  # closing: no questions (a test may have enabled them)
     w.close()
 
 

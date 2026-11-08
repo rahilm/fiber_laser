@@ -704,8 +704,8 @@ class OrdersPlugin:
                                                   "parts_list.csv", "CSV (*.csv)")
         if not path:
             return ""
-        with open(path, "w", encoding="utf-8", newline="") as f:
-            f.write(O.template_csv())
+        from mlaser._atomic import atomic_write_text
+        atomic_write_text(path, O.template_csv(), newline="")
         self.workspace.status.setText(tr(w, "orders.msg.template", "Template saved: {path}", path=path))
         return path
 

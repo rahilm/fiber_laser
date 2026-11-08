@@ -314,7 +314,8 @@ def cmd_nest(args: Any) -> Result:
     if args.out:
         summary = os.path.join(args.out, f"{args.name}.json")
         try:
-            with open(summary, "w", encoding="utf-8") as f:
+            from mlaser._atomic import atomic_open
+            with atomic_open(summary, "w", encoding="utf-8") as f:
                 json.dump(res, f, indent=1, ensure_ascii=False, default=str)
         except OSError as exc:
             raise CliError(f"{summary}: cannot write ({exc.strerror or exc})", EXIT_OUTPUT, "write_failed") from exc

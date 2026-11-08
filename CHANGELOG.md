@@ -107,6 +107,18 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - **Safety**: the Run screen's STOP, HOLD, START and Arm can no longer be squeezed out of view by
   docked panels (the classic Nest dock at 1440 x 900): the Run workspace hides other docks.
 - A plugin pre-claiming `run.stop` no longer stops the application from starting.
+- **Safety**: answering No to "A job is running. Stop it and quit?" no longer shuts the
+  application half down. The plugins' close hooks, the job service shutdown and
+  `NormalExit=1` (which turns off the crash-recovery prompt) ran before the question; now
+  closing decides first, and only an accepted close (also Quit, the Dock, logging out) halts
+  the machine, first, then runs the hooks (UI evaluation F4).
+- Unsaved work: closing, quitting, File > New, Open, a recent drawing or a file from the OS
+  now ask Save / Don't Save / Cancel for a modified document (window-modal, a sheet on macOS,
+  the platform's button order); Save that is cancelled or fails cancels the close. Every
+  file the user keeps (`.chf`, `.mlz`, nest projects, task files, exports, reports, settings,
+  machine `.ini` files) is replaced atomically, so a crash mid-write leaves the old file (the
+  `.chf` bytes are unchanged). Save and the periodic autosave serialise and write in a worker:
+  no more 1.2-1.6 s freezes every two minutes on large drawings (UI evaluation F3).
 
 ## [0.1.0rc1]
 

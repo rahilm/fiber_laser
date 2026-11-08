@@ -228,8 +228,8 @@ class ReportStore:
 
     def write_statistic(self, rec: JobRecord) -> None:
         os.makedirs(self.file_dir, exist_ok=True)
-        with open(self.statistic_file, "wb") as f:
-            f.write(rec.to_statistic_line().encode("gbk", "replace"))
+        from mlaser._atomic import atomic_write
+        atomic_write(self.statistic_file, rec.to_statistic_line().encode("gbk", "replace"))
 
     def read_statistic(self) -> Optional[JobRecord]:
         if not os.path.exists(self.statistic_file):
@@ -243,13 +243,14 @@ class ReportStore:
         recs = list(records)
         os.makedirs(self.report_dir, exist_ok=True)
         stamp = now_text()
-        with open(self.report_txt, "wb") as f:
+        from mlaser._atomic import atomic_open
+        with atomic_open(self.report_txt, "wb") as f:
             for r in recs:
                 f.write((r.to_line(self.lang) + "\r\r\n").encode("utf-8"))
         with open(self.log_report, "ab") as f:
             for r in recs:
                 f.write((f"{stamp}  {r.to_line(self.lang)}\r\n").encode("utf-8"))
-        with open(os.path.join(self.report_dir, "lang.txt"), "wb") as f:
+        with atomic_open(os.path.join(self.report_dir, "lang.txt"), "wb") as f:
             f.write(b"lang==0" if self.lang == "zh" else b"lang==1")
         return recs
 
@@ -259,7 +260,8 @@ class ReportStore:
     def rewrite_report_txt(self, records: Iterable[JobRecord]) -> None:
         """After a viewer delete (report.exe FUN_00403b80 rewrites report.txt)."""
         os.makedirs(self.report_dir, exist_ok=True)
-        with open(self.report_txt, "wb") as f:
+        from mlaser._atomic import atomic_open
+        with atomic_open(self.report_txt, "wb") as f:
             for r in records:
                 f.write((r.to_line(self.lang) + "\r\r\n").encode("utf-8"))
 
