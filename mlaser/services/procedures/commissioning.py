@@ -228,7 +228,8 @@ class CommissioningProcedure(Procedure):
         try:
             d.mkdir(parents=True, exist_ok=True)
             p = d / time.strftime("commissioning-%Y%m%d-%H%M%S.json")
-            p.write_text(json.dumps(self.report(), indent=1, ensure_ascii=False, default=str), "utf-8")
+            from mlaser._atomic import atomic_write_text
+            atomic_write_text(p, json.dumps(self.report(), indent=1, ensure_ascii=False, default=str))
         except OSError:
             return None
         self.report_path = p

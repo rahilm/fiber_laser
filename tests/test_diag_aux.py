@@ -170,7 +170,7 @@ def test_batch_runner(tmp_path):
     loaded, started = [], []
     ctl = _demo()
     ctl.start = lambda doc: started.append(doc)
-    win = SimpleNamespace(ctl=ctl, document="DOC", handlers={}, load_path=lambda p: loaded.append(p) or True)
+    win = SimpleNamespace(ctl=ctl, document="DOC", handlers={}, load_path=lambda p, confirm=True: loaded.append(p) or True)
     bl = B.BatchList([B.BatchEntry(str(f), 2, 0)])
     r = B.BatchRunner(win, B.params({"GRP.EnableBatchCut": True, "GRP.BatchCutX_LeftEdge": 0.0,
                                      "GRP.BatchCutX_RightEdge": 0.0}), bl)

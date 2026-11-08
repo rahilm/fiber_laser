@@ -196,11 +196,8 @@ class PdfDocument:
         return bytes(out)
 
     def save(self, path: str | os.PathLike) -> str:
-        data = self.to_bytes()
-        tmp = f"{os.fspath(path)}.tmp"
-        with open(tmp, "wb") as f:
-            f.write(data)
-        os.replace(tmp, path)
+        from mlaser._atomic import atomic_write
+        atomic_write(path, self.to_bytes())
         return os.fspath(path)
 
 

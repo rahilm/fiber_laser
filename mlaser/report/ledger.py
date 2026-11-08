@@ -428,8 +428,8 @@ def csv_text(columns: Iterable[str], rows: Iterable[list]) -> str:
 
 def write_csv(path: str, columns: Iterable[str], rows: Iterable[list]) -> str:
     """UTF-8 with BOM (spreadsheet programs then detect the encoding)."""
-    with open(path, "w", encoding="utf-8-sig", newline="") as f:
-        f.write(csv_text(columns, rows))
+    from mlaser._atomic import atomic_write_text
+    atomic_write_text(path, csv_text(columns, rows), encoding="utf-8-sig", newline="")
     return path
 
 

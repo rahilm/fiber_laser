@@ -36,6 +36,7 @@ from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from mlaser._atomic import atomic_write_text
 from mlaser.model import Document, LayerParams, LeadParams, Part
 
 FORMAT = "mlaser-technology/1"
@@ -619,10 +620,7 @@ class TechnologyStore:
     def export_json(self, path: Path | str, techs: Optional[Iterable[Technology]] = None) -> int:
         items = [t.to_dict() for t in (techs if techs is not None else self.all())]
         data = {"format": FORMAT, "profile": self.profile, "exported": time.time(), "technologies": items}
-        p = Path(path)
-        tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
-        tmp.replace(p)
+        atomic_write_text(path, json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True))
         return len(items)
 
     def import_json(self, path: Path | str, comment: str = "") -> list[Technology]:

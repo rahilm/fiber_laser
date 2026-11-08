@@ -38,13 +38,13 @@ Evidence
 from __future__ import annotations
 
 import json
-import os
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Iterable, Optional, Union
 
+from .._atomic import atomic_write
 from ..model import LayerParams
 
 PathLike = Union[str, Path]
@@ -235,11 +235,8 @@ class ParamStore:
         return b'<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(root, encoding="utf-8") + b"\n"
 
     def save(self, path: PathLike) -> None:
-        """Write via ``<path>.tmp`` + rename, like ``FUN_1000e360``."""
-        p = Path(path)
-        tmp = p.with_name(p.name + ".tmp")
-        tmp.write_bytes(self.dumps())
-        os.replace(tmp, p)
+        """Write via a temporary file + rename, like ``FUN_1000e360`` (mlaser._atomic: fsync'd)."""
+        atomic_write(path, self.dumps())
 
 
 # --------------------------------------------------------------------------- machine set

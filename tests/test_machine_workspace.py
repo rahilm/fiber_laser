@@ -20,6 +20,7 @@ def win(app, tmp_path, monkeypatch):
     from wiring import real_window
     w = real_window()
     yield w
+    w._test_no_dialogs = True                  # closing: no questions (a test may have enabled them)
     w.close()
 
 

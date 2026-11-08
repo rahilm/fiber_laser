@@ -424,8 +424,8 @@ def write_gcode(path: Union[str, Path], img_or_text, params: Optional[RasterPara
     text = img_or_text if isinstance(img_or_text, str) else generate_gcode(
         img_or_text, params, preprocessed=preprocessed)
     path = Path(path)
-    with open(path, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
+    from mlaser._atomic import atomic_write_text
+    atomic_write_text(path, text, newline="")
     return path
 
 
@@ -438,7 +438,8 @@ def write_status_ini(directory: Union[str, Path], status: Union[int, bool, str])
     d.mkdir(parents=True, exist_ok=True)
     s = str(int(status)) if isinstance(status, (bool, int)) else str(status)
     p = d / STATUS_NAME
-    p.write_bytes(s.encode("utf-8"))
+    from mlaser._atomic import atomic_write
+    atomic_write(p, s.encode("utf-8"))
     return p
 
 

@@ -180,6 +180,11 @@ def _run(args, app, inst) -> int:
     if inst is not None:
         from .single_instance import activate_window
         inst.on_activate = lambda: activate_window(win)
+    # the session ends (logging out, shutting down): the unsaved-changes question, then the
+    # shutdown of an accepted close even when the window gets no close event (UI evaluation F3/F4)
+    from PySide6.QtCore import Qt as _Qt
+    app.commitDataRequest.connect(win.commit_session, _Qt.DirectConnection)
+    app.aboutToQuit.connect(win.about_to_quit)
     last = str(config.get("app.last_file", "") or "")
     if args.file:
         win.load_path(args.file)

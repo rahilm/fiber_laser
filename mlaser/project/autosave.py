@@ -10,9 +10,16 @@ docs/re/parity.md) indexes the graphs of that file; ``chf=False`` skips it.
 project is missing, older than the ``.chf`` (written by the original program or an older
 rebuild) or damaged.  Qt-free; the UI calls it from ``ext_machine`` (job prepared, System
 Recovery, the start-up crash prompt) and from a periodic timer.
+
+Writers may run in different threads (the periodic autosave serialises in a worker, the
+job-start autosave runs where the job is prepared): the writes are serialised, and a state
+older than the one on disk never replaces it.  A writer takes a :meth:`Autosave.reserve`
+ticket when it takes its snapshot and passes it to :meth:`Autosave.save`; a save whose ticket
+is older than the last one written is skipped.
 """
 from __future__ import annotations
 
+import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +48,16 @@ class Autosave:
         self.dir = Path(directory)
         self.last_saved: float = 0.0
         self.last_error: Optional[str] = None
+        self._seq_lock = threading.Lock()
+        self._write_lock = threading.Lock()
+        self._issued = 0                 # tickets handed out (reserve)
+        self._written = 0                # the ticket of the state on disk
+
+    def reserve(self) -> int:
+        """A ticket for a snapshot taken now (see the module docstring)."""
+        with self._seq_lock:
+            self._issued += 1
+            return self._issued
 
     @property
     def project_path(self) -> Path:
@@ -50,20 +67,31 @@ class Autosave:
     def chf_path(self) -> Path:
         return self.dir / CHF_NAME
 
-    def save(self, project: Union[Project, Document], chf: bool = True) -> list[Path]:
-        """Write ``autosave.mlz`` (and ``autosave.chf``); returns the files written.  Errors are
-        raised (the caller logs them); a failed write leaves the previous files intact."""
+    def save(self, project: Union[Project, Document], chf: bool = True,
+             ticket: Optional[int] = None) -> list[Path]:
+        """Write ``autosave.mlz`` (and ``autosave.chf``); returns the files written (none when
+        ``ticket``, from :meth:`reserve`, is older than the state already written; without one
+        the state is taken as of now).  Errors are raised (the caller logs them); a failed write
+        leaves the previous files intact."""
+        if ticket is None:
+            ticket = self.reserve()
         if isinstance(project, Document):
             project = Project(document=project)
-        self.dir.mkdir(parents=True, exist_ok=True)
-        out = []
-        atomic_write(self.project_path, dumps_project(project, embed_fonts=False))
-        out.append(self.project_path)
-        if chf:
-            atomic_write(self.chf_path, export_chf(project.document))
-            out.append(self.chf_path)
-        self.last_saved = time.time()
-        return out
+        mlz = dumps_project(project, embed_fonts=False)
+        data = export_chf(project.document) if chf else None
+        with self._write_lock:              # serialised outside: a waiting writer waits for the I/O only
+            if ticket < self._written:
+                return []
+            self.dir.mkdir(parents=True, exist_ok=True)
+            out = []
+            atomic_write(self.project_path, mlz)
+            out.append(self.project_path)
+            if data is not None:
+                atomic_write(self.chf_path, data)
+                out.append(self.chf_path)
+            self._written = ticket
+            self.last_saved = time.time()
+            return out
 
     def available(self) -> Optional[Path]:
         """The file :meth:`recover` would use first (None: nothing to recover)."""

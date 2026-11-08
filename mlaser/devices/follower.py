@@ -250,8 +250,8 @@ class CalibrationTable:
         return "\r\n".join(lines) + "\r\n"
 
     def save(self, path: str) -> None:
-        with open(path, "w", encoding="ascii", newline="") as fh:
-            fh.write(self.dumps())
+        from mlaser._atomic import atomic_write_text
+        atomic_write_text(path, self.dumps(), encoding="ascii", newline="")
 
     def height_for(self, raw: int) -> Optional[float]:
         """Interpolate height (table units) for a raw reading (monotonic part of the table)."""

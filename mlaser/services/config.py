@@ -37,6 +37,8 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
 
+from mlaser._atomic import atomic_write_text
+
 MISSING: Any = object()
 
 # registry type -> setting kind
@@ -565,9 +567,7 @@ class ConfigService:
             "profile": {"base": self.profile.base, "overrides": self.profile.overrides},
             "values": vals,
         }
-        tmp = p.with_name(p.name + ".tmp")
-        tmp.write_text(json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True), "utf-8")
-        os.replace(tmp, p)
+        atomic_write_text(p, json.dumps(data, ensure_ascii=False, indent=1, sort_keys=True))
         self._dirty = False
         return p
 

@@ -53,6 +53,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Optional, Sequence, Union
 
+from .._atomic import atomic_write
 from .params import (FILES, MachineParams, ParamDef, ParamStore, defs_for, layer_category,
                      layer_defs, N_LAYERS)
 
@@ -364,7 +365,7 @@ def save_task(path: PathLike, doc, layer_store: Optional[ParamStore] = None, las
     p = Path(path)
     if p.suffix.lower() != ".aut":
         p = p.with_suffix(".aut")
-    p.write_bytes(t.dumps())
+    atomic_write(p, t.dumps())          # never a truncated task file after a crash
     return p
 
 

@@ -52,7 +52,12 @@ def write_dxf(doc: Document, path: str) -> str:
                 else:                                   # any other segment: as its polyline
                     pts = [tuple(s.start), tuple(s.end)]
                     msp.add_lwpolyline(pts, dxfattribs={"layer": layer})
-    d.saveas(path)
+    from typing import TextIO, cast
+
+    from mlaser._atomic import atomic_open
+    # what Drawing.saveas does, into a temporary file replaced atomically
+    with atomic_open(path, "wt", encoding=d.output_encoding, errors="dxfreplace") as f:
+        d.write(cast(TextIO, f))
     return path
 
 
@@ -114,8 +119,8 @@ def svg_text(doc: Document, margin: float = 2.0) -> str:
 
 
 def write_svg(doc: Document, path: str) -> str:
-    with open(path, "w", encoding="utf-8") as f:
-        f.write(svg_text(doc))
+    from mlaser._atomic import atomic_write_text
+    atomic_write_text(path, svg_text(doc))
     return path
 
 

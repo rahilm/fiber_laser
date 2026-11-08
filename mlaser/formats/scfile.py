@@ -32,6 +32,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Union
 
+from .._atomic import atomic_write
 from .scio import ScReader, ScWriter, split_lines, _strip_ws
 
 PathLike = Union[str, Path]
@@ -64,7 +65,7 @@ def write_values(values, path: PathLike | None = None) -> bytes:
     w.eof()
     data = w.getvalue()
     if path is not None:
-        Path(path).write_bytes(data)
+        atomic_write(path, data)
     return data
 
 
@@ -95,7 +96,7 @@ class AutosaveParam:
         return write_values([self.counter, self.x_um, self.y_um, self.graph_index, self.path_index])
 
     def save(self, path: PathLike) -> None:
-        Path(path).write_bytes(self.dumps())
+        atomic_write(path, self.dumps())
 
 
 def newest_autosave(dir_: PathLike) -> AutosaveParam | None:
@@ -125,7 +126,7 @@ class IntListFile:
         return write_values([len(self.values), *self.values])
 
     def save(self, path: PathLike) -> None:
-        Path(path).write_bytes(self.dumps())
+        atomic_write(path, self.dumps())
 
 
 ManuContour = IntListFile
@@ -145,7 +146,7 @@ class TempIsBreak:
         return write_values([self.is_break, self.laser_type])
 
     def save(self, path: PathLike) -> None:
-        Path(path).write_bytes(self.dumps())
+        atomic_write(path, self.dumps())
 
 
 @dataclass
@@ -163,7 +164,7 @@ class PitchCompensation:
         return write_values([self.count, *self.raw])
 
     def save(self, path: PathLike) -> None:
-        Path(path).write_bytes(self.dumps())
+        atomic_write(path, self.dumps())
 
 
 # --------------------------------------------------------------------------- INI-ish
@@ -191,7 +192,7 @@ def write_ini(data: dict[str, dict[str, str]], path: PathLike, encoding: str = "
     for sec, kv in data.items():
         lines.append(f"[{sec}]")
         lines += [f"{k}={v}" for k, v in kv.items()]
-    Path(path).write_bytes(("\r\n".join(lines) + "\r\n").encode(encoding, "replace"))
+    atomic_write(path, ("\r\n".join(lines) + "\r\n").encode(encoding, "replace"))
 
 
 @dataclass
@@ -259,4 +260,4 @@ def read_calib_csv(path: PathLike) -> list[tuple[int, int]]:
 
 
 def write_calib_csv(rows, path: PathLike) -> None:
-    Path(path).write_bytes("".join("%d, %d\r\n" % (a, b) for a, b in rows).encode())
+    atomic_write(path, "".join("%d, %d\r\n" % (a, b) for a, b in rows).encode())
