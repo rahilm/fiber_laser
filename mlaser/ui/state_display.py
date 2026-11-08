@@ -5,9 +5,9 @@
 * **Laser**: Disarmed / Armed / Dry run: the state banner.
 
 :func:`machine_state` and :func:`laser_state` derive them from the controller's snapshots
-(``SafetyStatus``, ``MachineState``, the active alarms).  When the controller offers a
-``readiness()`` model its machine state wins (an E-STOP, a NOT HOMED of its own); without it,
-NOT HOMED is "connected, idle, the policy requires homing and X/Y are not homed".
+(``SafetyStatus``, ``MachineState``, the one alarm source ``ctl.active_alarms``) with the
+safety UI's rules (:func:`mlaser.ui.safety_ui.run_state`; NOT HOMED from
+:func:`mlaser.services.readiness.homing_needed`).
 
 :class:`StateBadge` draws a state: an SVG icon (:data:`mlaser.ui.icons.STATE_ICONS`, never a
 font glyph), the axis name as a caption, the state's word, on the theme's state colours
@@ -53,54 +53,20 @@ def _tr(window: Any, key: str, default: str, **kw: Any) -> str:
     return tr(window, key, default, **kw)
 
 
-def _readiness_state(ctl: Any) -> Optional[str]:
-    """The controller's own machine state (the safety logic's ``readiness()`` model), when it
-    has one and it names a state of :data:`MACHINE_STATES`."""
-    try:
-        r = ctl.readiness()
-    except Exception:  # noqa: BLE001 - not merged yet (AttributeError) or a model it does not know
-        return None
-    for attr in ("machine", "state", "kind"):
-        v = getattr(r, attr, None)
-        v = getattr(v, "value", v)
-        if isinstance(v, str):
-            v = v.lower().replace("-", "_").replace(" ", "_")
-            v = {"e_stop": "estop", "nothomed": "not_homed"}.get(v, v)
-            if v in MACHINE_STATES:
-                return v
-    return None
-
-
-def machine_state(st: Any, ms: Any, alarms: Any = (), ctl: Any = None) -> str:
-    """The machine axis: offline / not_homed / ready / running / hold / alarm / estop / fault."""
-    if st is not None and getattr(st, "banner", "") == "FAULT":
-        return "fault"
-    own = _readiness_state(ctl) if ctl is not None else None
-    if own in ("fault", "estop", "alarm"):
-        return own
-    banner = getattr(st, "banner", "") if st is not None else ""
-    if banner in ("E-STOP", "ESTOP"):
-        return "estop"
-    if alarms or (ms is not None and getattr(ms, "alarms", None)):
-        return "alarm"
-    if ms is None or not getattr(ms, "connected", False):
-        return "offline"
-    mode = getattr(ms, "mode", "")
-    if mode == "pause" or (ctl is not None and ctl.breakpoint is not None
-                           and mode not in ("process", "dry_run", "frame")):
+def machine_state(st: Any, ms: Any, alarms: Any = (), ctl: Any = None, need_home: Optional[bool] = None) -> str:
+    """The machine axis: offline / not_homed / ready / running / hold / alarm / estop / fault.
+    The safety UI's :func:`mlaser.ui.safety_ui.run_state` (fault > estop > alarm > offline >
+    hold > running > not_homed > ready, from the one alarm source ``ctl.active_alarms``), plus
+    HOLD while a job waits at a breakpoint.  ``need_home``: None asks
+    :func:`mlaser.services.readiness.homing_needed`."""
+    from .safety_ui import run_state
+    if need_home is None:
+        from mlaser.services.readiness import homing_needed
+        need_home = homing_needed(ctl) if ctl is not None else False
+    s = run_state(st, ms, alarms, bool(need_home))
+    if s in ("ready", "not_homed") and ctl is not None and ctl.breakpoint is not None:
         return "hold"
-    if mode in ("process", "dry_run", "frame"):
-        return "running"
-    if own is not None:
-        return own
-    if ctl is not None and not getattr(ms, "homed", True):
-        try:
-            need = bool(ctl.require_homed)
-        except Exception:  # noqa: BLE001
-            need = False
-        if need:
-            return "not_homed"
-    return "ready"
+    return s
 
 
 def laser_state(st: Any) -> str:

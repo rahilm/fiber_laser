@@ -610,7 +610,7 @@ class ControlPanel(QWidget):
         cv.addWidget(self.coord_sys)
         # Go to origin is the jog pad's centre cell (one control per action on the panel)
         cv.addWidget(flow([self._text_button("mf514", self.ctl.set_origin),
-                           self._text_button("mf21", self.ctl.clear_alarms)], uniform=True))
+                           self._text_button("mf21", self._reset_alarm)], uniform=True))
         self.sec_coord = self._section("mf307", coord, priority=0)
         self._show_coord()
 
@@ -658,7 +658,8 @@ class ControlPanel(QWidget):
             self._confirmed_at = ("", 0.0)
             return True
         from .safety_ui import ask
-        ok = ask(self, key, self.tr_.tr(key), dont_ask=key in self.DONT_ASK_KEYS, settings=self.settings)
+        ok = ask(self, key, self.tr_.tr(key), dont_ask=key in self.DONT_ASK_KEYS, settings=self.settings,
+                 default_yes=True)       # homing questions: unchanged (not a laser hazard)
         if ok:
             self._confirmed_at = (key, time.monotonic())
         return ok
@@ -703,6 +704,14 @@ class ControlPanel(QWidget):
         b.setObjectName(key)
         self.buttons[key] = b
         return b
+
+    def _reset_alarm(self) -> None:
+        """"Reset alarm": the same action as the alarm banner's (one name, one path: a reset
+        whose cause persists is reported as refused, UX audit C2/W5)."""
+        if self.run_hooks is not None and hasattr(self.run_hooks, "reset_fault"):
+            self.run_hooks.reset_fault()
+        else:
+            self.ctl.clear_alarms()
 
     def _with_doc(self, fn) -> None:
         doc = self.get_document()

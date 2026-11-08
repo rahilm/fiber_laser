@@ -136,7 +136,7 @@ WORD = re.compile(r"\{[^{}]*\}|<[^<>]*>|[A-Za-z][A-Za-z0-9']*")
 PROPER = {"Mlaser", "Windows", "Linux", "Onshape", "EtherCAT", "MaxPhotonics", "Raycus", "IPG", "NexCut",
           "Machine", "Process", "Nest", "Design", "Run", "Report", "Setup", "Layers", "Library",
           "Properties", "Job", "Queue", "Operator", "Engineer", "Service", "Settings", "Esc", "Ctrl",
-          "Cmd", "Space", "Start", "Stop", "Hold", "Continue", "Frame", "Arm", "Disarm", "Resume", "Gaussian",
+          "Cmd", "Space", "Start", "Stop", "Hold", "Continue", "Frame", "Dry", "Arm", "Disarm", "Resume", "Gaussian",
           "Home", "Abort", "None", "True", "False",
           "LayerPara", "HardPara", "ManuPara", "Lang", "PINs", "IDs", "Celsius", "Fahrenheit"}
 
@@ -184,8 +184,8 @@ ACRONYMS = {"FTC", "API", "LED", "PWM", "LAN", "PIN", "PLC", "VFD", "PDF", "SMTP
             "STL", "PTFE", "HMI", "ASCII", "UTF", "HSV", "WCAG", "CMYK", "GUI", "UI", "IPS", "QR", "SQL",
             "NFC", "HTML", "CSS", "WAN", "DNS", "DHCP", "MQTT", "OPC", "UA", "RTU", "UDP", "IPV", "MTU"}
 #: the state pill / chip words and STOP: capitals by design
-STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE", "SIMULATOR", "DRY", "RUN", "NOT", "HOMED",
-               "RUNNING", "STOP"}
+STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE", "SIMULATOR", "DRY", "RUN",
+               "RUNNING", "STOP", "NOT", "HOMED"}
 #: safety emphasis kept in capitals (a warning badge, an inverted-logic note)
 CAPS_OK_IDS = {"tech.example_badge", "labels.msg.fallback", "wizard.comm.hb_relay_fail", "safety.io.level_off",
                "safety.io.level_on", "safety.io.now_alarm", "notify.msg.fault.title",
@@ -240,7 +240,7 @@ RAW_KEY = re.compile(r"(?<![\w.])[a-z]{1,3}\d+(?:_\d+)?(?=[:\s)])")
     ("gp0: hardware is not connected", "Hardware is not connected"),
     ("mf625 upgrade: needs a connected motion card (mp22 offline)", "Extended card upgrade: needs a connected motion card"),
     ("mp29: move to (0.000, 0.000)", "Go to origin: move to (0.000, 0.000)"),
-    ("mf21: alarms cleared ([9999, 5, 0, 0])", "Clear alarm: alarms cleared"),
+    ("mf21: alarms cleared ([9999, 5, 0, 0])", "Reset alarm: alarms cleared"),
     ("mf705: batch cut is not enabled (pd2415)", "Batch cut: batch cut is not enabled"),
     ("mf91: 0 mark(s) cleared", "Clear error marks: 0 mark(s) cleared"),
     ("plain text stays", "Plain text stays"),

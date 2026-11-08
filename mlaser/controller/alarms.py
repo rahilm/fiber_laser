@@ -109,6 +109,16 @@ class Alarm:
         return DEFAULT_AXIS_NAMES.get(self.axis, f"axis {self.axis}") if self.axis is not None else ""
 
 
+#: alarm kinds that disarm the machine in every state and refuse arming while active
+#: (docs/SAFETY.md §2, UX audit C3): the emergency stop and the servo (drive) alarms
+DISARM_KINDS = ("estop", "servo")
+
+
+def blocks_arming(alarms: Iterable["Alarm"]) -> list["Alarm"]:
+    """The alarms of ``alarms`` that refuse arming (:data:`DISARM_KINDS`)."""
+    return [a for a in alarms if getattr(a, "kind", "") in DISARM_KINDS]
+
+
 def _axis_kind(k: int) -> str:
     return "limit" if k <= AX_SOFT_NEG else ("servo" if k == AX_SERVO else "axis")
 

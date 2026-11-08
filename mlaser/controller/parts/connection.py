@@ -366,13 +366,12 @@ class ConnectionPart:
                         s.outputs[name] = st.output(n)
                     except ValueError:
                         pass
-            if raised or cleared:
-                now = time.time()
-                for a in raised:
-                    s.alarms.append((a.text_en, now))
-                if cleared:
-                    gone = {a.text_en for a in cleared}
-                    s.alarms[:] = [x for x in s.alarms if x[0] not in gone]
+            # one alarm source (UX audit C2): the state's list mirrors the card's active alarms
+            # on every status, never a local copy a reset could empty while the card still
+            # reports the alarm (the time each one was first seen is kept)
+            seen = {t: when for t, when in s.alarms}
+            now = time.time()
+            s.alarms[:] = [(a.text_en, seen.get(a.text_en, now)) for a in new_alarms]
             if self._homing and ms != 1:
                 self._homing = False
                 homing_done = True
@@ -414,12 +413,29 @@ class ConnectionPart:
             # A FIFO hold (pause_mode "fifo") keeps the worker alive: an alarm (e-stop) while
             # held faults too.
             self.raise_fault("card alarm during the job: " + ", ".join(f"{a.text_en} ({a.code})" for a in raised))
+        self._disarm_on_alarm(raised)
         trips = self.interlocks.evaluate(
             st, zf, follower_present=bool(self._zf_type()), job_active=self.job_active(),
             emitting=self._job_emits and self._busy(), armed=self.fsm.armed)
         for t in trips:
             audit("interlock", logging.ERROR, source=t.source, message=t.message)
             self.raise_fault(f"interlock {t.source}: {t.message}")
+
+    def _disarm_on_alarm(self, raised) -> None:
+        """An e-stop or servo alarm disarms the machine in every state, idle included (UX audit
+        C3, docs/SAFETY.md §2): during a job the alarm latches a FAULT (above), which disarms;
+        idle or held at a breakpoint the arming is dropped here.  Arming is refused while such
+        an alarm is active (:meth:`UiController.arm`), so after the reset the operator arms
+        again explicitly."""
+        hit = [a for a in raised if getattr(a, "kind", "") in A.DISARM_KINDS]
+        if not hit or not self.fsm.armed:
+            return
+        what = ", ".join(f"{a.text_en} ({a.code})" for a in hit)
+        self._invalidate_starts("alarm")
+        self.fsm.disarm(f"disarmed: card alarm {what}")
+        audit("disarm", logging.WARNING, reason=f"card alarm {what}")
+        from ... import i18n
+        self._log(i18n.tr("log.disarmed_by_alarm", alarm=hit[0].text_en), logging.WARNING, detail=what)
 
     def _deadman_tick(self) -> None:
         """Hold-to-jog dead-man: a continuous jog without a keep-alive for ``jog_deadman_s``

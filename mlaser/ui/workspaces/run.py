@@ -634,7 +634,16 @@ class OperatorScreen(QWidget):
         style.chip(self.api_chip, "warning")
         self.api_chip.setVisible(False)
         chips = QHBoxLayout()
-        chips.addStretch(1)
+        # the readiness strip (UX audit W3): what still stops a Start, each with its fix
+        # (services.readiness through SafetyUI.readiness); the connection, the alarms and the
+        # arming have their own place (banner, state block)
+        self.ready_box = QWidget()
+        self.ready_box.setObjectName("run_readiness")
+        self.ready_flow = FlowLayout(self.ready_box)
+        self.ready_buttons: dict[str, QPushButton] = {}
+        self._ready_tick = 0
+        self.ready_box.setVisible(False)
+        chips.addWidget(self.ready_box, 1)
         chips.addWidget(self.api_chip)
         chips.addWidget(self.monitor_chip)
         hl.addLayout(chips, 1, 0, 1, 3)
@@ -821,7 +830,9 @@ class OperatorScreen(QWidget):
         from .. import state_display as SD
         ms = self.ws.machine_state()
         ctl = w.ctl
-        kind = SD.machine_state(ctl.safety(), ms, s.alarms, ctl)
+        ui = getattr(w, "safety_ui", None)
+        kind = SD.machine_state(ctl.safety(), ms, list(ctl.active_alarms or []), ctl,
+                                getattr(ui, "need_home", None) if ui is not None else None)
         if kind not in ("not_homed", "estop"):
             kind = s.kind                      # the RunStatus's state (its reason matches it)
         word = SD.machine_label(w, kind)
@@ -955,6 +966,7 @@ class OperatorScreen(QWidget):
                                 else tr(w, "run.btn.queue_run", "Run queue"))
         style.set_enabled(b["queue_mode"], r.state != "idle" or self.ws.queue.next_entry() is not None,
                           tr(w, "run.why.queue_empty", "The queue has no job left to run"))
+        self._readiness(job)
         # monitor chip
         mon = self.ws.monitor
         self.monitor_chip.setVisible(mon is not None and mon.running)
@@ -974,6 +986,50 @@ class OperatorScreen(QWidget):
         self.canvas.set_document(doc, sheet)
         self.canvas.set_progress(s.done_parts if running else (), s.part_index if running else -1,
                                  (s.x, s.y) if connected else None)
+
+    #: the readiness items shown on this screen (the others have their own display)
+    READY_IDS = ("homed", "technology")
+
+    def _readiness(self, job: bool) -> None:
+        self._ready_tick += 1
+        if self._ready_tick % 4 != 1 and not job:        # a few times a second is enough
+            return
+        ui = getattr(self.ws.window, "safety_ui", None)
+        items = []
+        if ui is not None and not job and hasattr(ui, "readiness"):
+            try:
+                items = [i for i in ui.readiness() if i.id in self.READY_IDS and not i.ok]
+            except Exception:  # noqa: BLE001 - a display never fails the screen
+                log.debug("readiness failed", exc_info=True)
+        shown = {i.id for i in items}
+        for rid, b in list(self.ready_buttons.items()):
+            if rid not in shown:
+                b.setVisible(False)
+        for i in items:
+            b = self.ready_buttons.get(i.id)
+            if b is None:
+                b = _big(QPushButton(), TOUCH_MIN, role="body")
+                b.setObjectName(f"run_ready_{i.id}")
+                b.setIcon(icon("alert-triangle" if i.blocking else "info-circle"))
+                b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+                b.clicked.connect(lambda _=False, rid=i.id: self._ready_fix(rid))
+                self.ready_flow.addWidget(b)
+                self.ready_buttons[i.id] = b
+            text = i.reason or i.label
+            if b.text() != text:
+                b.setText(text)
+                b.setAccessibleName(text)
+            b.setProperty("action", i.action)
+            style.set_enabled(b, bool(i.action), "")
+            b.setVisible(True)
+        if bool(items) != self.ready_box.isVisibleTo(self):
+            self.ready_box.setVisible(bool(items))
+
+    def _ready_fix(self, rid: str) -> None:
+        b = self.ready_buttons.get(rid)
+        ui = getattr(self.ws.window, "safety_ui", None)
+        if b is not None and ui is not None and b.property("action"):
+            ui.run_readiness_action(str(b.property("action")))
 
     def _alarms(self, s: RunStatus) -> None:
         """The alarm or fault, once, in the state block: the reason line is its title, the

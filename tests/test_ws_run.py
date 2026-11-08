@@ -170,7 +170,7 @@ def test_run_screen_on_the_simulator(win, app):
         pump(app, 0.3)
         scr.refresh()
         assert scr.status.kind == "fault" and "FAULT" in scr.state.text()
-        assert "link lost" in scr.reason.text()
+        assert "Lost connection to the motion card" in scr.reason.text()     # plain words (UX audit W12)
         # the fault once, in the state block: its remedy and Reset alarm beside it (UX audit W11)
         assert scr.remedy.isVisible() and "Remedy" in scr.remedy.text() and "network cable" in scr.remedy.text()
         assert scr.reset_btn.isVisible() and scr.state_block.isAncestorOf(scr.reset_btn)

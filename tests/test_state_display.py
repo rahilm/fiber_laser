@@ -100,21 +100,17 @@ def _ms(connected=True, mode="ready", homed=True, alarms=()):
 
 def test_machine_and_laser_axes():
     from mlaser.ui.state_display import laser_state, machine_state
-    ctl = SimpleNamespace(require_homed=True, breakpoint=None)
+    ctl = SimpleNamespace(breakpoint=None)
     assert machine_state(_st(), None) == "offline"
     assert machine_state(_st(), _ms(connected=False), (), ctl) == "offline"
-    assert machine_state(_st(), _ms(homed=False), (), ctl) == "not_homed"
-    assert machine_state(_st(), _ms(homed=True), (), ctl) == "ready"
+    assert machine_state(_st(), _ms(homed=False), (), ctl, True) == "not_homed"
+    assert machine_state(_st(), _ms(homed=True), (), ctl, False) == "ready"
     assert machine_state(_st(), _ms(mode="process"), (), ctl) == "running"
     assert machine_state(_st(), _ms(mode="pause"), (), ctl) == "hold"
+    assert machine_state(_st(), _ms(), (), SimpleNamespace(breakpoint=object()), False) == "hold"
     assert machine_state(_st(), _ms(), ["a"], ctl) == "alarm"
+    assert machine_state(_st(), _ms(), [SimpleNamespace(kind="estop")], ctl) == "estop"
     assert machine_state(_st(banner="FAULT"), _ms(), ["a"], ctl) == "fault"
-    # the safety logic's readiness() model wins where it knows better (E-STOP, NOT HOMED)
-    own = SimpleNamespace(require_homed=False, breakpoint=None,
-                          readiness=lambda: SimpleNamespace(machine="E-STOP"))
-    assert machine_state(_st(), _ms(), (), own) == "estop"
-    broken = SimpleNamespace(require_homed=False, breakpoint=None, readiness=lambda: 1 / 0)
-    assert machine_state(_st(), _ms(), (), broken) == "ready"          # graceful fallback
     assert laser_state(_st(armed=True)) == "armed"
     assert laser_state(_st(dry_run=True)) == "dry_run"
     assert laser_state(_st()) == "disarmed"
@@ -176,7 +172,9 @@ def test_offline_banner_connects_and_keeps_its_height(win, app, monkeypatch):
     win.ctl.raise_fault("test")
     su.refresh()
     pump(app)
-    assert b.action == "reset" and b.height() == h
+    # FAULT: no button of its own (the alarm banner carries the one Reset alarm), same height
+    assert b.action == "" and not b.btn.isVisibleTo(b) and b.height() == h
+    assert su.alarm_bar.isVisible() and su.alarm.reset.isVisibleTo(su.alarm)
 
 
 def test_connect_opens_machine_connection(win, app):
@@ -318,6 +316,29 @@ def test_run_bar_on_the_run_workspace_and_the_start_target(win, app, tmp_path):
     rb._start_menu_show()
     assert rb.start_drawing_act.isVisible() and rb.start_queue_act.isVisible()
     assert "1" in rb.start_queue_act.text() and su.start_target_name() in rb.start_drawing_act.text()
+
+
+# ------------------------------------------------------------------------- W3 readiness strip
+def test_run_screen_readiness_strip(win, app, monkeypatch):
+    from mlaser.services.readiness import ReadinessItem
+    su = win.safety_ui
+    items = [ReadinessItem("homed", False, "Homed", "X and Y are not homed", "machine.home"),
+             ReadinessItem("connected", False, "Connected", "Not connected", "hw.reconnect")]
+    monkeypatch.setattr(su, "readiness", lambda: items)
+    ran = []
+    monkeypatch.setattr(su, "run_readiness_action", ran.append)
+    win.commands.run("workspace.run")
+    scr = win.extension("run").screen
+    scr._ready_tick = 0
+    scr.refresh()
+    assert scr.ready_box.isVisibleTo(scr)
+    assert set(scr.ready_buttons) == {"homed"}             # the connection is the banner's
+    scr.ready_buttons["homed"].click()
+    assert ran == ["machine.home"]
+    items[:] = [ReadinessItem("homed", True, "Homed")]
+    scr._ready_tick = 0
+    scr.refresh()
+    assert not scr.ready_box.isVisibleTo(scr)
 
 
 # ------------------------------------------------------------------------- O8 live view

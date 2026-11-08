@@ -19,20 +19,20 @@ def test_every_remedy_id_is_in_the_catalogue():
 
 
 def test_english_wording_unchanged():
-    # verbatim English of the texts before they moved into the catalogue
+    # verbatim English of the texts (the button is "Reset alarm" everywhere since UX audit W5)
     assert S.remedy(_alarm(kind="estop")) == (
         "Emergency stop pressed or the e-stop circuit is open. Make the machine safe, release "
-        "the e-stop, then press Reset. Home the axes before cutting again.")
+        "the e-stop, then press Reset alarm and arm the laser again. Home the axes before cutting again.")
     assert S.remedy(_alarm(8025, "card")) == (
         "EtherCAT bus fault. Check the bus cables between card and drives and the drive power, "
-        "then press Reset (the card restarts).")
+        "then press Reset alarm (the card restarts).")
     assert S.remedy("link lost (heartbeat)") == (
         "The PC lost the connection to the motion card. Check the network cable, the "
         "switch and the card power. The card was halted as far as it could be reached. "
-        "When the link is back press Reset, home if needed, then Resume.")
-    assert S.remedy("interlock door open") == "A door or guard is open. Close it, press Reset, then Resume."
+        "When the link is back press Reset alarm, home if needed, then Resume.")
+    assert S.remedy("interlock door open") == "A door or guard is open. Close it, press Reset alarm, then Resume."
     assert S.remedy("something else") == (
-        "Check the reason above, make the machine safe, then press Reset. After a reset the "
+        "Check the reason above, make the machine safe, then press Reset alarm. After a reset the "
         "machine is disarmed; continue with Resume from the breakpoint.")
 
 

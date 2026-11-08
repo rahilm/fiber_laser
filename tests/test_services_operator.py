@@ -48,7 +48,8 @@ def test_states_and_reasons():
     assert r.kind == "alarm" and r.reason_args["code"] == 8104
     st.banner, st.fault = "FAULT", "link lost"
     r = run_status(ms, st, [alarm])
-    assert r.kind == "fault" and r.reason_args["fault"] == "link lost"
+    # the plain headline (UX audit W12); the raw reason stays in the fault detail
+    assert r.kind == "fault" and r.reason_args["fault"] == "Lost connection to the motion card"
 
 
 def test_eta_blend_and_format():

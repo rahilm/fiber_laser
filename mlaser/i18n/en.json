@@ -267,8 +267,9 @@
   "canvas.plan.sim_none": "Nothing to simulate: the plan has no toolpath.",
   "canvas.plan.sim_wait": "Computing the toolpath before simulating…",
   "card.alarms.code": "Code",
+  "card.alarms.fault_detail": "Fault detail: {detail}",
   "card.alarms.none": "No active alarms.",
-  "card.alarms.nothing_to_clear": "No alarm to clear",
+  "card.alarms.nothing_to_clear": "No alarm to reset",
   "card.log.machine": "Machine: {ppm_x} x {ppm_y} pulses/mm, period {period} ms, step speed cap {speed}",
   "card.log.no_breakpoint": "Resume from breakpoint: no breakpoint to continue from",
   "card.log.not_read": "Card parameters not read (not connected)",
@@ -775,6 +776,20 @@
   "extcard.set": "Set",
   "extcard.software_version": "Software version",
   "extcard.speed": "Speed",
+  "fault.headline.card_alarm": "A card alarm stopped the job",
+  "fault.headline.default": "The machine was stopped by a fault",
+  "fault.headline.estop": "Emergency stop",
+  "fault.headline.interlock": "A safety interlock tripped",
+  "fault.headline.interlock_door": "A door or guard was opened",
+  "fault.headline.interlock_follower": "The cutting head follower reported an alarm",
+  "fault.headline.interlock_gas": "Gas pressure too low",
+  "fault.headline.interlock_laser": "The laser source reported an alarm",
+  "fault.headline.laser_off_failed": "Switching the laser off was not confirmed",
+  "fault.headline.link_lost": "Lost connection to the motion card",
+  "fault.headline.refused": "The motion card refused a command",
+  "fault.headline.software": "Internal program error: the machine was halted",
+  "fault.headline.streaming": "The job stream to the motion card stopped",
+  "fault.headline.underrun": "The PC could not send the job fast enough",
   "feedback.copied": "{n} parts copied",
   "feedback.hold_idle": "No job is running: nothing to hold",
   "feedback.need_clipboard": "Nothing to paste: copy parts first",
@@ -955,6 +970,15 @@
   "library.tab.values": "Values",
   "library.unused": "Not used in this drawing",
   "library.used_by": "Used by layers {layers} of this drawing",
+  "log.alarms_reset": "Alarms reset",
+  "log.arm_refused_alarm": "Arming refused: {alarm} is active. Reset the alarm first.",
+  "log.disarmed_by_alarm": "Laser disarmed: {alarm}. Arm it again after the reset.",
+  "log.paused_at": "Held: resume point at X {x}, Y {y} mm",
+  "log.reset_refused_alarm": "Reset refused: {alarm} still active",
+  "log.reset_refused_no_answer": "Reset refused: the motion card does not answer",
+  "log.resume_point_discarded": "Resume point discarded",
+  "log.resume_point_restored": "Resume point restored: Start continues the job",
+  "log.stopped_at_fault": "Stopped by a fault: resume point at X {x}, Y {y} mm",
   "machine.hw.confirm": "This transfers hardware parameters between the PC and the card. Continue?",
   "machine.log.abnormal_exit": "The last run ended abnormally",
   "machine.log.autosave_failed": "Autosave not written: {error}",
@@ -1017,7 +1041,7 @@
   "main.clean_the_operation_console_mouse": "Clean the operation console, mouse, keyboard and monitor",
   "main.clean_the_slag_discharge_tray": "Clean the slag discharge tray",
   "main.clean_the_waterway": "Clean the waterway",
-  "main.clear_alarm": "Clear alarm",
+  "main.clear_alarm": "Reset alarm",
   "main.clear_alpha_chamfer": "Clear α chamfer",
   "main.controller_connected": "Controller connected",
   "main.customized_maintenance_items": "Customized maintenance items",
@@ -1105,7 +1129,7 @@
   "material.override": "Override and cut",
   "material.title": "Material check",
   "misc.align": "Align",
-  "misc.clear_alarm": "Clear alarm",
+  "misc.clear_alarm": "Reset alarm",
   "misc.contours": "Contours",
   "misc.default": "Default",
   "misc.description": "Description",
@@ -2831,7 +2855,7 @@
   "practice.welcome_button": "Start practice",
   "practice.welcome_text": "New to the machine? Six short guided lessons on the built-in simulator: load a sheet, frame, the first cut, hold, alarm handling and resuming from a breakpoint. Nothing is cut and practice runs are not counted as production.",
   "practice.welcome_title": "Practice on the simulator",
-  "preflight.msg.alarm": "card alarm active: {alarms} (Clear Alarm first)",
+  "preflight.msg.alarm": "card alarm active: {alarms} (Reset alarm first)",
   "preflight.msg.bad_geometry": "part {part} contour {contour}: NaN or infinite coordinates",
   "preflight.msg.extent_not_finite": "the job extent is not finite",
   "preflight.msg.fault": "a fault is latched: {fault} (reset it first)",
@@ -3074,6 +3098,22 @@
   "queue.status.waiting": "waiting",
   "queue.totals": "{entries} jobs · {done}/{sheets} sheets · {left} left",
   "queue.undo.load": "queue: load sheet",
+  "ready.alarms": "No alarm",
+  "ready.armed": "Armed",
+  "ready.connected": "Connected",
+  "ready.homed": "Homed",
+  "ready.interlocks": "Interlocks",
+  "ready.technology": "Technology",
+  "ready.why.alarm": "Reset the alarm first: {alarm}",
+  "ready.why.fault": "Reset the fault first: {fault}",
+  "ready.why.interlocks.one": "{n} interlock is not configured",
+  "ready.why.interlocks.other": "{n} interlocks are not configured",
+  "ready.why.laser_off": "Laser output is disabled (dry-run mode)",
+  "ready.why.not_armed": "Not armed: Start asks to arm",
+  "ready.why.not_homed": "The axes are not homed",
+  "ready.why.offline": "Connect the machine or the simulator first",
+  "ready.why.technology.one": "{n} layer has no technology (layer {layers})",
+  "ready.why.technology.other": "{n} layers have no technology (layers {layers})",
   "register.acceleration": "Acceleration",
   "register.accumulated_pulse_number": "Accumulated pulse number",
   "register.ad_sampling_value": "AD sampling value",
@@ -3155,31 +3195,31 @@
   "register.subnet_mask": "Subnet mask",
   "register.time": "Time",
   "register.total_mileage": "Total mileage",
-  "remedy.8025": "EtherCAT bus fault. Check the bus cables between card and drives and the drive power, then press Reset (the card restarts).",
-  "remedy.8026": "Output fault: an output is shorted or overloaded. Check the output wiring and the 24 V supply, then press Reset.",
-  "remedy.8029": "Servo input alarm (common alarm input). Check the drive alarm outputs, reset the drives, then press Reset.",
-  "remedy.8030": "Emergency stop. Make the machine safe, release the e-stop, then press Reset and home.",
+  "remedy.8025": "EtherCAT bus fault. Check the bus cables between card and drives and the drive power, then press Reset alarm (the card restarts).",
+  "remedy.8026": "Output fault: an output is shorted or overloaded. Check the output wiring and the 24 V supply, then press Reset alarm.",
+  "remedy.8029": "Servo input alarm (common alarm input). Check the drive alarm outputs, reset the drives, then press Reset alarm.",
+  "remedy.8030": "Emergency stop. Make the machine safe, release the e-stop, then press Reset alarm, arm the laser again and home.",
   "remedy.9000": "The card refused a command (illegal command). Press Reset; if it repeats, check the firmware version (Hardware > Version).",
   "remedy.9001": "Interpolation data length error. Press Reset and restart the job from a breakpoint; report the job file if it repeats.",
-  "remedy.9003": "Follower (FTC) command failed: the height controller did not answer. Check the follower cable and nozzle, run a follower calibration, then press Reset.",
-  "remedy.9005": "FIFO starvation: the motion buffer ran empty. Check the network cable and the PC load, press Reset, then Resume from the breakpoint.",
-  "remedy.9007": "Overspeed. Lower the speed of the layer or the machine limits, press Reset, then Resume.",
-  "remedy.axis": "Axis alarm (dual-drive deviation or drive fault). Check that both gantry drives are powered and aligned, press Reset and home the axes.",
-  "remedy.card": "Motion card alarm. Check the card power and the EtherCAT/IO cables, press Reset; if it comes back, restart the card (Hardware > Restart).",
-  "remedy.estop": "Emergency stop pressed or the e-stop circuit is open. Make the machine safe, release the e-stop, then press Reset. Home the axes before cutting again.",
-  "remedy.fault.card_alarm": "A card alarm stopped the job (see the alarm text). Clear the cause, press Reset, then Resume from the breakpoint.",
-  "remedy.fault.default": "Check the reason above, make the machine safe, then press Reset. After a reset the machine is disarmed; continue with Resume from the breakpoint.",
-  "remedy.fault.interlock_door": "A door or guard is open. Close it, press Reset, then Resume.",
-  "remedy.fault.interlock_follower": "The cutting head follower reported an alarm (collision, overrange or signal). Lift the head, check the nozzle and the sheet, press Reset.",
-  "remedy.fault.interlock_gas": "Gas pressure is too low. Check the gas supply and the regulator, press Reset, then Resume from the breakpoint.",
-  "remedy.fault.interlock_laser": "The laser source reports an alarm. Read the source's display or software, clear the cause, press Reset.",
+  "remedy.9003": "Follower (FTC) command failed: the height controller did not answer. Check the follower cable and nozzle, run a follower calibration, then press Reset alarm.",
+  "remedy.9005": "FIFO starvation: the motion buffer ran empty. Check the network cable and the PC load, press Reset alarm, then Resume from the breakpoint.",
+  "remedy.9007": "Overspeed. Lower the speed of the layer or the machine limits, press Reset alarm, then Resume.",
+  "remedy.axis": "Axis alarm (dual-drive deviation or drive fault). Check that both gantry drives are powered and aligned, press Reset alarm and home the axes.",
+  "remedy.card": "Motion card alarm. Check the card power and the EtherCAT/IO cables, press Reset alarm; if it comes back, restart the card (Hardware > Restart).",
+  "remedy.estop": "Emergency stop pressed or the e-stop circuit is open. Make the machine safe, release the e-stop, then press Reset alarm and arm the laser again. Home the axes before cutting again.",
+  "remedy.fault.card_alarm": "A card alarm stopped the job (see the alarm text). Clear the cause, press Reset alarm, then Resume from the breakpoint.",
+  "remedy.fault.default": "Check the reason above, make the machine safe, then press Reset alarm. After a reset the machine is disarmed; continue with Resume from the breakpoint.",
+  "remedy.fault.interlock_door": "A door or guard is open. Close it, press Reset alarm, then Resume.",
+  "remedy.fault.interlock_follower": "The cutting head follower reported an alarm (collision, overrange or signal). Lift the head, check the nozzle and the sheet, press Reset alarm.",
+  "remedy.fault.interlock_gas": "Gas pressure is too low. Check the gas supply and the regulator, press Reset alarm, then Resume from the breakpoint.",
+  "remedy.fault.interlock_laser": "The laser source reports an alarm. Read the source's display or software, clear the cause, press Reset alarm.",
   "remedy.fault.laser_off_failed": "Switching the laser off was not acknowledged. Check the link; the laser enable chain (watchdog relay) must open. Press Reset when the card answers.",
-  "remedy.fault.link_lost": "The PC lost the connection to the motion card. Check the network cable, the switch and the card power. The card was halted as far as it could be reached. When the link is back press Reset, home if needed, then Resume.",
-  "remedy.fault.uncaught_exception": "The program hit an internal error and halted the machine. Save your work, check the log (Help > Log folder), press Reset.",
-  "remedy.fifo": "The motion buffer ran empty during the job (PC or network too slow). Check the network cable and the PC load, press Reset, then Resume from the breakpoint.",
-  "remedy.limit": "An axis reached a limit switch or its soft limit. Jog the axis back into the working area (opposite direction), check the job position and size, then press Reset.",
-  "remedy.overspeed": "A move was faster than the card allows. Lower the cutting/rapid speed of the layer or the machine limits, press Reset, then Resume.",
-  "remedy.servo": "Servo drive alarm. Read the code on the drive display, check the drive power and the encoder/motor cables, reset the drive, then press Reset and home the axes.",
+  "remedy.fault.link_lost": "The PC lost the connection to the motion card. Check the network cable, the switch and the card power. The card was halted as far as it could be reached. When the link is back press Reset alarm, home if needed, then Resume.",
+  "remedy.fault.uncaught_exception": "The program hit an internal error and halted the machine. Save your work, check the log (Help > Log folder), press Reset alarm.",
+  "remedy.fifo": "The motion buffer ran empty during the job (PC or network too slow). Check the network cable and the PC load, press Reset alarm, then Resume from the breakpoint.",
+  "remedy.limit": "An axis reached a limit switch or its soft limit. Jog the axis back into the working area (opposite direction), check the job position and size, then press Reset alarm.",
+  "remedy.overspeed": "A move was faster than the card allows. Lower the cutting/rapid speed of the layer or the machine limits, press Reset alarm, then Resume.",
+  "remedy.servo": "Servo drive alarm. Read the code on the drive display, check the drive power and the encoder/motor cables, reset the drive, then press Reset alarm and home the axes.",
   "remnant.saved": "Remnant {label} saved",
   "repair.done.closed": "closed: {n}",
   "repair.done.duplicates": "duplicates: {n}",
@@ -3434,6 +3474,7 @@
   "run.val.position": "X {x}  Y {y}  Z {z} {unit}",
   "run.val.power": "Power {v} %",
   "run.val.speed": "Speed {v}",
+  "run.why.alarm": "Reset the alarm first: {alarm}",
   "run.why.fault": "Reset the fault first",
   "run.why.held": "Held: Start continues the job",
   "run.why.laser_off": "Laser output is disabled (dry-run mode)",
@@ -3446,25 +3487,31 @@
   "safety.alarm.fault_since": "FAULT: {fault}   since {time}",
   "safety.alarm.remedy": "Remedy: {text}",
   "safety.alarm.title": "ALARM {code}: {text}",
+  "safety.alarm.with_fault": "{text}  · FAULT: {fault}",
   "safety.alarm.with_more": "{text}  (+{n} more)",
   "safety.alarm.with_since": "{text}   since {time}",
   "safety.ask.arm": "ARM the machine?\n\nLaser emission will be enabled: the beam fires on Start, Laser and laser tests. Make sure the work area is clear and the enclosure is closed.",
+  "safety.ask.arm_and_start": "Arm and start",
+  "safety.ask.arm_info": "Laser emission will be enabled: the beam fires on Start, Laser and laser tests. Make sure the work area is clear and the enclosure is closed.",
+  "safety.ask.arm_question": "Arm the laser?",
   "safety.ask.arm_title": "Arm laser",
-  "safety.ask.start_disarmed": "The machine is not armed: the laser cannot fire.\n\nArm it now (laser emission enabled) and start?",
-  "safety.ask.start_title": "Start",
-  "safety.banner.arm": "Arm laser…",
+  "safety.ask.start_disarmed": "The machine is not armed: the laser cannot fire. Arm it now and start?",
+  "safety.ask.start_title": "Arm and start",
+  "safety.banner.arm": "Arm laser",
   "safety.banner.armed": "Emission enabled: the beam fires on Start",
   "safety.banner.connect": "Connect…",
   "safety.banner.disarmed": "The laser cannot fire",
   "safety.banner.dry_run": "Laser output disabled (dry-run mode)",
   "safety.banner.fault": "FAULT",
   "safety.banner.fault_latched": "FAULT (latched): {fault}",
+  "safety.banner.home": "Home axes",
   "safety.banner.offline": "Not connected",
-  "safety.banner.reset": "Reset",
+  "safety.banner.reset": "Reset alarm",
   "safety.banner.simulator": "SIMULATOR: no machine",
   "safety.banner.simulator_disarmed": "SIMULATOR: disarmed",
   "safety.banner.with_simulator": "{state}  · simulator",
   "safety.bar.alarm": "Alarm",
+  "safety.bar.kept": "Resume point",
   "safety.bar.state": "Safety state",
   "safety.dont_ask": "Don't ask again",
   "safety.io.active": "Alarm when",
@@ -3491,6 +3538,9 @@
   "safety.io.refused": "The controller refused the new safety I/O configuration; the previous one stays active.",
   "safety.io.title": "Safety I/O",
   "safety.io.unwired": "not wired",
+  "safety.kept.discard": "Discard",
+  "safety.kept.resume": "Resume from here",
+  "safety.kept.text": "Stopped: resume point kept at X {x}, Y {y} mm",
   "safety.locked.breakpoint": "{what}: not available while a job is paused at a breakpoint (resume it, or stop it to discard the breakpoint first)",
   "safety.locked.running": "{what}: not available while a job is running (stop or finish it first)",
   "safety.locked.this": "This action",
@@ -3502,14 +3552,38 @@
   "safety.notice.prefix": "Safety I/O:",
   "safety.notice.refused": "the last change was refused by the controller",
   "safety.notice.sep": " · ",
+  "safety.preflight.anyway_dry_run": "Dry run anyway",
+  "safety.preflight.anyway_frame": "Frame anyway",
+  "safety.preflight.anyway_laser_test": "Test anyway",
+  "safety.preflight.anyway_move": "Move anyway",
+  "safety.preflight.anyway_resume": "Resume anyway",
+  "safety.preflight.anyway_start": "Start anyway",
   "safety.preflight.continue": "Continue",
   "safety.preflight.errors.one": "{n} problem blocks this action.",
   "safety.preflight.errors.other": "{n} problems block this action.",
   "safety.preflight.extent": "job extent X {x0}..{x1}  Y {y0}..{y1} {unit}",
+  "safety.preflight.fix.home": "Home axes",
+  "safety.preflight.fix.technology": "Choose technology…",
+  "safety.preflight.info_only": "For your information:",
+  "safety.preflight.info_status": "{title}: {message}",
+  "safety.preflight.layers_undefined.one": "{n} layer has no technology (layer {layers})",
+  "safety.preflight.layers_undefined.other": "{n} layers have no technology (layers {layers})",
   "safety.preflight.line_error": "ERROR    {message}",
   "safety.preflight.line_warning": "warning  {message}",
+  "safety.preflight.list": "Pre-flight issues",
+  "safety.preflight.more": "{message} (+{n} more)",
   "safety.preflight.overridden": "overridden: {message}",
+  "safety.preflight.row": "{severity}: {message}",
+  "safety.preflight.sev_error": "Error",
+  "safety.preflight.sev_info": "Info",
+  "safety.preflight.sev_warning": "Warning",
   "safety.preflight.title": "Pre-flight check: {action}",
+  "safety.preflight.title_dry_run": "Before Dry run",
+  "safety.preflight.title_frame": "Before Frame",
+  "safety.preflight.title_laser_test": "Before the laser test",
+  "safety.preflight.title_move": "Before the move",
+  "safety.preflight.title_resume": "Before Resume",
+  "safety.preflight.title_start": "Before Start",
   "safety.preflight.travel": "travel X {x0}..{x1} {unit}, Y {y0}..{y1} {unit} ({source})",
   "safety.preflight.warnings.one": "{n} warning: continue anyway?",
   "safety.preflight.warnings.other": "{n} warnings: continue anyway?",
@@ -3522,9 +3596,12 @@
   "safety.refused.dry_run": "Dry run refused",
   "safety.refused.frame": "Frame refused",
   "safety.refused.reset": "Reset refused",
+  "safety.refused.reset_alarm": "Reset refused: {alarm} still active — {remedy}",
   "safety.refused.reset_text": "reset refused",
   "safety.refused.resume": "Resume refused",
   "safety.refused.start": "Start refused",
+  "safety.refused.start_disarmed": "Start refused: the laser was disarmed again.",
+  "safety.refused.start_disarmed_title": "Start refused, laser disarmed",
   "safety.set.door_input": "Door interlock: card input",
   "safety.set.door_open_active": "Door interlock: alarm when the input is on",
   "safety.set.follower": "Follower alarm interlock",
@@ -4637,6 +4714,7 @@
   "ws.machine.jog_y_plus": "Jog Y+ (back)",
   "ws.machine.jog_z_minus": "Jog Z− (down)",
   "ws.machine.jog_z_plus": "Jog Z+ (up)",
+  "ws.machine.kind_not_connected": "Not connected",
   "ws.machine.min_mode": "Needs: {mode}",
   "ws.machine.mode_engineer": "Engineer",
   "ws.machine.mode_needed": "This needs a higher user mode",
@@ -4662,6 +4740,13 @@
   "ws.machine.position_box": "Position",
   "ws.machine.real_card": "Real motion card",
   "ws.machine.return_origin": "Go to origin",
+  "ws.machine.safety_armed": "Armed: laser emission enabled",
+  "ws.machine.safety_disarmed": "Disarmed: the laser cannot fire",
+  "ws.machine.safety_fault": "Fault (latched)",
+  "ws.machine.safety_offline": "Not connected",
+  "ws.machine.safety_paused": "Held",
+  "ws.machine.safety_running": "Running",
+  "ws.machine.safety_with_fault": "{state}: {fault}",
   "ws.machine.sec_alarms": "Alarms",
   "ws.machine.sec_connection": "Connection",
   "ws.machine.sec_monitors": "Monitors",
@@ -4684,6 +4769,8 @@
   "ws.machine.status_box": "Status",
   "ws.machine.step_cont": "Continuous",
   "ws.machine.title": "Machine",
+  "ws.machine.why_connected": "Already connected",
+  "ws.machine.why_not_connected": "Not connected",
   "ws.nest": "Nest",
   "ws.orders": "Orders",
   "ws.report": "Report",
@@ -4745,7 +4832,7 @@
   "wizard.comm.fix.reconnect": "Connect again",
   "wizard.comm.fix.import_params": "Import parameters...",
   "wizard.comm.fix.adopt_scaling": "Adopt the card's values",
-  "wizard.comm.fix.clear_alarms": "Clear alarm",
+  "wizard.comm.fix.clear_alarms": "Reset alarm",
   "wizard.comm.fix.simulate": "Simulate the sensor (dry run)",
   "wizard.comm.fix.dry_run": "Not in a dry run: nothing is applied to the machine or its parameters.",
   "wizard.comm.fix.dry_run_only": "Only in a dry run (the private simulator).",
@@ -4990,6 +5077,9 @@
    "title",
    "n"
   ],
+  "card.alarms.fault_detail": [
+   "detail"
+  ],
   "card.log.machine": [
    "ppm_x",
    "ppm_y",
@@ -5171,6 +5261,23 @@
   "layers.tip.value": [
    "name",
    "value"
+  ],
+  "log.arm_refused_alarm": [
+   "alarm"
+  ],
+  "log.disarmed_by_alarm": [
+   "alarm"
+  ],
+  "log.paused_at": [
+   "x",
+   "y"
+  ],
+  "log.reset_refused_alarm": [
+   "alarm"
+  ],
+  "log.stopped_at_fault": [
+   "x",
+   "y"
   ],
   "machine.log.autosave_failed": [
    "error"
@@ -5680,6 +5787,26 @@
   "project.saving": [
    "name"
   ],
+  "ready.why.alarm": [
+   "alarm"
+  ],
+  "ready.why.fault": [
+   "fault"
+  ],
+  "ready.why.interlocks.one": [
+   "n"
+  ],
+  "ready.why.interlocks.other": [
+   "n"
+  ],
+  "ready.why.technology.one": [
+   "n",
+   "layers"
+  ],
+  "ready.why.technology.other": [
+   "n",
+   "layers"
+  ],
   "repair.done.closed": [
    "n"
   ],
@@ -5911,6 +6038,9 @@
   "run.val.last_known": [
    "values"
   ],
+  "run.why.alarm": [
+   "alarm"
+  ],
   "safety.alarm.fault_since": [
    "fault",
    "time"
@@ -5921,6 +6051,10 @@
   "safety.alarm.title": [
    "code",
    "text"
+  ],
+  "safety.alarm.with_fault": [
+   "text",
+   "fault"
   ],
   "safety.alarm.with_more": [
    "text",
@@ -5935,6 +6069,10 @@
   ],
   "safety.banner.with_simulator": [
    "state"
+  ],
+  "safety.kept.text": [
+   "x",
+   "y"
   ],
   "safety.locked.breakpoint": [
    "what"
@@ -5958,13 +6096,33 @@
    "y1",
    "unit"
   ],
+  "safety.preflight.info_status": [
+   "title",
+   "message"
+  ],
+  "safety.preflight.layers_undefined.one": [
+   "n",
+   "layers"
+  ],
+  "safety.preflight.layers_undefined.other": [
+   "n",
+   "layers"
+  ],
   "safety.preflight.line_error": [
    "message"
   ],
   "safety.preflight.line_warning": [
    "message"
   ],
+  "safety.preflight.more": [
+   "message",
+   "n"
+  ],
   "safety.preflight.overridden": [
+   "message"
+  ],
+  "safety.preflight.row": [
+   "severity",
    "message"
   ],
   "safety.preflight.title": [
@@ -5983,6 +6141,10 @@
   ],
   "safety.preflight.warnings.other": [
    "n"
+  ],
+  "safety.refused.reset_alarm": [
+   "alarm",
+   "remedy"
   ],
   "shell.chip.interlocks.one": [
    "n"
@@ -7070,6 +7232,10 @@
    "libs",
    "paths",
    "fonts"
+  ],
+  "ws.machine.safety_with_fault": [
+   "state",
+   "fault"
   ]
  },
  "legacy": {
