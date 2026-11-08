@@ -55,8 +55,11 @@ class WorkspaceWindow(QWidget):
         lay.addWidget(widget)
         self.widget = widget
         self._on_close = on_close
-        fs = QShortcut(QKeySequence(Qt.Key_F11), self)
-        fs.activated.connect(self.toggle_full_screen)
+        # the platform's full-screen key (⌃⌘F on macOS, F11 on Windows / Linux: shell.keymap)
+        from ..shell import keymap
+        for seq in keymap.sequences(keymap.window_keys().get("window.fullscreen", "F11")):
+            fs = QShortcut(QKeySequence(seq), self)
+            fs.activated.connect(self.toggle_full_screen)
         self.resize(1280, 800)
 
     def toggle_full_screen(self) -> None:

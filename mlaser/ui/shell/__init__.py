@@ -31,7 +31,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QFileDialog, QInputDialog, QMessageBox, QToolButton,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QMessageBox, QToolButton,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um
@@ -205,7 +205,13 @@ class Shell:
             ("window.zoom", lambda: self.toggle_zoom(), "shell.window.zoom", False, "operator"),
             ("window.fullscreen", lambda on: self.set_full_screen(bool(on)), "shell.window.fullscreen", True,
              "operator"),
+            # File > Close (⌘W / Ctrl+W): the active window; the main window closes the
+            # application through its own close checks (job running, unsaved changes)
+            ("window.close", lambda: self.close_window(), "shell.window.close", False, "operator"),
         ]
+        if self._plat == "macos":
+            cmds.append(("window.bring_all_front", lambda: self.bring_all_to_front(),
+                         "shell.window.bring_all_front", False, "operator"))
         for m in um.MODES:
             cmds.append((f"shell.mode_{m}", lambda m=m: self.request_mode(m), f"shell.mode.switch_{m}", False, ""))
         for t in theme.THEME_IDS:
@@ -502,6 +508,28 @@ class Shell:
             self.w.showNormal()
         else:
             self.w.showMaximized()
+
+    def close_window(self) -> None:
+        """File > Close (⌘W / Ctrl+W): close the active window.  The main window is the
+        document window of this single-window application: closing it quits, through
+        ``MainWindow.closeEvent`` (the job-running question, the unsaved-changes prompt)."""
+        app = QApplication.instance()
+        win = app.activeWindow() if app is not None else None
+        if win is None or win is self.w or not win.isWindow():
+            win = self.w
+        win.close()
+
+    def bring_all_to_front(self) -> None:
+        """Window > Bring All to Front (macOS): every window of the application above the
+        other applications' (NSApplication arrangeInFront:, else each window raised)."""
+        from .. import native
+        if native.mac_arrange_in_front():
+            return
+        app = QApplication.instance()
+        for x in app.topLevelWidgets() if app is not None else []:
+            if x.isWindow() and x.isVisible() and not x.isMinimized():
+                x.raise_()
+        self.w.activateWindow()
 
     def set_full_screen(self, on: bool) -> None:
         """Window > Enter Full Screen (⌃⌘F on macOS, F11 elsewhere)."""

@@ -207,6 +207,19 @@ def mac_badge(text: str) -> None:
         log.info("macOS badge failed: %s", exc)
 
 
+def mac_arrange_in_front() -> bool:
+    """Window > Bring All to Front: ``[NSApp arrangeInFront:nil]`` (False off macOS)."""
+    oc = _objc()
+    if oc is None:
+        return False
+    try:
+        oc.send(None, _nsapp(oc), "arrangeInFront:", (ctypes.c_void_p, None))
+        return True
+    except Exception as exc:  # noqa: BLE001
+        log.info("macOS arrangeInFront failed: %s", exc)
+    return False
+
+
 def mac_set_help_menu(title: str) -> bool:
     """Tell AppKit which menu is Help, so it gets the system's help search field."""
     oc = _objc()

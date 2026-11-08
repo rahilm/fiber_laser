@@ -14,7 +14,8 @@ and the command registry (:func:`rows`, :func:`markdown`).  Qt-free.
 
 Per platform (:data:`PLATFORM_KEYS`, :func:`window_keys`): the tables are written with
 ``Ctrl`` (Qt maps it to ⌘ on macOS); each platform overrides what its conventions say:
-redo is Ctrl+Y on Windows, Ctrl+Shift+Z on Linux and ⇧⌘Z on macOS; Delete is ⌫ on a Mac
+redo is Ctrl+Y on Windows, Ctrl+Shift+Z on Linux and ⇧⌘Z on macOS; undo is ⌘Z alone on macOS
+(⌥⌫ deletes a word there); Delete is ⌫ on a Mac
 keyboard; full screen is F11 on Windows/Linux and ⌃⌘F on macOS; and every F-key action gets a ⌘
 alternative on macOS, where the F-keys are media keys by default.  Shortcut text shown to the
 user goes through :func:`native_text` (⌘K on macOS, never a literal "Ctrl+K").
@@ -30,7 +31,8 @@ WINDOW_KEYS: dict[str, str] = {
     "file.new": "Ctrl+N", "file.open": "Ctrl+O", "file.save": "Ctrl+S", "file.save_as": "Ctrl+Shift+S",
     "file.import": "Ctrl+I", "app.settings": "Ctrl+,", "app.exit": "Ctrl+Q",
     # edit
-    "edit.undo": "Ctrl+Z|Alt+Backspace", "edit.redo": "Ctrl+Y|Ctrl+Shift+Z", "edit.copy": "Ctrl+C", "edit.paste": "Ctrl+V",
+    "edit.undo": "Ctrl+Z|Alt+Backspace", "edit.redo": "Ctrl+Y|Ctrl+Shift+Z", "edit.cut": "Ctrl+X",
+    "edit.copy": "Ctrl+C", "edit.paste": "Ctrl+V",
     "edit.delete": "Del", "select.all": "Ctrl+A", "select.invert": "Ctrl+Shift+I",
     # view
     "view.zoom_fit": "F", "view.zoom_in": "Ctrl+=", "view.zoom_out": "Ctrl+-",
@@ -41,13 +43,16 @@ WINDOW_KEYS: dict[str, str] = {
     "shell.reset_layout": "Ctrl+Shift+F12", "shell.user_mode": "Ctrl+Shift+M",
     "workspace.design": "Ctrl+1", "workspace.process": "Ctrl+2", "workspace.nest": "Ctrl+3",
     "workspace.run": "Ctrl+4", "workspace.report": "Ctrl+5", "workspace.machine": "Ctrl+6",
-    # window
-    "window.fullscreen": "F11",
+    # window (Close: the active window; closing the main window goes through its close checks)
+    "window.fullscreen": "F11", "window.close": "Ctrl+W",
 }
 
 #: platform overrides of :data:`WINDOW_KEYS` ("" removes a key on that platform)
 PLATFORM_KEYS: dict[str, dict[str, str]] = {
     "macos": {
+        # ⌘Z only: ⌥⌫ deletes the word before the caret in every macOS text field, it is not
+        # Undo there (Alt+Backspace, the original's Windows accelerator, stays on Windows/Linux)
+        "edit.undo": "Ctrl+Z",
         "edit.redo": "Ctrl+Shift+Z", "edit.delete": "Backspace|Del",
         "window.fullscreen": "Meta+Ctrl+F", "window.minimize": "Ctrl+M",
         "app.help": "Ctrl+?|F1", "shell.shortcuts": "Ctrl+/|Ctrl+F1",

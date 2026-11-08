@@ -24,7 +24,13 @@ Code:
 | Menu bar | the global menu bar. The app menu has About mlaser, Settings… ⌘,, Plugins…, Services, Hide, Hide Others, Show All and Quit mlaser ⌘Q (menu roles) | in the window, with Alt access keys (`&File`). Exit is at the end of File, Options… at the end of Tools | in the window (or the desktop's global menu where it has one). Quit is at the end of File, Preferences… at the end of Edit |
 | Menus | File, Edit, View, Draw, Process, Workspace, Machine, Tools, Window, Help | same | same |
 | Help | the system's help search field; Search commands (⌘K) | Search commands (Ctrl+K), F1 | Search commands (Ctrl+K), F1 |
+| Menu items | no access keys (macOS has none) | every item has an access key (`Cu&t`, `E&xit`), distinct within its menu, set when the menu opens (`menu_spec.item_mnemonics`) | same as Windows |
+| Undo / Redo | ⌘Z (not ⌥⌫: that deletes a word in text fields); the items name the step: Undo Move, Redo Paste | Ctrl+Z (also Alt+Backspace), named the same way | same as Windows |
 | Redo | ⇧⌘Z | Ctrl+Y (also Ctrl+Shift+Z) | Ctrl+Shift+Z (also Ctrl+Y) |
+| Close | File > Close ⌘W closes the active window; the main window is the document window of this single-window app, closing it quits (through its close checks) | File > Close Ctrl+W, the same | the same |
+| Window menu | Minimize ⌘M, Zoom, Enter Full Screen, Panels, Bring All to Front (`arrangeInFront:`), the open windows (the active one checked) | Minimize, Maximize, Full screen, Panels, the open windows | same as Windows |
+| Clipboard | Cut / Copy / Paste through `QClipboard`: mlaser's parts (`application/x-mlaser-parts`, an `.mlz` project), SVG (also as text), DXF; paste takes mlaser's own, then DXF, then SVG, then copied files | same | same |
+| Drag and drop | drawing / project files onto the window or the canvas (open `.mlz` / `.chf`, import DXF / SVG / G-code); parts onto the canvas (pasted where dropped); part-list rows out as parts, SVG, DXF and a `.dxf` file | same | same |
 | Full screen | Window > Full Screen ⌃⌘F | F11 | F11 |
 | F-key commands | each also has a ⌘ key: Start ⌘R, Frame ⇧⌘F, Dry run ⇧⌘R, Stop ⌘. (Esc too) | F5, F6, Shift+F6, F12 | same as Windows |
 | Shortcut text | ⌘K, ⇧⌘Z, …: every translated text and the shortcut sheet | Ctrl+K | Ctrl+K |

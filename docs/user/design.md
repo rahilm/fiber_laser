@@ -41,7 +41,20 @@ middle and centre points and circle quadrants; hold **Shift** to place a point w
 Select with a click or a window drag; move, rotate, mirror, scale, align and set the size from
 the **Common** tab. Trim and extend, explode, group and ungroup, arrays (rectangular, circular,
 fill) and common-edge joining are on the **Common** and **Process** tabs. Every edit can be
-undone (**Ctrl+Z**).
+undone (**Ctrl+Z**, ⌘Z on a Mac); **Edit → Undo** names the step it undoes ("Undo Move"). The
+arrow keys nudge the selection; a run of nudges is one undo step. The history is limited by
+memory (256 MB of copies), not by a number of steps.
+
+**Cut**, **Copy** and **Paste** (**Ctrl+X / C / V**, ⌘X / C / V) use the system clipboard: parts
+copied in one mlaser window paste into another, or into another mlaser, with all their process
+settings. The copy also carries SVG and DXF, so a drawing program or CAD program can paste it;
+mlaser pastes DXF or SVG copied from other programs too (the same import limits as for files).
+Pasted parts land 10 mm from the originals.
+
+Drag and drop: drop DXF, SVG or G-code files on the window or the canvas to import them into the
+drawing, a project (`.mlz`) or `.chf` to open it. Drag selected rows out of the **Parts** list
+onto the canvas (a copy where you drop it), into another mlaser window, or into a folder (a
+`.dxf` file).
 
 ## Text
 

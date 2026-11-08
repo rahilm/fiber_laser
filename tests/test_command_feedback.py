@@ -24,7 +24,7 @@ from mlaser.ui import command_feedback as F
 from wiring import dispose, real_window
 
 #: commands not run by the walk
-SKIP = {"app.exit": "closes the application"}
+SKIP = {"app.exit": "closes the application", "window.close": "closes the active window (the application)"}
 
 #: commands that bring a panel / workspace / mode to the front: run while it is already in front
 #: they change nothing, so the walk checks the state they promise instead
