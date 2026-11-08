@@ -110,6 +110,34 @@ class EmptyState(QWidget):
         self.grid.setRowStretch(n // cols + 1, 1)
 
 
+class CanvasSplitter(QSplitter):
+    """The canvas and the page beside it: side by side while both have their minimum widths,
+    the page under the canvas in a narrower window (a half-screen one), so the page's minimum
+    width is the wider of the two, not their sum (a workspace switch then reflows instead of
+    widening the window)."""
+
+    def _side_by_side_need(self) -> int:
+        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
+              for i in range(self.count()) if not self.widget(i).isHidden()]
+        return sum(ws) + self.handleWidth() * max(len(ws) - 1, 0)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        s = super().minimumSizeHint()
+        ws = [self.widget(i).minimumSizeHint().expandedTo(self.widget(i).minimumSize()).width()
+              for i in range(self.count()) if not self.widget(i).isHidden()]
+        return QSize(max(ws, default=s.width()), s.height())
+
+    def fit_orientation(self) -> None:
+        # by the width alone (the height follows the choice, never the reverse)
+        want = Qt.Horizontal if self.width() >= self._side_by_side_need() else Qt.Vertical
+        if self.orientation() != want:
+            self.setOrientation(want)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        self.fit_orientation()
+
+
 class WorkspacePage(QWidget):
     """One workspace: toolbar + body (see the module docstring)."""
 
@@ -183,7 +211,7 @@ class WorkspacePage(QWidget):
         spec = self.spec
         own = self._own_widget()
         if spec.canvas:
-            self.splitter = QSplitter(Qt.Horizontal)
+            self.splitter = CanvasSplitter(Qt.Horizontal)
             self.splitter.setChildrenCollapsible(True)
             self.canvas_slot = QWidget()
             self.canvas_slot.setMinimumWidth(CANVAS_MIN)       # the drawing stays workable
@@ -291,6 +319,18 @@ class WorkspacePage(QWidget):
             if act.icon().isNull():
                 btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
 
+    def _label_order(self) -> list:
+        """The tool bar's actions in the order they get their labels when not all fit: the
+        workspace's ``toolbar_labels`` (its most-used commands) first, then the tool bar's
+        order."""
+        acts = [a for a in self._acts if not a.isSeparator()]
+        first = []
+        for cmd in self.spec.extra.get("toolbar_labels", ()) or ():
+            act = self.host.action(cmd)
+            if act is not None and act in acts and act not in first:
+                first.append(act)
+        return first + [a for a in acts if a not in first]
+
     def toolbar_actions(self) -> list:
         """The tool bar's actions in order, both rows."""
         return list(self._acts)
@@ -353,7 +393,8 @@ class WorkspacePage(QWidget):
         so narrow that its wrapped rows pushed the window taller than the screen with the
         Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
         sp = self.splitter
-        if sp is None or sp.count() < 2 or self._user_split or not sp.isVisible():
+        if (sp is None or sp.count() < 2 or self._user_split or not sp.isVisible()
+                or sp.orientation() != Qt.Horizontal):
             return
         own = sp.widget(1)
         total = sp.width() - sp.handleWidth()
@@ -398,8 +439,9 @@ class WorkspacePage(QWidget):
             tb.setToolButtonStyle(style)
             for act in tb.actions():         # a command without an icon keeps its text
                 btn = tb.widgetForAction(act)
-                if isinstance(btn, QToolButton) and act.icon().isNull():
-                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly)
+                if isinstance(btn, QToolButton):
+                    # each button too: a label given to it alone (below) stays otherwise
+                    btn.setToolButtonStyle(Qt.ToolButtonTextOnly if act.icon().isNull() else style)
             if tb.layout() is not None:
                 tb.layout().invalidate()     # its size hint is cached until the next layout pass
         # icons only in two rows is the narrowest the tool bar gets: the page never goes
@@ -432,15 +474,44 @@ class WorkspacePage(QWidget):
             seps = [i for i, a in enumerate(acts) if a.isSeparator() and 0 < i < len(ws)]
             k = min(seps, key=lambda i: abs(sum(ws[:i]) - total / 2)) if seps else mid
             need = max(sum(ws[:k]) + sp * max(k - 1, 0), sum(ws[k:]) + sp * max(len(ws) - k - 1, 0)) + chrome
-            if self.width() < one:
-                split = k
-        self._place(split)
+            split = k if self.width() < one else len(acts)
+            # the estimate decides only whether to try one row: one row is kept only when the
+            # tool bar's own size hint (the style's spacing and margins: macOS has its own)
+            # says it fits, else it goes back to two rows; never the extension button
+            self._place(split)
+            if split == len(acts):
+                apply(Qt.ToolButtonIconOnly)
+                if tb.sizeHint().width() > max(self.width(), 1):
+                    split = k
+                    self._place(split)
+        else:
+            self._place(split)
         if split == len(acts):
             apply(Qt.ToolButtonTextBesideIcon)
             if tb.sizeHint().width() > max(self.width(), 1):
+                # not every label fits: the most-used commands keep theirs, in the order of
+                # the workspace's priority list (its tool bar order by default), the rest
+                # icons only (O6: a wide window showed no label at all)
                 apply(Qt.ToolButtonIconOnly)
+                for act in self._label_order():
+                    btn = tb.widgetForAction(act)
+                    if not isinstance(btn, QToolButton) or act.icon().isNull():
+                        continue
+                    btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
+                    if tb.layout() is not None:
+                        tb.layout().invalidate()
+                    if tb.sizeHint().width() > max(self.width(), 1):
+                        btn.setToolButtonStyle(Qt.ToolButtonIconOnly)
+                        if tb.layout() is not None:
+                            tb.layout().invalidate()
+                        break
         else:
             apply(Qt.ToolButtonIconOnly)
+            tb2.setToolButtonStyle(Qt.ToolButtonIconOnly)
+            if tb2.layout() is not None:
+                tb2.layout().invalidate()
+            # the two rows as the style lays them out (the estimate only chose the break)
+            need = max(need, tb.sizeHint().width(), tb2.sizeHint().width())
         if tb.layout() is not None:
             tb.layout().invalidate()
         if need != self._toolbar_need:
@@ -514,6 +585,29 @@ class _RailFit(QObject):
         return False
 
 
+class _UserSize(QObject):
+    """The window size the user chose (or the application placed): a resize that only grew the
+    window to its minimum (a page that needs more room) is not one, so a workspace switch can
+    go back to the user's size when the next page fits it (W14: a half-screen window stays in
+    its half)."""
+
+    def __init__(self, window: QWidget) -> None:
+        super().__init__(window)
+        self.w = window
+        self.size: Optional[QSize] = None
+        self.switching = False
+        window.installEventFilter(self)
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if obj is self.w and ev.type() == QEvent.Resize and not self.switching:
+            old, new = ev.oldSize(), ev.size()
+            m = self.w.minimumSize()
+            forced = old.isValid() and new == old.expandedTo(m) and new != old
+            if not forced:
+                self.size = QSize(new)
+        return False
+
+
 class WorkspaceHost:
     """Pages, rail and switching.  Created by the main window before the plugins load (so
     ``ctx.add_workspace`` works from ``register``)."""
@@ -521,6 +615,7 @@ class WorkspaceHost:
     def __init__(self, window, tr, actions: Callable[[str], Optional[QAction]],
                  allowed: Callable[[str], bool], mode: Callable[[], str]):
         self.w = window
+        self.user_size = _UserSize(window)
         self.tr = tr
         self._action = actions
         self._allowed = allowed
@@ -651,8 +746,11 @@ class WorkspaceHost:
         prev = self.specs.get(self.current)
         page = self.pages[ws_id]
         win = self.w
-        before = win.size() if (win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen))) \
-            else None
+        before = None
+        if win.isVisible() and not (win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen)):
+            # the user's size (not one an earlier page's minimum grew the window to)
+            before = QSize(self.user_size.size) if self.user_size.size is not None else win.size()
+        self.user_size.switching = True
         canvas = self.canvas_widget()
         if spec.canvas and canvas is not None:
             page.show_canvas(canvas)
@@ -664,6 +762,11 @@ class WorkspaceHost:
         self.current = ws_id
         self.rail_actions[ws_id].setChecked(True)
         self._apply_docks(prev, spec, hide=False)
+        pol = getattr(getattr(win, "shell", None), "dock_policy", None)
+        if before is not None and pol is not None:
+            # the new workspace's docks fold now if the window is too narrow for them side by
+            # side: its minimum must not widen the window first (a switch reflows, W14)
+            pol.fit_width(before.width())
         if before is not None:
             # the new page's minimum is first asked for before its wrapper knows the room around
             # it (its screen cap: FitArea._cap), and the window grows to that; once the page has
@@ -673,6 +776,7 @@ class WorkspaceHost:
             for _ in range(4):
                 QCoreApplication.sendPostedEvents(None, QEvent.LayoutRequest)
             self._keep_size(before)
+        self.user_size.switching = False
         for fn in list(self.listeners):
             fn(ws_id)
         return True
@@ -682,9 +786,11 @@ class WorkspaceHost:
         if not win.isVisible() or win.windowState() & (Qt.WindowMaximized | Qt.WindowFullScreen):
             return
         size = win.size()
-        if size.width() > before.width() or size.height() > before.height():
-            want = before.expandedTo(win.minimumSizeHint()).expandedTo(win.minimumSize())
-            if want != size and want.width() <= size.width() and want.height() <= size.height():
+        if size != before:
+            # back to the user's size as far as this page's minimum allows (the minimum Qt
+            # keeps: the dock policy's explicit one while the docks can fold)
+            want = before.expandedTo(win.minimumSize())
+            if want != size:
                 win.resize(want)
 
     def resolve(self, ws_id: str) -> str:

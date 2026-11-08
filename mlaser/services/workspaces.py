@@ -80,14 +80,18 @@ BUILTIN: dict[str, WorkspaceSpec] = {
                  "-", "xform.align", "xform.mirror_h", "xform.rot_cw90", "tool.array", "-",
                  "view.zoom_fit", "show.toolpath"),
         docks=("lp0", "plugin.ext_process.properties", "mf141", "mf124"),
-        description="shell.ws.design.desc", slot=DESIGN),
+        description="shell.ws.design.desc", slot=DESIGN,
+        # the commands that keep their labels first when not all fit (shell: fit_toolbar)
+        extra={"toolbar_labels": ("file.import", "view.zoom_fit", "show.toolpath", "edit.undo")}),
     PROCESS: WorkspaceSpec(
         PROCESS, "shell.ws.process", None, "adjustments", 20, "Ctrl+2", "engineer", canvas=True,
         toolbar=("craft.lead", "craft.kerf", "craft.microjoint", "craft.reverse", "craft.start_point",
                  "-", "sort.run", "sort.nearest", "-", "tool.onekey", "-", "show.toolpath", "show.start",
                  "show.direction", "show.move_path", "-", "sim.speed", "sim.stop"),
         docks=("lp0", "mf141", "mf124"), description="shell.ws.process.desc", slot=PROCESS,
-        placeholder=True),
+        placeholder=True,
+        extra={"toolbar_labels": ("craft.lead", "craft.kerf", "craft.microjoint", "sort.run", "tool.onekey",
+                                  "show.toolpath")}),
     NEST: WorkspaceSpec(
         NEST, "shell.ws.nest", None, "layout-board-split", 30, "Ctrl+3", "engineer", canvas=True,
         toolbar=("nest.new", "nest.open", "nest.save", "-", "nest.import_part", "nest.add_part",

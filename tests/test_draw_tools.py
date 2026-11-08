@@ -125,7 +125,9 @@ def _vp(win, x, y) -> QPoint:
 
 def test_canvas_hook_draws_rect_with_real_mouse_events(win):
     win.show()
-    QApplication.processEvents()
+    # the layout at rest first (an 800 px window folds its side docks: the canvas moves)
+    for _ in range(30):
+        QApplication.processEvents()
     c = win.canvas
     c.setTransform(c.transform().fromScale(2, -2))
     c.centerOn(25, 25)

@@ -31,6 +31,8 @@ SKIP = {"app.exit": "closes the application", "window.close": "closes the active
 IDEMPOTENT = {
     "diag.log": lambda w: w.log_dock.isVisible(),
     "nest.show": lambda w: w.extensions["ext_nest"][0].dock.isVisible(),
+    # already the tab on top: nothing more to show
+    "props.show": lambda w: not w.extension("ext_process").props_dock.visibleRegion().isEmpty(),
     "shell.mode_service": lambda w: w.user_mode == "service",
     "workspace.design": lambda w: w.shell.host.current == "design",
     "view.zoom_fit": lambda w: True,          # the drawing is shown fitted when it is set
@@ -89,7 +91,9 @@ def _snapshot(w, app):
     return (tuple(a.isChecked() for a in w.ribbon.actions.values()), w.canvas.mode, w.shell.host.current,
             w.log_panel.text.blockCount(), w.log_panel.alarms.rowCount(),
             frozenset(id(x) for x in app.topLevelWidgets() if x.isVisible()),
-            tuple(d.isVisible() for d in w.findChildren(QDockWidget)), len(w.document.parts),
+            tuple(d.isVisible() for d in w.findChildren(QDockWidget)),
+            # a dock raised to the top of its tab group (the folded docks of a narrow window)
+            tuple(not d.visibleRegion().isEmpty() for d in w.findChildren(QDockWidget)), len(w.document.parts),
             tuple(p.selected for p in w.document.parts), str(w.canvas.transform()), str(w.windowState()),
             bool(w.shell.palette is not None and w.shell.palette.isVisible()), w.user_mode)
 

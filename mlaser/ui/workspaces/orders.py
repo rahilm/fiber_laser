@@ -42,6 +42,7 @@ from mlaser.services.parts import RecognitionRules, recognize
 from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed, set_cell
 
 from .. import style
+from ..responsive import ColumnFitter
 from . import TOUCH_MIN, show_workspace, tr, trn
 
 OVERRIDE_CODES = (MC.MISMATCH,)
@@ -363,6 +364,9 @@ class OrdersWorkspace(QWidget):
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
+        # no sideways scrolling in a narrow window (a half-screen one): the least important
+        # columns hide while the table is narrower than its columns; the file never does
+        ColumnFitter(self.table, {0: None, 1: 8, 2: 7, 3: 6, 4: 2, 5: 3, 6: 4, 7: 1, 8: 5}, stretch=0)
         self.table.itemChanged.connect(self._edited)
         lay.addWidget(self.table, 1)
         self.errors = QLabel()

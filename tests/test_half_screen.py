@@ -8,7 +8,8 @@ import pytest
 
 pytest.importorskip("PySide6")
 from PySide6.QtCore import QEventLoop, Qt, QTimer  # noqa: E402
-from PySide6.QtWidgets import QApplication, QDialog, QMessageBox, QPushButton, QTabBar  # noqa: E402
+from PySide6.QtWidgets import (QApplication, QDialog, QMessageBox, QPushButton, QTabBar,  # noqa: E402
+                               QToolButton)
 
 HALF = (683, 875)
 WIDE = (1512, 875)
@@ -169,3 +170,80 @@ def test_page_tool_bar_wraps_instead_of_overflowing(win, app):
     win.resize(*WIDE)
     settle(app)
     assert not page.toolbar2.isVisible()
+
+
+@pytest.mark.parametrize("size", [(756, 945), (683, 875)])
+def test_a_workspace_switch_reflows_instead_of_resizing(win, app, size):
+    """W14: at half screen a workspace switch never widens the window into the other half;
+    a page taller than the window may raise its height, and the next workspace that fits goes
+    back to the user's size.  Design keeps a workable canvas (the docks fold before it is
+    squeezed below CANVAS_FOLD)."""
+    from mlaser.ops import demo_document
+    from mlaser.ui.shell.dock_policy import CANVAS_FOLD
+    win.set_document(demo_document())
+    win.resize(*size)
+    settle(app)
+    assert win.size().toTuple() == size
+    if size[0] >= 756:      # at 683 px the folded docks (Run Control 251 px) leave about 350
+        assert win.canvas.width() >= CANVAS_FOLD, win.canvas.width()
+    seen = {}
+    for ws in [*win.shell.host.visible_ids(), "design"]:
+        win.shell.show_workspace(ws)
+        settle(app, 0.3)
+        seen[ws] = win.size().toTuple()
+        assert win.width() == size[0], (ws, seen)                       # never wider
+        if win.minimumSize().height() <= size[1]:
+            assert win.height() == size[1], (ws, seen)                  # back to the user's size
+    assert seen["design"] == size, seen
+
+
+def test_tool_bar_labels_most_used_first(win, app):
+    """O6: when not every label fits, the workspace's most-used commands keep theirs (text
+    beside the icon), the rest are icons only; a wide window shows labels in Process too."""
+    from mlaser.services.workspaces import BUILTIN
+    host = win.shell.host
+    for ws, size in (("design", (1512, 875)), ("process", (1920, 1080))):
+        host.activate(ws)
+        win.resize(*size)
+        settle(app)
+        page = host.pages[ws]
+        styles = {b.defaultAction(): b.toolButtonStyle() for b in page.toolbar_buttons()}
+        labelled = [a for a, st in styles.items() if st != Qt.ToolButtonIconOnly]
+        assert labelled, (ws, page.width())
+        first = [host.action(c) for c in BUILTIN[ws].extra["toolbar_labels"]]
+        first = [a for a in first if a in styles]
+        n = len([a for a in labelled if a in first])
+        assert first[:n] == [a for a in first if a in labelled]          # in priority order
+        if len(labelled) < len(styles):
+            assert n == len(first) or not [a for a in labelled if a not in first], ws
+        ext = page.toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
+        assert ext is None or not ext.isVisible()
+
+
+def test_canvas_bar_is_compact_and_folds(win, app):
+    """O10: the canvas bar (Toolpath, Fit drawing, Fit table, legend) covers a small part of
+    the drawing, also at half screen, and folds to its arrow, remembered."""
+    from mlaser.ops import demo_document
+    from wiring import dispose, real_window
+    win.set_document(demo_document())
+    hud = win.canvas.hud
+    for size in (WIDE, (756, 945), HALF):
+        win.resize(*size)
+        settle(app)
+        v, g = win.canvas, hud.geometry()
+        assert g.width() * g.height() <= hud.AREA_SHARE * v.width() * v.height() + 1, (size, g, v.size())
+        assert hud.toggle.isVisible() and hud.fit_drawing.isVisible() and hud.fit_table.isVisible()
+    hud.fold.click()
+    settle(app, 0.2)
+    assert hud.collapsed and not hud.toggle.isVisible() and not hud.legend.isVisible()
+    assert hud.width() < 3 * hud.fold.width()
+    assert win.config.get("shell.canvas_hud_collapsed") is True
+    other = real_window(config=win.config)
+    try:
+        assert other.canvas.hud.collapsed                               # remembered
+    finally:
+        dispose(other)
+    hud.fold.click()
+    settle(app, 0.2)
+    assert not hud.collapsed and hud.toggle.isVisible()
+    assert win.config.get("shell.canvas_hud_collapsed") is False
