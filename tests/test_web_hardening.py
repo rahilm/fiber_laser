@@ -73,6 +73,8 @@ def test_idle_clients_cannot_exhaust_threads_or_fds(busy):
     stop = threading.Event()
     hog = threading.Thread(target=_gil_hog, args=(stop,), daemon=True)
     try:
+        from mlaser import _writebehind
+        _writebehind.flush()      # an earlier test's log line in flight holds a file open
         threads0, fds0 = threading.active_count(), _fds()
         if busy:
             hog.start()
@@ -88,6 +90,7 @@ def test_idle_clients_cannot_exhaust_threads_or_fds(busy):
         # at most the cap of handler threads, at most the cap of server-side sockets, ever
         assert s.peak_connections <= 8
         assert threading.active_count() - threads0 - int(busy) <= 8
+        _writebehind.flush()
         assert _fds() - fds0 - len(socks) <= 8 + 2
         if flood_s < 2.0 * 0.75:
             # the whole flood was handled before the first slot's 2 s socket timeout could free

@@ -119,6 +119,10 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   known to be lost, every request that is not a halt is refused at once and halt-class requests
   are sent once instead of waiting out the retry policy (the monitor keeps repeating the full
   halt). Nothing changes on the wire for a card that answers. docs/SAFETY.md §4a.
+  The run log (one line per log message), the alarm history and the Report's alarm records are
+  written by a file writer thread instead of the GUI thread: on Windows the run log's file open
+  alone stood up to 0.75 s right after the card lost power (the antivirus holds a file being
+  written).
 - Report: every job record has a source (real / simulator / dry run / practice); the figures
   count real jobs by default (Runs filter), dry runs are recorded too. The device counters
   (processing hours, maintenance), the planned quantity and `TotalReport.txt` count real jobs

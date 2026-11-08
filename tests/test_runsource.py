@@ -39,6 +39,7 @@ def test_ledger_filters_and_old_records(tmp_path):
     L = Ledger(str(tmp_path))
     for src in ("real", "simulator", "dry_run", "practice", "real"):
         L.add_job(ProductionRecord(1.0, 2.0, src, duration_s=60.0, source=src))
+    assert L.flush()
     with open(L.production_path, "a", encoding="utf-8") as f:   # written before sources existed
         f.write(json.dumps({"start": 3.0, "end": 4.0, "name": "old", "duration_s": 60.0}) + "\n")
     allj = L.jobs()

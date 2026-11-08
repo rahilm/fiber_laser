@@ -77,7 +77,8 @@ def test_job_statistics_end_to_end(win, tmp_path):
     assert (tmp_path / "File" / "ProcessesStatistic.txt").exists()
     rw = ext.work_report(False)
     assert rw.model.rowCount() == 1 and rw.model.item(0, 1).text() == rec.name
-    # the UI log is written in the original line format
+    # the UI log is written in the original line format (by the file writer thread)
+    assert ext.log_writer.flush()
     logs = list((tmp_path / "Log").glob("*.log"))
     assert logs and "[Info] -> " in logs[0].read_text("utf-8")
     # persistence: a new window over the same data dir gets the counters back

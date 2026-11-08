@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import csv
 import datetime as _dt
+import functools
 import io
 import json
 import os
@@ -34,6 +35,8 @@ import threading
 import time
 from dataclasses import asdict, dataclass, field, fields
 from typing import Any, Callable, Iterable, Optional
+
+from .. import _writebehind
 
 PRODUCTION_FILE = "production.jsonl"
 ALARM_FILE = "alarms.jsonl"
@@ -167,6 +170,7 @@ class Ledger:
         self.listeners: list[Callable[[], None]] = []
         self._lock = threading.Lock()
         self._open_alarms: dict[str, AlarmRecord] = {}
+        self._pending: dict[str, list[str]] = {}      # path -> lines not in the file yet
 
     @property
     def production_path(self) -> str:
@@ -177,10 +181,29 @@ class Ledger:
         return os.path.join(self.dir, ALARM_FILE)
 
     def _append(self, path: str, obj: dict) -> None:
-        os.makedirs(self.dir, exist_ok=True)
+        """Append one record, by the file writer thread (:mod:`mlaser._writebehind`): alarms
+        and faults are recorded on the GUI thread, where an ``open`` could stall the window
+        (Windows, issue #5).  The readers (:meth:`jobs`, :meth:`alarms`) see the records not
+        written yet too, without waiting for the writer."""
         line = json.dumps(obj, ensure_ascii=False, separators=(",", ":")) + "\n"
-        with self._lock, open(path, "a", encoding="utf-8") as f:
-            f.write(line)
+        with self._lock:
+            self._pending.setdefault(path, []).append(line)
+        _writebehind.submit(functools.partial(self._write, self.dir, path, line))
+
+    def _write(self, directory: str, path: str, line: str) -> None:
+        try:
+            os.makedirs(directory, exist_ok=True)    # an OSError is logged by the writer
+            with self._lock, open(path, "a", encoding="utf-8") as f:
+                f.write(line)
+        finally:
+            with self._lock:
+                pend = self._pending.get(path)
+                if pend:
+                    pend.remove(line)
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        """Wait until the records added so far are in the files."""
+        return _writebehind.flush(timeout)
 
     def _changed(self) -> None:
         for fn in list(self.listeners):
@@ -189,23 +212,26 @@ class Ledger:
             except Exception:  # noqa: BLE001
                 pass
 
-    @staticmethod
-    def _read(path: str) -> list[dict]:
+    def _read(self, path: str) -> list[dict]:
+        """The file's records, then the ones still on their way to it."""
+        with self._lock:                        # a line is either in the file or pending
+            try:
+                with open(path, encoding="utf-8") as f:
+                    lines = f.readlines()
+            except OSError:
+                lines = []
+            lines += self._pending.get(path, [])
         out = []
-        try:
-            with open(path, encoding="utf-8") as f:
-                for ln in f:
-                    ln = ln.strip()
-                    if not ln:
-                        continue
-                    try:
-                        d = json.loads(ln)
-                    except ValueError:
-                        continue                # a torn last line after a crash
-                    if isinstance(d, dict):
-                        out.append(d)
-        except OSError:
-            return []
+        for ln in lines:
+            ln = ln.strip()
+            if not ln:
+                continue
+            try:
+                d = json.loads(ln)
+            except ValueError:
+                continue                        # a torn last line after a crash
+            if isinstance(d, dict):
+                out.append(d)
         return out
 
     # ------------------------------------------------------------------ jobs

@@ -20,11 +20,14 @@ The rebuild writes the UI log in the same line format (UTF-8) to ``<data dir>/Lo
 from __future__ import annotations
 
 import datetime as _dt
+import functools
 import glob
 import os
 import re
 from dataclasses import dataclass
 from typing import Iterable, Optional
+
+from .. import _writebehind
 
 LINE_RE = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d(?:\.\d+)?) \[(\w+)\] -> (.*)$")
 
@@ -81,7 +84,12 @@ def filter_lines(lines: list[LogLine], text: str = "", level: str = "") -> list[
 
 
 class LogFileWriter:
-    """Daily log file ``<dir>/<YYYY-MM-DD>.log`` in the original line format."""
+    """Daily log file ``<dir>/<YYYY-MM-DD>.log`` in the original line format.
+
+    :meth:`write` is called for every log line on the GUI thread (the controller's log events):
+    the line is stamped there and appended by the file writer thread (:mod:`mlaser._writebehind`;
+    on Windows the ``open`` alone stood up to 0.75 s while the card lost power, issue #5).
+    :meth:`flush` waits until the lines written so far are in the file."""
 
     def __init__(self, directory: str, clock=_dt.datetime.now):
         self.dir = directory
@@ -93,14 +101,22 @@ class LogFileWriter:
 
     def write(self, msg: str, level: str = "Info") -> None:
         now = self.clock()
-        try:
-            os.makedirs(self.dir, exist_ok=True)
-            with open(self.path(now.date()), "a", encoding="utf-8") as f:
-                for i, ln in enumerate(str(msg).splitlines() or [""]):
-                    stamp = f"{now:%Y-%m-%d %H:%M:%S}.{now.microsecond // 1000:03d}"
-                    f.write(f"{stamp} [{level}] -> {ln}\n" if i == 0 else f"    {ln}\n")
-        except OSError:
-            pass
+        stamp = f"{now:%Y-%m-%d %H:%M:%S}.{now.microsecond // 1000:03d}"
+        text = "".join(f"{stamp} [{level}] -> {ln}\n" if i == 0 else f"    {ln}\n"
+                       for i, ln in enumerate(str(msg).splitlines() or [""]))
+        _writebehind.submit(functools.partial(_append, self.dir, self.path(now.date()), text))
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        return _writebehind.flush(timeout)
 
     def session_start(self) -> None:
         self.write("--- Start Sys ---")
+
+
+def _append(directory: str, path: str, text: str) -> None:
+    try:
+        os.makedirs(directory, exist_ok=True)
+        with open(path, "a", encoding="utf-8") as f:
+            f.write(text)
+    except OSError:
+        pass

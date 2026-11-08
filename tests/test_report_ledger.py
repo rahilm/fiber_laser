@@ -51,6 +51,7 @@ def test_jobs_alarms_and_days(tmp_path):
 def test_torn_line_is_skipped(tmp_path):
     L = Ledger(str(tmp_path))
     L.add_job(ProductionRecord(1.0, 2.0, "a"))
+    assert L.flush()
     with open(L.production_path, "a", encoding="utf-8") as f:
         f.write('{"start": 3.0, "end"')          # crash in the middle of a write
     assert [j.name for j in L.jobs()] == ["a"]

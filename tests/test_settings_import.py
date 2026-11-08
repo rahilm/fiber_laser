@@ -135,6 +135,7 @@ def test_alarm_history_records_raise_clear_fault(tmp_path):
     assert [(r.kind, r.code, r.alarm_kind) for r in recs] == [("alarm", 8104, "servo"), ("fault", None, "card")]
     assert all(not r.active for r in recs) and recs[0].duration_s >= 0
     h.detach()
+    assert h.flush()                         # saved by the file writer thread
     h2 = AlarmHistory(tmp_path / "h.jsonl")
     assert [r.text for r in h2.entries(False)] == ["X servo input alarm", "link lost"]
     h2.clear()

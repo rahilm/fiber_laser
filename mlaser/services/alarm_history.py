@@ -14,6 +14,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable, Optional
 
+from mlaser import _writebehind
 from mlaser._atomic import atomic_write_text
 
 FILE = "alarm_history.jsonl"
@@ -141,6 +142,7 @@ class AlarmHistory:
     def load(self) -> None:
         if self.path is None:
             return
+        _writebehind.flush(2.0, _key(self.path))      # a save still on its way (another instance's)
         try:
             lines = self.path.read_text("utf-8").splitlines()
         except OSError:
@@ -155,14 +157,29 @@ class AlarmHistory:
             self.records = recs
 
     def save(self) -> None:
+        """Write the records (by the file writer thread, :mod:`mlaser._writebehind`: a fault
+        is recorded on the GUI thread, and the atomic write's ``fsync`` / replace must not
+        stall the window when the card loses power, issue #5); :meth:`flush` waits for it."""
         if self.path is None:
             return
         with self._lock:
             data = "".join(json.dumps(asdict(r), ensure_ascii=False) + "\n" for r in self.records)
-        try:
-            atomic_write_text(self.path, data)
-        except OSError:
-            pass
+        path = self.path
+        _writebehind.submit(lambda: _write(path, data), key=_key(path))
+
+    def flush(self, timeout: float = 10.0) -> bool:
+        return _writebehind.flush(timeout)
+
+
+def _key(path: Path) -> tuple:
+    return ("alarm_history", str(path))
+
+
+def _write(path: Path, data: str) -> None:
+    try:
+        atomic_write_text(path, data)
+    except OSError:
+        pass
 
 
 def default_history() -> AlarmHistory:

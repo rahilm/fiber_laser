@@ -48,6 +48,60 @@ def test_the_repeated_halt_keeps_its_reason():
         ctl.disconnect()
 
 
+def test_the_log_and_the_alarm_records_are_written_off_the_gui_thread(tmp_path, monkeypatch):
+    """CI (Windows): right after the card lost power the GUI thread stood 0.23-0.75 s in the run
+    log's ``open(..., "a")`` (each log line arrives there as an event; the antivirus holds a
+    file being written), with the process using no CPU meanwhile.  The run log, the alarm
+    history (the fault is recorded) and the production ledger's alarm records are written by
+    the file writer thread: a slow file system no longer stalls the caller."""
+    from mlaser import _writebehind
+    from mlaser.controller.alarms import Alarm
+    from mlaser.diag import logs as L
+    from mlaser.machine import events as EV
+    from mlaser.report import ledger as LG
+    from mlaser.services import alarm_history as AH
+    caller = threading.current_thread()
+    writers = []
+    real_open = open
+
+    def slow_open(path, mode="r", *a, **k):
+        if "a" in mode or "w" in mode:
+            writers.append(threading.current_thread())
+            time.sleep(0.3)
+        return real_open(path, mode, *a, **k)
+
+    def slow_atomic(path, data, *a, **k):
+        writers.append(threading.current_thread())
+        time.sleep(0.3)
+        return real_atomic(path, data, *a, **k)
+    real_atomic = AH.atomic_write_text
+    monkeypatch.setattr(L, "open", slow_open, raising=False)
+    monkeypatch.setattr(LG, "open", slow_open, raising=False)
+    monkeypatch.setattr(AH, "atomic_write_text", slow_atomic)
+    log = L.LogFileWriter(str(tmp_path / "Log"))
+    hist = AH.AlarmHistory(tmp_path / "alarm_history.jsonl")
+    bus = EV.EventBus()
+    hist.attach(bus)
+    ledger = LG.Ledger(str(tmp_path / "Report"))
+    t0 = time.monotonic()
+    for i in range(5):
+        log.write(f"line {i}")
+    a = Alarm(8104, "", "X servo input alarm", 0, "servo")
+    bus.publish(EV.AlarmRaised(alarms=(a,), active=(a,)))
+    bus.publish(EV.StateChanged("disarmed", "fault", "link lost", "link lost"))
+    ledger.alarm_raised("FAULT", "link lost", "fault")
+    took = time.monotonic() - t0
+    assert took < 0.25, f"the caller waited {took:.2f} s for the files"
+    assert [r.code for r in ledger.alarms()] == ["FAULT"]      # a record on its way is read too
+    assert _writebehind.flush(30)
+    assert writers and caller not in writers
+    lines = (tmp_path / "Log" / os.path.basename(log.path())).read_text("utf-8").splitlines()
+    assert [ln.split(" -> ")[1] for ln in lines] == [f"line {i}" for i in range(5)]     # in order
+    assert [r.kind for r in AH.AlarmHistory(tmp_path / "alarm_history.jsonl").entries(False)] == ["alarm", "fault"]
+    assert [r.code for r in ledger.alarms()] == ["FAULT"]
+    hist.detach()
+
+
 def test_background_call_delivers_on_the_gui_thread_and_never_overlaps():
     from PySide6.QtWidgets import QApplication
     from mlaser.ui.qtbridge import BackgroundCall
@@ -69,30 +123,104 @@ def test_background_call_delivers_on_the_gui_thread_and_never_overlaps():
 
 
 class _GuiWatch:
-    """Samples the GUI thread's stack while it has not come back to the test's loop for over
-    0.3 s: where it was stuck, for a failure's message."""
+    """Watches the GUI thread from a thread of its own while a test pumps the event loop.  For
+    every time the GUI thread has not come back to the test's loop (``tick``) for over 0.3 s it
+    keeps: what the test did last (``label``), the GUI thread's stack sampled while it was
+    stuck, the CPU time the process used meanwhile, the garbage collections in it and the
+    longest gap of this watcher's own 20 ms ticks.  A watcher that also stood still means the
+    whole process did (descheduled: little CPU) or one thread held the GIL (a collection, C
+    code: CPU about the stall); a watcher that ran on means the GUI thread itself was busy or
+    waiting, where its stack says."""
 
-    def __init__(self, gui, beat):
+    LIMIT = 0.3
+
+    def __init__(self, gui):
+        import gc
         import sys
         import traceback
-        self.where = "(no stall sampled)"
+        self.label = ""
+        self.stalls: list = []
+        self._beat = (time.monotonic(), time.process_time(), "")
+        self._open = None
+        self._gcs: list = []              # (end, duration, generation, thread)
+        self._gc_t0 = [0.0]
         self._stop = threading.Event()
+        self._lock = threading.Lock()
+
+        def on_gc(phase, info) -> None:
+            if phase == "start":
+                self._gc_t0[0] = time.perf_counter()
+            else:
+                self._gcs.append((time.monotonic(), time.perf_counter() - self._gc_t0[0],
+                                  info.get("generation"), threading.current_thread().name))
+        self._on_gc = on_gc
+        gc.callbacks.append(on_gc)
 
         def run() -> None:
-            worst = 0.3
-            while not self._stop.wait(0.05):
-                age = time.monotonic() - beat[0]
-                if age > worst:
-                    frame = sys._current_frames().get(gui.ident)
-                    if frame is not None:
-                        worst = age
-                        self.where = f"after {age:.2f} s:\n" + "".join(traceback.format_stack(frame)[-14:])
+            last = time.monotonic()
+            while not self._stop.wait(0.02):
+                now = time.monotonic()
+                gap, last = now - last, now
+                with self._lock:
+                    beat = self._beat
+                    st = self._open
+                    if st is not None and st["beat"] is not beat:
+                        self._close(st, beat)
+                        st = None
+                    if now - beat[0] > self.LIMIT:
+                        if st is None:
+                            st = self._open = {"beat": beat, "where": "", "own_gap": 0.0, "samples": 0}
+                        st["own_gap"] = max(st["own_gap"], gap)
+                        frames = sys._current_frames()
+                        frame = frames.get(gui.ident)
+                        if not st["samples"]:      # what the other threads were doing (a GIL holder)
+                            names = {t.ident: t.name for t in threading.enumerate()}
+                            st["others"] = "; ".join(
+                                f"{names.get(i, i)}@{os.path.basename(f.f_code.co_filename)}:{f.f_lineno}"
+                                for i, f in frames.items() if i not in (gui.ident, threading.get_ident()))
+                        if frame is not None:
+                            st["samples"] += 1
+                            st["where"] = (f"sampled after {now - beat[0]:.2f} s:\n"
+                                           + "".join(traceback.format_stack(frame)[-16:]))
         self._th = threading.Thread(target=run, name="gui-watch", daemon=True)
         self._th.start()
 
+    def _close(self, st, end) -> None:
+        t0, cpu0, label = st["beat"]
+        st["wall"] = end[0] - t0
+        st["cpu"] = end[1] - cpu0
+        st["after"] = label
+        st["gc"] = [(round(d, 3), g, th) for t, d, g, th in self._gcs if t0 <= t <= end[0] and d > 0.01]
+        self.stalls.append(st)
+        self._open = None
+
+    def tick(self) -> None:
+        """The GUI thread is back in the test's loop."""
+        beat = (time.monotonic(), time.process_time(), self.label)
+        with self._lock:
+            self._beat = beat
+
     def stop(self) -> None:
+        import gc
+        self.tick()
         self._stop.set()
         self._th.join(2)
+        with self._lock:
+            if self._open is not None:
+                self._close(self._open, self._beat)
+        if self._on_gc in gc.callbacks:
+            gc.callbacks.remove(self._on_gc)
+
+    def report(self) -> str:
+        slow_gc = [(round(d, 3), g, th) for t, d, g, th in self._gcs if d > 0.05]
+        head = f"collections over 50 ms meanwhile: {slow_gc}\n"
+        if not self.stalls:
+            return head + "(no stall over 0.3 s was sampled)"
+        return head + "\n".join(
+            f"stall of {st['wall']:.2f} s after {st['after']!r}: process CPU {st['cpu']:.2f} s, "
+            f"collections {st['gc']}, the watcher's own longest tick gap {st['own_gap']:.2f} s, "
+            f"{st['samples']} stack samples; other threads then: {st.get('others', '?')}; GUI thread "
+            f"{st['where'] or '(no stack)'}" for st in self.stalls)
 
 
 @pytest.mark.parametrize("link", ["silent", "down"])
@@ -133,19 +261,18 @@ def test_the_window_stays_responsive_when_the_card_loses_power(tmp_path, monkeyp
         t.start(20)
         end = time.monotonic() + 4.0
         worst, prev = 0.0, time.monotonic()
-        beat = [prev]
-        stuck = _GuiWatch(gui, beat)
+        stuck = _GuiWatch(gui)
         try:
             while time.monotonic() < end:
                 app.processEvents()
                 now = time.monotonic()
                 worst, prev = max(worst, now - prev), now
-                beat[0] = now
+                stuck.tick()
                 time.sleep(0.005)
         finally:
             stuck.stop()
         t.stop()
-        assert worst < 0.5, f"the GUI thread blocked for {worst:.2f} s in:\n{stuck.where}"
+        assert worst < 0.5, f"the GUI thread blocked for {worst:.2f} s:\n{stuck.report()}"
         assert on_gui == [], f"card requests on the GUI thread: {on_gui[:10]}"
         t0 = time.monotonic()
         w.reconnect()                        # the operator presses Reconnect: no freeze either
@@ -157,14 +284,18 @@ def test_the_window_stays_responsive_when_the_card_loses_power(tmp_path, monkeyp
 
 
 # ---------------------------------------------------------------------------- every panel command
-def _pump(app, seconds, stalls):
+def _pump(app, seconds, stalls, watch=None):
     end = time.monotonic() + seconds
     prev = time.monotonic()
+    if watch is not None:
+        watch.tick()
     while True:
         app.processEvents()
         now = time.monotonic()
         stalls.append(now - prev)
         prev = now
+        if watch is not None:
+            watch.tick()
         if now >= end:
             return
         time.sleep(0.005)
@@ -254,27 +385,43 @@ def test_no_panel_command_blocks_the_gui_when_the_card_loses_power(tmp_path, mon
             def down(self, data):
                 raise OSError(errno.EHOSTDOWN, "Host is down")
             monkeypatch.setattr(MotionController, "_send", down)
-        for phase in ("silent", "known lost"):
-            if phase == "known lost":
-                deadline = time.monotonic() + 15
-                while not ctl._sup._lost and time.monotonic() < deadline:
-                    _pump(app, 0.05, stalls)
-                assert ctl._sup._lost
-            for name, act in _panel_actions(w):
-                t0 = time.monotonic()
-                act()
-                timings[f"{phase}: {name}"] = time.monotonic() - t0
-                _pump(app, 0.05, stalls)
-        # the halt still goes out: the supervisor keeps repeating it on the halt channel
-        assert ctl._sup.halts and not ctl._sup.halts[-1].ok
-        assert ctl._sup._retry is not None
-        t0 = time.monotonic()
-        w.ctl.disconnect()                        # the operator's Disconnect
-        timings["disconnect"] = time.monotonic() - t0
-        _pump(app, 0.3, stalls)
+        watch = _GuiWatch(gui)
+        try:
+            for phase in ("silent", "known lost"):
+                if phase == "known lost":
+                    watch.label = "waiting for the link-lost verdict"
+                    deadline = time.monotonic() + 15
+                    while not ctl._sup._lost and time.monotonic() < deadline:
+                        _pump(app, 0.05, stalls, watch)
+                    assert ctl._sup._lost
+                for name, act in _panel_actions(w):
+                    watch.label = f"{phase}: {name}"
+                    watch.tick()
+                    t0 = time.monotonic()
+                    act()
+                    timings[f"{phase}: {name}"] = time.monotonic() - t0
+                    _pump(app, 0.05, stalls, watch)
+            # the halt still goes out: the supervisor keeps repeating it on the halt channel
+            # (each sequence runs on a thread of its own and is recorded once it ended: on a
+            # loaded macOS runner one took 2.4 s with the card off, none was recorded yet)
+            watch.label = "the test waiting for the halts on their way"
+            assert ctl._sup.wait_halts(15)
+            deadline = time.monotonic() + 15
+            while not ctl._sup.halts and time.monotonic() < deadline:
+                _pump(app, 0.05, [], watch)
+            assert ctl._sup.halts and not ctl._sup.halts[-1].ok
+            assert ctl._sup._retry is not None
+            watch.label = "disconnect"
+            watch.tick()
+            t0 = time.monotonic()
+            w.ctl.disconnect()                    # the operator's Disconnect
+            timings["disconnect"] = time.monotonic() - t0
+            _pump(app, 0.3, stalls, watch)
+        finally:
+            watch.stop()
         slow = {k: round(v, 3) for k, v in timings.items() if v > 0.25}
-        assert not slow, f"commands that blocked the GUI thread: {slow}"
-        assert max(stalls) < 0.5, f"the GUI thread blocked for {max(stalls):.2f} s"
+        assert not slow, f"commands that blocked the GUI thread: {slow}\n{watch.report()}"
+        assert max(stalls) < 0.5, f"the GUI thread blocked for {max(stalls):.2f} s:\n{watch.report()}"
         assert on_gui == [], f"card requests on the GUI thread: {on_gui[:10]}"
         assert ctl._sup.ui_thread_requests == n_gui
         assert ctl.wait_commands(60)              # every queued command ended (fast: link lost)

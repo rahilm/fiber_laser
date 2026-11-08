@@ -212,6 +212,7 @@ def test_logs(tmp_path):
     w = L.LogFileWriter(str(tmp_path), clock=lambda: dt.datetime(2026, 9, 16, 13, 34, 41, 379000))
     w.write("MC-RecvErr_selectFunc ErrCode:10060")
     w.write("bad thing", "Error")
+    assert w.flush()                         # written by the file writer thread
     p = tmp_path / "2026-09-16.log"
     text = p.read_text("utf-8")
     assert text.splitlines()[0] == "2026-09-16 13:34:41.379 [Info] -> MC-RecvErr_selectFunc ErrCode:10060"
