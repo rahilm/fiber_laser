@@ -134,6 +134,8 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
         self._pausing = False
         self._stop_reason = ""
         self._job_mode = ""
+        self._job_starting = False           # _run_job: between the start and the worker
+        self._job_live = False               # a job started and its worker has not ended it
         self._job_emits = False
         self._run_job_obj = None             # job currently streaming (may be a resume job)
         self._run_offset = 0                 # wire index in self._bp_job = streaming index + offset

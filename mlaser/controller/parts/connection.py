@@ -381,7 +381,7 @@ class ConnectionPart:
                 s.homed = not new_alarms and (st.homed_mask() & want) == want
             elif not self._homing and (self._homed_mask & 3) == 3:
                 s.homed = True
-            if self._busy():
+            if self._job_starting or (self._job_live and self._busy()):
                 s.mode = "pause" if self._paused else (self._job_mode or "process")
             elif self.breakpoint is not None:
                 s.mode = "pause"
