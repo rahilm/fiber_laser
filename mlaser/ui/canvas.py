@@ -957,6 +957,10 @@ class CanvasView(QGraphicsView):
                     or getattr(part, "raster", None) is not None):
                 return False
             updates.append((pi, part, ent))
+        if len(updates) > max(64, len(doc.parts) // 8):
+            # many parts changed (a select-all edit): new items are cheaper than re-pathing the
+            # old ones (setPath re-indexes each item: 330 ms against 125 ms at 2,700 parts)
+            return False
         for it in self._overlay:
             self._scene.removeItem(it)
         self._overlay.clear()
