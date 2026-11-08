@@ -1474,8 +1474,17 @@ class ColumnFitter(QObject):
             self.auto_hidden.add(c)
             need -= self.need(c)
         # what fits shows no scroll bar (not even the one Qt flashes while a stretched column
-        # is rounded); what cannot fit scrolls
-        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if need <= avail else Qt.ScrollBarAsNeeded)
+        # is rounded); what cannot fit scrolls.  A shown stretched column gives way down to its
+        # minimum section size (the header sizes it to the view): only that much must fit
+        # (macOS CI: the compare table's run column alone, a scroll bar with nothing to scroll)
+        if self.stretch is not None and self.stretch in shown and not h.isSectionHidden(self.stretch):
+            need -= self.need(self.stretch) - h.minimumSectionSize()
+        fits = need <= avail
+        self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if fits else Qt.ScrollBarAsNeeded)
+        if not fits and self.view.isVisible() and hasattr(self.view, "updateGeometries"):
+            # the scroll range for the columns shown now, so Qt's own check does not keep a bar
+            # from an earlier width with nothing left to scroll (macOS CI: "0 px wider")
+            self.view.updateGeometries()
         self.view.setProperty(STATE_PROP, f"hidden columns: {sorted(self.auto_hidden)}" if self.auto_hidden else "all columns")
 
 

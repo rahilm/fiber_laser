@@ -36,7 +36,7 @@ from mlaser.services.workspaces import BUILTIN, SLOTS, WorkspaceSpec, slot_for
 from .. import style
 from ..icons import command_icon, icon
 from ..responsive import CurrentPageStack, FitArea
-from .dock_policy import CANVAS_MIN
+from .dock_policy import CANVAS_COMFORT, CANVAS_MIN
 
 
 #: workspaces that never share the window with docked panels (see the module docstring)
@@ -497,10 +497,15 @@ class WorkspacePage(QWidget):
                 pass
         self.fit_split()
 
+    def _canvas_shown(self) -> bool:
+        sp = self.splitter
+        return sp is not None and sp.count() > 1 and not sp.widget(0).isHidden()
+
     def fit_split(self) -> None:
-        """The page beside the canvas gets the width its content asks for (its size hint) and,
-        if that is not enough for the height it has, more, until it fits or the canvas is down
-        to CANVAS_MIN; the canvas takes the rest.  A fixed share (40 %) left the Process page
+        """The page beside the canvas gets the width its content asks for (its size hint), less
+        what keeps the canvas at CANVAS_COMFORT as long as the page still fits its height there,
+        and, if the hint is not enough for the height it has, more, until it fits or the canvas
+        is down to CANVAS_MIN; the canvas takes the rest.  A fixed share (40 %) left the Process page
         so narrow that its wrapped rows pushed the window taller than the screen with the
         Windows and macOS fonts (test_panels_with_a_selection: 1280 x 892)."""
         sp = self.splitter
@@ -537,16 +542,27 @@ class WorkspacePage(QWidget):
         total = sp.width() - sp.handleWidth()
         if total <= 0 or own is None:
             return
-        most = max(total - CANVAS_MIN, own.minimumSizeHint().width())
-        pw = min(max(own.sizeHint().width(), own.minimumSizeHint().width()), most)
+        low = own.minimumSizeHint().width()
+        most = max(total - CANVAS_MIN, low)
+        pw = min(max(own.sizeHint().width(), low), most)
         areas = [own] if isinstance(own, FitArea) else own.findChildren(FitArea)
         area = next((a for a in areas if a.isVisibleTo(own)), None)
         if area is not None:
+            avail = sp.height() - (own.height() - area.viewport().height())
+            chrome_w = own.width() - area.viewport().width()
+            # the size hint while the canvas keeps its comfortable width; narrower than the
+            # hint only as far as the page still fits its height there (a larger font: the
+            # hint grew with the text and left the canvas at its bare minimum)
+            # (the page's own minimum width: the area's is capped by the screen)
+            comfort = max(total - CANVAS_COMFORT, low, area.need(0).width() + chrome_w)
+            if self._canvas_shown() and comfort < pw:
+                fit = comfort
+                while fit < pw and area.need(max(fit - chrome_w, 1)).height() > avail:
+                    fit += 16
+                pw = min(fit, pw)
             # a page whose minimum height (sections folded at its width, wrapped rows) does not
             # fit the height it has gets every pixel the canvas can spare: wider, it folds into
             # fewer rows (its own minimum follows its width once it is laid out)
-            avail = sp.height() - (own.height() - area.viewport().height())
-            chrome_w = own.width() - area.viewport().width()
             if self._wide_need is not None and avail >= self._wide_need:
                 self._wide_need = None        # the height its narrow minimum needs is back
             if self._wide_need is None and own.width() < most:

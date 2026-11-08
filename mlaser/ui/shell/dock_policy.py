@@ -369,6 +369,49 @@ class DockPolicy(QObject):
         h = self.w.height()
         return min(h, size.height()) if size is not None else h
 
+    def _height_need(self) -> int:
+        """The window height its layout needs: its minimum, and where the page in the middle
+        does not get the height it needs although that minimum says it does (a page's minimum
+        is capped by the screen: a window as tall as the screen, 1280 x 800 on an 800 px screen
+        with a larger font), the window's height plus what the page lacks, so the docks under
+        the page make room for it instead of the page scrolling (side docks unfolded only)."""
+        need = self.w.minimumSizeHint().height()
+        central = self.w.centralWidget()
+        if central is None or self.folded is not None:
+            # a narrow window's folded side group would take the bottom docks' minimum widths
+            # from the page: there only the window's own minimum decides
+            return need
+        bottom = [d for d in self.docks() if d.isVisible() and not d.isFloating()
+                  and self.w.dockWidgetArea(d) == Qt.BottomDockWidgetArea]
+        side = self.side_docks()
+        if not bottom or not side:
+            return need
+        # the side group takes the bottom docks only where the width it then needs (their
+        # minimum) leaves the page area its own minimum (macOS, 683 x 875: the preview's
+        # minimum squeezed the Process page below its own)
+        grow = max([0] + [self.min_width(d) for d in bottom]) - max([0] + [d.width() for d in side])
+        from ..responsive import FitArea
+        short = 0
+        for a in central.findChildren(FitArea):
+            if not a.isVisible() or a.widget() is None:
+                continue
+            room = a.contentsRect().size()
+            page = a.need(room.width())
+            if a._cap(page).height() < page.height():          # the cap hides the page's need
+                if grow > 0:
+                    # the room left in the middle for the page (and the canvas beside it, at
+                    # its minimum, when they are side by side)
+                    want = page.width() + a.verticalScrollBar().sizeHint().width()
+                    sp = a.parentWidget()
+                    while sp is not None and not hasattr(sp, "fit_orientation"):
+                        sp = sp.parentWidget()
+                    if sp is not None and getattr(sp, "mode", "") == "side" and sp.isAncestorOf(a):
+                        want += CANVAS_MIN + sp.handleWidth()
+                    if central.width() - grow < want:
+                        return need
+                short = max(short, page.height() - room.height())
+        return max(need, self.w.height() + short) if short > 0 else need
+
     def vfold(self) -> bool:
         """A window too short for the docks under the page (the log, the preview): they join
         the side docks' largest tab group, remembering where they were (:meth:`vunfold`).
@@ -378,7 +421,8 @@ class DockPolicy(QObject):
         side = [x for x in arr if x[0] in SIDE]
         if not bottom or not side:
             return False
-        need = self.w.minimumSizeHint().height()
+        own = self.w.minimumSizeHint().height()
+        need = self._height_need()
         area, big = max(((a, g) for a, gs, _o in side for g in gs), key=lambda x: len(x[1]))
         head = self._shown(big)
         shown = [self._shown(g) for _a, gs, _o in bottom for g in gs]
@@ -392,8 +436,12 @@ class DockPolicy(QObject):
             head.raise_()                                   # the side panel stays on top
         finally:
             self._moving = False
+        # ``deficit``: folded for what the screen cap hid (not the window's own minimum): undone
+        # as soon as the side docks fold too (a narrow window: the side group would hold the
+        # bottom docks' minimum widths against the page)
         self.vfolded = {"arrangement": bottom, "need": need, "shown": shown, "head": head,
-                        "docks": [d for _a, gs, _o in bottom for g in gs for d in g]}
+                        "docks": [d for _a, gs, _o in bottom for g in gs for d in g],
+                        "deficit": need > own}
         self._tried = None
         return True
 
@@ -436,13 +484,14 @@ class DockPolicy(QObject):
             shown = [d for d in rec["docks"] if d.isVisible() and not d.isFloating()]
             new = [d for _a, gs, _o in self.arrangement() if _a == Qt.BottomDockWidgetArea
                    for g in gs for d in g]
-            if height >= rec["need"] or len(shown) < len(rec["docks"]) or new or not rec["head"].isVisible():
+            if (height >= rec["need"] or len(shown) < len(rec["docks"]) or new or not rec["head"].isVisible()
+                    or (rec.get("deficit") and self.folded is not None)):
                 self.vunfold()
-                if height < self.w.minimumSizeHint().height():
+                if height < self._height_need():
                     self.vfold()                            # again, with the docks shown now
                 return True
             return False
-        if height < self.w.minimumSizeHint().height() and not QApplication.closingDown():
+        if height < self._height_need() and not QApplication.closingDown():
             return self.vfold()
         return False
 
@@ -459,7 +508,7 @@ class DockPolicy(QObject):
         hint = self.w.minimumSizeHint().width()
         if width < self.unfolded_need() and self.fold_need() < hint:
             self.fold()
-        if height is not None and height < self.w.minimumSizeHint().height():
+        if height is not None and height < self._height_need():
             self.vfold()
         self.update_min()
 
@@ -524,7 +573,17 @@ class DockPolicy(QObject):
                         break
                 else:
                     groups.append([d])
-            want[area] = [max(self.prefs.get(d.objectName(), self.natural_width(d)) for d in g) for g in groups]
+            # the docks under the page folded into a side group for what the screen cap hid
+            # (vfold, ``deficit``) do not widen it: their natural width is the page's (the log
+            # asks for 800 px), which took the canvas's width.  Folded for the window's own
+            # minimum (a short half-screen window) they still do: the group takes the width
+            # the canvas and the page cannot both use side by side (macOS CI, 683 x 875:
+            # narrower, it left room for them side by side and the page got 141 px)
+            rec = self.vfolded
+            moved = rec["docks"] if rec is not None and rec.get("deficit") else ()
+            want[area] = [max(self.prefs.get(d.objectName(), self.natural_width(d))
+                              for d in (g if all(d in moved for d in g) else [d for d in g if d not in moved]))
+                          for g in groups]
             low[area] = [max(self.min_width(d) for d in g) for g in groups]
             # a tab group is measured and resized through the tab on top: a tab behind it keeps
             # a stale geometry (its width already "at the target" left the shown tab unsized:
