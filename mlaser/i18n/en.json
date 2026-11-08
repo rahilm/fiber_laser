@@ -1678,6 +1678,8 @@
   "panel.end_point": "End point",
   "panel.estimate": "Estimated time: {minutes} min {seconds:.1f} s, cut length: {cut_m:.2f} m, rapid length: {rapid_m:.2f} m, pierces: {pierces}",
   "panel.fast": "Fast",
+  "panel.fire_laser": "Fire laser (hold)",
+  "panel.fire_laser.hint": "Hold for half a second to fire; release to stop",
   "panel.follow": "Follow",
   "panel.forward": "Forward",
   "panel.frame": "Frame",
@@ -1730,6 +1732,7 @@
   "panel.the_drawing_is_empty_nothing_to_simulate": "The drawing is empty; nothing to simulate.",
   "panel.the_machine_has_not_been_homed_so_this": "The machine has not been homed, so this action is not possible. Click OK to home it now.",
   "panel.when_done_return_to": "When done, return to",
+  "panel.why.offline": "Connect first",
   "param.4th_axis.axis_index": "4th axis.Axis index",
   "param.4th_axis.double_drive": "4th axis.Double drive",
   "param.4th_axis.encoder_reverse": "4th axis.Encoder reverse",
@@ -3406,6 +3409,7 @@
   "run.alarm.alarm_item": "ALARM {code}: {text}   {time}\nRemedy: {remedy}",
   "run.alarm.fault": "FAULT",
   "run.alarm.fault_item": "FAULT: {fault}\nRemedy: {remedy}",
+  "run.alarm.more": "{remedy}\n(+{n} more: see Details)",
   "run.alarm.remedy": "Remedy",
   "run.alarm.title.one": "⚠ {n} active alarm",
   "run.alarm.title.other": "⚠ {n} active alarms",
@@ -3431,6 +3435,9 @@
   "run.count.part": "part {n}/{total}",
   "run.count.sheet": "Sheet {n}/{total}",
   "run.count.sheet_job": "Sheet {n}/{total} · {name}",
+  "run.legend.current": "Cutting now",
+  "run.legend.done": "Done",
+  "run.legend.todo": "To cut (layer colours)",
   "run.load.n": "sheet {n}",
   "run.load.nozzle": "Nozzle: {nozzle}",
   "run.load.parts": "{n} parts · {name}",
@@ -3460,6 +3467,7 @@
   "run.reason.frame": "Framing the job outline: laser off",
   "run.reason.hold": "Held: press Continue to go on",
   "run.reason.laser_off": "Ready: laser output disabled (dry-run mode)",
+  "run.reason.not_homed": "Not homed: home X and Y before you start",
   "run.reason.offline": "No machine connected",
   "run.resume": "Resume from the breakpoint",
   "run.set.monitor_enabled": "LAN monitor enabled",
@@ -3469,23 +3477,28 @@
   "run.set.remnant_auto": "Save the leftover of a nested sheet as a remnant",
   "run.set.remnant_min_area": "Smallest remnant area",
   "run.set.remnant_min_width": "Smallest remnant width",
+  "run.start_drawing": "Start drawing: {name}",
   "run.start_more": "More ways to start",
   "run.start_options": "Start options",
+  "run.start_queue": "Run queue: job {n} of {total} ({name})",
   "run.start_selection": "Start selection only",
   "run.start_selection_none": "Start selection: select the parts to cut first",
+  "run.start_target": "Start: {name}",
   "run.state.alarm": "ALARM",
   "run.state.estop": "E-STOP",
   "run.state.fault": "FAULT",
   "run.state.hold": "HOLD",
   "run.state.label": "{icon}  {state}",
-  "run.state.label_armed": "{icon}  {state}  ·  {armed}",
+  "run.state.label_armed": "{state}  ·  {armed}",
   "run.state.not_homed": "NOT HOMED",
   "run.state.offline": "OFFLINE",
   "run.state.ready": "READY",
+  "run.state.ready_armed": "Machine: {state}, laser armed",
   "run.state.running": "RUNNING",
   "run.tab.live": "Live view",
   "run.tab.queue": "Queue",
-  "run.times": "elapsed {elapsed}   ETA {eta}",
+  "run.times": "Elapsed {elapsed}   ETA {eta}",
+  "run.times.bar": "Elapsed {elapsed}\nETA {eta}",
   "run.tip.arm": "Arm or disarm laser emission",
   "run.tip.dry_run": "Run the job with the laser off",
   "run.tip.frame": "Trace the job outline, laser off (F6)",
@@ -3495,6 +3508,7 @@
   "run.untitled": "(untitled)",
   "run.val.gas": "Gas {v}",
   "run.val.height": "Height {v}",
+  "run.val.last_known": "{values}   (last known)",
   "run.val.position": "X {x}  Y {y}  Z {z} {unit}",
   "run.val.power": "Power {v} %",
   "run.val.speed": "Speed {v}",
@@ -3522,13 +3536,14 @@
   "safety.ask.start_disarmed": "The machine is not armed: the laser cannot fire. Arm it now and start?",
   "safety.ask.start_title": "Arm and start",
   "safety.banner.arm": "Arm laser",
-  "safety.banner.armed": "ARMED: laser emission enabled",
-  "safety.banner.disarmed": "DISARMED: the laser cannot fire",
-  "safety.banner.dry_run": "DRY-RUN: laser output disabled",
+  "safety.banner.armed": "Emission enabled: the beam fires on Start",
+  "safety.banner.connect": "Connect…",
+  "safety.banner.disarmed": "The laser cannot fire",
+  "safety.banner.dry_run": "Laser output disabled (dry-run mode)",
   "safety.banner.fault": "FAULT",
   "safety.banner.fault_latched": "FAULT (latched): {fault}",
   "safety.banner.home": "Home axes",
-  "safety.banner.offline": "OFFLINE",
+  "safety.banner.offline": "Not connected",
   "safety.banner.reset": "Reset alarm",
   "safety.banner.simulator": "SIMULATOR: no machine",
   "safety.banner.simulator_disarmed": "SIMULATOR: disarmed",
@@ -3958,6 +3973,9 @@
   "shell.chip.fault": "FAULT",
   "shell.chip.fault.tip": "Latched fault: the machine is halted until you reset it",
   "shell.chip.fault.tip_reason": "Latched fault: the machine is halted until you reset it\n{fault}",
+  "shell.chip.interlocks.one": "Interlocks: {n} not configured",
+  "shell.chip.interlocks.other": "Interlocks: {n} not configured",
+  "shell.chip.interlocks.tip": "Safety inputs or the heartbeat are not configured: open Safety I/O",
   "shell.chip.offline": "OFFLINE",
   "shell.chip.offline.tip": "No machine connected",
   "shell.chip.simulator": "SIMULATOR",
@@ -4126,13 +4144,23 @@
   "shell.ws.report.desc": "Production, job statistics, costs and the alarm history",
   "shell.ws.run": "Run",
   "shell.ws.run.desc": "The operator screen: load a job, home, frame, cut, alarms and breakpoint resume",
+  "state.axis.laser": "Laser",
+  "state.axis.machine": "Machine",
+  "state.axis.value": "{axis}: {state}",
+  "state.laser.armed": "ARMED",
+  "state.laser.disarmed": "DISARMED",
+  "state.laser.dry_run": "DRY RUN",
   "status.cursor": "Cursor X: {x}  Y: {y} {unit}",
   "status.cursor_tip": "The pointer's position on the drawing",
   "status.dev.follower": "Height follower",
   "status.dev.laser": "Laser",
+  "status.dev.laser_source": "Laser source",
   "status.dev.motion": "Motion card",
   "status.head": "Head X: {x}  Y: {y}  Z: {z} {unit}",
   "status.head_tip": "The machine head's position",
+  "status.laser_source.off": "off",
+  "status.laser_source.on": "on",
+  "status.last_known": "{value} (last known)",
   "status.motion_alarm": "Motion card: ALARM {code}",
   "status.motion_fault": "Motion card: FAULT",
   "status.speed": "Speed{unit}: {speed:.1f}",
@@ -6037,6 +6065,10 @@
    "fault",
    "remedy"
   ],
+  "run.alarm.more": [
+   "remedy",
+   "n"
+  ],
   "run.alarm.title.one": [
    "n"
   ],
@@ -6106,14 +6138,34 @@
    "n",
    "left"
   ],
+  "run.start_drawing": [
+   "name"
+  ],
+  "run.start_queue": [
+   "n",
+   "total",
+   "name"
+  ],
+  "run.start_target": [
+   "name"
+  ],
   "run.state.label": [
    "icon",
    "state"
   ],
   "run.state.label_armed": [
-   "icon",
    "state",
    "armed"
+  ],
+  "run.state.ready_armed": [
+   "state"
+  ],
+  "run.times.bar": [
+   "elapsed",
+   "eta"
+  ],
+  "run.val.last_known": [
+   "values"
   ],
   "run.why.alarm": [
    "alarm"
@@ -6226,6 +6278,16 @@
   "shell.welcome.machine_mode": [
    "mode"
   ],
+  "shell.chip.interlocks.one": [
+   "n"
+  ],
+  "shell.chip.interlocks.other": [
+   "n"
+  ],
+  "state.axis.value": [
+   "axis",
+   "state"
+  ],
   "status.cursor": [
    "x",
    "y",
@@ -6236,6 +6298,9 @@
    "y",
    "z",
    "unit"
+  ],
+  "status.last_known": [
+   "value"
   ],
   "status.motion_alarm": [
    "code"

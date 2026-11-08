@@ -46,10 +46,15 @@ FAULT...) and STOP. `style.menu_text()` gives Title Case for macOS menus only.
 `mlaser/ui/shell/theme.py` defines `danger`, `warning`, `info`, `success`, each with a `*_fill`
 and an `on_*` text colour (at least 4.5:1, checked by `tests/test_style.py`), plus `muted`,
 `text`, `border` and the palette tokens. `danger_fill` (STOP) is the same in every theme.
-The machine and safety states (FAULT, ALARM, ARMED, DRY-RUN, SIMULATOR, DISARMED, OFFLINE,
-READY, RUNNING, HOLD) have one fixed colour table, `mlaser.ui.safety_ui.COLORS`
-(`style.state_colors(kind)`), read by the banner, the chips, the run bar's pill and the Run
-screen; every state is also written out, never shown by colour alone.
+The machine and laser states have their own tokens per theme, `STATE_TOKENS` in
+`mlaser/ui/shell/theme.py` (`style.state_colors(kind)`, `mlaser.ui.safety_ui.COLORS`), in the
+ISA-101 manner: the normal states (OFFLINE, NOT HOMED, READY, RUNNING, HOLD, DISARMED, DRY-RUN,
+SIMULATOR) are neutral greys; ARMED is the amber hazard colour; ALARM and E-STOP red; FAULT dark
+red. STOP is the only red control. Every text reads at 4.5:1 on its fill in the light, dark and
+high-contrast themes (`tests/test_state_display.py`). The states are one vocabulary on two named
+axes, Machine and Laser (`mlaser/ui/state_display.py`): the banner, the chips, the run bar's
+pill and the Run screen draw them with `StateBadge` (an SVG icon, the axis name and the word),
+never by colour alone.
 
 A domain widget's style sheet is built from roles with `style.styled(widget, build)`, which
 rebuilds it when the theme changes; `style.chip(label, role)` is a notice chip.

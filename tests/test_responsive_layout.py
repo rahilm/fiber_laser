@@ -354,8 +354,15 @@ def _safety_targets(win, label: str) -> list[str]:
     """STOP, Hold and Arm of the run bar: inside the window, large enough to hit."""
     bad = []
     bar = win.findChild(QWidget, "run_bar")
+    # the Run workspace has one set of run controls, its own (UX audit W4): the run bar keeps
+    # only its state and progress there
+    on_run = getattr(getattr(getattr(win, "shell", None), "host", None), "current", "") == "run"
     for key in SAFETY:
         b = bar.findChild(QPushButton, f"run_{key}") if bar is not None else None
+        if on_run:
+            if b is not None and b.isVisible():
+                bad.append(f"{label}: run bar {key} shown beside the Run screen's")
+            b = win.extension("run").screen.buttons.get(key)
         if b is None or not b.isVisible():
             bad.append(f"{label}: run bar {key} hidden")
             continue

@@ -202,7 +202,7 @@ def test_capitals_only_for_state_words_and_stop():
         for tok in re.findall(r"\b[A-Z]{3,}\b", plain):
             if tok in ACRONYMS:
                 continue
-            if tok in STATE_WORDS and (k.startswith(("run.state.", "run.alarm.", "shell.chip.", "ws.machine.a_",
+            if tok in STATE_WORDS and (k.startswith(("run.state.", "state.", "run.alarm.", "shell.chip.", "ws.machine.a_",
                                                       "wizard.chip", "run.btn.stop", "practice.", "run.reason.",
                                                       "shell.welcome.", "safety.banner.", "safety.alarm.",
                                                       "status.motion_"))):

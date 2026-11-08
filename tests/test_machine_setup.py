@@ -186,5 +186,5 @@ def test_start_selection_is_explicit(win, app):
     su.start_selection()
     assert started == [False, True]
     menu = su.run_bar.start_menu.menu_
-    assert [a.objectName() for a in menu.actions()] == ["run_start_selection"]
+    assert [a.objectName() for a in menu.actions() if a.isVisible()] == ["run_start_selection"]   # no queue waiting
     assert win.commands.get("run.start_selection") is not None

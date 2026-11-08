@@ -83,10 +83,14 @@ def _check(win, app, size, label):
     for key in KEYS:
         b = scr.buttons[key]
         assert _visible_in(b, view), (label, size, key, b.geometry(), view.size())
+    # one set of run controls on the Run workspace (UX audit W4): the run bar keeps its state
+    # and progress there, its buttons are the Run screen's
     bar = win.findChild(QWidget, "run_bar")
+    win.safety_ui.refresh()
     for key in KEYS:
         b = bar.findChild(QPushButton, f"run_{key}")
-        assert b is not None and _visible_in(b, win), (label, size, "run bar", key)
+        assert b is not None and not b.isVisible(), (label, size, "run bar", key)
+    assert _visible_in(bar.findChild(QWidget, "run_state"), win)
 
 
 @pytest.mark.parametrize("size", SIZES)
@@ -96,8 +100,11 @@ def test_run_controls_visible_at_every_size(win, app, tmp_path, size):
     pump(app, 0.1)
     # every workspace, then Run: the run bar's targets are always in the window
     for ws_id in win.shell.host.visible_ids():
+        if ws_id == "run":
+            continue                         # the Run screen's own set: _check below
         win.commands.run(f"workspace.{ws_id}")
         pump(app, 0.05)
+        win.safety_ui.refresh()
         bar = win.findChild(QWidget, "run_bar")
         for key in KEYS:
             b = bar.findChild(QPushButton, f"run_{key}")

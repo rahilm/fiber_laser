@@ -28,7 +28,7 @@ rule:
 * :func:`set_enabled`: a disabled control says why (its tooltip).
 
 ``tests/test_style_lint.py`` keeps the code on these: no colour literals outside
-:mod:`mlaser.ui.shell.theme` and the safety colour table (:data:`mlaser.ui.safety_ui.COLORS`),
+:mod:`mlaser.ui.shell.theme` (its state tokens included: :data:`mlaser.ui.safety_ui.COLORS`),
 no absolute font sizes, no literal layout margins.
 """
 from __future__ import annotations
@@ -202,11 +202,11 @@ def css(role: str, theme: Optional[str] = None) -> str:
     return t[role]
 
 
-def state_colors(kind: str) -> tuple[str, str]:
-    """(background, text) of a machine state (``ARMED``, ``READY``, ``FAULT`` ...): the safety
-    colour table, the same in every theme (docs/SAFETY.md: the state is also written out)."""
-    from .safety_ui import COLORS
-    return COLORS.get(kind, COLORS["OFFLINE"])
+def state_colors(kind: str, theme: Optional[str] = None) -> tuple[str, str]:
+    """(background, text) of a machine or laser state (``ARMED``, ``READY``, ``FAULT`` ...) in
+    ``theme`` (default: the effective one now): the theme's state tokens (neutral normal states,
+    amber ARMED, red ALARM, dark red FAULT; docs/SAFETY.md: the state is also written out)."""
+    return _themes().state_tokens(theme or current_theme(), kind)
 
 
 class _Restyle(QObject):

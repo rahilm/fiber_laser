@@ -400,17 +400,17 @@ def test_job_feedback_and_alarm_attention(win, app, monkeypatch):
 def test_run_state_pill_shows_armed(win, app):
     """READY while armed: the ARMED colour and word, never the calm blue."""
     from mlaser.services.operator import RunStatus
-    from mlaser.ui.workspaces import run as R
+    from mlaser.ui import style
     ws = win.extension("run")
     scr = ws.screen
     real = ws.status
     try:
         ws.status = lambda: RunStatus(kind="ready", armed=True)
         scr.refresh()
-        assert R.STATE_COLORS["armed"][0] in scr.state.styleSheet() and "ARMED" in scr.state.text()
+        assert style.state_colors("ARMED")[0] in scr.state.styleSheet() and "ARMED" in scr.state.text()
         ws.status = lambda: RunStatus(kind="ready", armed=False)
         scr.refresh()
-        assert R.STATE_COLORS["ready"][0] in scr.state.styleSheet() and "ARMED" not in scr.state.text()
+        assert style.state_colors("READY")[0] in scr.state.styleSheet() and "ARMED" not in scr.state.text()
     finally:
         ws.status = real
 
