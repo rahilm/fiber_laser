@@ -662,9 +662,10 @@ class CanvasHud(QFrame):
 # repainted the whole drawing and toolpath, 32 ms at 300 parts, 261 ms at 2,700).
 #
 # * The **static picture**: the background, the drawing, the toolpath overlay and every other item
-#   of the canvas scene (:meth:`CanvasView.scene`).  It is painted once into a pixmap (the view's
-#   own paint, on a device of the window's geometry: the same pixels) just before the window
-#   paints, and copied while nothing in it changed.  Any change of a scene item (the scene's
+#   of the canvas scene (:meth:`CanvasView.scene`).  It is painted once into a pixmap (by a hidden
+#   view of the same scene in the same geometry, QGraphicsView's own paint, on a device of the
+#   window's size: the same pixels) just before the window paints, and copied while nothing in
+#   it changed.  Any change of a scene item (the scene's
 #   ``changed`` signal), of the view (transform, scroll position, size, device pixel ratio) or of
 #   what the background shows (grid, colours, display units) makes it stale; it is then painted
 #   again before the next frame.  A paint the picture does not fit (a stale picture without the
