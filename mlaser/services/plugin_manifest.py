@@ -15,7 +15,7 @@ import ipaddress
 import re
 import tomllib
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from .pep440 import InvalidSpecifier, InvalidVersion, SpecifierSet, Version
 
