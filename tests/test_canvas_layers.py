@@ -31,7 +31,7 @@ def make_canvas(n: int = 48, inside: bool = False):
     """A shown canvas with a drawing, its real toolpath (leads, kerf, rapids, markers) and every
     kind of live item: head marker, a cut track of several chunks, a simulation trail, a tool
     preview with a snap marker.  ``inside``: in a window, at an odd offset (as in the main
-    window: the viewport is not at the window's origin)."""
+    window: the viewport is not at the window's origin), compared on the screen itself."""
     sys.path.insert(0, str(Path(__file__).parent))
     from test_large_drawing import big_document
     from mlaser.cam.toolpath import CamParams, build_toolpath
@@ -84,8 +84,14 @@ def make_canvas(n: int = 48, inside: bool = False):
 
 
 def _grab(v):
-    """The whole window, as the screen shows it (the window's own paint device geometry)."""
-    return v.window().grab().toImage()
+    """What the screen shows: the view painted on its window's backing store, read back (the
+    offscreen platform's screen grab).  Not ``grab()``: a grab paints on a pixmap of the
+    grabbed widget, and the paint engine starts a dashed line that leaves the view at that
+    pixmap's edge, so its dashes can differ from the screen's (the canvas then paints the whole
+    scene for the grab, as before)."""
+    v.viewport().repaint()
+    win = v.window()
+    return win.screen().grabWindow(win.winId()).toImage()
 
 
 def cached_image(v):

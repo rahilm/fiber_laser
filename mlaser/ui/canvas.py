@@ -28,7 +28,7 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, Signal
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap,
                            QRegion, QResizeEvent, QTransform)
 from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
@@ -663,14 +663,17 @@ class CanvasHud(QFrame):
 #
 # * The **static picture**: the background, the drawing, the toolpath overlay and every other item
 #   of the canvas scene (:meth:`CanvasView.scene`).  It is painted once into a pixmap (by a hidden
-#   view of the same scene in the same geometry, QGraphicsView's own paint, on a device of the
-#   window's size: the same pixels) just before the window paints, and copied while nothing in
-#   it changed.  Any change of a scene item (the scene's
+#   view of the same scene in the same geometry, QGraphicsView's own paint, on a pixmap of the
+#   window's size with the view at its place: the paint engine starts a dashed line that leaves
+#   the view at the device's edge, so only this gives the screen's pixels) just before the
+#   window paints, and copied while nothing in it changed.  Any change of a scene item (the scene's
 #   ``changed`` signal), of the view (transform, scroll position, size, device pixel ratio) or of
 #   what the background shows (grid, colours, display units) makes it stale; it is then painted
-#   again before the next frame.  A paint the picture does not fit (a stale picture without the
-#   window's update request, a grab of part of the window, a fractional device pixel ratio such
-#   as Windows at 125 %) paints the whole scene, as before.
+#   again before the next frame.  The picture is made only while there are live items (making it
+#   costs about 15 % more than a whole paint: zoom, pan and edits without a head marker or a
+#   preview stay as fast as before).  A paint the picture does not fit (a stale picture without
+#   the window's update request, a grab, a fractional device pixel ratio such as Windows at
+#   125 %) paints the whole scene, as before.
 # * The **live items** (:meth:`CanvasView.overlay_scene`): the head marker, the cut track, the
 #   simulation trail, the drawing tools' preview and the preview player's path.  They are drawn
 #   over the static picture on every paint, in their stacking order, as the scene would draw them.
@@ -1059,8 +1062,8 @@ class CanvasView(QGraphicsView):
         place on it, then cut to the viewport: the paint engine clips lines at the device's
         edges, and a dashed line that leaves the view gets its dash phase from there, so only the
         same device geometry gives the same pixels."""
-        if not self.layer_cache or self._painting_static or not self.isVisible():
-            return
+        if not self.layer_cache or self._painting_static or not self.isVisible() or not self._live.items():
+            return                       # (no live items: a whole paint costs less than a picture)
         self._flush_scene()
         if self._static_valid():
             return
@@ -1083,7 +1086,10 @@ class CanvasView(QGraphicsView):
         try:
             # QGraphicsView.paintEvent of the same scene in the same view geometry, into the
             # pixmap: the same pixels as this view's paint on the screen
-            sv.viewport().render(whole, off, QRegion(), QWidget.RenderFlag.DrawWindowBackground)
+            painter = QPainter(whole)
+            painter.setClipRect(QRect(off, vp.size()))
+            sv.viewport().render(painter, off, QRegion(), QWidget.RenderFlag.DrawWindowBackground)
+            painter.end()
         finally:
             self._painting_static = False
         pm = whole.copy(geo[2], geo[3], round(vp.width() * dpr), round(vp.height() * dpr))
@@ -1180,7 +1186,7 @@ class CanvasView(QGraphicsView):
             return
         self._flush_scene()
         p = None
-        if self._static_valid():
+        if self._static_valid() and self._live.items():
             p = QPainter(self.viewport())
             assert self._static is not None
             if self._painter_geometry(p) != self._static[2]:
