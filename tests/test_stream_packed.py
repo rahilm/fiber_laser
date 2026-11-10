@@ -341,3 +341,21 @@ def test_parent_death_watch_does_not_depend_on_the_hand_off(monkeypatch):
     finally:
         sh.release()
         sim.stop()
+
+
+def test_without_shared_memory_the_packed_arrays_are_pickled(monkeypatch):
+    """No shared memory on this host (``share`` fails): the packed wire is pickled as numpy
+    arrays (not a list per item) and the card receives the same frames."""
+    rec = _Recorder(monkeypatch)
+    job = _card_job()
+
+    def no_shm(self):
+        raise OSError("no shared memory")
+    monkeypatch.setattr(S.WireJob, "share", no_shm)
+    sim = CardSimulator(time_scale=8.0).start()
+    try:
+        ps = S.ProcessStreamer(TransportConfig(host="127.0.0.1", port=sim.port), 1000.0, policy=ARMED)
+        ps.run_job(job, timeout_s=60)
+        assert rec.frames == job.frames(1)
+    finally:
+        sim.stop()
