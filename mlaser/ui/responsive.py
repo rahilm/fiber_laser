@@ -312,10 +312,15 @@ def flow(widgets: Iterable[QWidget], uniform: bool = False, justify: bool = True
 
 
 # --------------------------------------------------------------------------- responsive form
+#: (looked up once: the enum attribute access was a third of ``_hidden``, which a resize of the
+#: Process page's technology form calls ~90,000 times; perf review 2026-11 finding 14)
+_EXPLICIT_SHOW_HIDE = Qt.WidgetAttribute.WA_WState_ExplicitShowHide
+
+
 def _hidden(w: QWidget) -> bool:
     """Hidden on purpose (``hide()`` / ``setVisible(False)``), not merely not shown yet: a
     widget created without a parent reports ``isHidden()`` until it is shown with one."""
-    return w.isHidden() and w.testAttribute(Qt.WA_WState_ExplicitShowHide)
+    return w.isHidden() and w.testAttribute(_EXPLICIT_SHOW_HIDE)
 
 
 class _FormGrid(QGridLayout):
