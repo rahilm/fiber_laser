@@ -15,7 +15,11 @@ Two behaviour modes and a fault-injection API (docs/SAFETY.md §9):
   the beam stays in its last state until an explicit PWM-off (``[9999, 3|17, f, 0, ...]``) or a
   duty-0 step, a FIFO start is accepted while an alarm is latched (``accept_start_in_alarm``);
 * :class:`SimFaults` (``sim.faults``, :meth:`CardSimulator.inject`): link down (requests never
-  arrive), request / reply loss (probabilities), reply latency and jitter, duplicated writes.
+  arrive), request / reply loss (probabilities), reply latency and jitter, duplicated writes,
+  the loss of the next FIFO frames' replies (``fifo_reply_loss``);
+* ``duplicate_fifo``: what the card does with a FIFO frame whose sequence number it has just
+  received (the client re-sends a frame whose reply was lost).  UNKNOWN on the real card; one of
+  :data:`DUP_FIFO_MODELS`, default ``"accept-twice"`` (docs/dev/BENCH_CHECKS.md).
 
 Run standalone::
 
@@ -42,6 +46,18 @@ log = logging.getLogger(__name__)
 EXC_ILLEGAL_FUNCTION = 1
 EXC_ILLEGAL_ADDRESS = 2
 EXC_ILLEGAL_VALUE = 3
+
+# What the card does with a FIFO frame (write 102) whose sequence number equals the one of the
+# frame it received last.  The client re-sends the identical frame after a reply timeout (the
+# original's retry policy, MotionController.transact), so a lost reply puts the same frame on the
+# wire twice.  What the real MCC100 does then is UNKNOWN (bench check: docs/dev/BENCH_CHECKS.md);
+# the simulator models each candidate and counts the duplicates under every model
+# (SimState.fifo_duplicates).
+DUP_FIFO_ACCEPT_TWICE = "accept-twice"   # queue it again: the segment runs twice (the default,
+#                                          the simulator's behaviour before the switch existed)
+DUP_FIFO_DEDUPE = "dedupe"               # acknowledge it and queue nothing
+DUP_FIFO_REJECT = "reject"               # exception reply 3 (illegal value), queue nothing
+DUP_FIFO_MODELS = (DUP_FIFO_ACCEPT_TWICE, DUP_FIFO_DEDUPE, DUP_FIFO_REJECT)
 
 
 @dataclass
@@ -113,6 +129,14 @@ class SimState:
     lag_left_s: float = 0.0   # pessimistic mode: buffered motion still executed after a halt
     clear_after_lag: bool = False
     pwm_off_latched: bool = False   # an explicit PWM off holds the beam off until the next start
+    #: FIFO data frames received (write 102), duplicates included
+    fifo_frames: int = 0
+    #: frames received with the sequence number of the frame before (a re-send), every model
+    fifo_duplicates: int = 0
+    #: of those, the ones queued again (``duplicate_fifo="accept-twice"``)
+    fifo_duplicates_queued: int = 0
+    #: a frame was received since the last job reset [9999, 16] (``fifo_seq`` is a frame's)
+    fifo_seq_received: bool = False
 
 
 @dataclass
@@ -124,13 +148,16 @@ class SimFaults:
     latency_ms: float = 0.0          # reply delay
     jitter_ms: float = 0.0           # + uniform 0..jitter
     duplicate_writes: bool = False   # every write is executed twice (a retried send that arrived)
+    #: the replies of the next n FIFO data writes (reg 102) are lost; the card executes them, so
+    #: the client re-sends the frame (a deterministic reply loss, counts down)
+    fifo_reply_loss: int = 0
     seed: int = 1
     dropped: int = 0                 # counters
     lost_replies: int = 0
 
     def active(self) -> bool:
         return bool(self.link_down or self.request_loss or self.reply_loss or self.latency_ms
-                    or self.jitter_ms or self.duplicate_writes)
+                    or self.jitter_ms or self.duplicate_writes or self.fifo_reply_loss)
 
 
 @dataclass
@@ -188,7 +215,7 @@ class CardSimulator:
                  pessimistic: bool = False, halt_lag_ms: float = 30.0,
                  accept_start_in_alarm: Optional[bool] = None, card_soft_limits: Optional[dict] = None,
                  lenient_step_format: bool = False,
-                 homed: bool = False):
+                 homed: bool = False, duplicate_fifo: str = DUP_FIFO_ACCEPT_TWICE):
         self.host, self.port, self.transport = host, port, transport
         self.version = version
         self.period_ms = period_ms
@@ -209,6 +236,7 @@ class CardSimulator:
         self.accept_start_in_alarm = True if accept_start_in_alarm is None else accept_start_in_alarm
         # True: a FIFO start without the step format is accepted (tests of the raw FIFO only)
         self.lenient_step_format = lenient_step_format
+        self.duplicate_fifo = duplicate_fifo            # validated by the property setter
         self.faults = SimFaults()
         self._rng = random.Random(self.faults.seed)
         self.state = SimState()
@@ -242,6 +270,18 @@ class CardSimulator:
             p[axis_param_addr(a, AX_W_HOME_SLOW)] = int(round(home_speed / 4 * self.ppm))
             p[axis_param_addr(a, AX_W_HOME_RETURN)] = int(round(10 * self.ppm))
             p[axis_param_addr(a, AX_W_ACC)] = 20000
+
+    @property
+    def duplicate_fifo(self) -> str:
+        """The model of a repeated FIFO frame sequence number (:data:`DUP_FIFO_MODELS`); may be
+        changed while the simulator runs."""
+        return self._duplicate_fifo
+
+    @duplicate_fifo.setter
+    def duplicate_fifo(self, model: str) -> None:
+        if model not in DUP_FIFO_MODELS:
+            raise ValueError(f"duplicate_fifo must be one of {DUP_FIFO_MODELS}, not {model!r}")
+        self._duplicate_fifo = model
 
     @property
     def counts_per_step(self) -> float:
@@ -381,6 +421,10 @@ class CardSimulator:
         if fl.duplicate_writes and req.func == F.FUNC_WRITE:
             self._handle(req)
         resp = self._handle(req)
+        if fl.fifo_reply_loss > 0 and req.func == F.FUNC_WRITE and req.addr == F.REG_FIFO_DATA:
+            fl.fifo_reply_loss -= 1
+            fl.lost_replies += 1
+            return None
         if fl.reply_loss and self._rng.random() < fl.reply_loss:
             fl.lost_replies += 1
             return None
@@ -620,6 +664,7 @@ class CardSimulator:
         elif sub == F.SYS_JOB_RESET:
             st.fifo_seq = 0
             st.step_format = 0
+            st.fifo_seq_received = False
         elif sub == F.SYS_AXIS_CFG:
             st.step_format = int(p[0]) if p else 0
         # SYS_INIT, SYS_AXIS_CFG, SYS_9, SYS_18: accepted, no visible effect
@@ -833,10 +878,20 @@ class CardSimulator:
         if not words:
             raise ValueError("empty frame")
         items = F.parse_fifo_items(words[1:])
+        st.fifo_frames += 1
+        if st.fifo_seq_received and words[0] == st.fifo_seq:
+            # the same sequence number as the frame before: a re-send (docs/dev/BENCH_CHECKS.md)
+            st.fifo_duplicates += 1
+            if self._duplicate_fifo == DUP_FIFO_DEDUPE:
+                return                        # acknowledged, nothing queued
+            if self._duplicate_fifo == DUP_FIFO_REJECT:
+                raise ValueError("FIFO frame sequence number repeated")
+            st.fifo_duplicates_queued += 1    # accept-twice: queued again below
         nbytes = 4 * len(words)
         if nbytes > self.fifo_capacity - st.fifo_bytes:
             raise ValueError("FIFO overflow")
         st.fifo_seq = words[0]
+        st.fifo_seq_received = True
         for op, params in items:
             nb = 4 * (1 + len(params))
             st.fifo.append((op, params, nb))
@@ -1089,9 +1144,12 @@ def main(argv=None):
     ap.add_argument("--port", type=int, default=5020)
     ap.add_argument("--tcp", action="store_true")
     ap.add_argument("--pessimistic", action="store_true", help="real-card worst case (docs/SAFETY.md)")
+    ap.add_argument("--duplicate-fifo", choices=DUP_FIFO_MODELS, default=DUP_FIFO_ACCEPT_TWICE,
+                    help="what the card does with a re-sent FIFO frame (docs/dev/BENCH_CHECKS.md)")
     a = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO)
-    sim = CardSimulator(a.host, a.port, "tcp" if a.tcp else "udp", pessimistic=a.pessimistic).start()
+    sim = CardSimulator(a.host, a.port, "tcp" if a.tcp else "udp", pessimistic=a.pessimistic,
+                        duplicate_fifo=a.duplicate_fifo).start()
     print(f"MCC100 simulator on {a.host}:{sim.port} ({sim.transport}); Ctrl-C to stop")
     try:
         while True:
