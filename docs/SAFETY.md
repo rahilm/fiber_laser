@@ -65,7 +65,9 @@ the card reports an alarm.
   the question, with *Show in Design*), and it runs off the GUI thread for Start and Dry run:
   the window and its Stop stay live meanwhile, and a Stop or a halt while it runs drops the
   start (no question, nothing armed). A Stop while the job worker still prepares the job leaves
-  it without any further card command: the Stop's own halt is the last thing the card receives.
+  the preparation at once: no streaming deadline, no process signal and no FIFO reset follow.
+  The worker then halts once more and sends its "off" commands (gas valve to 0, process signal
+  off), as after every job that did not finish.
 * **Reset alarm** (one name and one path for the banner, the Run screen, the dock and the menu,
   UX audit C2/W5) sends `[9999, 5, 0, 0]`, reads the card status again and clears only the alarms
   the card no longer reports. An alarm whose cause persists (e-stop still pressed) stays active

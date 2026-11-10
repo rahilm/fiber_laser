@@ -4,8 +4,9 @@ Before, the worker carried on after the Stop: it finished the preparation (10 s 
 few hundred parts), then set the streaming deadline, switched the process-signal output on,
 reset and cleared the card's FIFO and halted a second time, tens of seconds after the
 operator's Stop.  Now the preparation tests the job's cancel flag between its stages and the
-worker leaves right after it: the halt (first, from the Stop) is the last thing the card hears
-of this job, and the controller is ready again at once."""
+worker leaves right after it: after the Stop's halt the card hears only a second halt and the
+"off" commands every unfinished job ends with (halt class, never an "on"), and the controller
+is ready again at once."""
 from __future__ import annotations
 
 import threading
@@ -15,6 +16,7 @@ import pytest
 
 from mlaser.controller import stream as S
 from mlaser.controller.client import MotionController
+from mlaser.machine.safety import Cmd, classify_request
 from mlaser.model import Contour, Craft, Document, LayerParams, Line, Part
 from mlaser.protocol import frames as F
 
@@ -81,8 +83,12 @@ def test_stop_during_a_slow_prepare_sends_nothing_after_the_halt(monkeypatch, dr
         assert ctl.wait_job(1.0)
         assert ctl.state().mode == "ready"
         time.sleep(0.3)                              # anything late would show up now
-        worker = [r for t, r in sent if t == "mlaser-job"]
-        assert worker == [], f"the job worker talked to the card: {worker[:5]}"
+        # the worker's end sends "off" commands only (gas valve to 0, process signal off): every
+        # write it makes is halt class, so nothing of the job reaches the card after the Stop
+        worker = [r for t, r in sent if t == "mlaser-job" and r.func == F.FUNC_WRITE]
+        not_off = [r for r in worker if classify_request(r) is not Cmd.HALT]
+        assert not_off == [], f"the job worker sent more than off commands: {not_off[:5]}"
+        assert not any(r.addr == F.REG_FIFO_DATA for r in worker), "FIFO data after the Stop"
         on = F.mailbox_sys(F.output_bit(PROCESS_PORT)[0], 1 << F.output_bit(PROCESS_PORT)[1],
                            1 << F.output_bit(PROCESS_PORT)[1])
         mailbox = [r.values for _t, r in sent if r.func == F.FUNC_WRITE and r.addr == F.REG_MAILBOX]

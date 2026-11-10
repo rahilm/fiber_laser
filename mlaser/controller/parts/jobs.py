@@ -330,7 +330,6 @@ class JobRunnerPart:
                 t0 = time.monotonic()
                 ok = False
                 reason = "done"
-                unstarted = False           # cancelled before the streaming began: no card command
                 try:
                     # the host-side preparation (wire copy, timing, frames) runs while the poller
                     # still talks to the card: once ``streaming`` is set the streaming link deadline
@@ -339,9 +338,11 @@ class JobRunnerPart:
                         streamer.prepare(job, cancel=self._cancel)
                     if self._cancel.is_set():
                         # a Stop / Hold / fault during the preparation: it has halted the card
-                        # already; leave before the streaming deadline and the process signal,
-                        # with no card command at all (perf review 2026-11-09, finding 2)
-                        unstarted = True
+                        # already; leave before the streaming deadline, the process signal and
+                        # the FIFO reset (perf review 2026-11-09, finding 2).  The end below
+                        # still halts once more and sends its "off" commands, as after any job
+                        # that did not finish: they cost milliseconds and never depend on the
+                        # first halt having arrived
                         reason = self._stop_reason or ("paused" if self._pausing else "stopped")
                         self._log(f"{mode} stopped" if reason != "paused" else f"{mode} paused")
                         return
@@ -382,7 +383,7 @@ class JobRunnerPart:
                         # as silence and a stop / hold right after it read as a lost link
                         self._mc.last_ok = max(self._mc.last_ok, self._sup.child_seen)
                     self._sup.streaming = None
-                    if not ok and not unstarted:
+                    if not ok:
                         self._sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
                     self._exec_index = getattr(streamer, "exec_index", self._exec_index)
                     b = getattr(streamer, "buf", None)
@@ -400,12 +401,10 @@ class JobRunnerPart:
                             logging.getLogger("mlaser.controller").exception("breakpoint after fault")
                     # the process-signal output (DO.ManuSignal) goes off 200 ms after a normal end,
                     # at once otherwise (owner's capture: [9999, 2, 1, 0] 0.2 s after 103 := 3)
-                    if not unstarted:
-                        self._gas_da_off()
+                    self._gas_da_off()
                     if ok and not self._cancel.is_set():
                         time.sleep(0.2)
-                    if not unstarted:
-                        self._process_signal(False)
+                    self._process_signal(False)
                     with self._slock:
                         self._job_live = False
                         self._s.outputs["laser"] = False
