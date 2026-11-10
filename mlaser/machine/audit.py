@@ -3,7 +3,10 @@
 Every safety-relevant fact goes to the ``mlaser.audit`` logger as one record with an
 ``audit`` dict (event name plus fields).  :func:`mlaser.machine.logsetup.setup_logging` writes
 them as JSON lines into ``audit.log`` (rotating, in the user log directory) and also into the
-main log.  Events:
+main log.  :func:`audit` does no file I/O on the calling thread: the files are written by the
+log writer thread, in call order, with the call's time stamp (docs/SAFETY.md §4a), so the halt
+channel can audit every command before it sends it without a slow disk delaying the halt.
+Events:
 
 * ``command``: every outgoing card command except status reads and FIFO data frames (class,
   register, words); refused commands carry ``refused``;
@@ -11,6 +14,8 @@ main log.  Events:
 * ``arm`` / ``disarm``, ``state`` (safety state change), ``fault``, ``fault_reset``;
 * ``alarm`` (raised / cleared), ``link`` (lost / restored), ``halt`` (each safe_halt with the
   result of every command), ``interlock``, ``preflight`` (refused actions), ``crash``;
+* ``start_guard_missing``: a start interlock of a built-in plugin could not be installed (cuts
+  are refused, :func:`mlaser.ui.safety_ui.require_start_guards`);
 * ``material_check`` (a cut refused or let through by an override because the sheet does not
   match the technology) and ``material_override`` (the operator's confirmation, with the
   reason and user mode; :mod:`mlaser.services.material_check`).

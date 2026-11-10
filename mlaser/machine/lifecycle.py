@@ -100,11 +100,13 @@ def _atexit() -> None:
             except Exception:  # noqa: BLE001
                 pass
     halt_all("atexit", "interpreter exit")
+    _flush_logs()
 
 
 def _on_signal(signum, frame) -> None:
     name = signal.Signals(signum).name if signum in signal.Signals._value2member_map_ else str(signum)
     halt_all("signal", f"signal {name}")
+    _flush_logs()
     prev = _prev_signal.get(signum)
     if callable(prev):
         prev(signum, frame)
@@ -112,6 +114,15 @@ def _on_signal(signum, frame) -> None:
         if signum == signal.SIGINT:
             raise KeyboardInterrupt
         raise SystemExit(128 + int(signum))
+
+
+def _flush_logs() -> None:
+    """Write the queued log / audit records now (after the halt; bounded, never raises)."""
+    try:
+        from .logsetup import flush_logging
+        flush_logging(1.0)
+    except Exception:  # noqa: BLE001
+        pass
 
 
 def _write_crash(text: str) -> None:
@@ -132,6 +143,7 @@ def _excepthook(exc_type, exc, tb) -> None:
     audit("crash", logging.CRITICAL, thread="main", error=f"{exc_type.__name__}: {exc}")
     if not issubclass(exc_type, (KeyboardInterrupt, SystemExit)):
         halt_all("excepthook", f"uncaught exception: {exc_type.__name__}: {exc}", fault=True)
+    _flush_logs()
     if _prev_excepthook is not None and _prev_excepthook is not _excepthook:
         _prev_excepthook(exc_type, exc, tb)
 
@@ -146,6 +158,7 @@ def _thread_hook(args) -> None:
     audit("crash", logging.CRITICAL, thread=name, error=f"{args.exc_type.__name__}: {args.exc_value}")
     halt_all("threading.excepthook",
              f"uncaught exception in thread {name}: {args.exc_type.__name__}: {args.exc_value}", fault=True)
+    _flush_logs()
     if _prev_thread_hook is not None and _prev_thread_hook is not _thread_hook:
         _prev_thread_hook(args)
 

@@ -10,6 +10,14 @@
   stacks on POSIX) and the tracebacks of uncaught exceptions (:mod:`.lifecycle` installs the
   hooks).
 
+The file handlers sit behind a :class:`logging.handlers.QueueHandler`: a record is formatted
+on the calling thread (``record.created`` is the time of the call) and put on a queue; one
+listener thread (``mlaser-log``) writes the files, in order.  No other thread touches a log
+file, so a stalled disk (an antivirus-held write, a rollover on a slow disk) never delays a
+halt command or the GUI thread (review fw F2, docs/SAFETY.md §4a).  The queue is drained at
+normal exit (atexit, then the handlers are written directly), in the uncaught-exception hooks
+and on :func:`flush_logging`; a hard kill can lose the records still queued.
+
 Safe to call more than once (handlers are installed once per directory).
 """
 from __future__ import annotations
@@ -19,13 +27,17 @@ import json
 import logging
 import logging.handlers
 import os
+import queue
 import sys
+import threading
 import time
 from pathlib import Path
 from typing import Optional
 
 _INSTALLED: dict[str, list[logging.Handler]] = {}
+_ASYNC: dict[str, "_WriteBehind"] = {}
 _CRASH_FILE = None
+_ATEXIT = False
 
 
 def log_dir() -> Path:
@@ -54,10 +66,88 @@ class _AuditOnly(logging.Filter):
         return hasattr(record, "audit")
 
 
+class _WriteBehind:
+    """The ``mlaser`` logger's file handlers behind a queue and one writer thread."""
+
+    def __init__(self, root: logging.Logger, handlers: list[logging.Handler]) -> None:
+        self.root = root
+        self.handlers = handlers
+        self.q: queue.Queue = queue.Queue(-1)
+        self.qh = logging.handlers.QueueHandler(self.q)
+        self.listener = logging.handlers.QueueListener(self.q, *handlers, respect_handler_level=True)
+        self.direct = False
+        self._lock = threading.Lock()
+
+    def start(self) -> None:
+        self.listener.start()
+        t = getattr(self.listener, "_thread", None)
+        if t is not None:
+            t.name = "mlaser-log"
+        self.root.addHandler(self.qh)
+
+    def flush(self, timeout: float) -> bool:
+        """Wait (bounded) until every queued record is written; True when it was."""
+        end = time.monotonic() + max(0.0, timeout)
+        while self.q.unfinished_tasks:
+            if time.monotonic() >= end or getattr(self.listener, "_thread", None) is None:
+                return not self.q.unfinished_tasks
+            time.sleep(0.002)
+        for h in self.handlers:
+            try:
+                h.flush()
+            except Exception:  # noqa: BLE001 - a flush must never raise into a crash path
+                pass
+        return True
+
+    def stop(self, timeout: float, direct: bool) -> bool:
+        """Drain and stop the writer thread.  ``direct``: write later records on the calling
+        thread (interpreter exit: the halts and audits of the exit hooks still reach the
+        files).  A writer that does not drain in ``timeout`` is left alone (a daemon thread)."""
+        with self._lock:
+            if self.direct or getattr(self.listener, "_thread", None) is None:
+                return True
+            drained = self.flush(timeout)
+            if drained:
+                self.listener.stop()
+                if direct:
+                    self.root.removeHandler(self.qh)
+                    for h in self.handlers:
+                        self.root.addHandler(h)
+                    self.direct = True
+            return drained
+
+    def remove(self) -> None:
+        self.stop(5.0, direct=False)
+        self.root.removeHandler(self.qh)
+        for h in self.handlers:
+            self.root.removeHandler(h)
+            h.close()
+
+
+def flush_logging(timeout: float = 1.0) -> bool:
+    """Write every queued log and audit record now (bounded wait; never raises).  Called by
+    the crash hooks; True when everything was written."""
+    ok = True
+    for wb in list(_ASYNC.values()):
+        try:
+            ok = wb.flush(timeout) and ok
+        except Exception:  # noqa: BLE001
+            ok = False
+    return ok
+
+
+def _at_exit() -> None:
+    for wb in list(_ASYNC.values()):
+        try:
+            wb.stop(5.0, direct=True)
+        except Exception:  # noqa: BLE001
+            pass
+
+
 def setup_logging(directory: Optional[os.PathLike] = None, level: int = logging.INFO,
                   console: bool = False) -> Path:
     """Install the file handlers on the ``mlaser`` logger; returns the log directory."""
-    global _CRASH_FILE
+    global _CRASH_FILE, _ATEXIT
     d = Path(directory) if directory else log_dir()
     d.mkdir(parents=True, exist_ok=True)
     key = str(d.resolve())
@@ -80,11 +170,16 @@ def setup_logging(directory: Optional[os.PathLike] = None, level: int = logging.
         ch.setFormatter(fmt)
         ch.setLevel(logging.WARNING)
         handlers.append(ch)
-    for h in handlers:
-        root.addHandler(h)
+    wb = _WriteBehind(root, handlers)
+    wb.start()
     root.setLevel(min(level, logging.INFO))
     logging.getLogger("mlaser.audit").setLevel(logging.INFO)
     _INSTALLED[key] = handlers
+    _ASYNC[key] = wb
+    if not _ATEXIT:
+        import atexit
+        atexit.register(_at_exit)
+        _ATEXIT = True
     try:
         _CRASH_FILE = open(d / "crash.log", "a", encoding="utf-8")   # noqa: SIM115 - process lifetime
         _CRASH_FILE.write(f"\n=== mlaser started {time.strftime('%Y-%m-%d %H:%M:%S')} pid {os.getpid()}\n")
@@ -107,11 +202,16 @@ def crash_file():
 def teardown_logging(directory: Optional[os.PathLike] = None) -> None:
     """Remove the handlers installed for ``directory`` (tests)."""
     d = Path(directory) if directory else log_dir()
-    hs = _INSTALLED.pop(str(d.resolve()), [])
+    key = str(d.resolve())
+    hs = _INSTALLED.pop(key, [])
+    wb = _ASYNC.pop(key, None)
+    if wb is not None:
+        wb.remove()
+        return
     root = logging.getLogger("mlaser")
     for h in hs:
         root.removeHandler(h)
         h.close()
 
 
-__all__ = ["setup_logging", "teardown_logging", "log_dir", "crash_file", "JsonAuditFormatter"]
+__all__ = ["setup_logging", "teardown_logging", "flush_logging", "log_dir", "crash_file", "JsonAuditFormatter"]
