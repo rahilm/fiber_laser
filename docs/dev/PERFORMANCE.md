@@ -407,3 +407,68 @@ worker thread. macOS CI showed 3 ticks of a 20 ms timer in 1 s. On this Linux ho
 35–36 ticks in 0.73 s before and 33–36 after, so Linux showed no starvation to fix. The macOS
 effect still has to be seen in CI. `tests/test_import_worker_ui.py::test_gui_wait_lowers_the_switch_interval`
 checks the setting.
+
+## 9. Canvas painting, perf review 2026-11 (findings 3, 5, 14; issue #1)
+
+Measured with the review's scripts (real `MainWindow`, offscreen raster, device pixel ratio 1,
+viewport 611 × 529, `doc300` / `doc2700` = 2,700 parts, 6,750 contours, 98,466 toolpath items),
+the old and the new code back to back on the same host. Median or best of 3 as the script
+prints it.
+
+| | before | after |
+|---|---|---|
+| one head-marker move, to painted, 300 / 2,700 parts | 32.9 / 268 ms | 0.5–1.2 / 0.5–1.1 ms (a move after a zoom or an edit: one whole paint, then the picture) |
+| one track point, to painted, 300 / 2,700 parts | 31.7 / 269 ms | 0.5 / 0.5 ms |
+| repaint with a 36,000-point cut track (one hour at the 100 ms poll), 300 parts | 138 ms (+106 for the track) | 1 ms (+0) |
+| GUI thread during a dry run at 300 parts, canvas visible (`gui_run.py`) | 51 % of a core, 644 of 998 10 ms ticks | 23–27 %, 855–909 ticks (Run workspace, no canvas: 17–21 %) |
+| rubber band, per mouse move, 300 / 2,700 parts | 7.9 / 30.7 ms | 2.0 / 1.9 ms |
+| wheel zoom step, 2,700 parts | 160 / 200 ms | 159–162 / 192–194 ms (unchanged: a zoom is one whole paint) |
+| `canvas.set_toolpath` (new toolpath), 2,700 parts | 136–147 ms in one go | 21–27 ms, then the overlay in 12–13 ms slices (≈ 85 ms in total), then the one repaint |
+| live-resize step, Design / Process, 300 parts | 92 / 417 ms | 64 / 262 ms |
+| live-resize step, Design / Process, 2,700 parts | 518 / 992 ms | 337 / 551 ms |
+
+How (`mlaser/ui/canvas.py`, "live layer"):
+
+* **Static picture.** The background, the drawing, the toolpath and every other item of the
+  canvas scene are painted once into a pixmap, by a hidden `QGraphicsView` of the same scene
+  set to the canvas's size, transform and scroll position, on a pixmap of the window's size
+  with the view at its place (the paint engine starts a dashed line that leaves the view at
+  the device's edge: only this geometry gives the screen's pixels). It is made just before the
+  window paints (an event filter on the window's `UpdateRequest`), and only when live items
+  changed since the last whole paint: a frame after a zoom, a pan, a resize or an edit is
+  painted whole as before (making the picture costs 15–25 % more than a whole paint).
+  The scene's `changed` signal, the view (transform, scroll position, size, device pixel
+  ratio) and the background (grid, colours, units) make it stale.
+* **Live items** (`CanvasView.overlay_scene()`): head marker, cut track, simulation trail,
+  the drawing tools' preview, the craft tool's pick marker and the preview player's path. They
+  are drawn over a copy of the picture on every paint, as the scene draws its items.
+* **Cut track and simulation trail in chunks** (`_Trail`, 250 path elements, closed at a
+  laser-off move; a continuous cut is closed at a vertex after 2,000): a closed chunk is drawn
+  into a second copy of the picture once, so a tick strokes at most one open chunk whatever
+  the length of the job.
+* **Pixel equality** (`tests/test_canvas_layers.py`): what the window's backing store holds
+  after a cached paint equals a whole paint with every item in the one scene (the old way), at
+  four views (fitted, zoomed in, zoomed out and panned, with the grid) and after a resize, the
+  canvas alone and inside a window at an odd offset, at device pixel ratio 1 and 2 (child
+  process, `QT_SCALE_FACTOR=2`); a track in chunks paints what one path painted. Exceptions:
+  at a fractional device pixel ratio (Windows at 125 / 150 %) the copy would not land on whole
+  device pixels, so every paint there is whole, as before; where the track crosses itself
+  across a chunk seam the two strokes are blended one after the other instead of filled as
+  one path (sub-pixel, at the crossing only).
+* **Toolpath delivery** (issue #1): `set_toolpath` rebuilds only the overlay when the drawing
+  is the one last built (no contour walked again: 65 ms at 2,700 parts); the seven toolpath
+  paths are built in event-loop slices with the overlay's markers (75 ms in one go before),
+  and the previous toolpath stays on screen until the new one is complete. The picture on
+  screen is the one a full rebuild gives (`tests/test_canvas_perf.py`).
+* **Resize**: the fit that follows the view size used `Document.bbox()` on every resize event
+  (70 ms per event at 300 parts); the box is now kept until the next rebuild. The rest of a
+  Process-page resize step is not the canvas: with a drawing open the page shows the layer's
+  technology form (`TechForm` in a `ColumnsPanel`), whose responsive layout pass costs about
+  200 ms per step whatever the drawing's size (`responsive.py` `_content_key` → `height_for`
+  / `_hidden`, ~90,000 `_hidden` calls per step; looking its Qt attribute up once made
+  `_hidden` 3× faster). That pass is what remains of finding 14.
+
+Timing regressions: `tests/test_canvas_perf.py` (timing group): a head move costs less than
+a fifth of a whole repaint at 2,000 parts; a track tick with 30,000 points costs about what it
+does with 300; a new toolpath for 3,200 contours recomputes no contour path and no slice takes
+more than the slice budget; ten resizes in fit mode compute the bounding box at most once.
