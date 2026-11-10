@@ -1243,6 +1243,13 @@ class OperatorScreen(QWidget):
         if show != self.rest_section.isVisibleTo(self.controls):
             self.rest_section.setVisible(show)
             self.controls.schedule()
+        # one of the two ways on: after a job with no breakpoint held there is nothing to
+        # resume, and "Cut the rest" takes its place (its hint names the difference); with a
+        # breakpoint, Resume is shown (and "Cut the rest" says to resume or stop first)
+        resume = not show or w.ctl.breakpoint is not None
+        if resume != self.resume_section.isVisibleTo(self.controls):
+            self.resume_section.setVisible(resume)
+            self.controls.schedule()
 
     def _rest_buttons(self, start_ok: bool, start_why: str) -> None:
         """"Cut remaining parts" / "Start from part": Start's own rules (connected, no alarm, no

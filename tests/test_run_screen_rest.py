@@ -135,8 +135,9 @@ def test_after_a_stop_the_screen_says_where_and_offers_the_rest(win, app, monkey
     assert sorted(scr.canvas.numbers.values()) == [1, 2, 3, 4, 5, 6]
     assert scr.canvas.numbers[order[2]] == 3
     assert scr.from_spin.value() == 3                    # Start from: the part it stopped in
-    # Resume and "cut the rest" are told apart: no breakpoint, so Resume is off with its reason
-    assert not scr.buttons["resume_here"].isEnabled()
+    # Resume and "cut the rest" are told apart: no breakpoint, nothing to resume, so the
+    # resume section gives its place to this one (whose hint names the difference)
+    assert not scr.buttons["resume_here"].isEnabled() and not scr.resume_section.isVisibleTo(scr)
     assert "Resume" in scr.rest_hint.text() and "beginning" in scr.rest_hint.text()
 
     # "Cut remaining parts" selects the parts not finished and goes through the ordinary
