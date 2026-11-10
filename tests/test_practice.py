@@ -176,9 +176,9 @@ def test_alarm_lesson_trips_the_estop_only_once_the_card_cuts(ctl, monkeypatch):
     from mlaser.controller import stream as S
     real = S.JobStreamer.prepare
 
-    def slow_prepare(self, job):
+    def slow_prepare(self, job, **kw):
         time.sleep(2.0)
-        return real(self, job)
+        return real(self, job, **kw)
     monkeypatch.setattr(S.JobStreamer, "prepare", slow_prepare)
     svc, _ = service()
     lesson = svc.begin("alarm", ctl, Host(PR.practice_document()), task_timeout_s=40)
