@@ -412,6 +412,21 @@ class DockPolicy(QObject):
                 short = max(short, page.height() - room.height())
         return max(need, self.w.height() + short) if short > 0 else need
 
+    @staticmethod
+    def _page_short(central) -> int:
+        """How much height the workspace page lacks now, where its minimum is capped by the
+        screen (FitArea's cap) and so does not ask the window for it."""
+        from ..responsive import FitArea
+        short = 0
+        for a in central.findChildren(FitArea):
+            if not a.isVisible() or a.widget() is None:
+                continue
+            room = a.contentsRect().size()
+            page = a.need(room.width())
+            if a._cap(page).height() < page.height():
+                short = max(short, page.height() - room.height())
+        return short
+
     def vfold(self) -> bool:
         """A window too short for the docks under the page (the log, the preview): they join
         the side docks' largest tab group, remembering where they were (:meth:`vunfold`).
@@ -632,7 +647,10 @@ class DockPolicy(QObject):
             h = self.vprefs.get(log.objectName(), log.widget().sizeHint().height() if log.widget() else 0)
             central = self.w.centralWidget()
             if central is not None:
-                spare = central.height() + log.height() - central.minimumSizeHint().height()
+                # less what the page in the middle lacks where the screen cap hides its need
+                # (Nest on a 1280 x 800 screen with a taskbar): the log gives that room first
+                spare = (central.height() + log.height() - central.minimumSizeHint().height()
+                         - self._page_short(central))
                 h = max(log.minimumSizeHint().height(), min(h, spare))
             if abs(log.height() - h) > 1:
                 vert = [log, h]

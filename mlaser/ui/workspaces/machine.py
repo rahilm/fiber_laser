@@ -446,6 +446,18 @@ def _resolve(window: Any, vid: str, target: Any = None) -> Optional[QWidget]:
 homes.register_resolver("cfg:", _resolve)
 
 
+class _ShownPage(QWidget):
+    """A page that tells ``on_show`` each time it is shown."""
+
+    def __init__(self, on_show: Callable[[], None]) -> None:
+        super().__init__()
+        self._on_show = on_show
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().showEvent(ev)
+        self._on_show()
+
+
 class MachineWorkspace(QWidget):
     def __init__(self, ctx: Any, ext: Any, history: Optional[AlarmHistory] = None,
                  parent: Optional[QWidget] = None) -> None:
@@ -717,7 +729,7 @@ class MachineWorkspace(QWidget):
 
     # ------------------------------------------------------------------ monitors
     def _monitors(self) -> QWidget:
-        page = QWidget()
+        page = _ShownPage(lambda: QTimer.singleShot(0, self, self._fill_mon_tab))
         lay = QVBoxLayout(page)
         self.mon_tabs = QTabWidget()
         self._mon_index: dict[str, int] = {}
@@ -728,6 +740,13 @@ class MachineWorkspace(QWidget):
         self.mon_tabs.currentChanged.connect(self._mon_tab)
         lay.addWidget(self.mon_tabs)
         return page
+
+    def _fill_mon_tab(self) -> None:
+        """The tab on top when the Monitors page is shown (built then, not with the window):
+        a tab is otherwise only filled when the user switches to it, and the first one stayed
+        an empty frame."""
+        if self.pages.get("monitors") is not None and self.pages["monitors"].isVisible():
+            self._mon_tab(self.mon_tabs.currentIndex())
 
     def _mon_tab(self, i: int) -> None:
         if self.section() != "monitors":

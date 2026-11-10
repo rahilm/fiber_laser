@@ -454,7 +454,9 @@ class NestWorkspace(QWidget):
         self.main_btn = self._button("nestws.btn.to_drawing", "Copy sheet to drawing", self.to_drawing)
         rv.addWidget(self.main_btn)
         split.addWidget(right, tr(w, "nestws.results", "Results"))
-        split.splitter.setSizes([300, 540, 380])
+        # the left column wide enough for material, thickness and Technology on one row (a
+        # row less on a 1280 x 800 screen); the sheet in the middle takes what is left
+        split.set_sizes([max(300, mat.sizeHint().width()), 540, 280])
         split.splitter.setStretchFactor(1, 1)
         self._update_buttons()
         # the default sheet is remembered from the last nest (nest.*; this panel is its home)

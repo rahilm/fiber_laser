@@ -650,6 +650,10 @@ class Shell:
         w = self.w
         if self._fit_screen:
             self._clamp_to_screen()          # the frame is known now
+            handle = w.windowHandle()
+            if handle is not None:
+                # another screen, another room (a window moved to a smaller monitor)
+                handle.screenChanged.connect(lambda scr: self._clamp_to_screen(scr))
         pol = self.dock_policy
         pol.enabled = True
         # the canvas starts with the keyboard focus (its one-key tools, Space = Hold while a job
@@ -772,17 +776,14 @@ class Shell:
         extra_w = max(frame.width() - w.width(), 0)
         extra_h = max(frame.height() - w.height(), 0)
         room = avail.size() - QSize(extra_w, extra_h)
-        # a screen smaller than the content's minimum (below the supported 1280x800): the
-        # window still fits the screen and the workspace page scrolls (docs/dev/RESPONSIVE.md);
-        # otherwise the minimum wins over the resize and the window hangs off the screen
-        need = w.minimumSizeHint().expandedTo(w.minimumSize())
-        # the side docks fold into one tab group in a narrow window (DockPolicy.fold)
-        need.setWidth(min(need.width(), max(self.dock_policy.fold_need(), w.minimumWidth())))
-        small = avail.width() < SUPPORTED_SCREEN.width() or avail.height() < SUPPORTED_SCREEN.height()
-        if small or need.width() >= room.width() or need.height() >= room.height():
-            # an explicit minimum: Qt's layouts keep it, so a workspace with a taller page cannot
-            # raise the window past the screen (FitArea's screen cap alone crept by the frame
-            # margins on every relayout); that page scrolls instead
+        # the window's minimum is held to the room on the screen, for every workspace and tab
+        # (built later or not): an explicit minimum, which Qt's layouts keep, so a taller page
+        # (Nest, Orders at 1280x800) cannot raise the window past the screen (FitArea's screen
+        # cap alone crept by the frame margins on every relayout).  It was set only when the
+        # workspace shown at start needed it, and a later page grew the window off the screen.
+        # A page that cannot fit the room scrolls: the documented fallback below the supported
+        # size (docs/dev/RESPONSIVE.md)
+        if self.dock_policy.room != room:
             self.dock_policy.room = QSize(room)
             self.dock_policy.update_min()
         size = w.size().boundedTo(room)

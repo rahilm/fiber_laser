@@ -1552,6 +1552,8 @@ class TabsWhenNarrow(QWidget):
         lay.addWidget(self.tabs)
         self.panes: list[tuple[QWidget, str]] = []
         self.tabbed = False
+        # a pane's width sets its minimum height (rows that wrap): asked again when it changes
+        self.splitter.splitterMoved.connect(lambda *_a: self.updateGeometry())
 
     def addWidget(self, w: QWidget, title: str = "") -> None:  # noqa: N802 - like QSplitter
         self.panes.append((w, title))
@@ -1566,6 +1568,12 @@ class TabsWhenNarrow(QWidget):
         if i >= 0:
             self.tabs.setTabText(i, title)
 
+    def set_sizes(self, sizes: list[int]) -> None:
+        """The panes' default widths side by side (``QSplitter.setSizes``), also what the panes
+        come back to from tabs until the user moves the splitter."""
+        self._sizes = list(sizes)
+        self.splitter.setSizes(sizes)
+
     def side_by_side_need(self) -> int:
         if self.need_fn is not None:
             return int(self.need_fn())
@@ -1575,7 +1583,22 @@ class TabsWhenNarrow(QWidget):
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         s = super().minimumSizeHint()
         ws = [p.minimumSizeHint().expandedTo(p.minimumSize()).width() for p, _t in self.panes]
-        return QSize(max(ws, default=s.width()), s.height())
+        h = s.height()
+        if not self.tabbed and self.splitter.isVisible():
+            # side by side: each pane's minimum height at the width it has (a splitter takes
+            # the panes' minimums at their minimum widths: the Nest page's left column, its
+            # fields one per row at 164 px, made the page 100 px taller than it is at 300)
+            m = self.layout().contentsMargins()
+            h = max([self._pane_min_height(p) for p, _t in self.panes] + [0]) + m.top() + m.bottom()
+        return QSize(max(ws, default=s.width()), h)
+
+    @staticmethod
+    def _pane_min_height(p: QWidget) -> int:
+        h = p.minimumSizeHint().expandedTo(p.minimumSize()).height()
+        lay = p.layout()
+        if lay is not None and lay.hasHeightForWidth() and p.width() > 0:
+            h = min(h, max(lay.minimumHeightForWidth(p.width()), p.minimumHeight()))
+        return h
 
     def hasHeightForWidth(self) -> bool:  # noqa: N802 - Qt API
         # its minimum height is the panes' minimums (as a splitter's): the tab widget's
@@ -1589,8 +1612,12 @@ class TabsWhenNarrow(QWidget):
         self.tabbed = on
         current = self.tabs.currentIndex()
         if on:
-            sizes = self.splitter.sizes()
-            self._sizes = sizes
+            # the arrangement to come back to: only one that was on screen side by side (the
+            # default or the user's); a page first laid out hidden at its minimum width had
+            # every pane at its minimum, and coming back to that kept the Nest page's left
+            # column at 164 px, its rows wrapped one field each and the page scrolled (1280x800)
+            if self.splitter.isVisible():
+                self._sizes = self.splitter.sizes()
             for p, t in self.panes:
                 self.tabs.addTab(p, t)
             self.splitter.hide()
@@ -1612,6 +1639,8 @@ class TabsWhenNarrow(QWidget):
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
         self.fit()
+        if ev.oldSize().width() != ev.size().width():
+            self.updateGeometry()
 
 
 class CurrentPageStack(QStackedWidget):
