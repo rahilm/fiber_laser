@@ -303,7 +303,10 @@ from about 250 chains (100 parts: 0.29 s serial, 0.10 s with 8 workers), a cold 
 starts the workers, from about 600.  Workers are spawned (like the streamer process), kept for
 the process lifetime, run at nice 10 / below-normal priority, never start inside a
 multiprocessing child other than the JobService's plan process (§8), and auto mode stays serial when the main script has no `__main__`
-guard.  A broken pool finishes the compile serially (with a warning).
+guard.  A broken pool finishes the compile serially (with a warning).  Each worker ends itself
+when its parent process is gone (a crash or a forced quit; `parallel._watch_parent`: the
+multiprocessing parent sentinel, plus `os.getppid()` on Linux and macOS), so a crashed program
+no longer leaves its pool behind.
 
 ## 8. Interactive responsiveness, Review 2 (responsiveness track)
 

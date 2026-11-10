@@ -150,7 +150,8 @@ def _get_pool(n: int) -> ProcessPoolExecutor:
             if _pool is not None:
                 _pool.shutdown(wait=False, cancel_futures=True)
             import multiprocessing as mp
-            _pool = ProcessPoolExecutor(n, mp_context=mp.get_context("spawn"), initializer=_worker_init)
+            _pool = ProcessPoolExecutor(n, mp_context=mp.get_context("spawn"), initializer=_worker_init,
+                                        initargs=(os.getpid(),))
             _pool_workers = n
         return _pool
 
@@ -171,9 +172,15 @@ atexit.register(shutdown)
 _worker_setup: Optional[tuple] = None
 
 
-def _worker_init() -> None:
+#: how often a pool worker looks for its parent besides the blocking wait (seconds)
+PARENT_WATCH_S = 1.0
+
+
+def _worker_init(ppid: Optional[int] = None) -> None:
     """Pool workers run at a lower priority than the program (the GUI and the streamer process
-    keep their CPU time while a big job is planned ahead)."""
+    keep their CPU time while a big job is planned ahead), and end when the process that
+    started them is gone (:func:`_watch_parent`)."""
+    _watch_parent(ppid)
     try:
         if hasattr(os, "nice"):
             os.nice(10)
@@ -183,6 +190,48 @@ def _worker_init() -> None:
             k32.SetPriorityClass(k32.GetCurrentProcess(), 0x00004000)   # BELOW_NORMAL_PRIORITY_CLASS
     except Exception:  # noqa: BLE001 - the priority is a courtesy
         pass
+
+
+def _watch_parent(ppid: Optional[int]) -> None:
+    """A daemon thread that ends this worker (``os._exit``) when its parent process is gone: a
+    crash or a forced quit of the program left the whole pool running until logout (perf review
+    2026-11-09, finding 11: 83 orphaned workers on one machine).  The parent never shuts a
+    healthy pool down this way, it uses :func:`shutdown`.
+
+    It waits on multiprocessing's parent sentinel (``parent_process().sentinel``: on Linux and
+    macOS a pipe whose write end only the parent holds, readable at its exit; on Windows a
+    handle of the parent process, signalled at its exit), and on Linux and macOS also checks
+    ``os.getppid()`` against the parent's pid (an orphan is re-parented), like the streaming
+    process's watch (controller/stream.py)."""
+    import multiprocessing as mp
+    from multiprocessing.connection import wait
+
+    pp = mp.parent_process()
+    sentinel = getattr(pp, "sentinel", None) if pp is not None else None
+    posix = sys.platform != "win32"
+    if ppid is None and pp is not None:
+        ppid = pp.pid
+    if sentinel is None and not (posix and ppid):
+        return                                    # nothing to watch (not a spawned worker)
+
+    def run() -> None:
+        src = sentinel
+        while True:
+            if src is not None:
+                try:
+                    if wait([src], timeout=PARENT_WATCH_S):
+                        break
+                except (OSError, ValueError):
+                    src = None                    # the sentinel is unusable: getppid only
+                    if not posix:
+                        return
+            else:
+                threading.Event().wait(PARENT_WATCH_S)
+            if posix and ppid and os.getppid() != ppid:
+                break
+        os._exit(0)
+
+    threading.Thread(target=run, name="mlaser-pool-parent-watch", daemon=True).start()
 
 
 def _setup(profile: str, native: str) -> None:
