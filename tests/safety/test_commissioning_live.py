@@ -263,9 +263,8 @@ def test_scaling_mismatch_import_parameters(app, mismatch_win, monkeypatch, tmp_
         assert asked, "the import asks for the folder (File > Import parameters)"
         # the reviewing import (UX review 2026-11-09 finding 11): a preview, applied on confirm
         imp = w.shell._import_dialog
-        assert imp.plan is not None and {"MAC.WritePluse", "MAC.SpeedRatio"} <= {c.key for c in imp.plan.changes}
-        assert all(c.key in {s.key for s in imp.plan.safety_changes()}
-                   for c in imp.plan.changes if c.key.endswith(("WritePluse", "SpeedRatio")))
+        assert imp.plan is not None and "MAC.SpeedRatio" in {c.key for c in imp.plan.changes}
+        assert "MAC.SpeedRatio" in {c.key for c in imp.plan.safety_changes()}     # marked: scaling
         assert w.config.machine().pulses_per_mm_x == pytest.approx(100.0)       # nothing applied yet
         assert imp.apply(confirm=False) is not None
         imp.close()

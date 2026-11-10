@@ -387,7 +387,7 @@ class CommissioningWizard(WizardDialog):
         before = p.items["interlocks"].status
         p.record_live_tests(self.live.results())
         sc = rows.get("scaling")
-        if (sc is not None and "scaling" in p.done and not p.busy() and p.items["scaling"].status != sc.status
+        if (sc is not None and p.items["scaling"].status != CM.PENDING and not p.busy() and p.items["scaling"].status != sc.status
                 and sc.status in (CM.PASS, CM.FAIL)):
             p.recheck_scaling()                      # fixed (or broken) while the checklist is open
         self.panel.set_rows(rows)
