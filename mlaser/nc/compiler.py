@@ -95,6 +95,8 @@ class Job:
     # wire index where each ManuItem's FIFO expansion starts (frame size test granularity,
     # FUN_10043c20); only valid for this Job's own ``wire`` list (not copied by dataclasses.replace)
     _groups: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
+    # (wire, _groups, frame count): frame_count() of a packed wire, computed once
+    _nframes: Optional[tuple] = field(default=None, init=False, repr=False, compare=False)
 
     @property
     def total_time_s(self) -> float:
@@ -120,6 +122,20 @@ class Job:
         if isinstance(self.wire, PackedWire) and g is not None and g[0] is self.wire and isinstance(g[2], str):
             return self.wire.frames(first_seq)
         return F.build_fifo_frames(self.groups(), first_seq)
+
+    def frame_count(self) -> int:
+        """``len(self.frames())`` without building the frames: a packed wire (immutable) counts
+        its frame boundaries (:meth:`PackedWire.frame_bounds`) once; a list wire is counted each
+        time, as before."""
+        c, g = self._nframes, self._groups
+        if not (isinstance(self.wire, PackedWire) and g is not None and g[0] is self.wire
+                and isinstance(g[2], str)):
+            return len(self.frames())
+        if c is not None and c[0] is self.wire and c[1] is g:
+            return c[2]
+        n = len(self.wire.frame_bounds()[0])
+        self._nframes = (self.wire, g, n)
+        return n
 
     def iter_frames(self, first_seq: int = 1):
         """:meth:`frames` one frame at a time (no full list of frames in memory)."""
@@ -175,7 +191,7 @@ class Job:
 
     def summary(self) -> str:
         e = self.estimate or {}
-        return (f"{self.steps} steps, {len(self.wire)} items, {len(self.frames())} frames; "
+        return (f"{self.steps} steps, {len(self.wire)} items, {self.frame_count()} frames; "
                 f"replay {self.duration_s:.2f} s (planner estimate {e.get('total', 0.0):.2f} s); "
                 f"cut {self.laser_on_length_mm:.1f} mm, rapid {self.rapid_length_mm:.1f} mm, "
                 f"{self.pierces} pierces, {self.process_items} process items "

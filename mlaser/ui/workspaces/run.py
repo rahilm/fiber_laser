@@ -1768,6 +1768,7 @@ class RunWorkspace:
         jobs = self.window.jobs
         before = getattr(jobs, "last_run", None)
         ui.start()
+        ui.wait_preflight()             # the queue needs the answer now (pre-flight, arming)
         after = getattr(jobs, "last_run", None)
         return after is not None and after is not before
 

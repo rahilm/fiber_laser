@@ -177,6 +177,7 @@ def test_start_selection_is_explicit(win, app):
     su.preflight_ok = lambda *a, **k: True
     su.arm = lambda *a, **k: True
     su.start()
+    assert su.wait_preflight(30)                         # the pre-flight runs off the GUI thread
     assert started == [False]                            # Start = the whole job, always
     su.start_selection()                                 # nothing selected: refused
     assert started == [False]
@@ -184,6 +185,7 @@ def test_start_selection_is_explicit(win, app):
     win.set_document(ops.demo_document())
     win.canvas.select_parts([0])
     su.start_selection()
+    assert su.wait_preflight(30)
     assert started == [False, True]
     menu = su.run_bar.start_menu.menu_
     assert [a.objectName() for a in menu.actions() if a.isVisible()] == ["run_start_selection"]   # no queue waiting

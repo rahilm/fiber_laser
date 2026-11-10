@@ -60,6 +60,12 @@ the card reports an alarm.
   the default, warning icon). When the start is then refused for any reason (compile error, the
   start gate, the controller's own pre-flight, a Stop meanwhile) the machine is disarmed again
   and the operator told: a refused start never leaves the machine armed.
+  The check before the question is the controller's own check of the planned job (its exact
+  extent with leads and kerf, not the drawing's box: a part at the sheet edge is refused before
+  the question, with *Show in Design*), and it runs off the GUI thread for Start and Dry run:
+  the window and its Stop stay live meanwhile, and a Stop or a halt while it runs drops the
+  start (no question, nothing armed). A Stop while the job worker still prepares the job leaves
+  it without any further card command: the Stop's own halt is the last thing the card receives.
 * **Reset alarm** (one name and one path for the banner, the Run screen, the dock and the menu,
   UX audit C2/W5) sends `[9999, 5, 0, 0]`, reads the card status again and clears only the alarms
   the card no longer reports. An alarm whose cause persists (e-stop still pressed) stays active
@@ -351,6 +357,13 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
   holds nothing of the job before the child has spoken. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
+* The job's packed wire reaches the child through a shared-memory block (`WireJob.share`), which
+  the parent frees once the child has introduced itself and in its `finally` on every other exit
+  (a dead child included); after a crash of the parent, multiprocessing's resource tracker
+  (POSIX) or the OS (Windows) frees it. The child copies the wire out before it opens any
+  socket; when the block is missing it says so in its hello and the parent faults the job
+  (`StreamFault("handoff")`): nothing is streamed. The parent-death watch, the heartbeat and the
+  child's own halt do not use the block.
 * The parent's heartbeat counter is bumped every 20 ms by a thread of its own
   (`ProcessStreamer._heartbeat`), not by the relay loop that unpickles and dispatches the
   status messages; it is bumped only while the relay loop has run within the same 0.3 s, so it

@@ -72,6 +72,7 @@ def _start_job(win, app):
     win.ctl.connect()
     assert win.ctl.arm()
     win.safety_ui.start()
+    assert win.safety_ui.wait_preflight(30)      # the pre-flight runs off the GUI thread
     # Start runs the planned job: it is compiled in the JobService worker, then handed over
     jobs = getattr(win, "jobs", None)
     if jobs is not None and jobs.last_run is not None:
@@ -173,6 +174,7 @@ def test_preflight_dialog_blocks_errors(win, app, monkeypatch):
     win.ctl.connect()
     assert win.ctl.arm()
     win.safety_ui.start()
+    assert win.safety_ui.wait_preflight(30)      # the pre-flight runs off the GUI thread
     _pump(app)
     assert shown and "out_of_travel" in shown[0].codes()
     assert win.ctl.state().mode == "ready"

@@ -113,8 +113,28 @@ arrays, identical to `build_fifo_frames` (hypothesis test plus the goldens, whic
 | hand-off to a child | pickle 150 ms, 18.8 MB | shared memory 35 ms (0.8 MB pickled metadata, 11.3 MB block) |
 | compile time | 3.8–3.9 s | 4.0 s (+4 %) |
 
-The streamer integration (shared memory to the supervised child) is a merge note: the
-streamer belongs to the Safety track.
+The streamer keeps the wire packed (perf review 2026-11-09, finding 1): `WireJob.of` takes the
+`PackedWire` as it is, the per-item byte and time tables are numpy (`wire_timing`), the frames
+are built one at a time when they are sent (`stream.PackedFrames`, boundaries from
+`PackedWire.frame_bounds`), `Job.summary()` counts frames without building them, and
+`preflight.job_extent_mm` works on the runs. The streaming child receives the wire through
+shared memory (`WireJob.share` / `attach`), not a pickle. Host work on Start, single thread
+(`stream_prep.py` of the review):
+
+| step | 300 parts (1.49 M steps), before / after | 1,000 parts (4.98 M steps), before / after |
+|---|---|---|
+| `job.summary()` | 311 / 41 ms | 1,053 / 145 ms |
+| `preflight.job_extent_mm` | 823 / 22 ms | 3,651 / 69 ms |
+| `WireJob.of` + `JobStreamer.prepare` | 9,000 ms, +684 MB / 53 ms, +77 MB | 27,551 ms, +2.1 GB / 205 ms, +138 MB |
+| hand-off to the child (parent + child) | pickle 291 + 444 ms, 33 MB, child +318 MB / shared block 31 + 8 ms | 979 + 1,348 ms, 109 MB, child +1.1 GB / 77 + 19 ms |
+
+In the window against the simulator (one core, compile pool off; `make_doc(N)`, 2,700 parts
+scaled 0.42 as in the review), Dry run: `su.dry_run()` returns after 329 → 8 ms (300 parts) and
+2,140 → 47 ms (2,700 parts); the first frame reaches the card 10.5 → 1.9 s and 75.6 → 16.3 s
+after the click (most of the 16 s is the dry-run compile, a cache miss of the preview plan);
+the largest GUI-thread gap during it 616 → 86 ms and 4,058 → 651 ms. The Start click returns
+after 2,405 → 34 ms at 2,700 parts. The pre-flight of Start / Dry run runs in a worker on the
+planned job (`SafetyUI._preflight_async`).
 
 ## 5. Native kernel (P2-2): the default
 
@@ -297,7 +317,10 @@ from about 250 chains (100 parts: 0.29 s serial, 0.10 s with 8 workers), a cold 
 starts the workers, from about 600.  Workers are spawned (like the streamer process), kept for
 the process lifetime, run at nice 10 / below-normal priority, never start inside a
 multiprocessing child other than the JobService's plan process (§8), and auto mode stays serial when the main script has no `__main__`
-guard.  A broken pool finishes the compile serially (with a warning).
+guard.  A broken pool finishes the compile serially (with a warning).  Each worker ends itself
+when its parent process is gone (a crash or a forced quit; `parallel._watch_parent`: the
+multiprocessing parent sentinel, plus `os.getppid()` on Linux and macOS), so a crashed program
+no longer leaves its pool behind.
 
 ## 8. Interactive responsiveness, Review 2 (responsiveness track)
 

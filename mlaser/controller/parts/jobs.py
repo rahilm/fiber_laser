@@ -330,12 +330,21 @@ class JobRunnerPart:
                 t0 = time.monotonic()
                 ok = False
                 reason = "done"
+                unstarted = False           # cancelled before the streaming began: no card command
                 try:
                     # the host-side preparation (wire copy, timing, frames) runs while the poller
                     # still talks to the card: once ``streaming`` is set the streaming link deadline
                     # counts from the card's last reply (supervisor.deadline_s)
                     if hasattr(streamer, "prepare"):
-                        streamer.prepare(job)
+                        streamer.prepare(job, cancel=self._cancel)
+                    if self._cancel.is_set():
+                        # a Stop / Hold / fault during the preparation: it has halted the card
+                        # already; leave before the streaming deadline and the process signal,
+                        # with no card command at all (perf review 2026-11-09, finding 2)
+                        unstarted = True
+                        reason = self._stop_reason or ("paused" if self._pausing else "stopped")
+                        self._log(f"{mode} stopped" if reason != "paused" else f"{mode} paused")
+                        return
                     # process streamer: the parent's link watch starts with the child's first
                     # message (0 = not seen yet; the child's start-up is bounded by
                     # ProcessStreamer.startup_s, and the card has nothing of this job before it)
@@ -373,7 +382,7 @@ class JobRunnerPart:
                         # as silence and a stop / hold right after it read as a lost link
                         self._mc.last_ok = max(self._mc.last_ok, self._sup.child_seen)
                     self._sup.streaming = None
-                    if not ok:
+                    if not ok and not unstarted:
                         self._sup.safe_halt(f"{mode} ended: {reason}", pause=self._pausing)
                     self._exec_index = getattr(streamer, "exec_index", self._exec_index)
                     b = getattr(streamer, "buf", None)
@@ -391,10 +400,12 @@ class JobRunnerPart:
                             logging.getLogger("mlaser.controller").exception("breakpoint after fault")
                     # the process-signal output (DO.ManuSignal) goes off 200 ms after a normal end,
                     # at once otherwise (owner's capture: [9999, 2, 1, 0] 0.2 s after 103 := 3)
-                    self._gas_da_off()
+                    if not unstarted:
+                        self._gas_da_off()
                     if ok and not self._cancel.is_set():
                         time.sleep(0.2)
-                    self._process_signal(False)
+                    if not unstarted:
+                        self._process_signal(False)
                     with self._slock:
                         self._job_live = False
                         self._s.outputs["laser"] = False

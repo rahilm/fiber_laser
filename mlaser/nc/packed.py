@@ -321,6 +321,55 @@ class PackedWire(Sequence):
     def frames(self, first_seq: int = 1, max_bytes: int = 0x4B0) -> list[list[int]]:
         return list(self.iter_frames(first_seq, max_bytes))
 
+    def item_word_starts(self) -> np.ndarray:
+        """Word offset of every item in the item stream, plus the end (``len(self) + 1`` values):
+        item ``k`` is ``stream[ws[k]:ws[k + 1]]``, as in :meth:`iter_frames`."""
+        ws = np.zeros(len(self) + 1, dtype=np.int64)
+        if len(self):
+            np.cumsum(np.repeat(np.diff(self.woff), self.cnt), out=ws[1:])
+        return ws
+
+    def frame_bounds(self, max_bytes: int = 0x4B0,
+                     ws: Optional[np.ndarray] = None) -> tuple[np.ndarray, np.ndarray]:
+        """The frames of :meth:`iter_frames` without building them: ``(begin, end)`` word offsets
+        in the item stream (:meth:`item_word_starts`, pass it as ``ws`` when already at hand) of
+        each frame's items.  The same loop as :meth:`iter_frames` (one frame per iteration), so
+        ``len(begin)`` is the frame count and frame ``k`` holds ``stream[begin[k]:end[k]]``."""
+        n = len(self)
+        none = (np.zeros(0, dtype=np.int64), np.zeros(0, dtype=np.int64))
+        if n == 0:
+            return none
+        if ws is None:
+            ws = self.item_word_starts()
+        gs = np.flatnonzero(np.repeat(self.flag, self.cnt))
+        if gs.size == 0:
+            return none
+        ge = np.append(ws[gs[1:]], ws[n])
+        lmin = 0
+        while not (lmin + 4) * 4 > max_bytes - 1:
+            lmin += 1
+        b = int(ws[gs[0]])
+        end = int(ws[n])
+        begins: list[int] = []
+        ends: list[int] = []
+        while b < end:
+            e = int(np.searchsorted(ge, b + lmin, side="left"))
+            stop = int(ge[e]) if e < len(ge) else end
+            begins.append(b)
+            ends.append(stop)
+            b = stop
+        return np.asarray(begins, dtype=np.int64), np.asarray(ends, dtype=np.int64)
+
+    def stream_words(self, begin: int, end: int, ws: np.ndarray) -> list[int]:
+        """The item stream's words ``[begin, end)`` (item boundaries, ``ws`` from
+        :meth:`item_word_starts`) as a list of ints: the payload of a frame of :meth:`frame_bounds`."""
+        k0 = int(np.searchsorted(ws, begin, side="right")) - 1
+        k1 = int(np.searchsorted(ws, end, side="left"))
+        run = np.searchsorted(self.cum, np.arange(k0, k1), side="right") - 1
+        ln = ws[k0 + 1:k1 + 1] - ws[k0:k1]
+        idx = np.repeat(self.woff[run] - ws[k0:k1], ln) + np.arange(begin, end)
+        return self.words[idx].tolist()
+
     # ------------------------------------------------------------------ shared memory
     def to_shared(self) -> tuple[SharedWireHandle, Any]:
         """Copy the arrays into a new ``multiprocessing.shared_memory`` block.  Returns the

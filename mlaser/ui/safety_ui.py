@@ -227,7 +227,10 @@ PREFLIGHT_FIXES = {
     "alarm": ("run.btn.reset", "Reset alarm", "card.clear_alarms"),
     "fault": ("run.btn.reset", "Reset alarm", "card.clear_alarms"),
     "not_armed": ("run.btn.arm", "Arm laser", "run.arm"),
+    "out_of_travel": ("safety.preflight.fix.show_design", "Show in Design", "workspace.design"),
 }
+#: fixes that only apply to some actions (a move target out of travel is not in the drawing)
+PREFLIGHT_FIX_ACTIONS = {"out_of_travel": ("start", "dry_run", "frame", "resume")}
 #: severity -> (QStyle standard icon, label id, default): icon AND word, never colour alone
 _SEVERITY = {"error": ("SP_MessageBoxCritical", "safety.preflight.sev_error", "Error"),
              "warning": ("SP_MessageBoxWarning", "safety.preflight.sev_warning", "Warning"),
@@ -321,6 +324,8 @@ class PreflightDialog(QDialog):
             for sev, code, _items in self.groups:
                 fix = PREFLIGHT_FIXES.get(code)
                 if fix is None or code in self.fixes or sev != "error":
+                    continue
+                if report.action not in PREFLIGHT_FIX_ACTIONS.get(code, (report.action,)):
                     continue
                 fid, fdef, cid = fix
                 b = bb.addButton(_tr(win, fid, fdef), QDialogButtonBox.ActionRole)
@@ -1699,27 +1704,35 @@ class SafetyUI(QObject):
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
     def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False,
-                     assume_armed: bool = False) -> bool:
+                     assume_armed: bool = False, checked: Optional[tuple] = None) -> bool:
         """Run the controller's pre-flight check; show the dialog when it finds anything.
         ``assume_armed``: check as if the machine were armed (Start while disarmed checks
         everything else first and only then asks to arm, UX audit C1); every other issue is
         checked as usual.  Cutting-only warnings of a laser-off run are information (W6): with
-        nothing else to report no dialog is shown."""
+        nothing else to report no dialog is shown.  ``checked``: (the controller's report, the
+        cutting-strategy issues), computed off the GUI thread (:meth:`_preflight_async`)."""
         from dataclasses import replace
 
         from ..machine.preflight import demote_cutting_only
         ctl = self.w.ctl
-        try:
-            rep = ctl.preflight(action, doc, selected_only, extent=self._extent(doc) if doc else None,
-                                emits=emits)
-        except TypeError:
-            rep = ctl.preflight(action, doc)
+        if checked is not None:
+            rep = checked[0]
+        else:
+            try:
+                rep = ctl.preflight(action, doc, selected_only, extent=self._extent(doc) if doc else None,
+                                    emits=emits)
+            except TypeError:
+                rep = ctl.preflight(action, doc)
         if assume_armed:
             rep = replace(rep, issues=[i for i in rep.issues if i.code != "not_armed"])
         from .safety_io import augment_preflight          # "interlock not configured" warnings
         rep = augment_preflight(self.w, rep, action, emits)
-        from .workspaces.cutting_strategy import augment_preflight as augment_cutting
-        rep = augment_cutting(self.w, rep, action, doc, selected_only)   # lead / tip warnings
+        if checked is not None:
+            if checked[1]:
+                rep = replace(rep, issues=list(rep.issues) + list(checked[1]))
+        else:
+            from .workspaces.cutting_strategy import augment_preflight as augment_cutting
+            rep = augment_cutting(self.w, rep, action, doc, selected_only)   # lead / tip warnings
         rep = contribute_preflight(self.w, rep, action, doc, emits)   # plugins (material check)
         rep = demote_cutting_only(rep)
         self.last_report = rep
@@ -1781,20 +1794,101 @@ class SafetyUI(QObject):
         emits = bool(ctl.laser_enabled)
         action = "start" if emits else "dry_run"
         arm_first = emits and st is not None and not st.armed and self._dialogs()
-        if arm_first:
-            # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
-            # technology or an axis out of travel refuses here, before anything is armed); only
-            # then one question with the arming safety text, Cancel the default
-            if not self.preflight_ok(action, doc, emits, selected_only=bool(selected_only), assume_armed=True):
+
+        def checked(ok: bool) -> None:
+            if not ok:
                 return
-            if not self.ask_arm_and_start():
-                return
-            if not self.arm(confirm=False):
-                return
-        elif not self.preflight_ok(action, doc, emits, selected_only=bool(selected_only)):
+            if arm_first:
+                # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
+                # technology or an axis out of travel refuses here, before anything is armed); only
+                # then one question with the arming safety text, Cancel the default
+                if not self.ask_arm_and_start():
+                    return
+                if not self.arm(confirm=False):
+                    return
+            self._shown = self.w.ctl.last_preflight     # only a refusal of this start is shown
+            self._run_start(doc, bool(selected_only), arm_first)
+        self._preflight_async(action, doc, emits, bool(selected_only), arm_first, "process", checked)
+
+    _prep_call = None               # BackgroundCall of the pre-flight in progress (Start, Dry run)
+
+    @property
+    def preflight_busy(self) -> bool:
+        """A Start / Dry run is being checked (its plan and pre-flight run off the GUI thread)."""
+        return self._prep_call is not None and self._prep_call.busy
+
+    def wait_preflight(self, timeout: float = 60.0) -> bool:
+        """Block until the pre-flight of a Start / Dry run ended and its result was handled
+        (tests, scripting)."""
+        c = self._prep_call
+        return True if c is None else c.wait(timeout)
+
+    def _preflight_async(self, action: str, doc, emits: bool, selected_only: bool, assume_armed: bool,
+                         mode: str, then: Callable[[bool], None]) -> None:
+        """:meth:`preflight_ok` with its heavy part off the GUI thread (perf review 2026-11-09,
+        finding 10: 2.8 s at 2,700 parts with the window and its Stop button frozen), on the
+        job the controller will check (UX review 2026-11-09, finding 10: the extent with leads
+        and kerf, not the drawing's box, so an axis out of travel refuses before the arming
+        question).
+
+        In a worker thread: the plan of this start (``JobService.plan``: the cached preview
+        plan, or a compile), then the controller's pre-flight on its job
+        (``ctl.preflight(job=...)``, as ``start_job`` checks it) and the cutting-strategy check.
+        Back on the GUI thread the rest of :meth:`preflight_ok` runs (interlock warnings,
+        plugins, the dialog) and ``then(ok)``.  A Stop or a halt meanwhile (the controller's
+        start generation moved) drops the start without a question.  Without the services
+        layer the check runs here, as before."""
+        w, ctl = self.w, self.w.ctl
+        jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
+        gen_fn = getattr(ctl, "start_generation", None)
+        if jobs is None or docs is None or not callable(gen_fn) or doc is None:
+            then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
             return
-        self._shown = None
-        self._run_start(doc, bool(selected_only), arm_first)
+        if self.preflight_busy:
+            return                          # the previous Start is still being checked
+        try:
+            from ..services.jobs import build_request
+            req = build_request(mode, docs, ctl, w.machine, w.cam_params, selected_only)
+        except Exception:  # noqa: BLE001 - the start reports it (run_job builds it again)
+            log.debug("pre-flight: no job request", exc_info=True)
+            then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
+            return
+        gen = gen_fn()
+        ticket = jobs.plan(req)
+        src = req.source if req.source is not None else doc
+        import types
+        cut_win = types.SimpleNamespace(config=getattr(w, "config", None), cam_params=getattr(w, "cam_params", None))
+        extent_doc = self._extent
+
+        def work():
+            while not ticket.done_event.wait(0.05):
+                if gen_fn() != gen:
+                    ticket.cancel()         # a Stop while the job compiles
+                    return None
+            if gen_fn() != gen:
+                return None
+            plan = ticket.plan
+            if plan is not None:
+                rep = ctl.preflight(action, src, selected_only, job=plan.job, emits=emits)
+            else:                           # no plan (a compile error: the start reports it)
+                rep = ctl.preflight(action, src, selected_only, extent=extent_doc(src), emits=emits)
+            from .workspaces.cutting_strategy import augment_preflight as augment_cutting
+            n = len(rep.issues)
+            extra = list(augment_cutting(cut_win, rep, action, src, selected_only).issues[n:])
+            return rep, extra
+
+        def done(res, err) -> None:
+            if err is not None:
+                log.error("pre-flight failed: %s", err)
+                then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
+                return
+            if res is None or gen_fn() != gen:
+                return                      # stopped meanwhile: no start, no question
+            then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
+                                   checked=res))
+        if self._prep_call is None:
+            self._prep_call = qtbridge.BackgroundCall(self, name="mlaser-preflight")
+        self._prep_call.start(work, done)
 
     def ask_arm_and_start(self) -> bool:
         """The one question of a Start while disarmed: the arming safety text, "Arm and start" /
@@ -1869,17 +1963,20 @@ class SafetyUI(QObject):
         doc = self.w.document
         if not self.preflight_ok("frame", doc, False):
             return
-        self._shown = None
+        self._shown = self.w.ctl.last_preflight         # only a refusal of this frame is shown
         self._runner().frame(doc)
         self._after(_tr(self.w, "safety.refused.frame", "Frame refused"))
 
     def dry_run(self) -> None:
         doc = self.w.document
-        if not self.preflight_ok("dry_run", doc, False):
-            return
-        self._shown = None
-        self._runner().dry_run(doc)
-        self._after(_tr(self.w, "safety.refused.dry_run", "Dry run refused"))
+
+        def checked(ok: bool) -> None:
+            if not ok:
+                return
+            self._shown = self.w.ctl.last_preflight     # only a refusal of this run is shown
+            self._runner().dry_run(doc)
+            self._after(_tr(self.w, "safety.refused.dry_run", "Dry run refused"))
+        self._preflight_async("dry_run", doc, False, False, False, "dry_run", checked)
 
     def arm(self, confirm: bool = True) -> bool:
         ctl = self.w.ctl

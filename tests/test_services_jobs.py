@@ -239,6 +239,7 @@ def test_window_preview_is_the_plan_and_start_streams_it(app):
         ctl.start_job = lambda job, generation=None: got.append(job)
         compiles = w.jobs.stats["compiles"]
         w.safety_ui.run_bar.buttons["start"].click()  # the run bar's Start
+        assert w.safety_ui.wait_preflight(60)  # the pre-flight runs off the GUI thread
         w.jobs.settle(w.jobs.last_run, timeout=60)
         assert got and got[0] is plan  # exactly the previewed plan
         assert w.jobs.stats["compiles"] == compiles  # no recompile

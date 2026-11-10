@@ -153,6 +153,31 @@ def travel_from_card(soft_limits: Optional[dict], x_axis: int = 0, y_axis: int =
     return TravelLimits((float(lx[0]), float(lx[1])), (float(ly[0]), float(ly[1])), "card soft limits")
 
 
+def _packed_extent(wire, sx: int, sy: int) -> Optional[tuple[int, int, int, int]]:
+    """Pulse extent (x0, y0, x1, y1) of a packed wire (``nc.packed.PackedWire``) from its runs,
+    without expanding them: a run repeats one step, so the positions inside it move in one
+    direction and its extremes are at the run's ends.  None for any other wire."""
+    import numpy as np
+    for a in ("words", "woff", "cnt"):
+        if not isinstance(getattr(wire, a, None), np.ndarray):
+            return None
+    words, woff, cnt = wire.words, wire.woff, wire.cnt
+    if len(cnt) == 0 or words.size == 0:
+        return (sx, sy, sx, sy)
+    ln = np.diff(woff)
+    first = np.where(ln > 0, woff[:-1], 0)
+    step = (ln > 1) & ((words[first].astype(np.int64) & 0xFFFF) == 3000)
+    w1 = words[np.where(step, woff[:-1] + 1, 0)].astype(np.int64)
+    dx = w1 & 0xFF
+    dx = np.where(dx > 127, dx - 256, dx)
+    dy = (w1 >> 8) & 0xFF
+    dy = np.where(dy > 127, dy - 256, dy)
+    n = np.where(step, cnt, 0)
+    cx = np.concatenate(([0], np.cumsum(dx * n))) + sx
+    cy = np.concatenate(([0], np.cumsum(dy * n))) + sy
+    return (int(cx.min()), int(cy.min()), int(cx.max()), int(cy.max()))
+
+
 def job_extent_mm(job) -> Optional[tuple[float, float, float, float]]:
     """Exact extent of a compiled job's step items from its start position (mm)."""
     m = getattr(job, "machine", None)
@@ -161,6 +186,9 @@ def job_extent_mm(job) -> Optional[tuple[float, float, float, float]]:
     if px <= 0 or py <= 0:
         return None
     sx, sy = getattr(job, "start_pulses", (0, 0))
+    ext = _packed_extent(getattr(job, "wire", None), sx, sy)
+    if ext is not None:
+        return (ext[0] / px, ext[1] / py, ext[2] / px, ext[3] / py)
     try:
         import numpy as np
         w1 = np.fromiter((w[1] for w in job.wire if w and (w[0] & 0xFFFF) == 3000 and len(w) > 1),

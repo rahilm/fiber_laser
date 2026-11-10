@@ -52,7 +52,7 @@ import queue as _queue
 import threading
 import time
 from dataclasses import asdict, dataclass, field
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Optional
 
 from ..protocol import frames as F
 from .client import ControllerError, FifoStreamer, MotionController, StreamStats, TransportConfig
@@ -124,13 +124,40 @@ def quiet_gc():
 from .._sched import RESPONSIVE_SWITCH_S, responsive_gil  # noqa: E402,F401 - re-exported
 
 
+def _packed_wire_cls():
+    from ..nc.packed import PackedWire
+    return PackedWire
+
+
 @dataclass
 class WireJob:
-    """The part of a Job the streamer needs (picklable, small)."""
-    wire: list
+    """The part of a Job the streamer needs (picklable, small).
+
+    ``wire`` is a list of items, or the compiled job's :class:`~mlaser.nc.packed.PackedWire`
+    itself (kept packed: no list per item; its ManuItem grouping is the wire's run flags).  For
+    the streaming process :meth:`share` puts a packed wire into shared memory: the pickled
+    ``WireJob`` then carries only the handle (``shared``) and the child calls :meth:`attach`."""
+    wire: Any
     period_ms: float = 1.0
     duration_s: float = 0.0
-    groups: Optional[tuple] = None     # wire index where each ManuItem expansion starts (Job._groups)
+    groups: Optional[tuple] = None     # list wire: wire index where each ManuItem expansion starts (Job._groups)
+    shared: Any = None                 # SharedWireHandle of the packed wire (hand-off to the child)
+    _shm: Any = field(default=None, repr=False, compare=False)
+
+    def __getstate__(self):
+        d = dict(self.__dict__)
+        d["_shm"] = None
+        if d.get("shared") is not None:
+            d["wire"] = None               # the child attaches to the shared block instead
+        return d
+
+    def __setstate__(self, d):
+        self.__dict__.update(d)
+
+    @property
+    def packed(self) -> bool:
+        """The wire is a PackedWire whose run flags are the ManuItem groups."""
+        return self.wire is not None and isinstance(self.wire, _packed_wire_cls())
 
     @classmethod
     def of(cls, job) -> "WireJob":
@@ -140,6 +167,13 @@ class WireJob:
             job = job.job                  # a services.jobs.PlannedJob
         m = getattr(job, "machine", None)
         per = float(getattr(m, "period_ms", getattr(job, "period_ms", 1.0)) or 1.0)
+        dur = float(getattr(job, "duration_s", 0.0) or 0.0)
+        wire = job.wire
+        g = getattr(job, "_groups", None)
+        if (isinstance(wire, _packed_wire_cls()) and len(wire) and bool(wire.flag[0])
+                and g is not None and g[0] is wire and isinstance(g[2], str)):
+            # Job.groups() is the wire's own grouping and covers every item: keep it packed
+            return cls(wire, per, dur, None)
         starts = None
         groups = getattr(job, "groups", None)           # nc.compiler.Job (list or packed wire)
         if callable(groups):
@@ -148,19 +182,100 @@ class WireJob:
                 starts.append(k)
                 k += len(grp)
             starts = tuple(starts) if k == len(job.wire) else None
-        return cls([list(w) for w in job.wire], per, float(getattr(job, "duration_s", 0.0) or 0.0), starts)
+        return cls([list(w) for w in job.wire], per, dur, starts)
 
+    # ------------------------------------------------------------------ shared memory hand-off
+    def share(self) -> "WireJob":
+        """A copy for the streaming process whose packed wire is in a new shared-memory block
+        (``PackedWire.to_shared``).  The caller owns the block: :meth:`release` it on every exit
+        path (the process streamer does, as soon as the child has attached and in its
+        ``finally``).  A list wire is returned as it is (pickled as before)."""
+        if not self.packed:
+            return self
+        handle, shm = self.wire.to_shared()
+        return WireJob(self.wire, self.period_ms, self.duration_s, None, handle, shm)
+
+    def release(self) -> None:
+        """Free the shared block of :meth:`share` (idempotent)."""
+        shm, self._shm = self._shm, None
+        if shm is not None:
+            try:
+                shm.close()
+            finally:
+                with contextlib.suppress(FileNotFoundError):
+                    shm.unlink()
+
+    def attach(self) -> "WireJob":
+        """In the streaming process: copy the packed wire out of the shared block (the parent
+        frees it as soon as this process has introduced itself).  Raises ``OSError`` /
+        ``FileNotFoundError`` when the block is gone."""
+        if self.shared is not None and self.wire is None:
+            self.wire = _packed_wire_cls().from_shared(self.shared, copy=True)
+            self.shared = None
+        return self
+
+    # ------------------------------------------------------------------ frames
     def frames(self, first_seq: int) -> list[list[int]]:
         """The FIFO frames exactly as ``Job.frames()`` builds them: the frame size is tested once
         per ManuItem expansion (FUN_10043c20, parity JN-08), not after every item."""
+        if self.packed:
+            pf = PackedFrames(self.wire)
+            pf.first = first_seq
+            return [pf[i] for i in range(len(pf))]
         if not self.groups:
             return F.build_fifo_frames(self.wire, first_seq)
         starts = list(self.groups) + [len(self.wire)]
         return F.build_fifo_frames([self.wire[a:b] for a, b in zip(starts, starts[1:]) if b > a], first_seq)
 
 
-def wire_timing(wire: Sequence[Sequence[int]], period_ms: float) -> tuple[list[int], list[float]]:
-    """Cumulative bytes and cumulative replay time (ms) after each wire item."""
+class PackedFrames:
+    """The FIFO frames of a packed wire, built one at a time when they are sent (no list of all
+    frames: the frames of a 5-million-step job held about 1 GB as Python lists).  The frame
+    boundaries are :meth:`PackedWire.frame_bounds` (the loop of ``PackedWire.iter_frames``), so
+    frame ``i`` is ``wire.frames(first)[i]``, item for item.  ``first`` is the sequence number of
+    frame 0 (``build_fifo_frames`` numbering, ``& 0xFFFFFFFF``)."""
+
+    def __init__(self, wire, ws=None) -> None:
+        self.wire = wire
+        self.ws = wire.item_word_starts() if ws is None else ws
+        self.begin, self.end = wire.frame_bounds(ws=self.ws)
+        self.first = 1
+        self._last: Optional[tuple] = None
+
+    def __len__(self) -> int:
+        return len(self.begin)
+
+    def __getitem__(self, i: int) -> list[int]:
+        last = self._last
+        if last is not None and last[0] == i and last[1] == self.first:
+            return last[2]
+        if not 0 <= i < len(self.begin):
+            raise IndexError("frame index out of range")
+        fr = [(self.first + i) & 0xFFFFFFFF, *self.wire.stream_words(int(self.begin[i]), int(self.end[i]), self.ws)]
+        self._last = (i, self.first, fr)
+        return fr
+
+    def payload_bytes(self):
+        """Bytes of each frame without its sequence word (numpy array)."""
+        return 4 * (self.end - self.begin)
+
+    def end_items(self, cum):
+        """Wire index of the last item in each frame (as the list version's bisect of ``cum``)."""
+        import numpy as np
+        if not len(cum):
+            return np.zeros(len(self.begin), dtype=np.int64)
+        return np.minimum(np.searchsorted(cum, 4 * (self.end - (self.begin[0] if len(self.begin) else 0)),
+                                          side="left"), len(cum) - 1)
+
+
+def wire_timing(wire, period_ms: float):
+    """Cumulative bytes and cumulative replay time (ms) after each wire item.
+
+    A list wire gives two lists; a :class:`~mlaser.nc.packed.PackedWire` gives two numpy arrays
+    (int64, float64) with the same values, computed from its runs (``np.cumsum`` adds in order,
+    so every time is the float the list version accumulates)."""
+    if isinstance(wire, _packed_wire_cls()):
+        return _packed_timing(wire, period_ms)
     cb, ct = [], []
     b = t = 0.0
     for w in wire:
@@ -170,6 +285,29 @@ def wire_timing(wire: Sequence[Sequence[int]], period_ms: float) -> tuple[list[i
         cb.append(int(b))
         ct.append(t)
     return cb, ct
+
+
+def _packed_timing(wire, period_ms: float, ws=None):
+    import numpy as np
+    if ws is None:
+        ws = wire.item_word_starts()
+    cum = 4 * ws[1:]
+    ln = np.diff(wire.woff)
+    first = np.where(ln > 0, wire.woff[:-1], 0)
+    if wire.words.size:
+        step = (ln > 0) & ((wire.words[first].astype(np.int64) & 0xFFFF) == F.OP_STEP)
+    else:
+        step = np.zeros(len(ln), dtype=bool)
+    inc = np.repeat(np.where(step, float(period_ms), 0.0), wire.cnt)
+    return cum, np.cumsum(inc, dtype=np.float64)
+
+
+def _search_left(a, x) -> int:
+    """``bisect.bisect_left`` on a list or a sorted numpy array."""
+    if isinstance(a, list):
+        return bisect.bisect_left(a, x)
+    import numpy as np
+    return int(np.searchsorted(a, x, side="left"))
 
 
 @dataclass
@@ -232,9 +370,10 @@ class JobStreamer(FifoStreamer):
                 self.laser_off_errors.append(str(e))
         return ok
 
-    def prepare(self, job) -> None:
-        """Do the host-side work of :meth:`run_job` for ``job`` now (wire copy, timing, FIFO
-        frames; about 0.1 s for a 30 000-item job, more on a slow PC), so that it does not
+    def prepare(self, job, cancel: Optional[threading.Event] = None) -> None:
+        """Do the host-side work of :meth:`run_job` for ``job`` now (timing and frame boundaries;
+        a compiled job's packed wire stays packed: about 0.1 s per million steps, more on a slow
+        PC; a list wire is copied and framed in Python), so that it does not
         happen between the last status poll and the first streaming request.  While a job
         streams the link deadline (``link_deadline_ms``, 150 ms) counts from the last reply of
         the card; preparing inside :meth:`run_job` let that time run out with no request
@@ -244,21 +383,47 @@ class JobStreamer(FifoStreamer):
         It runs as :meth:`run_job` does, with the GIL switch interval lowered and no cyclic GC:
         the timing and the frames are CPU-bound Python, and with the default 5 ms interval the
         status poller lost the hand-overs meanwhile, so the card's last reply was already
-        stale when the streaming deadline took over (macOS CI: "link lost" after 224 ms)."""
-        with quiet_gc(), responsive_gil():
-            self._prepare(job)
+        stale when the streaming deadline took over (macOS CI: "link lost" after 224 ms).
 
-    def _prepare(self, job) -> None:
+        ``cancel`` (the job's Stop) is tested between the stages: once it is set the preparation
+        returns at once and nothing is kept (the caller leaves without streaming)."""
+        with quiet_gc(), responsive_gil():
+            self._prepare(job, cancel)
+
+    def _prepare(self, job, cancel: Optional[threading.Event] = None) -> None:
+        self._prepared = None
+
+        def cancelled() -> bool:
+            return cancel is not None and cancel.is_set()
+        if cancelled():
+            return
         wj = WireJob.of(job)
-        cum, ctime = wire_timing(wj.wire, wj.period_ms)
-        frames = wj.frames(0)                   # numbered from the card's sequence in run_job
-        frame_end = []              # wire index of the last item in each frame
-        acc, k = 0, 0
-        for fr in frames:
-            acc += 4 * (len(fr) - 1)
-            k = bisect.bisect_left(cum, acc, lo=k)
-            frame_end.append(min(k, len(cum) - 1))
-        self._prepared = (job, wj, cum, ctime, frames, frame_end)
+        if cancelled():
+            return
+        if wj.packed:
+            ws = wj.wire.item_word_starts()
+            cum, ctime = _packed_timing(wj.wire, wj.period_ms, ws)
+            if cancelled():
+                return
+            pf = PackedFrames(wj.wire, ws)      # numbered from the card's sequence in run_job
+            frames: Any = pf
+            frame_end: Any = pf.end_items(cum)
+            frame_bytes: Any = pf.payload_bytes()
+        else:
+            cum, ctime = wire_timing(wj.wire, wj.period_ms)
+            if cancelled():
+                return
+            frames = wj.frames(0)                   # numbered from the card's sequence in run_job
+            frame_end = []              # wire index of the last item in each frame
+            acc, k = 0, 0
+            for fr in frames:
+                acc += 4 * (len(fr) - 1)
+                k = bisect.bisect_left(cum, acc, lo=k)
+                frame_end.append(min(k, len(cum) - 1))
+            frame_bytes = [4 * (len(fr) - 1) for fr in frames]
+        if cancelled():
+            return
+        self._prepared = (job, wj, cum, ctime, frames, frame_end, frame_bytes)
 
     def run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
@@ -276,11 +441,12 @@ class JobStreamer(FifoStreamer):
             self.prepare(job)
             prep = self._prepared
         self._prepared = None
-        _job, wj, cum, ctime, frames, frame_end = prep
+        _job, wj, cum, ctime, frames, frame_end, frame_bytes = prep
         cancel = cancel or threading.Event()
         hold = hold or (lambda: False)
-        total_bytes = cum[-1] if cum else 0
-        total_ms = ctime[-1] if ctime else 0.0
+        n_items = len(cum)
+        total_bytes = int(cum[-1]) if n_items else 0
+        total_ms = float(ctime[-1]) if n_items else 0.0
         # the original's job start on a real MCC100 (owner's capture 2026-11-07):
         # [9999, 16], 103 := 1, the prefill frames from seq 1, [9999, 1, mask|0x66800000, 0], 103 := 2
         if hasattr(mc, "fifo_job_reset"):
@@ -293,9 +459,11 @@ class JobStreamer(FifoStreamer):
         # == Job.frames(st.fifo_seq + 1) (what parity verified): frames numbered from the card's
         # next sequence number, as build_fifo_frames numbers them (seq & 0xFFFFFFFF)
         first = st.fifo_seq + 1
-        for j, fr in enumerate(frames):
-            fr[0] = (first + j) & 0xFFFFFFFF
-        frame_bytes = [4 * (len(fr) - 1) for fr in frames]
+        if isinstance(frames, PackedFrames):
+            frames.first = first                # each frame is built with its number when sent
+        else:
+            for j, fr in enumerate(frames):
+                fr[0] = (first + j) & 0xFFFFFFFF
         self.stats = StreamStats(items=len(wj.wire))
         dur_s = wj.duration_s or total_ms / 1000.0
         limit = timeout_s if timeout_s is not None else max(60.0, 4 * dur_s + 30.0)
@@ -311,11 +479,11 @@ class JobStreamer(FifoStreamer):
         def executed(st) -> tuple[int, int]:
             in_fifo = max(0, capacity - st.fifo_free)
             done = max(0, sent_bytes - in_fifo)
-            idx = bisect.bisect_left(cum, done) if cum else -1
-            return done, min(idx, len(cum) - 1)
+            idx = _search_left(cum, done) if n_items else -1
+            return done, min(idx, n_items - 1)
 
         def sent_ms() -> float:
-            return ctime[frame_end[i - 1]] if i > 0 else 0.0
+            return float(ctime[frame_end[i - 1]]) if i > 0 else 0.0
 
         while True:
             if cancel.is_set():
@@ -334,7 +502,7 @@ class JobStreamer(FifoStreamer):
                 progress(min(1.0, frac), max(0, idx))
             if cancel.is_set():
                 break
-            done_t = ctime[idx] if idx >= 0 and ctime else 0.0
+            done_t = float(ctime[idx]) if idx >= 0 and n_items else 0.0
             bms = max(0.0, sent_ms() - done_t)
             h = bool(hold())
             if started and i < len(frames):
@@ -360,11 +528,11 @@ class JobStreamer(FifoStreamer):
                 fr = frames[i]
                 if free < 4 * (len(fr) + 3) + self.margin:
                     break
-                if cap_ms is not None and i > 0 and ctime[frame_end[i]] - done_t > cap_ms:
+                if cap_ms is not None and i > 0 and float(ctime[frame_end[i]]) - done_t > cap_ms:
                     break
                 mc.fifo_write_frame(fr)
                 free -= 4 * len(fr)
-                sent_bytes += frame_bytes[i]
+                sent_bytes += int(frame_bytes[i])
                 self.stats.frames += 1
                 self.stats.words += len(fr)
                 i += 1
@@ -459,7 +627,9 @@ def _child_guard(policy: dict, flags: dict):
 #: this version (``StreamFault("protocol")``: halt, FAULT, a clear message).  A mismatch
 #: means two mlaser versions met (an update installed while mlaser ran, a mixed install).
 #: Raise it on any change of the event tuples or of the policy's meaning.
-STREAM_PROTO = 1
+#: 2: the job's packed wire comes through shared memory (``WireJob.share`` / ``attach``); the
+#: ``hello`` reports a failed attach (``ok`` False, ``kind`` "handoff").
+STREAM_PROTO = 2
 
 
 def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, evt_q,
@@ -471,6 +641,12 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     if their != STREAM_PROTO:
         hello.update(ok=False, error=f"the parent speaks streaming protocol {their!r}, "
                                      f"this streaming process {STREAM_PROTO}")
+    else:
+        try:
+            wj = wj.attach()                    # the packed wire out of the parent's shared block
+        except Exception as e:  # noqa: BLE001 - no job data: refuse before any socket is opened
+            hello.update(ok=False, kind="handoff",
+                         error=f"the streaming process did not receive the job ({type(e).__name__}: {e})")
     try:
         evt_q.put(("hello", hello))
     except Exception:  # noqa: BLE001 - parent gone
@@ -734,6 +910,8 @@ class ProcessStreamer:
             return
         if self.flags is not None:
             self.flags["cancel"].value = 1
+        if hello is not None and hello.get("kind") == "handoff":
+            raise StreamFault("handoff", str(hello.get("error")), self.exec_index)
         if hello is None:
             why = "the streaming process did not introduce itself (a different mlaser version)"
         else:
@@ -744,8 +922,23 @@ class ProcessStreamer:
     def _run_job(self, job, progress: Optional[Callable[[float, int], None]] = None,
                 cancel: Optional[threading.Event] = None, hold: Optional[Callable[[], bool]] = None,
                 poll_s: float = 0.02, timeout_s: Optional[float] = None) -> StreamStats:
-        from .client import AxisStatus, MCStatus
         wj = WireJob.of(job)
+        dur = wj.duration_s or (float(wire_timing(wj.wire, wj.period_ms)[1][-1]) / 1000.0 if len(wj.wire) else 0.0)
+        # the packed wire goes to the child through shared memory (a handle is pickled, not the
+        # items); the block is freed once the child has attached (its hello) and in the finally
+        # below on every other exit; if this process dies, multiprocessing's resource tracker
+        # (POSIX) or the OS (Windows: the last handle) frees it
+        try:
+            shared = wj.share()
+        except OSError:                   # no shared memory: the packed arrays are pickled
+            shared = wj
+        try:
+            return self._run_child(shared, dur, progress, cancel, hold, poll_s, timeout_s)
+        finally:
+            shared.release()
+
+    def _run_child(self, wj: WireJob, dur: float, progress, cancel, hold, poll_s, timeout_s) -> StreamStats:
+        from .client import AxisStatus, MCStatus
         cancel = cancel or threading.Event()
         hold = hold or (lambda: False)
         ctx = self.ctx
@@ -756,7 +949,6 @@ class ProcessStreamer:
                                 args=(self._cfg_dict(), self.position_ppm, wj, self.kw,
                                       self.cmd_q, self.evt_q, self.flags, policy))
         self.proc.start()
-        dur = wj.duration_s or wire_timing(wj.wire, wj.period_ms)[1][-1] / 1000.0 if wj.wire else 0.0
         deadline = time.monotonic() + (timeout_s if timeout_s is not None else max(60.0, 4 * dur + 60.0))
         t_start = time.monotonic()
         last_msg = None
@@ -801,8 +993,9 @@ class ProcessStreamer:
                     self.on_alive()
                 kind = ev[0]
                 if not greeted:
-                    self._check_hello(ev)       # raises StreamFault("protocol")
+                    self._check_hello(ev)       # raises StreamFault("protocol" / "handoff")
                     greeted = True
+                    wj.release()                # the child has its copy of the wire
                     continue
                 if kind == "progress":
                     self.executed, self.exec_index = ev[1], ev[2]
