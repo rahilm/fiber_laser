@@ -245,6 +245,13 @@ def qt_version() -> str:
         return _version("PySide6-Essentials").split("+")[0]
 
 
+def pyside_version() -> str:
+    """PySide6's version: the PySide6-Essentials distribution (what mlaser depends on), or the
+    PySide6 meta-package when that is what is installed."""
+    v = _version("PySide6-Essentials")
+    return v if v != "?" else _version("PySide6")
+
+
 def generate(out: Path, bundle: Optional[Path] = None, extra: Iterable[tuple[str, Path]] = (),
              modules: Optional[set[str]] = None, more_bundles: Iterable[Path] = ()) -> list[str]:
     """Write the LICENSES folder; returns the names of the distributions listed."""
@@ -258,7 +265,7 @@ def generate(out: Path, bundle: Optional[Path] = None, extra: Iterable[tuple[str
     qt = qt_version()
     proj_version = _version("mlaser")
     (out / "Qt-PySide6-NOTICE.txt").write_text(QT_NOTICE.format(
-        qt=qt, qt_minor=".".join(qt.split(".")[:2]), pyside=_version("PySide6"),
+        qt=qt, qt_minor=".".join(qt.split(".")[:2]), pyside=pyside_version(),
         shiboken=_version("shiboken6"), version=proj_version, locations=qt_locations(bundle)),
         encoding="utf-8")
 

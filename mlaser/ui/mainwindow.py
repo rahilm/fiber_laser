@@ -23,6 +23,7 @@ from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover
 
 from . import dialogs, homes, settings_apply, style
 from .canvas import CanvasView, layer_color
+from .config_notice import apply_hold
 from ..machine.api import ControllerFacade
 from .facade import DemoController
 from .i18n import Translator, translator
@@ -244,6 +245,7 @@ class MainWindow(QMainWindow):
         # with its undo history, the command registry and the plugin hooks
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        apply_hold(self)                          # a config.json that did not load: no arming (A3)
         _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
         from .units_qt import follow_locale
         follow_locale()                           # "1,50 mm" under de_DE like Qt's spin boxes; RTL-safe
@@ -264,6 +266,7 @@ class MainWindow(QMainWindow):
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
+        self.extension_failures: dict = {}       # built-in plugin -> why it did not load (A9)
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
@@ -394,6 +397,11 @@ class MainWindow(QMainWindow):
     def _register(self, info) -> bool:
         ctx, result = register_plugin(self, info)
         if ctx is None:
+            if info.origin == "builtin":         # a missing built-in feature is said, not only logged
+                self.extension_failures[info.name] = f"{type(result).__name__}: {result}"
+                text = self.tr_.format("main.log.extension_failed", name=info.name, error=type(result).__name__)
+                self.log_panel.log(text)
+                self.statusBar().showMessage(text)
             return False
         self.plugin_contexts[info.name] = ctx
         self.extensions[info.name] = result
@@ -1644,18 +1652,20 @@ class MainWindow(QMainWindow):
 
     def ip_dialog(self) -> None:
         d = dialogs.IPDialog(self.tr_, self.settings.get("ip"), self)
-        if d.exec():
-            self.settings["ip"] = d.result_values()
+        if d.exec():   # the record also holds the card's port and timing (services/endpoint.py)
+            self.settings["ip"] = {**(self.settings.get("ip") or {}), **d.result_values()}
 
     def reconnect(self) -> None:
         """Connect in the background: with the card switched off (an e-stop that cuts its power)
         the connect waits out the retry policy, ~17 s, and froze the window (issue #5)."""
-        host = (self.settings.get("ip") or {}).get("pd445", "10.1.1.168")
+        from mlaser.services import endpoint
+        tc = endpoint.transport_config(endpoint.record_of(self.config))
+        host, port = tc.host, tc.port
         if not hasattr(self, "_connecting"):
             from .qtbridge import BackgroundCall
             self._connecting = BackgroundCall(self, "mlaser-connect")
         ctl = self.ctl
-        if self._connecting.start(lambda: ctl.connect(host),
+        if self._connecting.start(lambda: ctl.connect(host, port),
                                   lambda ok, err: self.log_panel.log("mf165" if ok and err is None else "mf166")):
             self.log_panel.log(self.tr_.format("main.hardware_connecting", host=host))
 
@@ -1805,6 +1815,7 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.ctl = ctl
+        apply_hold(self)                                 # the config's arm hold (ui/config_notice.py)
         self.control.ctl = self.run_controls
         ctl.add_log_listener(self.log_panel.log)
         self.hooks.emit("controller_changed", ctl)      # plugins re-attach (PluginContext)

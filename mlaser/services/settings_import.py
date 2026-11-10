@@ -39,6 +39,9 @@ AREAS = ("params", "layers", "ip", "jump", "calib", "lang")
 IP_KEYS = {"CardIP": "pd445", "CardSubnet": "pd446", "CardGateway": "pd447",
            "ZFIP": "pd448", "ZFSubnet": "pd449", "ZFGateway": "pd450",
            "LaserIP": "pd451", "LaserSubnet": "pd452", "LaserGateway": "pd453"}
+#: ipAdd.ini key -> ProcessConfig field (machine profile override ``process.<field>``)
+INI_PROCESS = {"FollowOvertime": "follow_timeout_ms", "SectionDrillOvertime": "drill_timeout_ms",
+               "GradualDrillAddOvertime": "gradual_add_timeout_ms", "DAMinVal": "da_min"}
 IP_DEFAULTS = {"pd445": "10.1.1.168", "pd446": "255.255.255.0", "pd447": "10.1.1.1",
                "pd448": "10.1.1.169", "pd449": "255.255.255.0", "pd450": "10.1.1.1",
                "pd451": "10.1.1.170", "pd452": "255.255.255.0", "pd453": "10.1.1.1"}
@@ -190,8 +193,31 @@ def _ip_changes(plan: ImportPlan, config: Any) -> None:
     for ini_key, k in IP_KEYS.items():
         if ini_key in vals and vals[ini_key] != cur.get(k):
             plan.changes.append(Change("ip", f"ip.{k}", k, cur.get(k), vals[ini_key]))
-    if "CardPort" in vals and vals["CardPort"] != "502":
-        plan.changes.append(Change("ip", "ip.CardPort", "CardPort", "502", vals["CardPort"]))
+    # the card link's port, transport and timing: stored in the same record, which every
+    # reader of the endpoint uses (services/endpoint.py, review A10)
+    from . import endpoint
+    try:
+        new = endpoint.record_from_ini(str(p))
+    except (OSError, ValueError) as e:
+        plan.warnings.append(f"ipAdd.ini: {e}")
+        return
+    old = endpoint.transport_config(cur)
+    for name in endpoint.INI_KEYS:
+        if name in new and new[name] != getattr(old, name):
+            plan.changes.append(Change("ip", f"ip.{name}", f"wizard.import.ip.{name}", getattr(old, name), new[name]))
+    # the process values ipAdd.ini holds (Machine.from_dat_dir reads them): machine profile
+    # overrides, so the GUI's machine has the original's follower / pierce timeouts
+    proc = config.machine().process
+    for ini_key, name in INI_PROCESS.items():
+        if ini_key not in vals:
+            continue
+        try:
+            v = int(float(vals[ini_key]))
+        except ValueError:
+            plan.warnings.append(f"unreadable:{ini_key}")
+            continue
+        if v != getattr(proc, name):
+            plan.changes.append(Change("ip", f"process.{name}", f"wizard.import.ip.{name}", getattr(proc, name), v))
 
 
 def read_ip_ini(path: Path) -> dict[str, str]:
@@ -344,13 +370,25 @@ def apply(plan: ImportPlan, config: Any, areas: Optional[Iterable[str]] = None,
     if "ip" in want and by.get("ip"):
         ip = dict(IP_DEFAULTS)
         ip.update(config.get("ip", None) or {})
+        from .endpoint import INI_KEYS
+        n = 0
+        proc: dict = {}
         for c in by["ip"]:
             k = c.key.split(".", 1)[1]
             if k in IP_DEFAULTS:
                 ip[k] = str(c.new)
+            elif k in INI_KEYS:
+                ip[k] = c.new
+            elif c.key.startswith("process."):
+                proc[c.key] = c.new
+            else:
+                continue                     # never counted as applied without being stored
+            n += 1
         config.set("ip", ip)
+        if proc:
+            config.set_profile(config.profile.base, **proc)
         _copy(plan.files["ipAdd.ini"], Path(app_root) / "File" / "ipAdd.ini", plan, res)
-        res.applied["ip"] = len(by["ip"])
+        res.applied["ip"] = n
     if "jump" in want and by.get("jump"):
         config.set_profile(config.profile.base, jump_add_time_ms=float(by["jump"][0].new))
         res.applied["jump"] = 1

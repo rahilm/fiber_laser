@@ -26,6 +26,13 @@ command palette finds it as *Settings* (`app.settings`; `app.options` opens the 
   [Importing your Mlaser setup](importing-mlaser-setup.md) for the original program's files).
   When you import an original installation, the Options values you had changed there are taken
   into the matching settings once.
+* Every start that reads `config.json` without an error keeps a copy of it as `config.json.bak`.
+  If `config.json` cannot be read, is damaged (a power cut, a hand edit with a mistake) or was
+  written by a newer version of mlaser, mlaser starts on the default settings, keeps a copy of
+  the file as `config.json.bad-<date>-<time>` and shows a notice before anything else:
+  **Restore last good settings** (from `config.json.bak`), **Continue with default settings**
+  or **Quit mlaser**.  Until you answer, the file is not changed and arming the laser is refused.
+  After continuing with the defaults, commission the machine again (step scale, Safety I/O).
 
 The tables below list every setting: its key (for scripts and `config.json`), its default and
 what it does. The developer audit of the original Options dialog is in

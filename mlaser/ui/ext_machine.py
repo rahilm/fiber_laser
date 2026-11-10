@@ -162,8 +162,15 @@ class MachineExtension:
         self._params = None
         self.workspace = None                 # the Machine workspace (workspaces.machine)
         self.last_wizard: Optional[QDialog] = None
-        from mlaser.services.alarm_history import default_history
-        self.history = default_history()
+        from mlaser.services.alarm_history import AlarmHistory, default_history
+        try:
+            self.history = default_history()
+        except Exception as exc:  # noqa: BLE001 - an optional data file never removes the workspace
+            self.history = AlarmHistory(None)
+            self.history.load_error = f"{type(exc).__name__}: {exc}"
+        if self.history.load_error:           # damaged lines skipped, the file kept (review A9)
+            ctx.log(_tr(window, "machine.log.history_damaged", "Alarm history: {error} (the file was kept as {path})",
+                        error=self.history.load_error, path=f"{self.history.path}.bad"))
 
     def _config_changed(self, key: str) -> None:
         """A registry value the operations hold changed (Machine › Setup, a wizard, an import):

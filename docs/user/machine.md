@@ -144,7 +144,7 @@ Procedures › Import (Service mode) takes the settings of an existing Mlaser in
 |---|---|---|
 | Machine parameters | `HardPara.xml`, `ManuPara.xml` (or `SystemPara.xml`) | the configuration (machine profile "params") |
 | Layer table | `LayerPara.xml` | a copy in the mlaser data folder, used as the machine layer table |
-| IP addresses | `File/ipAdd.ini` | the IP settings, and a copy for the network self-test |
+| IP addresses, card port and link, timeouts | `File/ipAdd.ini` | the card endpoint record (`ip`), the process timeouts (machine profile), and a copy of the file |
 | Rapid settle time | `JumpAddTime.txt` | the machine profile |
 | Follower calibration | `Help/calib.csv` | `calib.csv` in the data folder |
 | Languages | `Lang/*.txt` | the imported translations |

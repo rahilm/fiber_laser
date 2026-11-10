@@ -38,10 +38,15 @@ def make_controller(host: str, port: int, ini, laser_enabled: bool, config):
     ``safety_io.apply``, which checks it against the controller's output map (a heartbeat on a
     process output stays off).  Later changes reach it through ``ui/safety_io.py``."""
     from mlaser.controller.ui_adapter import UiController
-    from mlaser.services import safety_io
+    from mlaser.services import endpoint, safety_io
     sio = safety_io.from_config(config)
-    ctl = UiController(host, port, ini_path=ini, laser_enabled=laser_enabled,
+    # the card endpoint: --ini, else the configuration's ``ip`` record with --host/--port over
+    # it (services/endpoint.py: the one record Reconnect, the Machine workspace and the
+    # self-test read too)
+    tc, _src = endpoint.resolve(endpoint.record_of(config), host, port, ini)
+    ctl = UiController(tc.host, tc.port, ini_path=ini, laser_enabled=laser_enabled,
                        interlocks=sio.kwargs()["interlocks"])
+    endpoint.apply_to(ctl, tc)
     bad = safety_io.problems(sio, ctl.output_map)
     if bad:
         print("safety I/O: " + "; ".join(bad) + " (Machine > Settings > Safety I/O)", file=sys.stderr)
@@ -71,8 +76,8 @@ def main(argv=None) -> int:
     ap.add_argument("--sim", action="store_true", help="connect to the in-process card simulator")
     ap.add_argument("--sim-speed", type=float, default=1.0, help="simulator time scale")
     ap.add_argument("--real", action="store_true", help="connect to a real MCC100 card (UNTESTED)")
-    ap.add_argument("--host", default="10.1.1.168")
-    ap.add_argument("--port", type=int, default=502)
+    ap.add_argument("--host", default=None, help="card address (default: the configuration, else 10.1.1.168)")
+    ap.add_argument("--port", type=int, default=None, help="card port (default: the configuration, else 502)")
     ap.add_argument("--ini", help="ipAdd.ini with CardIP/CardPort/timeouts")
     ap.add_argument("--laser-off", action="store_true", help="never set the laser byte (dry run)")
     ap.add_argument("--fake", action="store_true", help="use the protocol-free DemoController")
@@ -223,6 +228,13 @@ def _run(args, app, inst) -> int:
         win.log_panel.log(f"log files: {logdir}")
     win.shell.fit_to_screen()            # the saved geometry or the available screen, never larger
     win.show()
+    # a config.json that could not be loaded: the blocking notice (restore / defaults / quit);
+    # until it is answered nothing is written and arming is refused (ui/config_notice.py)
+    from .config_notice import show_if_needed
+    if not show_if_needed(win):
+        win._test_no_dialogs = True
+        win.close()
+        return 1
     from . import native_report
     native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs

@@ -1,4 +1,4 @@
-"""First-run network and firewall self-test (Qt-free, standard library only).
+"""First-run network and firewall self-test (Qt-free; the standard library and mlaser's own config).
 
 The MCC100 card is reached over plain UDP (``mlaser.controller.client``: ``socket(AF_INET,
 SOCK_DGRAM)``, no ``bind``, ``sendto CardIP:CardPort``, default 10.1.1.168:502).  What usually
@@ -20,7 +20,8 @@ unless asked:
 
 The card address is read the way the app reads it: ``--ini`` (ipAdd.ini, ``CardIP``/``CardPort``
 via :meth:`mlaser.controller.client.TransportConfig.from_ini`), else ``--host``/``--port``, else
-``<app dir>/File/ipAdd.ini`` when it exists (``$MLASER_APP_DIR`` or ``~/.mlaser``, as
+the configuration's endpoint record (``ip`` in ``config.json``, :mod:`mlaser.services.endpoint`),
+else ``<app dir>/File/ipAdd.ini`` when it exists (``$MLASER_APP_DIR`` or ``~/.mlaser``, as
 :func:`mlaser.controller.machine_ops.default_app_dir`), else the default 10.1.1.168:502.
 
 First run (:func:`first_run`): a marker file in the per-user config directory
@@ -119,6 +120,12 @@ def resolve_card(host: Optional[str] = None, port: Optional[int] = None,
         return (*_from_ini(ini), ini)
     if host or port:
         return host or DEFAULT_HOST, int(port or DEFAULT_PORT), "command line"
+    # the configuration's endpoint record (services/endpoint.py), what the GUI connects to
+    from mlaser.services import endpoint
+    from mlaser.services.config import stored_values
+    tc, src = endpoint.resolve(endpoint.record_of(stored_values()))
+    if src == "configuration":
+        return tc.host, tc.port, src
     default_ini = default_app_dir() / "File" / "ipAdd.ini"
     if default_ini.is_file():
         try:
@@ -300,21 +307,11 @@ def run(host: Optional[str] = None, port: Optional[int] = None, ini: Optional[st
 # ---------------------------------------------------------------------------- first run
 
 def user_config_dir() -> Path:
-    """Per-user config directory: ``$MLASER_CONFIG_DIR``, else platformdirs when installed,
-    else %APPDATA%\\mlaser, ~/Library/Application Support/mlaser or $XDG_CONFIG_HOME/mlaser."""
-    env = os.environ.get("MLASER_CONFIG_DIR")
-    if env:
-        return Path(env)
-    try:
-        import platformdirs
-        return Path(platformdirs.user_config_dir(APP_NAME, appauthor=False))
-    except ImportError:
-        pass
-    if sys.platform.startswith("win"):
-        return Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming")) / APP_NAME
-    if sys.platform == "darwin":
-        return Path.home() / "Library" / "Application Support" / APP_NAME
-    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / APP_NAME
+    """Per-user config directory: the one of ``config.json``
+    (:func:`mlaser.services.config.config_dir`: ``$MLASER_CONFIG_DIR``, else the platform's
+    user config directory from ``platformdirs``, a required dependency)."""
+    from mlaser.services.config import config_dir
+    return config_dir()
 
 
 def marker_path() -> Path:

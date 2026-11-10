@@ -157,7 +157,8 @@ def test_first_run_disabled(cfgdir, monkeypatch):
 
 def test_user_config_dir_fallbacks(monkeypatch, tmp_path):
     monkeypatch.delenv("MLASER_CONFIG_DIR", raising=False)
-    assert N.user_config_dir().name == "mlaser"
+    from mlaser.services.config import config_dir
+    assert N.user_config_dir() == config_dir()          # the folder of config.json (review F1)
     monkeypatch.setenv("MLASER_CONFIG_DIR", str(tmp_path))
     assert N.user_config_dir() == tmp_path
 

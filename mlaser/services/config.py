@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import logging
 import os
 import sys
 import tempfile
@@ -39,9 +40,79 @@ from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Callable, Iterable, Iterator, Optional
 
-from mlaser._atomic import atomic_write_text
+from mlaser._atomic import atomic_write, atomic_write_text
 
 MISSING: Any = object()
+log = logging.getLogger("mlaser.config")
+
+#: the ``config.json`` format this build writes and reads.  A file with a higher number comes
+#: from a newer mlaser: it is refused (kept, never overwritten unasked; the start-up notice),
+#: not loaded with its unknown parts dropped.  A lower one is brought up to date by
+#: :data:`MIGRATIONS` before its values are read.
+CONFIG_VERSION = 1
+
+#: ``{n: fn}``: ``fn(data)`` turns the parsed file of format ``n`` into format ``n + 1`` (a new
+#: dict).  Add one entry with every increase of :data:`CONFIG_VERSION`; a format with no path
+#: up to the current one is refused like a damaged file.
+MIGRATIONS: dict[int, Callable[[dict], dict]] = {}
+
+
+class ConfigLoadError(ValueError):
+    """``config.json`` exists but cannot be used (see :meth:`ConfigService.load`); ``kind``:
+    ``unreadable`` (the read failed), ``damaged`` (not JSON, not UTF-8, or not the expected
+    shape) or ``newer`` (the format of a newer mlaser)."""
+
+    def __init__(self, kind: str, message: str) -> None:
+        super().__init__(message)
+        self.kind = kind
+
+
+class ConfigWriteHeld(OSError):
+    """A write of ``config.json`` refused while a load error is not acknowledged (the file
+    that could not be loaded is never replaced unasked)."""
+
+
+def migrate_config(data: dict, version: int) -> dict:
+    """``data`` of format ``version`` brought to :data:`CONFIG_VERSION` through
+    :data:`MIGRATIONS`; :class:`ConfigLoadError` when there is no path."""
+    while version < CONFIG_VERSION:
+        fn = MIGRATIONS.get(version)
+        if fn is None:
+            raise ConfigLoadError("damaged", f"no migration from configuration format {version}")
+        data = fn(data)
+        version += 1
+    return data
+
+
+def parse_config(raw: bytes) -> tuple[tuple[str, dict], dict]:
+    """``(profile, values)`` of a ``config.json``'s bytes, migrated to the current format;
+    :class:`ConfigLoadError` (``damaged`` / ``newer``) when the file cannot be used.  The
+    values are not validated here (an out-of-range value falls back to its default)."""
+    try:
+        data = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError) as exc:
+        raise ConfigLoadError("damaged", f"{type(exc).__name__}: {exc}") from None
+    if not isinstance(data, dict):
+        raise ConfigLoadError("damaged", f"the file holds a JSON {type(data).__name__}, not an object")
+    version = data.get("version", 1)
+    if isinstance(version, bool) or not isinstance(version, int) or version < 1:
+        raise ConfigLoadError("damaged", f"format version {version!r} is not a positive whole number")
+    if version > CONFIG_VERSION:
+        raise ConfigLoadError("newer", f"format version {version} (this version of mlaser reads up "
+                                       f"to {CONFIG_VERSION})")
+    data = migrate_config(data, version)
+    prof = data.get("profile")
+    prof = {} if prof is None else prof
+    values = data.get("values")
+    values = {} if values is None else values
+    if not isinstance(prof, dict) or not isinstance(values, dict):
+        raise ConfigLoadError("damaged", "\"profile\" and \"values\" must be JSON objects")
+    base = prof.get("base", "bench")
+    overrides = prof.get("overrides")
+    overrides = {} if overrides is None else overrides
+    if base not in ("bench", "params") or not isinstance(overrides, dict):
+        raise ConfigLoadError("damaged", f"unknown machine profile {base!r}")
+    return (str(base), dict(overrides)), values
 
 # registry type -> setting kind
 _KIND = {
@@ -296,6 +367,17 @@ def data_dir() -> Path:
     return Path(platformdirs.user_data_dir("mlaser", appauthor=False))
 
 
+def stored_values(path: Optional[os.PathLike | str] = None) -> dict:
+    """The values of ``config.json`` as stored (no schema, no validation, nothing written): for
+    light readers such as the network self-test.  {} when the file is absent or unusable."""
+    p = Path(path) if path is not None else config_dir() / ConfigService.FILE
+    try:
+        _profile, values = parse_config(p.read_bytes())
+    except (OSError, ConfigLoadError):
+        return {}
+    return values
+
+
 # --------------------------------------------------------------------------- safety I/O
 #: card input numbers are 1-based (``MCStatus.input``: 1..12 RO[4], 13..28 RO[21]); outputs
 #: 1..26 (``set_output``: 1..10 sub 2, 11..26 sub 13).  0 = not wired / off.
@@ -474,6 +556,17 @@ class ConfigService:
         self._write_lock = threading.Lock()  # save(): one writer at a time, never an older state
         self._issued = 0
         self._written = 0
+        #: why ``config.json`` could not be loaded ("" = it loaded, or there was none): the
+        #: settings are then the defaults, the file is not written (:class:`ConfigWriteHeld`)
+        #: until :meth:`acknowledge_load_error` or :meth:`restore_backup`, and the window
+        #: refuses arming until then (``ui/config_notice.py``)
+        self.load_error = ""
+        self.load_error_kind = ""            # unreadable | damaged | newer
+        #: the copy of the file that could not be loaded (``config.json.bad-<time>``), if made
+        self.load_error_evidence: Optional[Path] = None
+        self.load_error_acknowledged = False
+        self._held = False
+        self._held_told = False
         if load:
             self.load()
             self.migrate_legacy()
@@ -571,25 +664,156 @@ class ConfigService:
 
     # ------------------------------------------------------------------ persistence
     def load(self) -> None:
+        """Read ``config.json``.  Absent: a fresh installation (the defaults).  Present but
+        unreadable, not JSON / UTF-8, of the wrong shape or of a newer format: the defaults
+        too, but never silently (architecture review A3): the error is logged, kept in
+        :attr:`load_error`, the file's bytes are copied to ``config.json.bad-<time>`` (the file
+        itself stays where it is, so another mlaser command or the next start sees the same
+        problem), and the file is not written until the operator answered the start-up notice
+        (:meth:`acknowledge_load_error` / :meth:`restore_backup`).  A clean load keeps a copy
+        of the file as ``config.json.bak`` (the backup that notice offers)."""
         try:
-            data = json.loads(self.path.read_text("utf-8"))
-        except (OSError, ValueError):
+            raw = self.path.read_bytes()
+        except FileNotFoundError:
             return
-        prof = data.get("profile") or {}
-        self.profile = MachineProfile(prof.get("base", "bench"), dict(prof.get("overrides", {})))
-        for k, v in (data.get("values") or {}).items():
+        except OSError as exc:
+            self._load_failed(ConfigLoadError("unreadable", f"{type(exc).__name__}: {exc}"), None)
+            return
+        try:
+            (base, overrides), values = parse_config(raw)
+        except ConfigLoadError as exc:
+            self._load_failed(exc, raw)
+            return
+        self._apply_loaded(base, overrides, values)
+        self._keep_backup(raw)
+
+    def _apply_loaded(self, base: str, overrides: dict, values: dict) -> None:
+        self.profile = MachineProfile(base, overrides)
+        dropped = []
+        for k, v in values.items():
             s = self.schema.get(k)
             try:
                 self.values[k] = s.validate(v) if s is not None else v
             except ValueError:
-                continue  # an out-of-range stored value falls back to the default
+                dropped.append(k)    # an out-of-range stored value falls back to the default
+        if dropped:
+            log.warning("configuration %s: %d stored value(s) out of range, using the default: %s",
+                        self.path, len(dropped), ", ".join(sorted(dropped)[:20]))
         self._dirty = False
         self._machine_cache = None
+
+    @property
+    def backup_path(self) -> Path:
+        """``config.json.bak``: the last file that loaded cleanly."""
+        return self.path.with_name(self.path.name + ".bak")
+
+    def _keep_backup(self, raw: bytes) -> None:
+        bak = self.backup_path
+        try:
+            if bak.is_file() and bak.read_bytes() == raw:
+                return
+            atomic_write(bak, raw)
+        except OSError as exc:
+            log.warning("configuration backup %s not written: %s", bak, exc)
+
+    def _evidence_path(self, raw: Optional[bytes]) -> Path:
+        """Where the copy of a file that could not be loaded goes: an existing copy with the
+        same bytes (the same damage seen again), else ``<name>.bad-<time>``."""
+        name = self.path.name
+        if raw is not None:
+            for old in sorted(self.path.parent.glob(f"{name}.bad-*"), reverse=True)[:5]:
+                with contextlib.suppress(OSError):
+                    if old.read_bytes() == raw:
+                        return old
+        import time
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        p, n = self.path.with_name(f"{name}.bad-{stamp}"), 1
+        while p.exists():
+            n += 1
+            p = self.path.with_name(f"{name}.bad-{stamp}-{n}")
+        return p
+
+    def _load_failed(self, exc: ConfigLoadError, raw: Optional[bytes]) -> None:
+        self.load_error, self.load_error_kind = str(exc), exc.kind
+        self.load_error_acknowledged = False
+        self._held = True
+        if raw is not None:
+            ev = self._evidence_path(raw)
+            try:
+                if not ev.exists():
+                    atomic_write(ev, raw)
+                self.load_error_evidence = ev
+            except OSError as e2:
+                log.error("configuration: the copy %s could not be written: %s", ev, e2)
+        log.error("configuration %s could not be loaded (%s: %s); copy: %s.  mlaser runs on the default "
+                  "settings and does not write the file until the start-up notice is answered; arming "
+                  "is refused until then", self.path, exc.kind, exc,
+                  self.load_error_evidence or "none (the file itself was left in place)")
+
+    @property
+    def load_blocked(self) -> bool:
+        """A load error the operator has not answered yet (no writes, no arming)."""
+        return bool(self.load_error) and not self.load_error_acknowledged
+
+    def backup_usable(self) -> bool:
+        """Is there a ``config.json.bak`` that loads cleanly (the notice offers to restore it)?"""
+        try:
+            parse_config(self.backup_path.read_bytes())
+        except (OSError, ConfigLoadError):
+            return False
+        return True
+
+    def acknowledge_load_error(self) -> bool:
+        """The operator continues with the default settings (the start-up notice): the file is
+        written again from now on.  A file that could not be read (so no copy exists) is first
+        moved aside to ``config.json.bad-<time>``; when that fails too, writes stay held for
+        this session (the file may be intact) and False is returned.  Either way the error
+        counts as acknowledged (:attr:`load_blocked` is False)."""
+        if not self.load_error or (self.load_error_acknowledged and not self._held):
+            return True
+        self.load_error_acknowledged = True
+        if self.load_error_evidence is None and self.path.exists():
+            ev = self._evidence_path(None)
+            try:
+                os.replace(self.path, ev)
+            except OSError as exc:
+                log.error("configuration %s could not be moved aside (%s): it is not written in this "
+                          "session", self.path, exc)
+                return False
+            self.load_error_evidence = ev
+        self._held = False
+        log.warning("configuration load error acknowledged by the operator: continuing with the default "
+                    "settings (the unusable file is kept as %s)", self.load_error_evidence)
+        return True
+
+    def restore_backup(self) -> bool:
+        """Load ``config.json.bak`` (the last file that loaded cleanly) in place of the file
+        that could not be loaded, write it as ``config.json`` and tell the listeners (``"*"``).
+        False (nothing changed) when the backup is missing or unusable."""
+        try:
+            raw = self.backup_path.read_bytes()
+            (base, overrides), values = parse_config(raw)
+        except (OSError, ConfigLoadError) as exc:
+            log.error("configuration backup %s could not be restored: %s", self.backup_path, exc)
+            return False
+        self.values = {}
+        self._apply_loaded(base, overrides, values)
+        self.migrate_legacy()
+        self._held = False
+        self.load_error_acknowledged = True
+        log.warning("configuration restored from %s (the unusable file is kept as %s)",  # i18n: ok (log)
+                    self.backup_path, self.load_error_evidence)
+        self._changed("*")
+        try:
+            self.save()
+        except OSError as exc:
+            log.error("configuration %s not written after the restore: %s", self.path, exc)
+        return True
 
     def _snapshot(self) -> tuple[int, str]:
         vals = {k: v for k, v in self.values.items() if _jsonable(v)}
         data = {
-            "version": 1,
+            "version": CONFIG_VERSION,
             "profile": {"base": self.profile.base, "overrides": self.profile.overrides},
             "values": vals,
         }
@@ -598,6 +822,9 @@ class ConfigService:
 
     def _write(self, p: Path, ticket: int, text: str) -> None:
         with self._write_lock:
+            if p == self.path and self._held:
+                raise ConfigWriteHeld(f"{p} is not written: it could not be loaded ({self.load_error}) and "
+                                      "the start-up notice has not been answered")
             if p == self.path and ticket < self._written:
                 return                       # a newer state is on disk already
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -619,6 +846,11 @@ class ConfigService:
         close for 0.1-0.8 s); a later save never loses to it, and the interpreter waits for
         the write before it exits."""
         if not self._dirty:
+            return
+        if self._held:
+            if not self._held_told:
+                self._held_told = True
+                log.warning("configuration %s not written: the load error is not acknowledged", self.path)
             return
         if not background:
             try:
@@ -743,9 +975,16 @@ class ConfigService:
                 if pc:
                     m.process = replace(m.process, **pc)
                 m.params = {k: v for k, v in cur.params.items() if k in changed}
+        proc = {}
         for k, v in self.profile.overrides.items():
-            if hasattr(m, k):
+            if k.startswith("process."):     # a ProcessConfig field (ipAdd.ini timeouts, DAMinVal)
+                name = k.split(".", 1)[1]
+                if name in {f.name for f in fields(m.process)}:
+                    proc[name] = v
+            elif hasattr(m, k):
                 setattr(m, k, v)
+        if proc:
+            m.process = replace(m.process, **proc)
         self._machine_cache = m
         return m
 

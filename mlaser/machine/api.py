@@ -213,6 +213,9 @@ class ControllerFacade(ABC):
         self.fsm = SafetyFSM(self._on_safety_change)
         self._gen = 0                        # start generation (Stop, halt, fault, disarm, connect)
         self._gen_lock = threading.Lock()
+        #: reasons the host refuses arming outright (``set_arm_hold``), e.g. a configuration
+        #: that could not be loaded and is not acknowledged yet
+        self._arm_holds: dict[str, str] = {}
 
     # -- events ------------------------------------------------------------
     def add_log_listener(self, fn: Callable[[str], None], detail: bool = False) -> None:
@@ -271,6 +274,20 @@ class ControllerFacade(ABC):
     def _sync_dry_run(self) -> None:
         if not self.laser_enabled:
             self.fsm.dry_run = True              # one way: the FSM never lifts it
+
+    # -- arm holds ------------------------------------------------------------
+    def set_arm_hold(self, key: str, reason: Optional[str]) -> None:
+        """Refuse arming while ``reason`` is set (None lifts the hold ``key``).  The host's
+        own refusals (a configuration that could not be loaded, architecture review A3); only
+        ever adds a refusal, never lifts another check.  Not on the plugin view."""
+        holds = self.__dict__.setdefault("_arm_holds", {})
+        if reason:
+            holds[key] = str(reason)
+        else:
+            holds.pop(key, None)
+
+    def arm_holds(self) -> dict[str, str]:
+        return dict(self.__dict__.get("_arm_holds", {}))
 
     # -- plugin policy (docs/SAFETY.md §3a) ----------------------------------
     def set_plugin_policy(self, fn: Optional[Callable[[str, str, str], Optional[str]]]) -> None:
@@ -357,7 +374,8 @@ class ControllerFacade(ABC):
         if self.plugin_policy_check(source, "arm", reason):
             return False
         self._sync_dry_run()
-        why = self.fsm.arm()
+        holds = self.arm_holds()
+        why = ("arming refused: " + "; ".join(holds.values())) if holds else self.fsm.arm()
         audit("arm", logging.WARNING, source=source, reason=reason[:120] or None, refused=why)
         if why:
             self._log(why, logging.WARNING)

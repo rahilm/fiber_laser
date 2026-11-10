@@ -54,7 +54,14 @@ class ProcessExtension:
         self.ctx = ctx
         t = ctx.tr.tr
         self.settings = ctx.settings_schema(SETTINGS)
-        self.store = TechnologyStore(profile=str(self.settings["machine_profile"] or "default"))
+        try:
+            self.store = TechnologyStore(profile=str(self.settings["machine_profile"] or "default"))
+        except Exception as exc:  # noqa: BLE001 - an optional data file never removes the workspace
+            self.store = TechnologyStore(":memory:")          # this session only
+            ctx.log(ctx.tr.format("process.log.store_unavailable", error=f"{type(exc).__name__}: {exc}"))
+        if self.store.load_error:             # a damaged database moved aside, an empty one opened (A9)
+            ctx.log(ctx.tr.format("process.log.store_damaged", error=self.store.load_error,
+                                  path=f"{self.store.path}.bad"))
         win = ctx.window
         self.canvas = win.canvas
         self.plan: Any = None

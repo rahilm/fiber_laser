@@ -513,6 +513,39 @@
   "cmd.xform.rotate": "Rotate",
   "cmd.xform.scale_dialog": "Scale",
   "cmd.xform.size": "Size",
+  "config.notice.title": "Settings not loaded",
+  "config.notice.heading.damaged": "The settings file is damaged",
+  "config.notice.heading.unreadable": "The settings file could not be read",
+  "config.notice.heading.newer": "The settings file is from a newer version of mlaser",
+  "config.notice.explanation": "mlaser has started with the default settings: the step scale, the safety inputs, the heartbeat output and every other machine setting are the defaults, not this machine's. Arming is refused and the settings file is not changed until you choose how to continue.",
+  "config.notice.file": "Settings file: {path}",
+  "config.notice.problem": "Problem: {error}",
+  "config.notice.copy": "A copy of the file was kept as: {path}",
+  "config.notice.backup": "The last settings that loaded without error are in: {path}",
+  "config.notice.no_backup": "There is no copy of earlier settings to restore. Restore the file from your own backup and start mlaser again, or continue with the default settings and commission the machine again.",
+  "config.notice.restore": "Restore last good settings",
+  "config.notice.defaults": "Continue with default settings",
+  "config.notice.quit": "Quit mlaser",
+  "config.notice.arm_hold": "the settings file could not be loaded and the start-up notice has not been answered",
+  "config.notice.log": "Settings not loaded ({error}): running on the default settings, arming refused until the notice is answered",
+  "config.notice.log_restored": "Settings restored from {path}",
+  "config.notice.log_defaults": "Continuing with the default settings: commission the machine again before cutting (Machine > Safety I/O, machine parameters)",
+  "machine.log.history_damaged": "Alarm history: {error} (the file was kept as {path})",
+  "process.log.store_damaged": "Technology database could not be opened ({error}): it was kept as {path} and an empty database is used",
+  "process.log.store_unavailable": "Technology database unavailable ({error}): an empty database is used for this session and nothing is saved",
+  "main.log.extension_failed": "Built-in part {name} did not load ({error}): its commands and workspace are missing. The log file has the details.",
+  "wizard.import.ip.port": "Motion card port",
+  "wizard.import.ip.transport": "Motion card link (UDP or TCP)",
+  "wizard.import.ip.timeout_ms": "Reply timeout (ms)",
+  "wizard.import.ip.fifo_time_ms": "FIFO send window (ms)",
+  "wizard.import.ip.max_recv": "Receive attempts",
+  "wizard.import.ip.send_interval_ms": "Send interval (ms)",
+  "wizard.import.ip.fifo_timeout_ms": "FIFO reply timeout (ms)",
+  "wizard.import.ip.connect_wait_ms": "Connect wait (ms)",
+  "wizard.import.ip.follow_timeout_ms": "Follower timeout (ms)",
+  "wizard.import.ip.drill_timeout_ms": "Pierce timeout (ms)",
+  "wizard.import.ip.gradual_add_timeout_ms": "Stepped pierce timeout (ms)",
+  "wizard.import.ip.da_min": "Lowest analogue output value",
   "cost.hint": "From the planned job that Start runs. Lines marked ≈ are estimates, not measurements.",
   "cost.kind.estimate": "estimate",
   "cost.kind.measured": "from the planned job",
@@ -5077,6 +5110,39 @@
   "update.open_page": "Open release page"
  },
  "args": {
+  "machine.log.history_damaged": [
+   "error",
+   "path"
+  ],
+  "process.log.store_damaged": [
+   "error",
+   "path"
+  ],
+  "process.log.store_unavailable": [
+   "error"
+  ],
+  "main.log.extension_failed": [
+   "name",
+   "error"
+  ],
+  "config.notice.file": [
+   "path"
+  ],
+  "config.notice.problem": [
+   "error"
+  ],
+  "config.notice.copy": [
+   "path"
+  ],
+  "config.notice.backup": [
+   "path"
+  ],
+  "config.notice.log": [
+   "error"
+  ],
+  "config.notice.log_restored": [
+   "path"
+  ],
   "a11y.alarm.spoken": [
    "title",
    "remedy"
