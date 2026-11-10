@@ -113,8 +113,20 @@ arrays, identical to `build_fifo_frames` (hypothesis test plus the goldens, whic
 | hand-off to a child | pickle 150 ms, 18.8 MB | shared memory 35 ms (0.8 MB pickled metadata, 11.3 MB block) |
 | compile time | 3.8–3.9 s | 4.0 s (+4 %) |
 
-The streamer integration (shared memory to the supervised child) is a merge note: the
-streamer belongs to the Safety track.
+The streamer keeps the wire packed (perf review 2026-11-09, finding 1): `WireJob.of` takes the
+`PackedWire` as it is, the per-item byte and time tables are numpy (`wire_timing`), the frames
+are built one at a time when they are sent (`stream.PackedFrames`, boundaries from
+`PackedWire.frame_bounds`), `Job.summary()` counts frames without building them, and
+`preflight.job_extent_mm` works on the runs. The streaming child receives the wire through
+shared memory (`WireJob.share` / `attach`), not a pickle. Host work on Start, single thread
+(`stream_prep.py` of the review):
+
+| step | 300 parts (1.49 M steps), before / after | 1,000 parts (4.98 M steps), before / after |
+|---|---|---|
+| `job.summary()` | 311 / 41 ms | 1,053 / 145 ms |
+| `preflight.job_extent_mm` | 823 / 22 ms | 3,651 / 69 ms |
+| `WireJob.of` + `JobStreamer.prepare` | 9,000 ms, +684 MB / 53 ms, +77 MB | 27,551 ms, +2.1 GB / 205 ms, +138 MB |
+| hand-off to the child (parent + child) | pickle 291 + 444 ms, 33 MB, child +318 MB / shared block 31 + 8 ms | 979 + 1,348 ms, 109 MB, child +1.1 GB / 77 + 19 ms |
 
 ## 5. Native kernel (P2-2): the default
 

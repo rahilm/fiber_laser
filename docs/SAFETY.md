@@ -306,6 +306,13 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
   holds nothing of the job before the child has spoken. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
+* The job's packed wire reaches the child through a shared-memory block (`WireJob.share`), which
+  the parent frees once the child has introduced itself and in its `finally` on every other exit
+  (a dead child included); after a crash of the parent, multiprocessing's resource tracker
+  (POSIX) or the OS (Windows) frees it. The child copies the wire out before it opens any
+  socket; when the block is missing it says so in its hello and the parent faults the job
+  (`StreamFault("handoff")`): nothing is streamed. The parent-death watch, the heartbeat and the
+  child's own halt do not use the block.
 * The parent's heartbeat counter is bumped every 20 ms by a thread of its own
   (`ProcessStreamer._heartbeat`), not by the relay loop that unpickles and dispatches the
   status messages; it is bumped only while the relay loop has run within the same 0.3 s, so it
