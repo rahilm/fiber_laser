@@ -262,6 +262,7 @@ class MainWindow(QMainWindow):
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
+        self.failed_extensions: dict = {}   # name -> error of a built-in / plugin whose register failed
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
@@ -395,6 +396,7 @@ class MainWindow(QMainWindow):
     def _register(self, info) -> bool:
         ctx, result = register_plugin(self, info)
         if ctx is None:
+            self.failed_extensions[info.name] = result     # safety_ui: required start guards
             return False
         self.plugin_contexts[info.name] = ctx
         self.extensions[info.name] = result
@@ -1825,7 +1827,7 @@ class MainWindow(QMainWindow):
            "jog_down": "mp16", "estop": "mp17"}
 
     def _poll(self) -> None:
-        st = self.ctl.state()
+        st = self.ctl.snapshot()       # one consistent set of fields (the poll thread writes them)
         if self.idle_pause.hidden and st.mode not in _JOB_MODES and self._last_mode not in _JOB_MODES:
             self.idle_pause.check(self._timer)       # minimised and no job (any more): pause
             if not self._timer.isActive():

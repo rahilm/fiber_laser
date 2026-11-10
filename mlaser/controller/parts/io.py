@@ -254,7 +254,8 @@ class IOPart:
         if name == "follow":
             # [118, 4, on, value] follower on/off via the MC (FUN_10041740, INFERRED)
             self._safe("follow", self._mc.command, [F.OP_FOLLOW, 4, int(bool(on)), 0])
-            self._s.outputs["follow"] = bool(on)
+            with self._slock:
+                self._s.outputs["follow"] = bool(on)
             self._log("mp41: follower command sent ([118,4,...], INFERRED)")
             return
         n = self.output_map.get(name)
@@ -265,20 +266,23 @@ class IOPart:
             return
         if not self._try(f"output {name}", self._mc.set_output, int(n), bool(on)):
             return
-        self._s.outputs[name] = bool(on)
+        with self._slock:
+            self._s.outputs[name] = bool(on)
         if name == "shutter":
             self._gate_open = bool(on)       # FUN_10035530 needs the gate flag +0x4a51
         self._log(f"output {name} (DO{n}) = {'on' if on else 'off'}")
 
     def set_gas_type(self, gas_type: int) -> None:
-        self._s.gas_type = gas_type
+        with self._slock:
+            self._s.gas_type = gas_type
         self._log(f"gas type {gas_type}: the valve is switched by the job's process items")
 
     @card_command("laser power")
     def set_laser_power(self, pct: float) -> None:
         """Panel laser power (mp53): DA channel 1.  Sent while armed; otherwise kept and sent on
         arming (a DA value is an emission-class command)."""
-        self._s.laser_power_pct = pct
+        with self._slock:
+            self._s.laser_power_pct = pct
         if self._mc is not None and self._s.connected and self.fsm.armed:
             self._safe("laser power", self._mc.set_da, 1, int(round(pct * 100)))
             self._power_dirty = False
