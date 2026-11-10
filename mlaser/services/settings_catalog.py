@@ -195,6 +195,26 @@ LINKS: tuple[tuple[str, str, str], ...] = (
 )
 
 
+#: the words an operator types for a setting whose name is the original's (UX review 2026-11-09
+#: finding 14: "travel" found nothing, the travel limit is "Maximum stroke"): key -> i18n key of
+#: the extra search words (translated with the rest of the catalogue)
+SEARCH_TERMS: dict[str, str] = {
+    "MAC.SoftLimitMaxLen": "settings.search.travel_limit",
+    "MAC_1.SoftLimitMaxLen": "settings.search.travel_limit",
+    "MC.JogFastSpeed": "settings.search.jog_speed",
+    "MC.JogSlowSpeed": "settings.search.jog_speed",
+    "MC.StepLength": "settings.search.jog_step",
+}
+
+
+def query_matches(query: str, *texts: str) -> bool:
+    """Every word of ``query`` occurs in ``texts`` (any order, case-insensitive): "jog speed"
+    finds "Jog fast speed", "travel limit" finds the stroke through its search words."""
+    words = query.lower().split()
+    hay = " ".join(t.lower() for t in texts if t)
+    return all(w in hay for w in words)
+
+
 def entries_for(page: str) -> list[Entry]:
     return [e for e in ENTRIES if e.page == page]
 
