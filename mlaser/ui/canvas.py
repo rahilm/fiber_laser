@@ -30,7 +30,7 @@ from typing import Optional
 
 from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRectF, Qt, QTimer, Signal
 from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap,
-                           QRegion, QTransform)
+                           QRegion, QResizeEvent, QTransform)
 from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
                                QGraphicsSimpleTextItem, QGraphicsView, QStyle,
@@ -1110,7 +1110,11 @@ class CanvasView(QGraphicsView):
         sv.setRenderHints(self.renderHints())
         sv.setBackgroundBrush(self.backgroundBrush())
         if sv.size() != vp.size():
+            old = sv.size()
             sv.resize(vp.size())
+            # a hidden widget gets its resize event when it is shown, which this one never is:
+            # deliver it now (the scroll area places its viewport, the view its scroll range)
+            QCoreApplication.sendEvent(sv, QResizeEvent(vp.size(), old))
         if sv.viewport().size() != vp.size():
             return None
         sv.setTransform(self.transform())

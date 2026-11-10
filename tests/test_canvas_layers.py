@@ -140,7 +140,12 @@ def _views(v):
         v.zoom_fit()
         v.zoom(1.3)
         v.centerOn(45.0, 40.0)
-    return [("fit", fit), ("zoom_in", zoom_in), ("zoom_out_pan", zoom_out_pan), ("grid", grid)]
+    def resized():
+        v.options.show_grid = False
+        v.resize(v.width() - 37, v.height() - 21)
+        v.zoom_fit()
+    return [("fit", fit), ("zoom_in", zoom_in), ("zoom_out_pan", zoom_out_pan), ("grid", grid),
+            ("resized", resized)]
 
 
 def compare_all(v) -> dict:
@@ -295,3 +300,37 @@ def test_track_chunks_draw_what_one_path_drew():
         app.processEvents()
     finally:
         _close(v)
+
+
+def test_the_main_window_canvas_paints_from_its_picture():
+    """In the main window (the canvas in a splitter, the window resized, another workspace and
+    back) a head move is drawn from the cached picture, not by a whole repaint."""
+    from mlaser.ops import demo_document
+    from wiring import dispose, real_window
+    app = _app()
+    w = real_window()
+    try:
+        w.resize(1300, 820)
+        w.show()
+        w.set_document(demo_document())
+        for size in ((1280, 800), (1350, 860)):
+            w.resize(*size)
+            for _ in range(5):
+                app.processEvents()
+        w.shell.host.activate("process")
+        for _ in range(5):
+            app.processEvents()
+        w.shell.host.activate("design")
+        for _ in range(5):
+            app.processEvents()
+        cv = w.canvas
+        cv.viewport().repaint()
+        before = dict(cv.paint_stats)
+        for k in range(4):
+            cv.set_head_position(5.0 + k, 5.0)
+            app.processEvents()
+            cv.viewport().repaint()
+        assert cv.paint_stats["cached"] >= before["cached"] + 4, cv.paint_stats
+        assert cv.paint_stats["full"] == before["full"], cv.paint_stats
+    finally:
+        dispose(w)
