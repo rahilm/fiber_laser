@@ -215,25 +215,35 @@ def test_cached_paint_is_pixel_identical_at_device_pixel_ratio_2(tmp_path):
 
 def test_a_head_move_draws_from_the_cached_picture():
     """A head move, a track point and a preview change repaint only the live items: the static
-    picture is not painted again; a change of the drawing or of the view paints it again."""
+    picture is not painted again.  A change of the drawing or of the view is painted whole (a
+    zoom or an edit costs what it did), and the picture is made again at the next live-only
+    frame."""
     app = _app()
     v = make_canvas()
-    try:
+
+    def frame():
+        app.processEvents()
         v.viewport().repaint()
-        made = v.paint_stats["static"]
+    try:
+        frame()
+        frame()
+        made, full = v.paint_stats["static"], v.paint_stats["full"]
         for k in range(5):
             v.set_head_position(10.0 + k, 12.0)
             v.add_track_point(10.0 + k, 12.0, True)
             v.set_preview(polylines=[[(0, 0), (k, k)]])
-            app.processEvents()
-            v.viewport().repaint()
-        assert v.paint_stats["static"] == made
-        v.select_parts([0])                      # a scene item's pen
-        v.viewport().repaint()
-        assert v.paint_stats["static"] == made + 1
-        v.zoom(1.25)                             # the view
-        v.viewport().repaint()
-        assert v.paint_stats["static"] == made + 2
+            frame()
+        assert (v.paint_stats["static"], v.paint_stats["full"]) == (made, full)
+        for change in (lambda: v.select_parts([0]), lambda: v.zoom(1.25)):   # an item, the view
+            change()
+            v.viewport().repaint()               # painted whole, no picture made
+            assert (v.paint_stats["static"], v.paint_stats["full"]) == (made, full + 1)
+            v.set_head_position(3.0, 4.0)
+            frame()                              # a live-only frame: the picture again
+            v.set_head_position(4.0, 4.0)
+            frame()
+            assert v.paint_stats["static"] == made + 1
+            made, full = v.paint_stats["static"], v.paint_stats["full"]
     finally:
         _close(v)
 
