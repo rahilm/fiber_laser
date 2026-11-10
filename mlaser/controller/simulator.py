@@ -595,14 +595,9 @@ class CardSimulator:
             if v == F.FIFO_CLEAR and self.pessimistic and st.fifo_running and st.lag_left_s > 0.0:
                 st.clear_after_lag = True     # the card is still decelerating through its buffer
             elif v == F.FIFO_CLEAR:
-                st.fifo.clear()
-                st.fifo_bytes = 0
                 st.fifo_running = False
-                st.program_active = False
                 self._finish_step()
-                st.marks = st.steps_since_mark = 0
-                st.min_fifo_bytes = None
-                st.hold_left_s, st.wait = 0.0, None
+                self._clear_fifo()
             elif v == F.FIFO_START:
                 if self._motion_blocked() and not self.accept_start_in_alarm:
                     return                    # an alarm is latched: the start is ignored
@@ -629,6 +624,16 @@ class CardSimulator:
                 st.params[addr + k * i] = v
             return
         raise KeyError(addr)
+
+    def _clear_fifo(self) -> None:
+        """103 := 1 once the card is stopped: empty FIFO, no program (processing status 0)."""
+        st = self.state
+        st.fifo.clear()
+        st.fifo_bytes = 0
+        st.program_active = False
+        st.marks = st.steps_since_mark = 0
+        st.min_fifo_bytes = None
+        st.hold_left_s, st.wait = 0.0, None
 
     # ------------------------------------------------------------------ commands
     def _sys(self, sub: int, p: list[int], immediate: bool = False) -> None:
@@ -950,8 +955,7 @@ class CardSimulator:
                     self._halt_fifo(immediate=True)
                     if st.clear_after_lag:
                         st.clear_after_lag = False
-                        st.fifo.clear()
-                        st.fifo_bytes = 0
+                        self._clear_fifo()      # the same clear as at once (the job ends too)
             else:
                 self._run_fifo(dt)
         if st.zf_edge is not None and self.sheet is not None:
