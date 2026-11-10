@@ -107,6 +107,7 @@ markers = [
     "parity: compares with the original under Wine (tests/parity/, excluded by default)",
     "golden: frozen artefacts from tools/make_goldens.py (tests/golden/)",
     "safety: safety-behaviour tests (tests/safety/)",
+    "timing: asserts a real-time bound in an otherwise untimed module: runs in a timing xdist group (tests/conftest.py)",
 ]
 
 [dependency-groups]

@@ -19,8 +19,8 @@ os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mlaser.model import Contour, Craft, Document, Line, Part  # noqa: E402
 
-# Qt widgets; the GUI-latency bound runs with the timing tests (one worker, no neighbours)
-pytestmark = [pytest.mark.ui, pytest.mark.sim]
+# Qt widgets; the two GUI-latency bounds (``timing``) run in a timing group (tests/conftest.py)
+pytestmark = pytest.mark.ui
 
 
 @pytest.fixture(scope="module")
@@ -388,6 +388,7 @@ def _settle(qapp, quiet_s: float = 1.0, timeout_s: float = 60.0) -> None:
             return
 
 
+@pytest.mark.timing
 def test_autosave_does_not_block_the_gui_thread(qapp):
     file_dir = _app_file_dir()
     w = _big_window(qapp)
@@ -416,6 +417,7 @@ def test_autosave_does_not_block_the_gui_thread(qapp):
     w.close()
 
 
+@pytest.mark.timing
 def test_save_mlz_does_not_block_the_gui_thread(qapp, tmp_path):
     from mlaser.project import load_project
     from PySide6.QtCore import QTimer
