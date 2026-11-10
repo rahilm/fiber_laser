@@ -53,9 +53,15 @@ taken at the fault is kept, so after arming you can **Resume**.
 
 ## Keys while a job runs
 
-* **Space**: hold / continue (not while typing in a text field).
+* **Space**: hold (not while typing in a text field). Space never continues: a second press
+  keeps the machine held. Continue with **Start / Continue** on the Run workspace (the button,
+  or F5 there).
 * **Esc** or **F12**: stop. Stop never waits; the halt goes out first. Esc stops the job in any
   window; in a dialog it also cancels the dialog, as usual.
+* **F5 / F6 / Shift+F6** (Start, Frame, Dry run) act only on the Run workspace and never while
+  you type in a field. Pressed on another workspace they show the Run workspace and put the
+  focus on the button, without starting anything. Space and Enter never press Start, Frame,
+  Dry run or Resume: click the button or use its key.
 * Jogging is hold-to-jog: releasing the key or button, or losing focus, stops the axis.
 
 ## What software cannot do

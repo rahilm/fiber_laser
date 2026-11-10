@@ -1601,12 +1601,14 @@ class SafetyUI(QObject):
         self._after(_tr(self.w, "safety.refused.start_disarmed_title", "Start refused, laser disarmed"))
 
     def hold(self) -> None:
+        """Hold only (Space, the Hold button): never continues.  A held job continues with
+        Start / Continue (the button, or F5 on the Run workspace): a second, nervous press of
+        the Hold key keeps the machine held (deep review 2026-11, UX 8)."""
         ctl = self.w.ctl
         if ctl.state().mode == "pause":
-            from .resume import resume
-            resume(ctl, "exact", self.w.document)
-        else:
-            ctl.pause()
+            self.w.statusBar().showMessage(_tr(self.w, "run.why.held", "Held: Start continues the job"), 6000)
+            return
+        ctl.pause()
 
     def stop(self) -> None:
         self.w.ctl.stop()          # asynchronous: the halt goes out first, the UI never blocks

@@ -350,8 +350,14 @@ long jobs on slow hosts.
   `jog_stop` is idempotent: a jog already stopped (by the dead-man, a Stop, a halt) sends no
   second stop sequence, so the wire matches the original's single stop.
 * Stop never blocks the caller: it flags the cancel, a background thread sends the halt first,
-  then waits for the worker. Global keys while a job runs: Space = Hold/continue (not while typing
-  in a text field), Esc and F12 = Stop.
+  then waits for the worker. Global keys while a job runs: Space = Hold only, never continue (not
+  while typing in a text field), Esc and F12 = Stop.  A held job continues only by Start /
+  Continue (the button, or F5 on the Run workspace).  The motion-starting keys (F5 Start, F6
+  Frame, Shift+F6 Dry run) act only while the Run workspace is showing and no text field has the
+  focus; elsewhere they switch to the Run workspace and focus the button without starting
+  anything; they never auto-repeat, and Space / Enter never press a focused Start, Frame, Dry run
+  or Resume button (`mlaser/ui/shell/motion_keys.py`).  Stop is not gated: F12 and Esc stop from
+  every workspace and from text fields.
 * Esc = Stop applies in every window, dialogs included (decision of the UI evaluation, F10: the
   platform guides say Esc only cancels a dialog, but an operator reaching for Esc in a hurry must
   stop the machine wherever the focus is). In a dialog the key then goes on to the dialog too, so

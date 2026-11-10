@@ -39,7 +39,10 @@ the X/Y/Z position (mm).
 All targets are at least 56 px high (44 px for the secondary ones), for gloves and touch screens.
 
 * **STOP** (Esc, F12): stops at once; the halt goes out first.
-* **HOLD / START (CONTINUE)** (Space / F5): hold and continue; START runs the pre-flight check.
+* **HOLD** (Space): holds the job. Space only holds: pressing it again does not continue.
+* **START / CONTINUE** (F5 on this workspace): starts, or continues a held job; START runs the
+  pre-flight check. F5, F6 (Frame) and Shift+F6 (Dry run) act only on the Run workspace and not
+  while you type in a field; on another workspace they bring you here and focus the button.
 * **Frame**, **Dry run**: laser off.
 * **Arm laser / Disarm laser**: asks for confirmation before arming.
 * **Resume from the breakpoint: Here / Contour start**: after a pause or a fault reset, continue
