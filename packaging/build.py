@@ -36,6 +36,9 @@ sys.path.insert(0, str(HERE))
 import bundle_config as cfg      # noqa: E402
 import gen_licenses              # noqa: E402
 
+sys.path.insert(0, str(ROOT / "tools"))
+import help_build                # noqa: E402  (the build identity, mlaser/_build_info.py)
+
 APP = "mlaser"
 
 
@@ -64,8 +67,17 @@ def run_pyinstaller(dist: Path, work: Path, clean: bool) -> None:
            "--distpath", str(dist), "--workpath", str(work), str(HERE / "mlaser.spec")]
     if clean:
         cmd.insert(3, "--clean")
+    # the build identity (commit) the frozen app reports (mlaser._buildid): generated into the
+    # source tree for PyInstaller to collect, removed again unless it was there before
+    info = ROOT / "mlaser" / "_build_info.py"
+    had = info.exists()
+    print("build identity:", help_build.write_build_info(str(info), str(ROOT), keep_existing=True) or "kept")
     print("+", " ".join(cmd), flush=True)
-    subprocess.run(cmd, check=True, cwd=ROOT)
+    try:
+        subprocess.run(cmd, check=True, cwd=ROOT)
+    finally:
+        if not had:
+            info.unlink(missing_ok=True)
 
 
 def tree_size(p: Path) -> int:
@@ -261,7 +273,9 @@ def main(argv: Optional[list[str]] = None) -> int:
     problems = lgpl_check(lay)
     for p in problems:
         print("LGPL CHECK:", p, file=sys.stderr)
+    ident = help_build.git_identity(str(ROOT))
     info = {"version": cfg.version(ROOT), "python": platform.python_version(), "os": os_tag(),
+            "commit": ident[0] if ident else "unknown", "dirty": bool(ident and ident[1]),
             "build_seconds": round(build_s, 1), "distributions": names,
             "size": size_report(lay), "lgpl_problems": problems}
     total = info["size"]["total_bytes"]

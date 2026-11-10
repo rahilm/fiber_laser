@@ -96,7 +96,38 @@ def setup_logging(directory: Optional[os.PathLike] = None, level: int = logging.
     except (OSError, ValueError, RuntimeError):
         pass
     logging.getLogger("mlaser").info("logging to %s", d)
+    _session_header()
     return d
+
+
+def session_header() -> dict:
+    """The version block written at the start of every session (log line and ``session`` audit
+    event): build identity, Python, PySide6, OS, CPU architecture."""
+    import platform
+    from importlib import metadata
+
+    from mlaser._buildid import build_identity
+    ident = build_identity()
+    try:
+        pyside = metadata.version("PySide6")       # metadata only: this layer imports no Qt
+    except metadata.PackageNotFoundError:
+        pyside = ""
+    return {"version": ident.version, "commit": ident.commit, "dirty": ident.dirty,
+            "python": platform.python_version(), "pyside6": pyside,
+            "os": platform.platform(), "machine": platform.machine(), "pid": os.getpid()}
+
+
+def _session_header() -> None:
+    try:
+        h = session_header()
+    except Exception as e:  # noqa: BLE001 - informative only; logging must come up regardless
+        logging.getLogger("mlaser").warning("session header unavailable: %s", e)
+        return
+    logging.getLogger("mlaser").info(
+        "mlaser %s (commit %s%s), Python %s, PySide6 %s, %s (%s), pid %d", h["version"], h["commit"],
+        ", modified" if h["dirty"] else "", h["python"], h["pyside6"] or "-", h["os"], h["machine"], h["pid"])
+    from .audit import audit
+    audit("session", **h)
 
 
 def crash_file():

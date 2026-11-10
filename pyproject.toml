@@ -61,6 +61,7 @@ include = ["mlaser*"]
 
 [tool.setuptools.cmdclass]
 build_py = "tools.help_build.BuildPy"
+sdist = "tools.help_build.Sdist"   # writes mlaser/_build_info.py (the commit) into the sdist
 # setup.py adds the optional C extension mlaser._native._emitter (compiler flags there)
 
 [tool.uv]
