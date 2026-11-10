@@ -103,6 +103,7 @@ def test_start_while_disarmed_with_estop_never_arms(sim_win, app, dialogs):
     _estop(app, ctl, True)
     w._test_no_dialogs = False
     w.safety_ui.start()
+    assert w.safety_ui.wait_preflight(30)        # the pre-flight runs off the GUI thread
     _pump(app, 0.3)
     assert not _armed(ctl)
     assert not [d for d in dialogs if d["kind"] == "box"], "no arming question when the check refuses"

@@ -59,6 +59,12 @@ the card reports an alarm.
   the default, warning icon). When the start is then refused for any reason (compile error, the
   start gate, the controller's own pre-flight, a Stop meanwhile) the machine is disarmed again
   and the operator told: a refused start never leaves the machine armed.
+  The check before the question is the controller's own check of the planned job (its exact
+  extent with leads and kerf, not the drawing's box: a part at the sheet edge is refused before
+  the question, with *Show in Design*), and it runs off the GUI thread for Start and Dry run:
+  the window and its Stop stay live meanwhile, and a Stop or a halt while it runs drops the
+  start (no question, nothing armed). A Stop while the job worker still prepares the job leaves
+  it without any further card command: the Stop's own halt is the last thing the card receives.
 * **Reset alarm** (one name and one path for the banner, the Run screen, the dock and the menu,
   UX audit C2/W5) sends `[9999, 5, 0, 0]`, reads the card status again and clears only the alarms
   the card no longer reports. An alarm whose cause persists (e-stop still pressed) stays active

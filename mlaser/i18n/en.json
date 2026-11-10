@@ -3604,6 +3604,7 @@
   "safety.preflight.errors.other": "{n} problems block this action.",
   "safety.preflight.extent": "job extent X {x0}..{x1}  Y {y0}..{y1} {unit}",
   "safety.preflight.fix.home": "Home axes",
+  "safety.preflight.fix.show_design": "Show in Design",
   "safety.preflight.fix.technology": "Choose technology…",
   "safety.preflight.info_only": "For your information:",
   "safety.preflight.info_status": "{title}: {message}",
