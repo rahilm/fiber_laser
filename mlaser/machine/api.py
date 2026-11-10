@@ -30,6 +30,7 @@ Original behaviour referenced (observed in lang.txt, MainApp strings):
 """
 from __future__ import annotations
 
+import contextlib
 import logging
 import threading
 from abc import ABC, abstractmethod
@@ -247,6 +248,22 @@ class ControllerFacade(ABC):
                 and old in (SafetyState.ARMED, SafetyState.RUNNING, SafetyState.PAUSED):
             self.events.publish(EV.Disarmed(reason))
 
+    # -- arming across a queue's sheets (docs/SAFETY.md §2) ------------------
+    _keep_armed_next = False
+
+    def keep_armed_after_next_job(self, on: bool = True) -> None:
+        """The next job that ends normally leaves the machine armed: a queue's sheet (the next
+        sheet starts without a second arming question; the queue disarms after its last sheet)
+        or a pulse of the laser-test procedure (it disarms at its end).  Every other end of a
+        job that fires the laser disarms.  Consumed by the next job start; withdrawn by
+        ``on=False``, a refused start, a Stop, halt, fault or disarm.  Not part of the plugin
+        API."""
+        self._keep_armed_next = bool(on)
+
+    def _take_keep_armed(self) -> bool:
+        keep, self._keep_armed_next = bool(self._keep_armed_next), False
+        return keep
+
     # -- start generation (docs/SAFETY.md §5a) --------------------------------
     def start_generation(self) -> int:
         """Changes on every Stop, halt, fault, disarm, connect and disconnect.  A caller that
@@ -258,6 +275,7 @@ class ControllerFacade(ABC):
     def _invalidate_starts(self, why: str = "") -> None:
         with self._gen_lock:
             self._gen += 1
+        self._keep_armed_next = False        # a Stop / halt / fault / disarm: the request is stale
 
     # -- read-only safety configuration ---------------------------------------
     @property
@@ -414,8 +432,11 @@ class ControllerFacade(ABC):
         self.kept_breakpoint = None
         self.breakpoint = bp
         s = getattr(self, "_s", None)
-        if s is not None and s.connected:
-            s.mode = "pause"            # the status poll keeps it while the breakpoint exists
+        lock = getattr(self, "_slock", None)
+        if s is not None:
+            with lock if lock is not None else contextlib.nullcontext():
+                if s.connected:
+                    s.mode = "pause"    # the status poll keeps it while the breakpoint exists
         self._log(_i18n.tr("log.resume_point_restored"))
         self.events.publish(EV.BreakpointChanged(bp))
         return True
@@ -482,6 +503,7 @@ class ControllerFacade(ABC):
                 self._log(rep.summary())
             return False
         self._log(rep.summary(), logging.WARNING)
+        self._keep_armed_next = False        # a refused start never carries the queue's request on
         return True
 
     last_preflight: Optional[PF.PreflightReport] = None

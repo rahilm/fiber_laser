@@ -250,17 +250,27 @@ class ConnectionPart:
             self._log("disconnected")
 
     def state(self) -> MachineState:
-        s = self._s
-        self._fill_safety(s)
-        s.link_ok = self._sup.link_ok and s.connected
+        """The live state object (the controller's own; fields refreshed here under the state
+        lock).  A reader on another thread that needs a consistent set of fields uses
+        :meth:`snapshot`."""
+        with self._slock:
+            s = self._s
+            self._fill_safety(s)
+            s.link_ok = self._sup.link_ok and s.connected
         return s
 
     def snapshot(self) -> MachineState:
-        """Thread-safe copy of the current state."""
+        """Thread-safe copy of the current state: every field from one moment (the status
+        poll writes under the same lock).  About 2 us (the GUI status tick reads it)."""
         import copy
         with self._slock:
-            self._fill_safety(self._s)
-            return copy.deepcopy(self._s)
+            s = self._s
+            self._fill_safety(s)
+            s.link_ok = self._sup.link_ok and s.connected
+            c = copy.copy(s)
+            c.outputs = dict(s.outputs)
+            c.alarms = list(s.alarms)
+            return c
 
     def card(self):
         """The supervised card handle (None while disconnected)."""

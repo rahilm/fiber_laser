@@ -59,7 +59,8 @@ def test_stop_is_asynchronous_and_halts_first(make_ctl, process):
     assert dt is not None and dt < 0.5 and travel < 20.0
     assert done.wait(10)
     assert wait_until(lambda: ctl.state().mode == "ready", 0.5) is not None
-    assert ctl.fsm.state == SafetyState.ARMED
+    # a stopped cut disarms the machine (UX review finding 1, docs/SAFETY.md §2)
+    assert ctl.fsm.state == SafetyState.DISARMED and not ctl.fsm.armed
     # the parity stop order comes first: decelerated stop ... FIFO stop, FIFO clear
     from mlaser.parity.capture import expected_stop_sequence
     want = [w for r, w in expected_stop_sequence(ctl.machine) if r == 101]

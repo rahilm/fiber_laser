@@ -962,8 +962,17 @@ def active_alarms(window) -> list:
     ctl = _ctl(window)
     try:
         return list(ctl.active_alarms or ()) if ctl is not None else []
-    except Exception:  # noqa: BLE001
-        return []
+    except Exception:  # noqa: BLE001 - cannot tell: assume an alarm (review A14, restrictive)
+        log.warning("the controller's alarm list cannot be read: run controls held as for an alarm",
+                    exc_info=True)
+        return [_unknown_alarm()]
+
+
+def _unknown_alarm():
+    """Stands for alarms that cannot be read: Start, Frame and Dry run stay disabled ("Reset
+    the alarm first: alarm state unknown"), never the permissive "no alarm"."""
+    from ..controller.alarms import Alarm
+    return Alarm(0, "safety.alarm.unknown", "Alarm state unknown: the controller does not report it")
 
 
 def alarm_text(window, a) -> str:
@@ -1258,8 +1267,11 @@ class SafetyUI(QObject):
         try:
             from ..devices import laser as L
             L.set_emission_guard(self._laser_source_guard)
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001 - restrictive without it (review A14): logged
+            # the laser source refuses emission unless every registered guard allows it and
+            # refuses it with none registered (devices.laser.check_emission), so a missing
+            # window guard never opens the beam; it must not be silent either
+            log.error("the window's laser-source emission guard could not be installed", exc_info=True)
 
     def _laser_source_guard(self, on: bool) -> None:
         from ..devices.laser import LaserError
@@ -1911,9 +1923,55 @@ def override_preflight(window, rep):
     return replace(rep, issues=issues)
 
 
+#: start guards that built-in plugins install on the JobService (review A12): plugin name ->
+#: (catalogue key, English) of the check.  When the plugin failed to load, a cut is refused with
+#: a clear reason instead of starting unchecked (fail closed), and the operator is told at once.
+REQUIRED_START_GUARDS = {
+    "ext_diag": ("safety.guard.quantity", "planned-quantity check"),
+    "orders": ("safety.guard.material", "material check"),
+}
+
+
+def require_start_guards(window) -> list[str]:
+    """Refuse cuts whose required start guard is missing (its plugin failed to register);
+    returns the refusal texts (empty: every required guard is in place)."""
+    failed = getattr(window, "failed_extensions", None) or {}
+    reasons = []
+    for name, (key, default) in REQUIRED_START_GUARDS.items():
+        if name not in failed:
+            continue
+        what = _tr(window, key, default)
+        reasons.append(_tr(window, "safety.guard.missing",
+                           "Start is blocked: the {check} could not be installed ({plugin} failed to "
+                           "load, see the log). Restart the application; report it if it stays.",
+                           check=what, plugin=name))
+    if not reasons:
+        return []
+    from ..machine.audit import audit
+    audit("start_guard_missing", logging.ERROR, plugins=[n for n in REQUIRED_START_GUARDS if n in failed])
+    jobs = getattr(window, "jobs", None)
+    add = getattr(jobs, "add_start_guard", None)
+    text = reasons[0]
+
+    def refuse(mode: str) -> tuple[bool, str]:
+        return (mode != "process", "" if mode != "process" else text)
+    if callable(add):
+        add(refuse)
+    for r in reasons:
+        log.error("%s", r)
+        wlog = getattr(window, "log", None)
+        if callable(wlog):
+            wlog(r)
+    if not getattr(window, "_test_no_dialogs", False):
+        QTimer.singleShot(0, lambda: QMessageBox.warning(
+            window, _tr(window, "safety.guard.title", "Start blocked"), "\n\n".join(reasons)))
+    return reasons
+
+
 def install(window) -> SafetyUI:
     ui = SafetyUI(window)
     window.safety_ui = ui
+    window.start_guard_problems = require_start_guards(window)
     return ui
 
 

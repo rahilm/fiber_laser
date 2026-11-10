@@ -349,7 +349,8 @@ def test_laser_test_arms_fires_and_disarms():
         assert not ctl.safety().armed
         run_all(p, stop_at="results")
         assert [r.duty_pct for r in p.pulses] == [10.0, 40.0] and all(r.fired for r in p.pulses)
-        assert ctl.safety().armed                # armed only inside the procedure
+        # armed only inside the series: the last pulse (a job that fires) disarms at its end
+        assert not ctl.safety().armed
         run_all(p)
         assert p.state == PE.DONE and not ctl.safety().armed
     finally:

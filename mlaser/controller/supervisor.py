@@ -383,6 +383,8 @@ class SafetySupervisor:
         if cls & ~(Cmd.READ | Cmd.HALT | Cmd.IO):
             raise CommandRefused(f"the halt channel carries halts only ({cls!r})", cls)
         if cls != Cmd.READ and not (cls & Cmd.IO and self._is_heartbeat(req)):
+            # a queue put, no file I/O here: the log writer thread writes it (logsetup), so a
+            # stalled disk never delays the halt command that follows (docs/SAFETY.md §4a)
             audit("command", cls=cls.name or str(int(cls)), func=req.func, addr=req.addr,
                   words=list(req.values[:16]), channel="halt")
 

@@ -237,6 +237,10 @@ class SafetyStatus:
         return "OFFLINE" if self.state == SafetyState.OFFLINE else "DISARMED"
 
 
+# on_change arguments of a pending notification (old, new, status, reason), None = nothing
+_Note = Optional[tuple]
+
+
 class SafetyFSM:
     """Thread-safe state holder.  ``on_change(old, new, status, reason)`` is called after every
     transition (outside the lock)."""
@@ -291,30 +295,58 @@ class SafetyFSM:
             return verdict(cls, self._state, self._armed)
 
     # ------------------------------------------------------------------ transitions
-    def _go(self, new: SafetyState, reason: str = "") -> bool:
-        with self._lock:
-            old = self._state
-            if old == new:
-                return False
-            self._state = new
-            self.transitions.append((time.time(), old.value, new.value, reason))
-            del self.transitions[:-100]
-            st = self.status()
+    # Every transition method holds ``_lock`` from the read of the state to the write (the
+    # decision and the transition are one step: a fault latched by another thread in between
+    # can no longer be overwritten, review A2) and calls ``on_change`` after the lock is
+    # released.  FAULT is left only through :meth:`reset` and :meth:`offline`.
+    def _transition(self, new: SafetyState, reason: str, leave_fault: bool = False) -> _Note:
+        """Record ``old -> new``; the caller holds ``_lock``.  Returns the ``on_change``
+        arguments, or None when nothing changed or the move would leave a latched FAULT
+        (only ``reset``/``offline`` pass ``leave_fault``)."""
+        old = self._state
+        if old == new:
+            return None
+        if old == SafetyState.FAULT and not leave_fault:
+            return None
+        self._state = new
+        self.transitions.append((time.time(), old.value, new.value, reason))
+        del self.transitions[:-100]
+        return (old, new, self.status(), reason)
+
+    def _notify(self, note: _Note) -> bool:
+        """Deliver a transition (or a same-state change) to ``on_change``; call without the lock."""
+        if note is None:
+            return False
         if self.on_change is not None:
-            self.on_change(old, new, st, reason)
+            self.on_change(*note)
         return True
+
+    def _go(self, new: SafetyState, reason: str = "") -> bool:
+        """Move to ``new`` unless that leaves a latched FAULT (use :meth:`reset`)."""
+        with self._lock:
+            note = self._transition(new, reason)
+        self._notify(note)
+        return note is not None
 
     def connected(self) -> None:
         """Link up: DISARMED, or FAULT when a fault is still latched."""
         with self._lock:
             self._armed = False
-            new = SafetyState.FAULT if self._fault else SafetyState.DISARMED
-        self._go(new, "connected")
+            if self._fault:
+                note = self._transition(SafetyState.FAULT, "connected")
+            elif self._state == SafetyState.FAULT:
+                note = None              # FAULT without a text is only left by reset()
+            else:
+                note = self._transition(SafetyState.DISARMED, "connected")
+        self._notify(note)
 
     def offline(self, reason: str = "disconnected") -> None:
+        """Link down / close.  A latched fault text is kept: FAULT is entered again on the
+        next connect."""
         with self._lock:
             self._armed = False
-        self._go(SafetyState.OFFLINE, reason)
+            note = self._transition(SafetyState.OFFLINE, reason, leave_fault=True)
+        self._notify(note)
 
     def arm(self) -> Optional[str]:
         """Returns None when armed, else the refusal reason."""
@@ -331,11 +363,11 @@ class SafetyFSM:
                 return None
             self._armed = True
             st = self._state
-        if st == SafetyState.PAUSED:          # paused at a breakpoint: arm for the resume
-            if self.on_change is not None:
-                self.on_change(st, st, self.status(), "armed by operator")
-        else:
-            self._go(SafetyState.ARMED, "armed by operator")
+            if st == SafetyState.PAUSED:          # paused at a breakpoint: arm for the resume
+                note: _Note = (st, st, self.status(), "armed by operator")
+            else:
+                note = self._transition(SafetyState.ARMED, "armed by operator")
+        self._notify(note)
         return None
 
     def disarm(self, reason: str = "disarmed by operator") -> bool:
@@ -344,11 +376,12 @@ class SafetyFSM:
             was = self._armed
             self._armed = False
             st = self._state
-        if st == SafetyState.ARMED:
-            self._go(SafetyState.DISARMED, reason)
-        elif was and self.on_change is not None:
-            s = self.status()
-            self.on_change(st, st, s, reason)
+            note: _Note = None
+            if st == SafetyState.ARMED:
+                note = self._transition(SafetyState.DISARMED, reason)
+            elif was:
+                note = (st, st, self.status(), reason)
+        self._notify(note)
         return was
 
     def job_started(self, emits: bool) -> Optional[str]:
@@ -362,23 +395,35 @@ class SafetyFSM:
                 return "start refused: a job is already running"
             if emits and not self._armed:
                 return "start refused: the job fires the laser and the machine is not armed"
-        self._go(SafetyState.RUNNING, "job started")
+            note = self._transition(SafetyState.RUNNING, "job started")
+        self._notify(note)
         return None
 
     def job_paused(self) -> None:
-        if self._state == SafetyState.RUNNING:
-            self._go(SafetyState.PAUSED, "paused")
+        with self._lock:
+            note = (self._transition(SafetyState.PAUSED, "paused")
+                    if self._state == SafetyState.RUNNING else None)
+        self._notify(note)
 
     def job_resumed(self) -> None:
-        if self._state == SafetyState.PAUSED:
-            self._go(SafetyState.RUNNING, "resumed")
+        with self._lock:
+            note = (self._transition(SafetyState.RUNNING, "resumed")
+                    if self._state == SafetyState.PAUSED else None)
+        self._notify(note)
 
-    def job_ended(self, reason: str = "job ended") -> None:
+    def job_ended(self, reason: str = "job ended", disarm: bool = False) -> None:
+        """The job is over (done, stopped, failed).  ``disarm``: drop the arming with it (a job
+        that fired the laser: the machine never stays armed after it, docs/SAFETY.md §5); the
+        new state then is DISARMED in the same step, so no ARMED-and-idle moment is seen."""
         with self._lock:
             if self._state not in JOB_STATES:
                 return
+            if disarm and self._armed:
+                self._armed = False
+                reason = f"disarmed: {reason}"     # an EV.Disarmed for the UI as well
             new = SafetyState.ARMED if self._armed else SafetyState.DISARMED
-        self._go(new, reason)
+            note = self._transition(new, reason)
+        self._notify(note)
 
     def raise_fault(self, reason: str) -> bool:
         """Latch a fault (first reason wins; later ones are only logged by the caller).  Returns
@@ -389,10 +434,12 @@ class SafetyFSM:
                 self._fault, self._fault_t = reason, time.time()
             self._armed = False
             st = self._state
-        if st == SafetyState.OFFLINE:
-            return first             # remembered; FAULT is entered on the next connect
-        if not self._go(SafetyState.FAULT, reason) and first and self.on_change is not None:
-            self.on_change(st, st, self.status(), reason)
+            if st == SafetyState.OFFLINE:
+                return first             # remembered; FAULT is entered on the next connect
+            note = self._transition(SafetyState.FAULT, reason)
+            if note is None and first:
+                note = (st, st, self.status(), reason)
+        self._notify(note)
         return first
 
     def reset(self, paused: bool = False) -> Optional[str]:
@@ -406,9 +453,9 @@ class SafetyFSM:
             self._armed = False
             new = (SafetyState.OFFLINE if self._state == SafetyState.OFFLINE
                    else SafetyState.PAUSED if paused else SafetyState.DISARMED)
-        self._go(new, "fault reset by operator")
+            note = self._transition(new, "fault reset by operator", leave_fault=True)
+        self._notify(note)
         return None
-
 
 __all__ = ["SafetyState", "CONNECTED_DISARMED", "Cmd", "SafetyRefused", "classify_request",
            "classify_mailbox", "classify_sys", "classify_fifo_items", "wire_emits", "verdict",

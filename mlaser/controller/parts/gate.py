@@ -59,6 +59,7 @@ class StartGatePart:
         rep = PF.PreflightReport(action)
         rep.add("start_gate", PF.ERROR, reason)
         self.last_preflight = rep
+        self._keep_armed_next = False        # a refused start never carries the queue's request on
         self._log(f"{action} refused: {reason}", logging.WARNING)
         audit("start_refused", logging.WARNING, mode=action, reason=reason)
         return False

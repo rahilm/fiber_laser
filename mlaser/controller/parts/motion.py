@@ -178,7 +178,8 @@ class MotionPart:
             self._jog_active = True
         self._safe(what, self._mc.jog, a, F.ftol(p * v), acc, F.ftol(p * d))
         if length is None:
-            self._s.mode = "jog"
+            with self._slock:
+                self._s.mode = "jog"
 
     @card_command("jog", drop_if_stale=True)
     def jog_start(self, axis: str, direction: int, fast: bool = False) -> None:

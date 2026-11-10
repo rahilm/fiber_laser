@@ -1436,7 +1436,8 @@ class RunWorkspace:
         self.intake.scan()
         self.runner = QueueRunner(self.queue, load=self._load_entry, start=self._start_sheet,
                                   start_allowed=self._start_allowed,
-                                  disarm=lambda why: self.window.ctl.disarm(why))
+                                  disarm=lambda why: self.window.ctl.disarm(why),
+                                  keep_armed=lambda on: self.window.ctl.keep_armed_after_next_job(on))
         self.runner.sheet_listeners.append(self._sheet_done)
         self.monitor: Any = None
         self._svg_cache: Any = None          # mlaser.web.snapshot.SheetSvgCache (monitor on)
