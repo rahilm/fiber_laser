@@ -128,6 +128,14 @@ shared memory (`WireJob.share` / `attach`), not a pickle. Host work on Start, si
 | `WireJob.of` + `JobStreamer.prepare` | 9,000 ms, +684 MB / 53 ms, +77 MB | 27,551 ms, +2.1 GB / 205 ms, +138 MB |
 | hand-off to the child (parent + child) | pickle 291 + 444 ms, 33 MB, child +318 MB / shared block 31 + 8 ms | 979 + 1,348 ms, 109 MB, child +1.1 GB / 77 + 19 ms |
 
+In the window against the simulator (one core, compile pool off; `make_doc(N)`, 2,700 parts
+scaled 0.42 as in the review), Dry run: `su.dry_run()` returns after 329 → 8 ms (300 parts) and
+2,140 → 47 ms (2,700 parts); the first frame reaches the card 10.5 → 1.9 s and 75.6 → 16.3 s
+after the click (most of the 16 s is the dry-run compile, a cache miss of the preview plan);
+the largest GUI-thread gap during it 616 → 86 ms and 4,058 → 651 ms. The Start click returns
+after 2,405 → 34 ms at 2,700 parts. The pre-flight of Start / Dry run runs in a worker on the
+planned job (`SafetyUI._preflight_async`).
+
 ## 5. Native kernel (P2-2): the default
 
 `mlaser/_native/_emitter.c` (CPython C API, MIT), an optional extension of the mlaser
