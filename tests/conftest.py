@@ -11,10 +11,12 @@ need no edits; a test may carry several (e.g. ``ui`` and ``sim``):
 * ``sim``     modules that start the UDP card simulator or a device simulator;
 * ``unit``    everything else (pure, no Qt widgets, no sockets).
 
-Under pytest-xdist (CI: ``-n auto --dist loadgroup``) every ``safety`` and ``sim`` test is put
-in one xdist group, ``timing``: they run one after another on a single worker, in the same
-process, as in a serial run, so their real-time bounds keep their meaning (docs/dev/TESTING.md,
-"Parallel runs").  Without xdist nothing changes.
+Under pytest-xdist (CI: ``-n auto --dist loadgroup``) every ``safety`` and ``sim`` test (and a
+test marked ``timing``) is put in a timing xdist group: ``timing`` (tests/safety/), ``timing-sim``
+or ``timing-gui`` (``TIMING_GROUPS``).  The tests of a group run one after another on a single
+worker, in the same process, as in a serial run, so their real-time bounds keep their meaning;
+the modules in ``UNTIMED_MODULES`` (no real-time assertion, no card link) are spread over the
+workers (docs/dev/TESTING.md, "Parallel runs").  Without xdist nothing changes.
 
 PySide6 can segfault at interpreter exit when Python-owned widgets outlive the QApplication
 (seen intermittently in tests that open dialogs).  Deleting every top-level widget and
@@ -122,10 +124,54 @@ SIM_MODULES = {
     "test_pipeline_perf",     # GUI-thread budgets, the plan and review processes
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
-#: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)
-TIMING_MARKS = ("safety", "sim")
+#: markers whose tests run in a timing group (real-time assertions, simulators, sockets);
+#: ``timing`` marks a single test of an otherwise untimed module (a GUI-latency bound)
+TIMING_MARKS = ("safety", "sim", "timing")
+#: the timing groups: each runs on ONE xdist worker, one test after another (docs/dev/TESTING.md,
+#: "Parallel runs"); the groups are independent of each other (own simulators on their own
+#: ephemeral ports, own config directories, no shared files), so up to three workers carry them.
+#: tests/safety/ (and every module not named below) is ``timing``.
 TIMING_GROUP = "timing"
+TIMING_GROUPS = {
+    # the card simulator without a window: streaming, jobs, procedures, lessons, devices
+    "timing-sim": {
+        "test_card_homing_alarms", "test_card_job_start", "test_card_resume", "test_card_scaling",
+        "test_card_stream", "test_controller", "test_controller_startup", "test_devices_af_ec",
+        "test_devices_follower", "test_devices_laser", "test_machine_edgeseek", "test_machine_manual",
+        "test_machine_ops", "test_netcheck", "test_parity_capture", "test_practice", "test_process_compile",
+        "test_procedures",
+    },
+    # the window: GUI-thread latency bounds, the workspaces on the simulator, whole-app subprocesses
+    "timing-gui": {
+        "test_card_ui", "test_close_save", "test_devices_ui", "test_diag_monitors", "test_idle_timers",
+        "test_integration", "test_large_drawing", "test_machine_workspace", "test_plan_process",
+        "test_responsive_layout", "test_services_jobs", "test_ws_cutting_strategy", "test_ws_run",
+    },
+}
+#: modules marked ``safety`` or ``sim`` (by directory or by name) that run in NO timing group: no
+#: wall-clock measurement or bound, no sleep that orders events, no card link (connect_simulator,
+#: UiController) and no streaming, no ``flaky`` rerun (tests/test_timing_groups.py checks the
+#: source for the usual signs).  A timing test added to one of these modules must take the
+#: ``timing`` marker (or the module leaves this set).
+UNTIMED_MODULES = {
+    "test_policy", "test_remedy_texts",                   # tests/safety/: classification, texts
+    "test_plugin_trust", "test_touch_targets_mode_switch",  # tests/safety/: plugin loading, widgets
+    "test_ui",                                            # the demo controller on an injected clock
+}
 PARITY_GROUP = "parity"
+
+
+def timing_group(item) -> str | None:
+    """The xdist group of ``item``: a timing group, or None (spread over the workers)."""
+    if item.get_closest_marker("timing") is None:
+        if item.path.stem in UNTIMED_MODULES:
+            return None
+        if not any(item.get_closest_marker(m) for m in TIMING_MARKS):
+            return None
+    for name, modules in TIMING_GROUPS.items():
+        if item.path.stem in modules:
+            return name
+    return TIMING_GROUP
 
 
 @pytest.fixture(autouse=True)
@@ -165,12 +211,14 @@ def pytest_collection_modifyitems(config, items):
             marks.add("ui")
         if path.stem in SIM_MODULES:
             marks.add("sim")
-        if not marks and not any(item.get_closest_marker(n) for n in ("parity", "golden", "safety", "ui", "sim")):
+        if not marks and not any(item.get_closest_marker(n) for n in ("parity", "golden", "safety", "ui", "sim",
+                                                                      "timing")):
             marks.add("unit")
         for m in sorted(marks):
             item.add_marker(getattr(pytest.mark, m))
-        if group and any(item.get_closest_marker(m) for m in TIMING_MARKS):
-            item.add_marker(pytest.mark.xdist_group(TIMING_GROUP))
+        tgroup = timing_group(item) if group else None
+        if tgroup is not None:
+            item.add_marker(pytest.mark.xdist_group(tgroup))
         elif group and item.get_closest_marker("parity"):
             # the parity areas share ../parity/out and depend on each other's output (jobcad ->
             # jobmainapp -> jobnc), so they run in order on one worker

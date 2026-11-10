@@ -236,30 +236,99 @@ record what the card did.
 ## Parallel runs (pytest-xdist)
 
 CI runs the default suite with `pytest -n auto --dist loadgroup` (pytest-xdist, in the `dev`
-dependency group). `tests/conftest.py` puts every test marked `safety` or `sim` into one
-xdist group, `timing`: with `--dist loadgroup` they all run on **one** worker, one after another
-in one process, exactly as in a serial run, so the real-time bounds below keep their meaning,
-while the other tests (unit, ui) spread over the remaining workers. Every marker of the default
-run is still collected and run; the golden and parity steps are unchanged. Without `-n`
-(or without pytest-xdist installed) nothing changes. `tests/test_xdist_groups.py` checks the
-grouping (the conftest hook must run `tryfirst`, before xdist's worker turns the group into
-the `@timing` node id suffix).
+dependency group). `tests/conftest.py` puts every test marked `safety` or `sim` (and a single
+test marked `timing`) into a **timing group**. With `--dist loadgroup` all tests of one group run
+on one worker, one after another in one process, exactly as in a serial run, so the real-time
+bounds below keep their meaning. The other tests (unit, ui) spread over the remaining workers.
+Every marker of the default run is still collected and run; the golden and parity steps are
+unchanged. Without `-n` (or without pytest-xdist installed) nothing changes.
 
-Measured 2026-10-19 on a shared 64-core x86-64 host with a load average of 250-270 (CPython
-3.12.14, wall time of the pytest run, 1,230 tests):
+The groups (`TIMING_GROUP`, `TIMING_GROUPS` in `tests/conftest.py`):
 
-| run | time |
-|---|---|
-| serial (`pytest -q`) | 320 s, 327 s |
-| `-n auto --dist loadgroup` (64 workers), timing group on one worker | 163 s, 164 s |
-| `-n 4 --dist loadgroup` (a CI runner's 4 CPUs) | 159 s |
-| the `timing` group alone, serial (`-m "safety or sim"`, 339 tests) | 155 s |
-| `-n auto` without the group (for comparison only; not used) | 22 s, 23 s |
+| group | what | why it can run next to the others |
+|---|---|---|
+| `timing` | `tests/safety/` (and `tests/test_web_hardening.py`, every module not named elsewhere) | |
+| `timing-sim` | the card simulator without a window: streaming, jobs, procedures, practice lessons, devices | own `CardSimulator` per test on an ephemeral port (`port=0`), own config directory |
+| `timing-gui` | the window: GUI-thread latency bounds, workspaces on the simulator, whole-app subprocesses | the same; no file or port is shared with the other groups |
 
-So the wall time is set by the `timing` group, about half of the serial time; it does not fall
-with more workers. Splitting it further (one group per module, or the `sim` modules apart from
-`tests/safety/`) would let timing tests run concurrently in different processes on a loaded
-runner, which is what the group avoids; decide that only with CI measurements of the bounds.
+`tests/safety/test_ux_audit_safety.py` has its own group as well (`timing_ux_audit_safety`, since
+2026-11-08). So up to four workers carry timing tests, each group serial in itself. Two timing
+tests of different groups can now run at the same time in different processes; a CI runner
+already ran every timing test next to busy ui workers on all its other CPUs, so the load a
+timing test sees changes little. A bound that fails only since the split is a real finding about
+that bound's margin: report it, do not move the test back silently and never loosen the bound.
+
+**Out of every group** (`UNTIMED_MODULES`): modules marked `safety`/`sim` whose tests have no
+wall-clock measurement or bound, no sleep that orders events, no card link (`connect_simulator`,
+a connected `UiController`, `make_ctl`) and no streaming, and no `flaky` rerun:
+`tests/safety/test_policy.py`, `test_remedy_texts.py`, `test_plugin_trust.py`,
+`test_touch_targets_mode_switch.py`, `tests/test_ui.py` (the demo controller on an injected
+clock). Each was read; `tests/test_timing_groups.py` checks their source for those signs, so a
+timing test added to one of them fails there until it is marked `@pytest.mark.timing` (or the
+module leaves the set). `tests/test_close_save.py` is a `ui` module with two GUI-latency tests
+marked `timing`. A module that uses a simulator over a raw transport with sub-second reply
+timeouts (`test_controller_startup.py`, `test_devices_*.py`, `test_card_scaling.py`) stays in
+`timing-sim`: moving it out is a candidate for after a few CI runs, not done blind.
+
+`tests/test_xdist_groups.py` checks the grouping (the conftest hook must run `tryfirst`, before
+xdist's worker turns the group into the `@timing` node id suffix; each group on one worker; an
+untimed module spread). When you add a module that starts a simulator, add it to `SIM_MODULES`
+(and to `timing-sim` or `timing-gui` if it belongs there; otherwise it is in `timing`).
+
+### Measured
+
+2026-11-10, this repository's development host (64 cores, shared, load average 1-12 during the
+runs; CPython 3.12.14), the 53 files that held timing tests (`tests/safety/*`, the sim modules,
+`test_close_save.py`, `test_responsive_layout.py`, ...), `pytest -n N --dist loadgroup`:
+
+| run | before (one `timing` group) | after |
+|---|---|---|
+| `-n 4` | 506 s (654 tests) | 238 s (698 tests: the sweeps parametrised) |
+| `-n 8` | 510 s | 156 s |
+| `tests/test_responsive_layout.py` alone, `-n 8` | 106 s (19 tests) | 54 s (63 tests) |
+| `tests/test_practice.py`, serial | 130 s (review, loaded host) | 57 s |
+
+Before, the wall time was the serial chain of the one group and did not fall with more workers.
+**Not measured: the CI runners.** Windows and macOS runners have 3-4 vCPUs, slower single cores
+and late timers (macOS); the numbers there are expected to fall in proportion but must be read
+from the CI logs (`--durations=15`) after the change. Older numbers (2026-10-19, 1,230 tests):
+serial 320 s, `-n auto` 163 s, the timing group alone 155 s.
+
+### What made it shorter
+
+* **Parametrised layout sweeps** (`tests/test_responsive_layout.py`): the width × height sweep is
+  one case per workspace and height row (`SWEEP_WORKSPACES` × the minimum, 800, 875 and 1169 px;
+  a workspace not named there, e.g. a plugin's, is swept by the `other` case), the dock sweep one
+  per size and workspace, the live resize one per workspace, the sample, imperial and selection
+  runs one per size or theme. Same sizes, same assertions; the window is the module fixture,
+  built once per worker. Each case starts its width grid at its own workspace's minimum (before,
+  the grid started at whatever minimum the previous test had left). The reports under
+  `MLASER_LAYOUT_SHOTS` are one file per case (`sweep_<ws>_<row>.json`, ...).
+* **Practice lessons on a smaller sheet** (`tests/test_practice.py`): the lessons that cut the
+  sheet in real time (simulator at 1x, see below) cut it scaled by `SHEET_SCALE` (0.3): the same
+  parts, contours, order and speed, 14 s instead of 35 s per lesson.
+  `tests/test_practice_sheet.py` compiles the real sheet and checks the scaled one is the same
+  sheet. Mutation-checked: inverting the lesson's "finished ok", "breakpoint" or e-stop release
+  checks, or making the controller's Hold a no-op, still fails the lesson tests.
+* The split of the timing group (above).
+
+### Not done (yet)
+
+* `tests/test_command_feedback.py`'s registry walk (one test of 35-75 s here, 135-178 s on CI) is
+  NOT split: run in four parts on fresh windows, `sort.grid` and `nest.run` came out silent,
+  that is the walk's verdict depends on the commands run before on the same window. That needs a
+  look at those two commands before the walk can be split.
+* `tests/ui/test_one_home.py`'s module fixture (30 s set-up) and `tests/test_close_save.py`'s two
+  2,700-part GUI-latency tests (13 s each, each builds its own large window) are unchanged.
+* **A seam under the job runner** (architecture review A11). `mlaser/controller/parts/jobs.py`
+  reads `time.monotonic()` directly and starts its worker threads itself, and the streamer talks
+  UDP to the simulator in real time, so a job test costs the job's real duration. No small
+  additive parameter fixes that: the clock would have to reach the streamer, the supervisor's
+  deadlines and the simulator together. The seam to add with the job-lifecycle refactor (A1): a
+  `clock` (monotonic, sleep) passed to `UiController` and on to the job runner, streamer and
+  supervisor (default `time`); an in-memory transport that calls `CardSimulator.handle(bytes)`
+  directly; and stepping the simulator with `CardSimulator.advance(dt)` instead of its thread.
+  The threaded tests stay as the acceptance set; the phase logic gets fast unit tests.
 
 With xdist, `MLASER_FAULT_LOG=<file>` writes one file per worker (`<file>.gw0`, ...); CI's
 macOS crash step prints them all.

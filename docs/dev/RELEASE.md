@@ -161,14 +161,14 @@ included minutes ran out after a day of CI work. Measured 2026-10-19:
 
 * `ci.yml`, per push since 2026-11-10: Python 3.12 on Linux, Windows and macOS, and 3.13 and
   3.14 on Linux only (the full 3.13 column runs nightly); the Linux 3.12 job also measures
-  coverage. Measured 2026-11-08 (review F4): Linux 18-20 min, Windows 13-19 min, macOS 23-27
-  min per job; dropping Windows and macOS 3.13 from pushes saves about 36 runner-minutes per
-  push (about 16 net of the new Linux 3.14 job). Earlier figures (2026-10-19): 2 Linux jobs
-  (~5-7 min each), 2 Windows jobs (~8-10 min), 2 macOS arm64 jobs (~8-10 min; `macos-latest` is an Apple silicon VM whose timers fire late, see
-  [TESTING.md](TESTING.md)), lint and architecture (< 1 min). These were serial runs; the
-  test step now runs on pytest-xdist with the safety and sim tests on one worker, which halved
-  the suite locally (320 s -> 160 s, [TESTING.md](TESTING.md#parallel-runs-pytest-xdist)); the
-  CI figures are to be re-measured on the next runs. On a private repository the macOS
+  coverage; lint and architecture take under a minute. Measured in the 2026-11-09 deep review
+  (F4): Linux 18-20 min, Windows 13-19 min, macOS 23-27 min per job (`macos-latest` is an Apple
+  silicon VM whose timers fire late, see [TESTING.md](TESTING.md)), set by one 8-10 min layout
+  test and the serial `timing` group; dropping Windows and macOS 3.13 from pushes saves about
+  36 runner-minutes per push (about 16 net of the new Linux 3.14 job). The layout sweeps are
+  now parametrised and the timing tests split into three groups
+  ([TESTING.md](TESTING.md#parallel-runs-pytest-xdist)), which halved the affected files'
+  wall time on the development host; the CI figures are to be re-measured on the next runs. On a private repository the macOS
   jobs are most of the billed cost (~200 Linux-equivalent minutes per push).
 * `package.yml`: wheels (Linux x86_64 and the `ubuntu-24.04-arm` runner, Windows, macOS
   arm64; ~1-4 min each), sdist (< 1 min), bundles (Linux on ubuntu-22.04, Windows, macOS;
