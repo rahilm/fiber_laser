@@ -334,9 +334,9 @@ class RunKind:
 #: the run controls (DESIGN.md §2 "Touch / run" and §6 words): one table for the run bar, the Run
 #: screen and the wizards
 RUN_KINDS: dict[str, RunKind] = {
-    "start": RunKind("run.btn.start", "Start", "run.tip.start", "Start or continue (F5): pre-flight check first",
+    "start": RunKind("run.btn.start", "Start", "run.tip.start", "Start or continue (F5 on the Run workspace): pre-flight check first",
                      "player-play", "success", "run.btn.continue", "Continue"),
-    "hold": RunKind("run.btn.hold", "Hold", "run.tip.hold", "Hold / continue (Space)", "player-pause", "warning",
+    "hold": RunKind("run.btn.hold", "Hold", "run.tip.hold", "Hold the job (Space); Start continues it", "player-pause", "warning",
                     "run.btn.continue", "Continue"),
     "stop": RunKind("run.btn.stop", "STOP", "run.tip.stop", "Stop the job (Esc or F12)", "player-stop",
                     "danger_fill"),

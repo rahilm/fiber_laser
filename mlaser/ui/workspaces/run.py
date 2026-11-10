@@ -1512,6 +1512,9 @@ class RunWorkspace:
         return job_running(self.window)
 
     def job_name(self) -> str:
+        ui = getattr(self.window, "safety_ui", None)
+        if ui is not None:           # one text source with the run bar's "Start: ..." (UX 13)
+            return ui.start_target_name()
         path = getattr(self.window, "path", None)
         return os.path.basename(path) if path else tr(self.window, "run.untitled", "(untitled)")
 

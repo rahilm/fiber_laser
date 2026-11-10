@@ -187,7 +187,7 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
     box.setIcon(QMessageBox.Warning)
     box.setWindowTitle(_tr(window, "safety.recovery.title", "Previous run interrupted"))
     box.setText(_tr(window, "safety.recovery.message", "The last session ended abnormally (crash, power loss or "
-                    "forced exit).\n\nRecover the last document and the breakpoint of the interrupted job?"))
+                    "forced exit).\n\nRecover what was saved?"))
     if detail:
         box.setInformativeText(detail)
     rec = box.addButton(_tr(window, "safety.recovery.recover", "Recover"), QMessageBox.AcceptRole)
@@ -1096,6 +1096,14 @@ class _KeyFilter(QObject):
         return isinstance(win, QDialog) and win is not self.ui.w
 
 
+def _is_simulator(window) -> bool:
+    fn = getattr(_ctl(window), "is_simulator", None)
+    try:
+        return bool(fn()) if callable(fn) else False
+    except Exception:  # noqa: BLE001 - unknown counts as a real machine
+        return False
+
+
 class KeptNotice(QWidget):
     """The resume point a Stop while held kept (UX audit W17): "Stopped: resume point kept at
     X…, Y… mm" with *Resume from here* (the breakpoint comes back; Start / Continue resumes it
@@ -1123,8 +1131,15 @@ class KeptNotice(QWidget):
         h.addWidget(self.discard)
 
     def show_point(self, bp) -> None:
-        text = _tr(self.ui.w, "safety.kept.text", "Stopped: resume point kept at X {x}, Y {y} mm",
-                   x=f"{float(getattr(bp, 'x', 0.0)):.1f}", y=f"{float(getattr(bp, 'y', 0.0)):.1f}")
+        x, y = f"{float(getattr(bp, 'x', 0.0)):.1f}", f"{float(getattr(bp, 'y', 0.0)):.1f}"
+        if getattr(bp, "home_first", False) and not _is_simulator(self.ui.w):
+            text = _tr(self.ui.w, "safety.kept.recovered_home", "Recovered resume point of the interrupted job at "
+                       "X {x}, Y {y} mm: home the machine before you resume", x=x, y=y)
+        elif getattr(bp, "recovered", False):
+            text = _tr(self.ui.w, "safety.kept.recovered", "Recovered resume point of the interrupted job at "
+                       "X {x}, Y {y} mm", x=x, y=y)
+        else:
+            text = _tr(self.ui.w, "safety.kept.text", "Stopped: resume point kept at X {x}, Y {y} mm", x=x, y=y)
         if self.label.text() != text:
             self.label.setText(text)
             a11y.name(self, text)
@@ -1322,12 +1337,43 @@ class SafetyUI(QObject):
         return str(getattr(host, "current", "") or "")
 
     def start_target_name(self) -> str:
-        """What Start runs: the open drawing's name (UX audit W18)."""
+        """What Start runs (UX audit W18; deep review 2026-11, UX 13): the nest sheet ("Sheet 1
+        of 3 (gear.dxf): gear × 6") or the drawing ("gear.dxf: 4 parts"), with its parts."""
+        doc = getattr(self.w, "document", None)
         path = getattr(self.w, "path", None)
-        if path:
-            import os
-            return os.path.basename(path)
-        return _tr(self.w, "run.untitled", "(untitled)")
+        sheet = (getattr(doc, "extra", None) or {}).get("nest_sheet") if doc is not None else None
+        n = len(getattr(doc, "parts", ()) or ()) if doc is not None else 0
+        key = (id(doc), n, path, repr(sheet), getattr(getattr(self.w, "tr_", None), "language", None))
+        cached = getattr(self, "_target_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        import os
+        from collections import Counter
+        names = Counter(str(getattr(p, "name", "") or "") for p in (getattr(doc, "parts", ()) or ()))
+        if len(names) == 1 and next(iter(names)):
+            parts = _tr(self.w, "run.target.same_parts", "{part} × {n}", part=next(iter(names)), n=n)
+        else:
+            tr = getattr(self.w, "tr_", None)
+            if tr is not None and hasattr(tr, "plural"):
+                parts = tr.plural("run.target.n_parts", n)
+            else:
+                from .. import i18n
+                parts = i18n.plural("run.target.n_parts", n)
+        name = os.path.basename(path) if path else _tr(self.w, "run.untitled", "(untitled)")
+        if isinstance(sheet, dict) and sheet.get("n"):
+            src = str(sheet.get("source") or "")
+            if src:
+                text = _tr(self.w, "run.target.sheet_of", "Sheet {n} of {total} ({source}): {parts}",
+                           n=sheet.get("n"), total=sheet.get("total") or sheet.get("n"), source=src, parts=parts)
+            else:
+                text = _tr(self.w, "run.target.sheet", "Sheet {n} of {total}: {parts}",
+                           n=sheet.get("n"), total=sheet.get("total") or sheet.get("n"), parts=parts)
+        elif doc is None or not n:
+            text = name
+        else:
+            text = _tr(self.w, "run.target.drawing", "{name}: {parts}", name=name, parts=parts)
+        self._target_cache = (key, text)
+        return text
 
     def queue_waiting(self) -> Optional[tuple[int, int, str]]:
         """(n, total, name) of the queue's next job when the queue is idle with a job waiting;
@@ -1558,7 +1604,15 @@ class SafetyUI(QObject):
             return True
         actions = [a for c in _contributors(self.w) for a in (c.actions(rep) if hasattr(c, "actions") else ())]
         d = PreflightDialog(rep, self.w, actions=actions)
-        return bool(d.exec()) and rep.ok
+        ok = bool(d.exec()) and rep.ok
+        if ok:                       # the operator went ahead past these warnings (UX 13)
+            for c in _contributors(self.w):
+                if hasattr(c, "acknowledge"):
+                    try:
+                        c.acknowledge(rep, doc)
+                    except Exception:  # noqa: BLE001 - a broken contributor never blocks
+                        log.exception("pre-flight contributor acknowledge failed")
+        return ok
 
     last_report = None             # the last pre-flight report preflight_ok() decided on (tests)
 
@@ -1660,12 +1714,14 @@ class SafetyUI(QObject):
         self._after(_tr(self.w, "safety.refused.start_disarmed_title", "Start refused, laser disarmed"))
 
     def hold(self) -> None:
+        """Hold only (Space, the Hold button): never continues.  A held job continues with
+        Start / Continue (the button, or F5 on the Run workspace): a second, nervous press of
+        the Hold key keeps the machine held (deep review 2026-11, UX 8)."""
         ctl = self.w.ctl
         if ctl.state().mode == "pause":
-            from .resume import resume
-            resume(ctl, "exact", self.w.document)
-        else:
-            ctl.pause()
+            self.w.statusBar().showMessage(_tr(self.w, "run.why.held", "Held: Start continues the job"), 6000)
+            return
+        ctl.pause()
 
     def stop(self) -> None:
         self.w.ctl.stop()          # asynchronous: the halt goes out first, the UI never blocks
@@ -1802,8 +1858,12 @@ class SafetyUI(QObject):
 
     def resume_kept(self) -> None:
         """Bring the kept resume point back (held at it again); Start / Continue then resumes
-        with its pre-flight."""
-        self.w.ctl.restore_kept_breakpoint()
+        with its pre-flight.  Refused (and said) for a recovered point on a real machine that
+        was not homed in this session."""
+        if not self.w.ctl.restore_kept_breakpoint():
+            why = self._last_reason()
+            if why:
+                self.w.statusBar().showMessage(why, 10000)
         self.refresh()
 
     def discard_kept(self) -> None:

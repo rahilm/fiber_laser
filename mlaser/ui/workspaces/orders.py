@@ -46,6 +46,8 @@ from ..responsive import ColumnFitter
 from . import TOUCH_MIN, show_workspace, tr, trn
 
 OVERRIDE_CODES = (MC.MISMATCH,)
+#: the example-values warning (services.material_check): confirmed once per recipe and session
+EXAMPLE = "technology_example"
 #: contours up to which the import review analyses at once on the GUI thread; a larger drawing
 #: is analysed on a worker thread (1.5 s at 2,700 contours, UI evaluation F2)
 REVIEW_SYNC_CONTOURS = 300
@@ -526,6 +528,7 @@ class OrdersPlugin:
             w.preflight_contributors = contributors
         contributors.append(self)
         self.overridable = set(OVERRIDE_CODES)
+        self.examples_confirmed = set()
         self.review: Optional[ImportReviewDialog] = None
         self._review_task: Any = None          # the background import review (see _imported)
         self.last_csv: Optional[O.CsvResult] = None
@@ -887,13 +890,58 @@ class OrdersPlugin:
     def issues(self, action: str, doc: Any, emits: Any) -> list:
         if action not in ("start", "resume") or doc is None:
             return []
+        from dataclasses import replace
         issues = MC.check(doc)
         if self.gate.overridden(doc):           # confirmed (and audited) for this sheet already
-            from dataclasses import replace
             from mlaser.machine.preflight import WARNING
             issues = [replace(i, severity=WARNING, message=f"overridden: {i.message}") if i.code == MC.MISMATCH else i
                       for i in issues]
-        return issues
+        # example values (deep review 2026-11, UX 13): a warning that blocks (Cancel the
+        # default) until the operator confirmed this recipe once in this session; after that
+        # it is information only, said in the status bar
+        from mlaser.machine.preflight import INFO
+        out = []
+        for i in issues:
+            if i.code == EXAMPLE:
+                rk = self._recipe(doc, i)
+                if rk and rk in self.examples_confirmed:
+                    i = replace(i, severity=INFO, message=tr(self.window, "material.example_confirmed",
+                                                             "{message} (confirmed in this session)",
+                                                             message=i.message))
+                else:
+                    i = replace(i, message=tr(self.window, "material.example_ask",
+                                              "{message}. Going ahead confirms these values for this recipe "
+                                              "until mlaser closes.", message=i.message))
+            out.append(i)
+        return out
+
+    #: recipes whose example values the operator confirmed in this session (UX 13)
+    examples_confirmed: set
+
+    @staticmethod
+    def _recipe(doc: Any, issue: Any) -> str:
+        """The recipe of an example-values issue (its layer's technology key), "" if unknown."""
+        import json
+        where = getattr(issue, "where", None) or ()
+        if not where:
+            return ""
+        ref = MC.layer_techs(doc).get(where[0]) or {}
+        key = ref.get("key")
+        return json.dumps(key, sort_keys=True, default=str) if key else ""
+
+    def acknowledge(self, rep: Any, doc: Any) -> None:
+        """The operator went ahead past the pre-flight warnings: the example-values recipes in
+        ``rep`` are confirmed for this session (recorded in the audit log)."""
+        import logging
+
+        from mlaser.machine.audit import audit
+        from mlaser.machine.preflight import WARNING
+        for i in getattr(rep, "issues", ()):
+            if i.code == EXAMPLE and i.severity == WARNING:
+                rk = self._recipe(doc, i)
+                if rk and rk not in self.examples_confirmed:
+                    self.examples_confirmed.add(rk)
+                    audit("technology_example_confirmed", logging.WARNING, recipe=rk, user=self._user())
 
     def override(self, issues: list, parent: Any) -> bool:
         """Ask the operator to cut anyway (audited by the gate)."""

@@ -60,7 +60,7 @@ with a quantity (6 gears drawn in one file are *gear ×6*). Mirror images are di
 left and a right bracket stay apart), unless the part is symmetric. Open contours that lie in no
 part are not parts; they are left out of the nest with a message (repair them first).
 
-**Nest → + From drawing** opens the **Recognised parts** window: each part with a picture, its
+**Nest → + From drawing** (or **Nest ▶** with no parts listed yet) opens the **Recognised parts** window: each part with a picture, its
 count, its size and its holes. Choose the rule at the top, select parts and press **Merge**
 (they are one part) or **Split** (undo a grouping: identical copies become separate parts, a
 part becomes one part per object), then **Nest these**. With a selection on the canvas only the
@@ -113,7 +113,7 @@ applied to the layers the parts use (the Process workspace shows it as applied).
 thickness are entered once: in the order, or in the Process workspace (the Nest field follows
 the technology on the layers until you type in it), or with Nest's **Technology** button.
 
-Every nest part keeps its customer and order reference. **Send to queue** writes them on the
+Every nest part keeps its customer and order reference. **Send all sheets to the queue** writes them on the
 queue entry of each sheet ("ACME · 4711: 6 × gear"), the Run screen shows them on the load card,
 and the production report records them with the cut sheet. The parts lists are saved in
 `<data dir>/production/orders.json` and in the `.mlz` project.

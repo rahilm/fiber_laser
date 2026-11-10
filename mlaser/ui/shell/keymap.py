@@ -38,6 +38,7 @@ WINDOW_KEYS: dict[str, str] = {
     # view
     "view.zoom_fit": "F", "view.zoom_in": "Ctrl+=", "view.zoom_out": "Ctrl+-",
     # run (pre-flight first; Stop always passes)
+    # Start / Frame / Dry run act on the Run workspace only, never while typing (RUN_ONLY)
     "run.start": "F5", "run.frame": "F6", "run.dry_run": "Shift+F6", "run.stop": "F12",
     # shell
     "shell.palette": "Ctrl+K", "app.help": "F1", "shell.shortcuts": "Ctrl+F1",
@@ -47,6 +48,11 @@ WINDOW_KEYS: dict[str, str] = {
     # window (Close: the active window; closing the main window goes through its close checks)
     "window.fullscreen": "F11", "window.close": "Ctrl+W",
 }
+
+#: window keys that start machine motion: they act only while the Run workspace is showing and
+#: no text field has the focus; elsewhere they switch to the Run workspace and focus the button
+#: (ui/shell/motion_keys.py).  Stop is not one of them: it acts everywhere.
+RUN_ONLY: tuple[str, ...] = ("run.start", "run.frame", "run.dry_run")
 
 #: platform overrides of :data:`WINDOW_KEYS` ("" removes a key on that platform)
 PLATFORM_KEYS: dict[str, dict[str, str]] = {
@@ -129,6 +135,7 @@ CANVAS_KEYS: dict[str, str] = {
 #: (keys, lang id of the description, context lang id)
 FIXED_KEYS: list[tuple[str, str, str]] = [
     ("Space", "shell.key.hold", "shell.key.ctx_job"),
+    ("F5", "shell.key.continue", "shell.key.ctx_held"),
     ("Esc", "shell.key.stop", "shell.key.ctx_job"),
     ("F12", "shell.key.stop", "shell.key.ctx_any"),
     ("Esc", "shell.key.deselect", "shell.key.ctx_idle"),
@@ -175,10 +182,14 @@ def rows(label: Callable[[str], str], workspace: Callable[[str], str], tr: Calla
         for cmd, key in table.items():
             if ids is not None and cmd not in ids:
                 continue
-            out.append((workspace(cmd), label(cmd), keys_text(key, plat), ctx))
+            where = tr("shell.key.ctx_run") if table is not CANVAS_KEYS and cmd in RUN_ONLY else ctx
+            out.append((workspace(cmd), label(cmd), keys_text(key, plat), where))
     for key, desc, ctx in FIXED_KEYS:
         if platform_id(plat) == "macos":
             key = key.replace("Ctrl + click", "⌘ + click")
+        if desc == "shell.key.continue":          # Start's own key(s): Continue is Start while held
+            out.append(("", tr(desc), keys_text(window_keys(plat).get("run.start", key), plat), tr(ctx)))
+            continue
         out.append(("", tr(desc), native_text(key, plat), tr(ctx)))
     out.sort(key=lambda r: (r[0] == "", r[0], r[1].lower()))
     return out
@@ -195,7 +206,12 @@ def markdown(rows_: list[tuple[str, str, str, str]], title: str = "Keyboard shor
              "Generated from the command registry by `tools/gen_keyboard_doc.py`; the same table is",
              "shown in the application under Help > Keyboard shortcuts (Ctrl+F1 / ⌘/, or ? on the canvas).",
              "Windows and Linux differ only in redo (Ctrl+Y on Windows, Ctrl+Shift+Z first on Linux) and",
-             "Exit (no shortcut on Windows: Alt+F4).", "", head, rule]
+             "Exit (no shortcut on Windows: Alt+F4).", "",
+             "Start, Frame and Dry run keys act only while the Run workspace is showing and never while",
+             "you type in a field: on another workspace they show the Run workspace and focus the button,",
+             "without starting anything. Space only holds a job, it never continues it; Space and Enter never",
+             "press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) works everywhere.",
+             "", head, rule]
     mac = {(r[0], r[1], r[3]): r[2] for r in (mac_rows or [])}
     seen = set()
     for ws, lab, key, ctx in rows_:
@@ -211,4 +227,4 @@ def markdown(rows_: list[tuple[str, str, str, str]], title: str = "Keyboard shor
     return "\n".join(lines) + "\n"
 
 
-__all__ = ["sequences", "WINDOW_KEYS", "PLATFORM_KEYS", "window_keys", "native_text", "platform_id", "seq_text", "keys_text", "CANVAS_KEYS", "FIXED_KEYS", "key_for", "conflicts", "rows", "markdown"]
+__all__ = ["sequences", "WINDOW_KEYS", "RUN_ONLY", "PLATFORM_KEYS", "window_keys", "native_text", "platform_id", "seq_text", "keys_text", "CANVAS_KEYS", "FIXED_KEYS", "key_for", "conflicts", "rows", "markdown"]

@@ -355,8 +355,14 @@ long jobs on slow hosts.
   `jog_stop` is idempotent: a jog already stopped (by the dead-man, a Stop, a halt) sends no
   second stop sequence, so the wire matches the original's single stop.
 * Stop never blocks the caller: it flags the cancel, a background thread sends the halt first,
-  then waits for the worker. Global keys while a job runs: Space = Hold/continue (not while typing
-  in a text field), Esc and F12 = Stop.
+  then waits for the worker. Global keys while a job runs: Space = Hold only, never continue (not
+  while typing in a text field), Esc and F12 = Stop.  A held job continues only by Start /
+  Continue (the button, or F5 on the Run workspace).  The motion-starting keys (F5 Start, F6
+  Frame, Shift+F6 Dry run) act only while the Run workspace is showing and no text field has the
+  focus; elsewhere they switch to the Run workspace and focus the button without starting
+  anything; they never auto-repeat, and Space / Enter never press a focused Start, Frame, Dry run
+  or Resume button (`mlaser/ui/shell/motion_keys.py`).  Stop is not gated: F12 and Esc stop from
+  every workspace and from text fields.
 * Esc = Stop applies in every window, dialogs included (decision of the UI evaluation, F10: the
   platform guides say Esc only cancels a dialog, but an operator reaching for Esc in a hurry must
   stop the machine wherever the focus is). In a dialog the key then goes on to the dialog too, so
@@ -395,7 +401,14 @@ screen, which is a workspace page in the shell's scroll area, Stop, Hold, Start,
 and Arm are always in view, the resume and queue controls below them may need a vertical
 scroll at that size), the laser fire button
 only when armed, no file open / import / new document while a job runs, start-up homing as one
-dialog with "don't ask again", crash recovery as a dialog.
+dialog with "don't ask again", crash recovery as a dialog.  Recovery (deep review 2026-11, UX 6): the clean-exit marker is
+written from the first session on; the dialog says exactly what Recover restores; the resume
+point of a held job (`File/resume_point.json`, `mlaser/services/resume_point.py`) comes back only
+when its document fingerprint matches the recovered document and the recompiled job reaches the
+same position, and only as a *kept* point (no motion); on a real card it cannot be brought back
+before a homing in this session (`ControllerFacade.restore_kept_breakpoint`, `home_first`), and
+the resume itself is an ordinary resume: the controller's pre-flight and start gate (a laser
+resume needs the machine armed; the Run screen's Resume asks to arm first).
 
 ## 11. Hardware watchdog ("PC alive")
 

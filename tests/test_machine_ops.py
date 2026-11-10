@@ -300,7 +300,7 @@ def test_ext_machine_ui(qapp, tmp_path, monkeypatch):
     assert ext.ops.laser_type == CO2 and len(w.document.layers) == 11
     # recovery from autosave.chf
     from mlaser.formats.chf import save_chf
-    (tmp_path / "File").mkdir()
+    (tmp_path / "File").mkdir(exist_ok=True)          # made at start-up (the NormalExit marker)
     save_chf(Document(parts=[_square()]), str(tmp_path / "File" / "autosave.chf"))
     from PySide6.QtWidgets import QMessageBox
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.Yes))

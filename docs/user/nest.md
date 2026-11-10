@@ -12,6 +12,7 @@ Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
   review where parts can be merged or split. **Import file...** takes several DXF / .chf / SVG
   files at once (each file's parts recognised) or a parts list (.csv, into the Orders tab);
   files can also be dropped on the workspace. See [Import](import.md#part-recognition).
+  **Nest ▶** with no parts listed takes the drawing's parts by itself (the same review first).
 * **Orders** (the tab next to Nest): parts lists with quantity, material, thickness, customer,
   order, due date and priority; **Load into Nest** fills the part list with one material ×
   thickness group ([Import](import.md#orders-several-files-and-parts-lists)).
@@ -42,14 +43,20 @@ Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
   utilisation, **cut length** (m, the contours as cut: common line, cut-up and separation lines
   included, leads not) and **pierces** (one per contour), and the unplaced parts (★ = fewest
   unplaced parts, then fewest sheets, then the best utilisation); click one to go back to it.
-* **Send to queue** writes every sheet as a `.chf` (`<data dir>/production/sheets/`) and adds it
+* **Open sheet n of N in Run ▶** (the main button) is the way to cut one sheet: the selected
+  sheet replaces the drawing as it is cut (undoable), its material and thickness are kept for
+  the material check at Start, and the Run workspace is shown. Nothing starts: Start there names
+  the sheet and its parts ("Start: Sheet 1 of 3 (gear.dxf): gear × 6").
+* **Send all sheets to the queue** is the way to cut a series: it writes every sheet as a `.chf` (`<data dir>/production/sheets/`) and adds it
   to the job queue (identical sheets become one entry with their count), with the material,
   thickness, the sheet outline, the layer parameters and the customer / order references of the
   parts on each sheet. With common line on, the shared edges are cut once. A sheet with a
   cutting strategy (cut-up or separation lines, tip-avoiding order) is written as a `.mlz`
-  project instead, which keeps the cut order. **Copy sheet to drawing** replaces the drawing
-  with the selected sheet as it is cut (undoable) and remembers its material and thickness for
-  the material check at Start.
+  project instead, which keeps the cut order.
+* A sheet whose technology uses **example values** asks before its first Start (Cancel is the
+  default). Going ahead confirms that recipe's example values until mlaser closes: the next
+  sheets with the same recipe start without the question (the status bar still mentions it).
+  A different recipe asks again.
 
 ## Remnants
 

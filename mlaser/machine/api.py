@@ -405,6 +405,12 @@ class ControllerFacade(ABC):
         bp = self.kept_breakpoint
         if bp is None or self.breakpoint is not None or self.job_active():
             return False
+        sim = getattr(self, "is_simulator", None)
+        if getattr(bp, "home_first", False) and not (callable(sim) and sim()):
+            # a point recovered after a restart (services.resume_point): an E-stop or a power
+            # loss can lose the position of a real machine; home it in this session first
+            self._log(_i18n.tr("log.resume_point_home_first"), logging.WARNING)
+            return False
         self.kept_breakpoint = None
         self.breakpoint = bp
         s = getattr(self, "_s", None)

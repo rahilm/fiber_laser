@@ -153,7 +153,12 @@ def test_global_hold_key(win, app):
     QTest.keyClick(win.canvas, Qt.Key_Space)
     _pump(app)
     assert win.ctl.state().mode == "pause"
+    # Space only holds (deep review 2026-11, UX 8): a second press keeps the job held;
+    # Start / Continue continues it
     QTest.keyClick(win.canvas, Qt.Key_Space)
+    _pump(app)
+    assert win.ctl.state().mode == "pause"
+    win.safety_ui.start()
     _pump(app)
     assert win.ctl.state().mode == "process"
 

@@ -157,6 +157,9 @@ class Shell:
         self.native = NativeIntegration(w, self.config, self.tr)
         self._register_commands()
         self._apply_keys()
+        from .motion_keys import MotionKeyGuard      # F5 / F6 / Shift+F6: the Run workspace only
+        self.motion_keys = MotionKeyGuard(self)
+        self.motion_keys.install()
         from .palette import CommandPalette
         hud = getattr(getattr(w, "canvas", None), "hud", None)
         if hud is not None:          # the canvas bar's fold is remembered
@@ -407,6 +410,9 @@ class Shell:
         if self.topbar is not None and getattr(self, "_keys_applied", False):
             self.apply_focus_order()
         self.config.set("shell.workspace", ws_id)
+        mk = getattr(self, "motion_keys", None)
+        if mk is not None:
+            mk.guard_buttons()                       # a workspace built on first show
         try:
             self.w.hooks.emit("workspace_changed", ws_id)
         except KeyError:

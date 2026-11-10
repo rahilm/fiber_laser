@@ -144,9 +144,9 @@ canvas; generated from the same table). The most used:
 | `Ctrl+K` | command palette |
 | `F1` | help (the user guide, offline) |
 | `Ctrl+1` … `Ctrl+6` | workspaces |
-| `F5` | Start (pre-flight check first) |
-| `F6` / `Shift+F6` | Frame / Dry run |
-| `Space` | Hold / continue while a job runs |
+| `F5` | Start, or Continue a held job (pre-flight check first); Run workspace only |
+| `F6` / `Shift+F6` | Frame / Dry run; Run workspace only |
+| `Space` | Hold while a job runs (never continues) |
 | `Esc`, `F12` | Stop while a job runs (`F12` always) |
 | `V` `H` `N` | select, pan, node edit (canvas) |
 | `L` `K` `J` `S` `P` | lead, kerf, micro-joint, sort, simulate (canvas) |
@@ -185,8 +185,8 @@ The first start shows a **welcome sheet**:
   `ManuPara.xml` from the `dat` folder of your original Mlaser install; *Import languages…*
   reads its `Lang` folder.
 * **The safety model** — every connection starts disarmed; arming is a confirmed operator
-  action; Start, Frame and Dry run run a pre-flight check; while a job runs Space holds and
-  Esc/F12 stop; a fault latches until it is reset ([docs/SAFETY.md](../SAFETY.md)).
+  action; Start, Frame and Dry run run a pre-flight check; while a job runs Space holds (it never continues) and
+  Esc/F12 stop; F5, F6 and Shift+F6 act only on the Run workspace; a fault latches until it is reset ([docs/SAFETY.md](../SAFETY.md)).
 * **Help** — this page and the keyboard shortcuts.
 
 The sections sit in two columns when one would be taller than the screen, so the sheet fits a

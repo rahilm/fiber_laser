@@ -183,7 +183,9 @@ the supervisor are independent of it (docs/SAFETY.md).
 (Shift+F6), `run.hold`, `run.stop` (F12), `run.arm`, `run.simulate`; they call the safety UI
 (`window.safety_ui.start()` ...), so a Run workspace can put them on its own buttons with
 `QToolButton.setDefaultAction(window.ribbon.actions["run.start"])` and get the pre-flight check,
-the arming dialog and the keys for free.  The persistent run bar stays at the bottom of every
+the arming dialog and the keys for free.  The keys of `run.start`, `run.frame` and
+`run.dry_run` act only on the Run workspace (`mlaser/ui/shell/motion_keys.py`); a trigger
+from a menu, a button or the palette is not gated.  The persistent run bar stays at the bottom of every
 workspace; do not build a second one.
 
 **Providers.**  `window.hooks.provider("workspace.show")(id)` and

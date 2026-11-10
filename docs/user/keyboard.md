@@ -5,6 +5,11 @@ shown in the application under Help > Keyboard shortcuts (Ctrl+F1 / ⌘/, or ? o
 Windows and Linux differ only in redo (Ctrl+Y on Windows, Ctrl+Shift+Z first on Linux) and
 Exit (no shortcut on Windows: Alt+F4).
 
+Start, Frame and Dry run keys act only while the Run workspace is showing and never while
+you type in a field: on another workspace they show the Run workspace and focus the button,
+without starting anything. Space only holds a job, it never continues it; Space and Enter never
+press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) works everywhere.
+
 | Workspace | Command | Windows / Linux | macOS | Where |
 |---|---|---|---|---|
 | Design | Copy | `Ctrl+C` | `⌘C` | main window |
@@ -34,18 +39,19 @@ Exit (no shortcut on Windows: Alt+F4).
 | Process | Micro joint | `J` | `J` | canvas focused |
 | Process | Sort | `S` | `S` | canvas focused |
 | Process | Workspace: Process | `Ctrl+2` | `⌘2` | main window |
-| Run | Dry run | `Shift+F6` | `⇧⌘R / ⇧F6` | main window |
-| Run | Frame | `F6` | `⇧⌘F / F6` | main window |
+| Run | Dry run | `Shift+F6` | `⇧⌘R / ⇧F6` | Run workspace, not while typing |
+| Run | Frame | `F6` | `⇧⌘F / F6` | Run workspace, not while typing |
 | Run | Simulate (preview) | `P` | `P` | canvas focused |
-| Run | Start job | `F5` | `⌘R / F5` | main window |
+| Run | Start job | `F5` | `⌘R / F5` | Run workspace, not while typing |
 | Run | Stop | `F12` | `⌘. / F12` | main window |
 | - | Add to the selection | `Shift / Ctrl + click` | `Shift / ⌘ + click` | canvas focused |
 | - | Close | `Ctrl+W` | `⌘W` | main window |
 | - | Command palette | `Ctrl+K` | `⌘K` | main window |
+| - | Continue a held job (Start) | `F5` | `⌘R / F5` | Run workspace, job held |
 | - | Deselect, back to the select tool | `Esc` | `Esc` | no job running |
 | - | Full screen | `F11` | `⌃⌘F` | main window |
 | - | Help | `F1` | `⌘? / F1` | main window |
-| - | Hold / continue the job | `Space` | `Space` | while a job runs |
+| - | Hold the job (never continues) | `Space` | `Space` | while a job runs |
 | - | Keyboard shortcuts | `Ctrl+F1` | `⌘/ / ⌘F1` | main window |
 | - | Keyboard shortcuts | `?` | `?` | canvas focused |
 | - | Move the selection by the keyboard step | `← ↑ → ↓` | `← ↑ → ↓` | canvas focused |
