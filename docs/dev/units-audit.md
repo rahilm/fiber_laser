@@ -94,7 +94,7 @@ panel's Leads, Kerf and Micro-joint sections.
 | mlaser/ui/panels.py | layer table Gas Pressure column (+ header unit) | pressure | pressure | converted (×10 when UN.GasPressureUnit = MPa) |
 | mlaser/ui/panels.py | layer table Cut Height column (+ header unit) | length | length | converted |
 | mlaser/ui/panels.py | layer table Power % / Frequency Hz / Gas type | % / Hz | – | not a unit |
-| mlaser/ui/panels.py | part list Size column `W×H` + header "Part size (in)" | length | length | converted, live refresh |
+| mlaser/ui/part_list.py | part list Size column `W×H` + header "Part size (in)" | length | length | converted, live refresh |
 | mlaser/ui/panels.py | jog step presets mp90..mp99 (0.05 … 200, no unit shown) | length | length | converted: labels with unit; imperial presets 0.001 … 7.5 in, each no longer than the metric step it replaces; item data = mm |
 | mlaser/ui/panels.py | Backward / Forward length `bf_len` (QDoubleSpinBox, no suffix) | length | length | converted (QuantitySpinBox) |
 | mlaser/ui/panels.py | laser power % spin | % | – | not a unit |

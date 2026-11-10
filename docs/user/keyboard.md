@@ -10,6 +10,7 @@ Exit (no shortcut on Windows: Alt+F4).
 | Design | Copy | `Ctrl+C` | `⌘C` | main window |
 | Design | Cut | `Ctrl+X` | `⌘X` | main window |
 | Design | Delete | `Del` | `⌫ / ⌦` | main window |
+| Design | Find part… | `Ctrl+F` | `⌘F` | main window |
 | Design | Import | `Ctrl+I` | `⌘I` | main window |
 | Design | Invert selection | `Ctrl+Shift+I` | `⇧⌘I` | main window |
 | Design | New | `Ctrl+N` | `⌘N` | main window |

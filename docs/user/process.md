@@ -105,6 +105,24 @@ The **Layers** list shows each layer in use with its technology and its state:
 
 **Save layer as technology…** stores a layer you tuned by hand as a new technology.
 
+### Technology for some parts
+
+A technology belongs to a layer: every part on a layer is cut with the layer's technology. To
+cut some parts with another one, select them (on the canvas, or in the **Parts** list; see
+[Design › Parts list](design.md#parts-list)) and press **Assign technology…** in the Parts list
+(also **Process → Assign technology to selected parts…**). Pick the material, thickness, gas and
+nozzle and press **Assign**. mlaser then, as one undo step:
+
+* moves the parts to a layer that already uses that technology (unchanged since it was
+  assigned), when there is one;
+* else moves them to the lowest layer no part uses and assigns the technology to that layer;
+* when the selection is exactly all parts of one layer, assigns the technology to that layer and
+  moves nothing.
+
+The status bar and the log say what happened, for example "12 parts moved to layer 3 · Mild
+steel S235 2 mm · O2 · …". **Ctrl+Z** undoes it all. When every layer is in use, it says so and
+changes nothing: move some parts to another layer first (Properties › Layer).
+
 The tab **Cutting strategy** (next to *Technology*, *What changed* and *History*) works on the
 drawing (details in [Cutting strategy](cutting-strategy.md)):
 
