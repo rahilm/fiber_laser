@@ -9,6 +9,10 @@ function runs, the change is recorded as one undo command, listeners are told) o
 (default: all).  ``fn`` may also add, remove and reorder parts and change ``layers`` / ``extra``.
 Parts outside the scope must not be changed in place (they are not copied).  When ``fn`` raises,
 the scope is restored and nothing is recorded.
+
+``edit_geometry(fn, label, parts=...)``: an edit that only *replaces* the ``segments`` lists of
+contours of ``parts`` (a move); its undo keeps those lists instead of part copies
+(:class:`~mlaser.services.undo.SegmentsEdit`: exact and cheap, perf review finding 6).
 """
 
 from __future__ import annotations
@@ -19,9 +23,18 @@ from typing import Any, Callable, Iterable, Optional
 
 from mlaser.model import Contour, Document, Part, _raw_extra, ensure_unique_ids
 
-from .undo import PartsEdit, ReplaceDocument, RoundTripTable, UndoStack, fast_deepcopy, part_cost, scope_uids
+from .undo import (PartsEdit, ReplaceDocument, RoundTripTable, SegmentsEdit, UndoStack, fast_deepcopy, part_cost,
+                   scope_uids, segments_cost)
 
 Listener = Callable[[str], None]  # kind: "edit" | "replace" | "undo" | "redo"
+
+
+class ChangedParts(frozenset):
+    """:attr:`DocumentService.changed` of a move: the uids, and ``shift`` = (dx, dy) when the
+    parts were translated rigidly by about that much (their sizes did not change; a view that
+    caches sizes keeps them).  None for any other change."""
+
+    shift: Optional[tuple[float, float]] = None
 
 
 class DocumentService:
@@ -53,8 +66,10 @@ class DocumentService:
         self._plan_parts: dict[int, tuple[Part, Part]] = {}
         self._plan_dirty: set[int] = set()
         # earlier (live part, copy) per uid, for the undo / redo of an edit (see plan_snapshot)
-        self._plan_prev: dict[int, tuple[Part, Part]] = {}
+        self._plan_prev: dict[int, tuple[Optional[Part], Part]] = {}
         self.plan_hits = self.plan_misses = 0
+        #: counts the notifications (every change told to the listeners)
+        self.revision = 0
         ensure_unique_ids(self.document)
         self.blobs.register_document(self.document)
 
@@ -63,11 +78,19 @@ class DocumentService:
         self.listeners.append(fn)
         return lambda: self.listeners.remove(fn) if fn in self.listeners else None
 
-    def _notify(self, kind: str, changed: Optional[Iterable[int]] = None) -> None:
+    def _notify(self, kind: str, changed: Optional[Iterable[int]] = None,
+                shift: Optional[tuple[float, float]] = None) -> None:
         """Tell the listeners; while they run, :attr:`changed` holds the uids of the parts the
-        change may have touched (None: unknown, treat every part as changed)."""
+        change may have touched (None: unknown, treat every part as changed); a
+        :class:`ChangedParts` with ``shift`` for a rigid move."""
         outer = self.changed
-        self.changed = frozenset(changed) if changed is not None else None
+        self.revision += 1
+        if changed is not None and shift is not None:
+            ch = ChangedParts(changed)
+            ch.shift = shift
+            self.changed = ch
+        else:
+            self.changed = frozenset(changed) if changed is not None else None
         try:
             for fn in list(self.listeners):
                 fn(kind)
@@ -168,8 +191,11 @@ class DocumentService:
     def _plan_invalidate(self, uids=None) -> None:
         if uids is None:
             # a new document: its parts are other objects; the old copies are kept as
-            # candidates (undo of the open brings back the parts they were copied from)
-            self._plan_prev.update(self._plan_parts)
+            # candidates (undo of the open brings back the parts they were copied from).
+            # Only these: the copies of documents before it cannot come back (an open drops
+            # the history before it, :meth:`adopt`), and keeping them kept a closed drawing
+            # alive (perf review finding 12)
+            self._plan_prev = {u: (None, c) for u, (_p, c) in self._plan_parts.items()}
             self._plan_parts.clear()
             self._plan_dirty.clear()
         else:
@@ -177,10 +203,12 @@ class DocumentService:
 
     # ------------------------------------------------------------------ whole document
     def replace(
-        self, doc: Document, path: Optional[str] = None, label: str = "replace", record: bool = True
+        self, doc: Document, path: Optional[str] = None, label: str = "replace", record: bool = True,
+        closes: bool = False,
     ) -> None:
         """Make ``doc`` the document; ``record`` keeps the old one on the undo stack.  Inside an
-        :meth:`edit` the replacement becomes part of that transaction."""
+        :meth:`edit` the replacement becomes part of that transaction.  ``closes``: the old
+        drawing is closed (an open): only the undo of this replacement is kept."""
         if self._depth:
             self.document, self.path = doc, path
             ensure_unique_ids(doc)
@@ -188,6 +216,8 @@ class DocumentService:
         if record:
             old, old_path = self._pending or (self.document, self.path)
             self.stack.push(ReplaceDocument(self.label_for(label), old, old_path, cost=sum(part_cost(p) for p in old.parts)))
+            if closes:
+                self.stack.keep_last()
         self._pending = None
         self.document, self.path = doc, path
         ensure_unique_ids(doc)
@@ -197,9 +227,13 @@ class DocumentService:
 
     def adopt(self, doc: Document, path: Optional[str] = None) -> None:
         """Set the document without an undo entry, unless :meth:`checkpoint` was called first
-        (then the change is recorded against the checkpoint)."""
+        (then the change is recorded against the checkpoint: File > Open / New).
+
+        Another document after a checkpoint closes the old drawing: its undo step stays (Undo
+        brings the old drawing back), the history before it is dropped, so a day of opening
+        job after job does not keep every closed drawing's edits (perf review finding 12)."""
         if self._pending is not None and doc is not self.document:
-            self.replace(doc, path, "replace", record=True)
+            self.replace(doc, path, "replace", record=True, closes=True)
             return
         if self._pending is not None and doc is self.document:
             self._commit_pending()
@@ -295,19 +329,81 @@ class DocumentService:
             self._notify("edit", changed)
         return result
 
+    def edit_geometry(
+        self,
+        fn: Callable[[Document], Any],
+        label: str = "edit",
+        parts: Optional[Iterable[Part]] = None,
+        coalesce: bool = False,
+        shift: Optional[tuple[float, float]] = None,
+    ) -> Any:
+        """:meth:`edit` for a change that only **replaces** the ``segments`` lists of contours of
+        ``parts`` (default: all) with new lists of new segment objects (a move: ``fn`` must not
+        change a segment object or list in place, nor anything else).  The undo command keeps
+        the replaced lists (:class:`~mlaser.services.undo.SegmentsEdit`): no part copies, and an
+        undo restores the very coordinates there were.  ``shift``: (dx, dy) when ``fn`` is a
+        translation by that much (views may keep cached sizes, :class:`ChangedParts`).
+
+        Raises ``RuntimeError`` (with the segment lists put back) when ``fn`` changed the part
+        list or the contours themselves; when ``fn`` raises, the lists are put back too."""
+        if self._depth:  # nested: part of the outer transaction (which copied its scope)
+            return fn(self.document)
+        t0 = time.perf_counter()
+        doc = self.document
+        live_before = list(doc.parts)
+        scope = list(parts) if parts is not None else list(live_before)
+        before = [(p, list(p.contours), [c.segments for c in p.contours]) for p in scope]
+
+        def roll_back() -> None:
+            for _p, cs, lists in before:
+                for c, lst in zip(cs, lists):
+                    c.segments = lst
+        self._depth += 1
+        try:
+            result = fn(doc)
+        except BaseException:
+            roll_back()
+            raise
+        finally:
+            self._depth -= 1
+        same = (self.document is doc and len(doc.parts) == len(live_before)
+                and all(a is b for a, b in zip(doc.parts, live_before))
+                and all(len(p.contours) == len(cs) and all(a is b for a, b in zip(p.contours, cs))
+                        for p, cs, _l in before))
+        if not same:
+            roll_back()
+            raise RuntimeError("edit_geometry: the edit changed more than contour segment lists")
+        segs: dict[int, dict[int, list]] = {}
+        for p, cs, lists in before:
+            m = {c.uid: lst for c, lst in zip(cs, lists) if c.segments is not lst}
+            if m:
+                segs[p.uid] = m
+        uids = [p.uid for p in scope]
+        self._plan_invalidate(uids)
+        if segs:
+            label = self.label_for(label)
+            key = ("geometry", label, frozenset(uids)) if coalesce else None
+            self.stack.push(SegmentsEdit(label, segs, cost=segments_cost(segs), merge_key=key,
+                                         shift=(float(shift[0]), float(shift[1])) if shift is not None else None))
+        self.last_edit_ms = (time.perf_counter() - t0) * 1e3
+        self._notify("edit", set(segs), shift if segs else None)
+        return result
+
     # ------------------------------------------------------------------ undo
     def undo(self) -> Optional[str]:
-        changed = _swapped(self.stack._undo[-1] if self.stack._undo else None)
+        cmd = self.stack._undo[-1] if self.stack._undo else None
+        changed = _swapped(cmd)
         label = self.stack.undo(self)
         if label is not None:
-            self._notify("undo", changed)
+            self._notify("undo", changed, _shift(cmd, -1.0))
         return label
 
     def redo(self) -> Optional[str]:
-        changed = _swapped(self.stack._redo[-1] if self.stack._redo else None)
+        cmd = self.stack._redo[-1] if self.stack._redo else None
+        changed = _swapped(cmd)
         label = self.stack.redo(self)
         if label is not None:
-            self._notify("redo", changed)
+            self._notify("redo", changed, _shift(cmd, 1.0))
         return label
 
     @property
@@ -331,7 +427,15 @@ def _swapped(cmd: Any) -> Optional[set[int]]:
     """uids of the parts an undo / redo of ``cmd`` exchanges (None: the whole document)."""
     if isinstance(cmd, PartsEdit):
         return set(cmd.swap)
+    if isinstance(cmd, SegmentsEdit):
+        return set(cmd.segs)
     return None
+
+
+def _shift(cmd: Any, sign: float) -> Optional[tuple[float, float]]:
+    """The translation an undo (``sign`` -1) or redo (+1) of a move makes (a view hint)."""
+    sh = getattr(cmd, "shift", None) if isinstance(cmd, SegmentsEdit) else None
+    return (sign * sh[0], sign * sh[1]) if sh is not None else None
 
 
 def _same_part(live: Part, copy_: Part) -> bool:

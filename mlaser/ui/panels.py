@@ -1,7 +1,9 @@
 """Side panels: layer parameters, part list, machine control panel, log/alarm dock."""
 from __future__ import annotations
 
+import operator
 import time
+from itertools import chain
 from typing import Callable, Optional
 
 from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
@@ -264,7 +266,8 @@ class PartListPanel(QTreeWidget):
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
         self._rows: list = []              # the part shown in each row at the last refresh
         self._swatches: dict[int, QIcon] = {}
-        self.bbox_hits = self.bbox_misses = 0
+        self.bbox_hits = self.bbox_misses = self.bbox_moved = 0
+        self._moved: dict[int, tuple[float, float]] = {}   # uid -> how far it moved since its box
         self.itemSelectionChanged.connect(self._sel_changed)
         tr.bind(self, "np_Part", lambda _t: self._headers())
         ColumnFitter(self, {0: 1, 2: 3, 3: 2, 4: 0}, stretch=1)
@@ -284,12 +287,25 @@ class PartListPanel(QTreeWidget):
         self.refresh(changed)
 
     def part_bbox(self, p) -> tuple:
-        """``p.bbox()``, cached by uid while the part's segment objects are the same."""
-        segs = tuple(s for c in p.contours for s in c.segments)
+        """``p.bbox()``, cached by uid while the part's segment objects are the same.  A part
+        that was moved since (a :class:`~mlaser.services.document.ChangedParts` with a
+        ``shift`` told :meth:`refresh`) gets its cached box moved along instead of measured
+        again: two bounding-box passes over every part made a select-all nudge slow (perf review
+        finding 6).  The moved box equals a new measurement up to rounding in the last bits."""
+        cs = p.contours
+        segs = tuple(cs[0].segments) if len(cs) == 1 else tuple(chain.from_iterable(c.segments for c in cs))
         hit = self._bbox_cache.get(p.uid)
-        if hit is not None and len(hit[0]) == len(segs) and all(a is b for a, b in zip(hit[0], segs)):
+        if hit is not None and len(hit[0]) == len(segs) and all(map(operator.is_, hit[0], segs)):
             self.bbox_hits += 1
             return hit[1]
+        moved = self._moved.pop(p.uid, None)
+        if moved is not None and hit is not None and len(hit[0]) == len(segs):
+            self.bbox_moved += 1
+            x0, y0, x1, y1 = hit[1]
+            dx, dy = moved
+            bb = (x0 + dx, y0 + dy, x1 + dx, y1 + dy)
+            self._bbox_cache[p.uid] = (segs, bb)
+            return bb
         self.bbox_misses += 1
         bb = p.bbox()
         self._bbox_cache[p.uid] = (segs, bb)
@@ -315,11 +331,23 @@ class PartListPanel(QTreeWidget):
         u = U.current()
         dec = 2 if u.unit("length") == "mm" else u.decimals("length")
         red = style.color("danger")
+        shift = getattr(changed, "shift", None)      # a move (DocumentService.ChangedParts)
+        moved = self._moved
+        if changed is None:
+            moved.clear()                            # not known what changed: measure again
         live = set()
         new_items = []
         for i, p in enumerate(parts):
             live.add(p.uid)
             self._rows.append(p)
+            if changed is not None and p.uid in changed:
+                if shift is not None and p.uid in self._bbox_cache:
+                    m = moved.get(p.uid)
+                    moved[p.uid] = shift if m is None else (m[0] + shift[0], m[1] + shift[1])
+                    if i < n_items and i < len(rows) and rows[i] is p:
+                        continue             # moved: number, name, layer, contours and size stay
+                else:
+                    moved.pop(p.uid, None)
             if i < n_items and i < len(rows) and rows[i] is p and p.uid not in changed:
                 continue                     # the same part, unchanged: the row is up to date
             x0, y0, x1, y1 = self.part_bbox(p)
@@ -349,6 +377,7 @@ class PartListPanel(QTreeWidget):
         self._apply_selection([p.selected for p in parts])
         if len(self._bbox_cache) > 2 * max(len(live), 64):
             self._bbox_cache = {u: v for u, v in self._bbox_cache.items() if u in live}
+            self._moved = {u: v for u, v in moved.items() if u in live}
         self._sync = False
 
     def sync_selection(self) -> None:

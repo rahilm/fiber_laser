@@ -25,6 +25,7 @@ from __future__ import annotations
 
 import copy
 import dataclasses
+import operator
 from typing import Callable, Optional
 
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QFontComboBox,
@@ -224,6 +225,7 @@ class DrawExtension:
         self.adv = AdvTextParams()
         # the arrow-key step is a preference (Settings > Design & CAM defaults > Editing)
         cfg = window.config
+        self._extent_cache: list = []      # [(segment lists, segment count, (w, h))] of selections
         self.fine = FineTuneParams(step=float(cfg.get("design.nudge_step", 1.0)),
                                    auto=bool(cfg.get("design.nudge_auto", True)))
         cfg.subscribe(self._config_changed)
@@ -607,6 +609,33 @@ class DrawExtension:
             act.setChecked(self.fine.auto)
             act.blockSignals(False)
 
+    def _extent(self, sel: list[Part]) -> tuple[float, float]:
+        """(width, height) of the selection's bounding box, kept for the segment lists it was
+        measured on (edits replace segment lists and objects, they do not change them) and
+        carried over this extension's own nudges (a move keeps the extent): a select-all nudge
+        of 2,700 parts spent a fifth of its time in this box (perf review finding 6)."""
+        lists = tuple(c.segments for p in sel for c in p.contours)
+        n = sum(len(x) for x in lists)
+        for k, (ls, cnt, ext) in enumerate(self._extent_cache):
+            if cnt == n and len(ls) == len(lists) and all(map(operator.is_, ls, lists)):
+                if k:
+                    self._extent_cache.insert(0, self._extent_cache.pop(k))
+                return ext
+        box = getattr(getattr(self.w, "part_list", None), "part_bbox", None)
+        if callable(box):                   # the part boxes the part list measured already
+            bs = [box(p) for p in sel if p.contours]
+            x0, y0, x1, y1 = ((min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs),
+                               max(b[3] for b in bs)) if bs else (0.0, 0.0, 0.0, 0.0))
+        else:
+            x0, y0, x1, y1 = AR.bbox(sel)
+        ext = (x1 - x0, y1 - y0)
+        self._remember_extent(lists, n, ext)
+        return ext
+
+    def _remember_extent(self, lists: tuple, n: int, ext: tuple[float, float]) -> None:
+        self._extent_cache.insert(0, (lists, n, ext))
+        del self._extent_cache[4:]                  # the latest few: undo / redo bring them back
+
     def step_for(self, dx: float, dy: float) -> float:
         """FUN_004d0930: fixed pd377 step, or the auto step from the selection extent."""
         if not self.fine.auto:
@@ -614,16 +643,23 @@ class DrawExtension:
         sel = self._selected()
         if not sel:
             return self.fine.step
-        x0, y0, x1, y1 = AR.bbox(sel)
-        return AR.auto_step((x1 - x0) if dx else (y1 - y0))
+        w, h = self._extent(sel)
+        return AR.auto_step(w if dx else h)
 
     def nudge(self, dx: float, dy: float) -> None:
-        """Arrow keys (view key handler FUN_004d0480 -> FUN_004d0930 -> ICADModule+0x128)."""
-        if not self._selected():
+        """Arrow keys (view key handler FUN_004d0480 -> FUN_004d0930 -> ICADModule+0x128).  A
+        move: the undo step keeps the replaced segment lists, not part copies
+        (``DocumentService.edit_geometry``, exact)."""
+        sel = self._selected()
+        if not sel:
             return
         s = self.step_for(dx, dy)
-        self.edit(lambda doc: AR.translate(self._selected(doc), dx * s, dy * s), "nudge", parts=self._selected(),
-                  coalesce=True)
+        ext = self._extent(sel) if self.fine.auto else None
+        self.ctx.docs.edit_geometry(lambda doc: AR.translate(sel, dx * s, dy * s), "nudge", parts=sel,
+                                    coalesce=True, shift=(dx * s, dy * s))
+        if ext is not None:                         # moved as a whole: the same extent
+            lists = tuple(c.segments for p in sel for c in p.contours)
+            self._remember_extent(lists, sum(len(x) for x in lists), ext)
 
 
 # --------------------------------------------------------------------------- wiring

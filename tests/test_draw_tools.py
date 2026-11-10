@@ -315,7 +315,10 @@ def test_draw_edits_copy_only_their_scope(win):
     ext.fine.auto, ext.fine.step = False, 1.0
 
     def last_swap():
-        return win.docs.stack._undo[-1].swap
+        # the parts the step holds: copies (PartsEdit.swap) or, for a move, the replaced
+        # segment lists (SegmentsEdit.segs, perf review finding 6)
+        cmd = win.docs.stack._undo[-1]
+        return cmd.swap if hasattr(cmd, "swap") else cmd.segs
     before = [p.bbox() for p in win.document.parts]
     win.canvas.select_parts([3])
     win.nudge(1, 0)
