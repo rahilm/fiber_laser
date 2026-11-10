@@ -37,8 +37,25 @@ class Host:
         return self.doc
 
 
+#: the lessons cut the practice sheet in real time (``ctl``): here at this scale, the same parts,
+#: contours, order and speed in a third of the time (each lesson took 35 s); what is tested is
+#: the lesson, not the sheet's size (tests/test_practice_sheet.py checks the real sheet)
+SHEET_SCALE = 0.3
+
+
+def small_practice_document():
+    from mlaser.cad.arrange import scale_about
+    doc = _real_practice_document()
+    scale_about(doc.parts, SHEET_SCALE, SHEET_SCALE, (0.0, 0.0))
+    return doc
+
+
+_real_practice_document = PR.practice_document
+
+
 @pytest.fixture
-def ctl():
+def ctl(monkeypatch):
+    monkeypatch.setattr(PR, "practice_document", small_practice_document)
     # real time: the streamer keeps its full 1.2 s buffer ahead of the simulated card (2x still
     # underran the FIFO when a macOS runner stalled the streaming process; the fault was correct)
     c = simrig.simulator_controller("card", time_scale=1.0)
