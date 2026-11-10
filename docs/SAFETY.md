@@ -373,10 +373,16 @@ the pessimistic mode. A halt completes the step being executed (the 1-pulse resu
 
 ## 10. UI
 
-State banner (FAULT dark red, ARMED red with Disarm laser, DRY-RUN amber, SIMULATOR blue,
-DISARMED grey with Arm laser, *Home axes* while NOT HOMED), alarm banner with remedy texts
-(`ui/safety_texts.py`), the one *Reset alarm* (also for a fault: one banner when a fault and
-alarms are both present) and Details (the raw fault reason and the alarm list: the banners show a
+State banner (ARMED amber with Disarm laser, DRY RUN and DISARMED grey with Arm laser, *Home
+axes* while NOT HOMED; the dark slate of motion with a HOMING / MOVING / RUNNING chip while the
+axes move, so "disarmed" never reads as "idle"; a violet SIMULATOR chip in every state, never red
+or amber). While an alarm or a fault is active the banner is the one alarm block, the same on
+every workspace (E-STOP and ALARM red, FAULT dark red, each with its own icon, a lost link with
+a broken-link icon): the alarm or fault with its time, the remedy (`ui/safety_texts.py`) or the
+reason a reset was refused, the laser's state as a chip, the one *Reset alarm* (also for a
+fault: one block when a fault and alarms are both present) and Details; on the Run workspace
+its state block carries the remedy and *Reset alarm* and the banner keeps the state only.
+Details (the raw fault reason and the alarm list: the banners show a
 plain headline, `machine/fault_text.py`, never card words, wire indices or deadlines), the
 status bar never shows Ready while an alarm or fault is latched, a run bar at the bottom (not in
 a scroll area, 56 px targets; one row, or two rows in a narrow window such as a half-screen one,

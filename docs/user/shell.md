@@ -6,7 +6,7 @@ prefers it (see [Classic ribbon](#4-classic-ribbon)).
 ```
 ┌ top bar ─────────────────────────────────────────────────────────────────────────────┐
 │ [Mlaser ▾]  part.chf ●     [Search commands…  Ctrl+K]   ◆ SIMULATOR ● DISARMED  Engineer ▾  English ▾ │
-├ safety state banner (and the alarm banner while an alarm is active) ─────────────────┤
+├ safety state banner (the one alarm block while an alarm is active) ──────────────────┤
 │ rail │ workspace toolbar                                                              │
 │ ✎ Design  ├──────────────────────────────────────────────┬────────────────────────────┤
 │ ⚙ Process │ canvas, or the workspace's own screen        │ panels (docks) of the      │
@@ -28,9 +28,11 @@ prefers it (see [Classic ribbon](#4-classic-ribbon)).
 * **Search commands** — opens the [command palette](#3-command-palette).
 * **State chips** — the safety state at a glance: `◆ SIMULATOR`, `◌ DRY-RUN`,
   `▲ ARMED` / `● DISARMED`, `✖ FAULT`, `! ALARM`, `– OFFLINE`. Each chip says its state in
-  words and with a symbol, never by colour alone; hover for an explanation. The full-width
-  safety banner below the top bar and the run bar at the bottom stay as described in
-  [docs/SAFETY.md](../SAFETY.md): the chips only repeat the state.
+  words and with a symbol, never by colour alone; hover for an explanation. A chip appears only
+  for a state the safety banner below the top bar does not show itself; today the banner shows
+  them all (the laser state, the motion, the alarm block and the violet SIMULATOR chip), so the
+  top bar does not change when an alarm comes. The banner and the run bar at the bottom are
+  described in [docs/SAFETY.md](../SAFETY.md).
 * **User mode** — Operator, Engineer or Service ([§5](#5-user-modes)).
 * **Language** — switches immediately. Languages other than English come from your own Mlaser
   install (Settings > Import languages).

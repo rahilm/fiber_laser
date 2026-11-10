@@ -28,15 +28,19 @@ A connection always starts **disarmed**: the laser cannot fire. Arming is a deli
 mode, while a fault is latched, while an interlock holds and while a job runs. Frame, dry runs
 and Backward/Forward always run disarmed.
 
-The state banner at the top of the window always shows the state:
+The state banner at the top of the window always shows the state, in words and with an icon:
 
 | Banner | Meaning |
 |---|---|
 | grey **DISARMED** | connected, laser locked out |
-| red **ARMED** | the next job may fire the laser |
-| amber **DRY-RUN** | started with `--laser-off` |
-| blue **SIMULATOR** | connected to the simulator, not a machine |
-| dark red **FAULT** | something went wrong; motion and the laser are refused until you reset |
+| amber **ARMED** | the next job may fire the laser |
+| grey **DRY RUN** | started with `--laser-off` |
+| dark slate, with **HOMING** / **MOVING** / **RUNNING** | the axes are moving (homing, a go-to move, a frame, a dry run or a job); "disarmed" only says the laser cannot fire. Start, Frame and Dry run wait until the move ends ("Homing in progress"); **STOP** stops it at once |
+| red **E-STOP** / **ALARM**, dark red **FAULT** | one alarm block: the alarm or fault with its time, what to do, the laser's state and **Reset alarm** / **Details**. A lost link shows FAULT with a broken-link icon. If the cause is still there, Reset is refused and the block says why |
+| violet **SIMULATOR** chip | connected to the built-in simulator, not a machine (shown in every state; the run bar's state reads "Simulator") |
+
+A card reached at a network address is shown as "Card at <address>: not identified": the card
+does not say whether it is a real card or the network simulator (`mlaser-cardsim`).
 
 ## Pre-flight check
 
