@@ -536,13 +536,14 @@ class MachineWorkspace(QWidget):
         self.r_sim.setChecked(True)
         g.addWidget(self.r_sim, 0, 0)
         g.addWidget(self.r_real, 0, 1)
-        ip = self.ctx.config.get("ip", None) or {}
-        self.host = QLineEdit(ip.get("pd445", "10.1.1.168"))
+        from mlaser.services import endpoint
+        tc = endpoint.transport_config(endpoint.record_of(self.ctx.config))   # the one endpoint record
+        self.host = QLineEdit(tc.host)
         self.host.setMinimumHeight(32)
         self.host.setAccessibleName(T(w, "ws.machine.host"))
         self.port = QSpinBox()
         self.port.setRange(1, 65535)
-        self.port.setValue(502)
+        self.port.setValue(tc.port)
         self.port.setMinimumHeight(32)
         self.port.setAccessibleName(T(w, "ws.machine.port"))
         g.addWidget(QLabel(T(w, "ws.machine.host")), 1, 0)
@@ -607,7 +608,10 @@ class MachineWorkspace(QWidget):
         from mlaser.controller.ui_adapter import UiController
         ctl = self.ctx.controller
         if not isinstance(ctl, UiController) or ctl.is_simulator():
+            from mlaser.services import endpoint
             ctl = UiController(machine=self.w.machine, cam_params=self.w.cam_params)
+            # transport and timing from the endpoint record (the address and port: the fields)
+            endpoint.apply_to(ctl, endpoint.transport_config(endpoint.record_of(self.ctx.config)))
             self.w.set_controller(ctl)
         # in the background: a switched-off card makes the connect wait out its retries (#5)
         if not hasattr(self, "_connecting"):

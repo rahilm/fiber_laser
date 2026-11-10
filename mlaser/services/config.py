@@ -367,6 +367,17 @@ def data_dir() -> Path:
     return Path(platformdirs.user_data_dir("mlaser", appauthor=False))
 
 
+def stored_values(path: Optional[os.PathLike | str] = None) -> dict:
+    """The values of ``config.json`` as stored (no schema, no validation, nothing written): for
+    light readers such as the network self-test.  {} when the file is absent or unusable."""
+    p = Path(path) if path is not None else config_dir() / ConfigService.FILE
+    try:
+        _profile, values = parse_config(p.read_bytes())
+    except (OSError, ConfigLoadError):
+        return {}
+    return values
+
+
 # --------------------------------------------------------------------------- safety I/O
 #: card input numbers are 1-based (``MCStatus.input``: 1..12 RO[4], 13..28 RO[21]); outputs
 #: 1..26 (``set_output``: 1..10 sub 2, 11..26 sub 13).  0 = not wired / off.
@@ -964,9 +975,16 @@ class ConfigService:
                 if pc:
                     m.process = replace(m.process, **pc)
                 m.params = {k: v for k, v in cur.params.items() if k in changed}
+        proc = {}
         for k, v in self.profile.overrides.items():
-            if hasattr(m, k):
+            if k.startswith("process."):     # a ProcessConfig field (ipAdd.ini timeouts, DAMinVal)
+                name = k.split(".", 1)[1]
+                if name in {f.name for f in fields(m.process)}:
+                    proc[name] = v
+            elif hasattr(m, k):
                 setattr(m, k, v)
+        if proc:
+            m.process = replace(m.process, **proc)
         self._machine_cache = m
         return m
 

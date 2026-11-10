@@ -1648,18 +1648,20 @@ class MainWindow(QMainWindow):
 
     def ip_dialog(self) -> None:
         d = dialogs.IPDialog(self.tr_, self.settings.get("ip"), self)
-        if d.exec():
-            self.settings["ip"] = d.result_values()
+        if d.exec():   # the record also holds the card's port and timing (services/endpoint.py)
+            self.settings["ip"] = {**(self.settings.get("ip") or {}), **d.result_values()}
 
     def reconnect(self) -> None:
         """Connect in the background: with the card switched off (an e-stop that cuts its power)
         the connect waits out the retry policy, ~17 s, and froze the window (issue #5)."""
-        host = (self.settings.get("ip") or {}).get("pd445", "10.1.1.168")
+        from mlaser.services import endpoint
+        tc = endpoint.transport_config(endpoint.record_of(self.config))
+        host, port = tc.host, tc.port
         if not hasattr(self, "_connecting"):
             from .qtbridge import BackgroundCall
             self._connecting = BackgroundCall(self, "mlaser-connect")
         ctl = self.ctl
-        if self._connecting.start(lambda: ctl.connect(host),
+        if self._connecting.start(lambda: ctl.connect(host, port),
                                   lambda ok, err: self.log_panel.log("mf165" if ok and err is None else "mf166")):
             self.log_panel.log(self.tr_.format("main.hardware_connecting", host=host))
 

@@ -20,9 +20,14 @@ After the import, check the step scale with a short jog in dry-run mode (see [Sa
 
 ## Card address
 
-The original stores the card's IP address in `ipAdd.ini`; pass it with
-`mlaser --real --ini <Mlaser>/ipAdd.ini`. The card normally lives on 10.1.1.x; your network
-adapter needs an address in that subnet.
+The original stores the card's IP address in `ipAdd.ini`, with its port (`CardPort`), the link
+(`AccessType`: UDP or TCP) and the reply timeouts.  **Machine > Import Mlaser settings** stores all
+of them in the configuration (`ip` in `config.json`), together with the follower and pierce
+timeouts and `DAMinVal` of the same file (as machine-profile values).  From then on `mlaser --real`,
+Reconnect, the Machine workspace's connection page and the network self-test all use that one
+address; `--host`/`--port` on the command line override it for one start, and
+`mlaser --real --ini <Mlaser>/ipAdd.ini` still reads a file directly.  The card normally lives on
+10.1.1.x; your network adapter needs an address in that subnet.
 
 ## Languages
 
