@@ -182,6 +182,16 @@ def test_commissioning_wizard_checklist(app, win):
     from mlaser.ui.wizards.procedures import CommissioningWizard
     d = CommissioningWizard(win, win.extension("ext_machine"))
     d.dry.setChecked(True)
+    drive(app, d, until="jog_x")
+    # the jogs wait for the e-stop test (UX review 2026-11-09 finding 4): on the dry run's
+    # simulator, press and release it, then clear the alarm
+    assert not d.b_run.isEnabled() and d.proc.blocked_reason() == "wizard.comm.blocked_estop"
+    d.update_live()
+    d.simulate("estop")
+    assert wait(app, lambda: d.update_live()["estop"].status == "pass")
+    d.simulate("estop")
+    d.rig.clear_alarms()
+    assert wait(app, lambda: (d.update_live(), d.proc.estop_tested())[1])
     drive(app, d)
     assert d.proc.state == PE.DONE
     # the checklist results (the report) and the live rows that show them

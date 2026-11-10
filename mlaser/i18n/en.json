@@ -436,11 +436,11 @@
   "cmd.opt.segment": "Curve segmentation",
   "cmd.opt.smooth": "Curve smoothness",
   "cmd.param.backup": "Back up parameters",
-  "cmd.param.backup_file": "Export parameters to file",
-  "cmd.param.backup_hw": "Export parameters to hardware",
-  "cmd.param.restore": "Import parameters",
-  "cmd.param.restore_file": "Import parameters from file",
-  "cmd.param.restore_hw": "Import parameters from hardware",
+  "cmd.param.backup_file": "Back up parameters to a file…",
+  "cmd.param.backup_hw": "Back up parameters to the motion card…",
+  "cmd.param.restore": "Restore parameters",
+  "cmd.param.restore_file": "Restore parameters from a file…",
+  "cmd.param.restore_hw": "Restore parameters from the motion card…",
   "cmd.select.all": "Select all",
   "cmd.select.inner": "Select inner contours",
   "cmd.select.invert": "Invert selection",
@@ -1000,7 +1000,11 @@
   "log.resume_point_discarded": "Resume point discarded",
   "log.resume_point_restored": "Resume point restored: Start continues the job",
   "log.stopped_at_fault": "Stopped by a fault: resume point at X {x}, Y {y} mm",
+  "machine.file.restore_text": "Replace the machine parameters on this PC with the ones in {name}?",
+  "machine.file.restore_title": "Restore parameters from a file",
   "machine.hw.confirm": "This transfers hardware parameters between the PC and the card. Continue?",
+  "machine.hw.restore_text": "Replace the machine parameters on this PC with the copy stored on the motion card?",
+  "machine.hw.restore_title": "Restore parameters from the motion card",
   "machine.log.abnormal_exit": "The last run ended abnormally",
   "machine.log.autosave_failed": "Autosave not written: {error}",
   "machine.log.coord_current": "Coordinate: coordinate system {name}",
@@ -1035,6 +1039,8 @@
   "machine.mode_offer": "{what} needs {mode} mode.",
   "machine.mode_offer_why": "User modes keep machine settings with the people responsible for them. Switching may ask for the mode's PIN.",
   "machine.mode_switch": "Switch to {mode} mode",
+  "machine.params.restore_info": "The current parameters are saved first as {path}.",
+  "machine.params.restore_yes": "Restore parameters",
   "machine.restart.confirm": "Restart the motion card now?",
   "machine.upgrade.explanation": "File: {file} ({size} bytes). A wrong file or an interrupted transfer can make the board unusable. Do not switch off the machine or disconnect the network until it has finished.",
   "machine.upgrade.first": "Type {word} first",
@@ -3948,6 +3954,9 @@
   "settings.reset_tip": "Back to the default value",
   "settings.restart": "Applies after restart",
   "settings.search": "Search settings",
+  "settings.search.jog_speed": "jog speed, manual speed, jogging",
+  "settings.search.jog_step": "jog step, step distance, jog distance",
+  "settings.search.travel_limit": "travel limit, soft limit, axis travel, working area, table size",
   "settings.title.linux": "Preferences",
   "settings.title.mac": "Settings",
   "settings.title.windows": "Options",
@@ -4000,7 +4009,7 @@
   "shell.docs": "User documentation",
   "shell.docs.missing": "The user documentation was not found at {path}.",
   "shell.file.unsaved_name": "{name}, unsaved changes",
-  "shell.import_params": "Import Mlaser parameters...",
+  "shell.import_params": "Import parameters from an Mlaser installation…",
   "shell.import_params.done": "{count} parameters imported from {path}",
   "shell.import_params.failed": "Parameter import failed: {error}",
   "shell.key.ctx_any": "anywhere",
@@ -4430,9 +4439,14 @@
   "wizard.check_title": "Check",
   "wizard.chip_dry": "DRY RUN · SIMULATOR",
   "wizard.close": "Close",
+  "wizard.comm.blocked_estop": "Test the emergency stop first: press it, release it and clear the alarm, until the Emergency stop row passes. Then jog, or skip this step for now.",
+  "wizard.comm.blocked_scaling": "Fix the card scaling first: the card and the parameters disagree, so this move would go the wrong distance at the wrong speed. Use a fix on the Card scaling row, or skip this step for now.",
   "wizard.comm.c_detail": "Details",
   "wizard.comm.c_item": "Check",
   "wizard.comm.c_status": "Result",
+  "wizard.comm.finish_incomplete": "Close, not finished",
+  "wizard.comm.finished_warn.one": "Finished with {n} warning",
+  "wizard.comm.finished_warn.other": "Finished with {n} warnings",
   "wizard.comm.fix_limits": "Write the soft limits",
   "wizard.comm.fix_reverse": "Reverse the axis direction",
   "wizard.comm.fix_reverse_axis": "Reverse the {axis} axis direction",
@@ -4476,6 +4490,7 @@
   "wizard.comm.jog_needs_homing": "Skipped: the {axis} jog check moves from the home position; home the machine and run the checklist again.",
   "wizard.comm.jog_ok": "{axis}+ moves in the right direction.",
   "wizard.comm.jog_position": "{axis} position went {moved} {unit} for a +{step} {unit} jog.",
+  "wizard.comm.jog_skipped": "Skipped: the {axis} jog check was left for later; run the checklist again to do it.",
   "wizard.comm.jog_wrong": "{axis}+ moves the wrong way.",
   "wizard.comm.jog_x_button": "Jog X+ {jog_step}",
   "wizard.comm.jog_x_q": "Did the head move to the right (as seen from the operator position)?",
@@ -4494,6 +4509,10 @@
   "wizard.comm.net_ok": "Connected to {host}:{port} from {local_ip}.",
   "wizard.comm.net_warn": "Connected; self-test warnings: {warnings}.",
   "wizard.comm.network_text": "Network self-test (nothing is sent to the card) and the connection.",
+  "wizard.comm.not_finished_failed.one": "Not finished: {n} check failed",
+  "wizard.comm.not_finished_failed.other": "Not finished: {n} checks failed",
+  "wizard.comm.not_finished_open.one": "Not finished: {n} check not done",
+  "wizard.comm.not_finished_open.other": "Not finished: {n} checks not done",
   "wizard.comm.relay_text": "Watch the watchdog relay: it is energised now. Press “Hold heartbeat”: the relay must drop (the laser-enable chain opens) within its timeout, about 0.3–0.5 s. Did it drop?",
   "wizard.comm.relay_title": "Watchdog relay",
   "wizard.comm.report": "Report saved: {path} ({passed} passed, {warned} warnings, {failed} failed).",
@@ -4620,7 +4639,7 @@
   "wizard.follower.save_title": "Save",
   "wizard.follower.saved": "Saved to {path}",
   "wizard.follower.title": "Follower calibration",
-  "wizard.import.apply": "Apply",
+  "wizard.import.apply": "Apply changes",
   "wizard.import.area_calib": "Follower calibration (calib.csv)",
   "wizard.import.area_ip": "IP addresses (ipAdd.ini)",
   "wizard.import.area_jump": "Rapid settle time (JumpAddTime.txt)",
@@ -4632,19 +4651,47 @@
   "wizard.import.c_current": "Now",
   "wizard.import.c_label": "Name",
   "wizard.import.c_new": "Imported",
+  "wizard.import.c_safety": "Check",
   "wizard.import.c_setting": "Setting",
   "wizard.import.calib_label": "calibration points",
+  "wizard.import.cancel": "Cancel",
+  "wizard.import.cancelled": "Nothing was changed.",
   "wizard.import.choose": "Choose the install folder first.",
+  "wizard.import.compare": "Compare with backup or file…",
+  "wizard.import.compare_filter": "Configuration backups (*.bak *.json)",
+  "wizard.import.compare_tip": "Compare the current values with a backup (one is made before every import and every Apply in Machine › Setup) or another mlaser configuration file. Restore takes the saved values back.",
+  "wizard.import.comparing": "Comparing with {path}: Now is the current value, Imported the saved one.",
+  "wizard.import.confirm_backup": "The current configuration is backed up first: Compare with backup or file… takes it back.",
+  "wizard.import.confirm_reconnect": "The motion card uses the new machine parameters after it reconnects.",
+  "wizard.import.confirm_restore.one": "Restore {n} saved value?",
+  "wizard.import.confirm_restore.other": "Restore {n} saved values?",
+  "wizard.import.confirm_safety.one": "{n} of them changes how the machine moves (travel limits, scaling, homing, limit switches, axis direction). Check it against the machine: it is listed under Show Details.",
+  "wizard.import.confirm_safety.other": "{n} of them change how the machine moves (travel limits, scaling, homing, limit switches, axis direction). Check them against the machine: they are listed under Show Details.",
+  "wizard.import.confirm_text.one": "Apply {n} change?",
+  "wizard.import.confirm_text.other": "Apply {n} changes?",
+  "wizard.import.confirm_title": "Apply machine parameters",
   "wizard.import.count": "{n}",
   "wizard.import.done": "Imported: {areas}.",
   "wizard.import.found": "{n} files found.",
   "wizard.import.install": "Install folder",
-  "wizard.import.intro": "Choose the folder of your Mlaser installation, and the parameter folder (%LOCALAPPDATA%\\NexCut, or a copy of it). Preview lists every change; Apply takes the ticked areas. <b>The original installation is only read, never changed.</b>",
+  "wizard.import.intro": "Choose the folder of your Mlaser installation, and the parameter folder (%LOCALAPPDATA%\\NexCut, or a copy of it). Preview lists every change, the values that change how the machine moves marked and first; Apply asks before it takes the ticked areas and backs up the current configuration first. <b>The original installation is only read, never changed.</b>",
   "wizard.import.jump_label": "settle time after a rapid",
   "wizard.import.layers_note": "copied; used as the machine layer table",
+  "wizard.import.no_difference": "No machine parameter differs.",
   "wizard.import.param_dir": "Parameter folder",
   "wizard.import.params_placeholder": "optional: found automatically in the install folder (dat, NexCut)",
   "wizard.import.preview": "Preview",
+  "wizard.import.reconnect": "Reconnect now",
+  "wizard.import.reconnect_needed": "The motion card is still running with the previous values: reconnect it to use the new ones.",
+  "wizard.import.restore": "Restore these values",
+  "wizard.import.safety_count.one": "⚠ {n} changes how the machine moves",
+  "wizard.import.safety_count.other": "⚠ {n} change how the machine moves",
+  "wizard.import.safety_direction": "axis direction",
+  "wizard.import.safety_homing": "homing",
+  "wizard.import.safety_limits": "limit switch",
+  "wizard.import.safety_scaling": "scaling",
+  "wizard.import.safety_tip": "This value changes how the machine moves (travel, scaling, homing, limit switches or axis direction). Check it against the machine before you apply.",
+  "wizard.import.safety_travel": "travel limit",
   "wizard.import.texts": "{n} texts",
   "wizard.import.title": "Import from my Mlaser installation",
   "wizard.import.use_localappdata": "Use {path}",
@@ -4723,7 +4770,12 @@
   "ws.machine.a_raised": "Raised",
   "ws.machine.a_remedy": "What to do",
   "ws.machine.a_text": "Alarm",
+  "ws.machine.alarm_clear_cancel": "Cancel",
   "ws.machine.alarm_clear_history": "Clear history",
+  "ws.machine.alarm_clear_info": "The alarm history is what a service technician asks for first. This cannot be undone.",
+  "ws.machine.alarm_clear_text.one": "Delete the {n} recorded alarm?",
+  "ws.machine.alarm_clear_text.other": "Delete all {n} recorded alarms?",
+  "ws.machine.alarm_clear_title": "Clear alarm history",
   "ws.machine.alarm_reset": "Reset alarms",
   "ws.machine.alarms_active.one": "{n} active alarm",
   "ws.machine.alarms_active.other": "{n} active alarms",
@@ -4767,6 +4819,8 @@
   "ws.machine.hw_applied_errors": "{text}  ⚠ {errors}",
   "ws.machine.hw_apply": "Apply",
   "ws.machine.hw_bed": "Bed (slats)",
+  "ws.machine.hw_change_line": "{name} ({setting}): {old} → {new}",
+  "ws.machine.hw_confirm_title": "Apply machine parameters",
   "ws.machine.hw_coords": "Coordinates and mark points",
   "ws.machine.hw_edge": "Edge seek",
   "ws.machine.hw_ethercat": "EtherCAT bridge",
@@ -4801,6 +4855,7 @@
   "ws.machine.not_homed": "Not homed",
   "ws.machine.offline": "offline",
   "ws.machine.open_procedure": "Open…",
+  "ws.machine.origin_float_why": "Not available in the Float coordinate system: there the job starts where the head is. Choose a tool coordinate system or Manual to set and return to an origin.",
   "ws.machine.origins": "Tool origins ({unit}): {tools}",
   "ws.machine.p_comm": "First-connection checklist: network, scaling, soft limits, homing, watchdog, jog directions.",
   "ws.machine.p_edge_cap": "Find the sheet corner and angle with the capacitive follower; check the outline, then rotate the drawing (undoable).",
@@ -5356,6 +5411,9 @@
    "x",
    "y"
   ],
+  "machine.file.restore_text": [
+   "name"
+  ],
   "library.use_for_layer": [
    "n"
   ],
@@ -5461,6 +5519,9 @@
   ],
   "machine.mode_switch": [
    "mode"
+  ],
+  "machine.params.restore_info": [
+   "path"
   ],
   "machine.upgrade.explanation": [
    "file",
@@ -6434,6 +6495,9 @@
    "unit",
    "step"
   ],
+  "wizard.comm.jog_skipped": [
+   "axis"
+  ],
   "wizard.comm.jog_wrong": [
    "axis"
   ],
@@ -6454,6 +6518,18 @@
   ],
   "wizard.comm.net_warn": [
    "warnings"
+  ],
+  "wizard.comm.not_finished_failed.one": [
+   "n"
+  ],
+  "wizard.comm.not_finished_failed.other": [
+   "n"
+  ],
+  "wizard.comm.not_finished_open.one": [
+   "n"
+  ],
+  "wizard.comm.not_finished_open.other": [
+   "n"
   ],
   "wizard.comm.report": [
    "path",
@@ -6545,6 +6621,27 @@
   "wizard.import.backup": [
    "path"
   ],
+  "wizard.import.comparing": [
+   "path"
+  ],
+  "wizard.import.confirm_restore.one": [
+   "n"
+  ],
+  "wizard.import.confirm_restore.other": [
+   "n"
+  ],
+  "wizard.import.confirm_safety.one": [
+   "n"
+  ],
+  "wizard.import.confirm_safety.other": [
+   "n"
+  ],
+  "wizard.import.confirm_text.one": [
+   "n"
+  ],
+  "wizard.import.confirm_text.other": [
+   "n"
+  ],
   "wizard.import.count": [
    "n"
   ],
@@ -6552,6 +6649,12 @@
    "areas"
   ],
   "wizard.import.found": [
+   "n"
+  ],
+  "wizard.import.safety_count.one": [
+   "n"
+  ],
+  "wizard.import.safety_count.other": [
    "n"
   ],
   "wizard.import.texts": [
@@ -6592,6 +6695,12 @@
    "total",
    "title"
   ],
+  "ws.machine.alarm_clear_text.one": [
+   "n"
+  ],
+  "ws.machine.alarm_clear_text.other": [
+   "n"
+  ],
   "ws.machine.alarms_active.one": [
    "n"
   ],
@@ -6607,6 +6716,12 @@
   "ws.machine.hw_applied_errors": [
    "text",
    "errors"
+  ],
+  "ws.machine.hw_change_line": [
+   "name",
+   "setting",
+   "old",
+   "new"
   ],
   "ws.machine.min_mode": [
    "mode"
@@ -6752,6 +6867,12 @@
   "web.warn.text": [
    "host",
    "port"
+  ],
+  "wizard.comm.finished_warn.one": [
+   "n"
+  ],
+  "wizard.comm.finished_warn.other": [
+   "n"
   ],
   "cost.note.gas_missing": [
    "layers"
