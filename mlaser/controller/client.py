@@ -21,6 +21,7 @@ import select
 import socket
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Iterable, Optional, Sequence
 
@@ -373,6 +374,11 @@ def stop_decel(acc_mm_s2: float = 4000.0, factor: int = 1, max_acc: float = 2000
     return min(max(factor * acc_mm_s2, 2000.0), max_acc)
 
 
+#: requests kept in :attr:`MotionController.recent` per channel (about 256 x 60 bytes for status
+#: reads; a FIFO data frame is up to ~1.4 kB, so at most ~0.4 MB while streaming in-process)
+FRAME_RING = 256
+
+
 class MotionController:
     """Register-level and high-level access to the motion card."""
 
@@ -406,6 +412,11 @@ class MotionController:
         # link deadline): a request is sent once and waits one receive timeout instead of the
         # whole retry policy (~3.5 s), so the halts and the poller's probes get through
         self.link_lost = False
+        # the last requests and their replies, in memory only (the diagnostic bundle,
+        # mlaser.diag.bundle): (time.time(), func, addr, request bytes, reply bytes or None,
+        # outcome).  Bounded; appended after the exchange ended (never before a frame goes
+        # out); deque.append is atomic and cannot block (tests/test_frame_ring.py measures it)
+        self.recent: deque = deque(maxlen=FRAME_RING)
 
     @property
     def guard(self):
@@ -547,13 +558,17 @@ class MotionController:
                         last = F.ERR_DECODE_BASE + e.code
                         if e.code == 4:
                             continue       # stale reply: keep listening
+                        self.recent.append((time.time(), req.func, req.addr, frame, data, f"error {last}"))
                         raise ControllerError("DecodeRecvData", last) from e
                     rc = F.check_reply(req, resp)
                     if rc == F.ERR_OK:
                         self.last_ok = time.monotonic()
+                        self.recent.append((time.time(), req.func, req.addr, frame, data, "ok"))
                         return resp
+                    self.recent.append((time.time(), req.func, req.addr, frame, data, f"error {rc}"))
                     raise ControllerError("RecvDataErr", rc)
                 time.sleep(self.cfg.send_interval_ms / 1000)
+            self.recent.append((time.time(), req.func, req.addr, frame, None, f"no reply {last}"))
             raise ControllerError("no reply", last)
 
     def read_regs(self, addr: int, count: int) -> list[int]:

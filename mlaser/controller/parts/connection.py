@@ -71,6 +71,7 @@ class ConnectionPart:
             self._release_card_lock()
             return False
         self.version = ver
+        self.config_word = cfgw              # RO[0] as read at connect (the diagnostic bundle)
         with self._slock:
             s = self._s
             s.connected, s.mode, s.laser, s.link_ok = True, "ready", "ready", True
@@ -105,6 +106,7 @@ class ConnectionPart:
                 self._log(f"connect hook failed: {e}")
         return True
 
+    config_word = 0                      # RO[0] read at the last connect
     #: why the last connect() failed ("" after a success): the card in use elsewhere, no answer
     connect_error = ""
     card_busy = False                    # ... because another process holds the card (cardlock)
