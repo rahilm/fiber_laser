@@ -710,6 +710,25 @@ class PartListPanel(QWidget):
         on_units_changed(self, lambda _u: (self.model.retranslate(), self.refresh()), now=False)
         self._update_state()
 
+    # ---------------------------------------------------------------- size
+    def _min_height(self, hint: QSize) -> int:
+        lay = self.layout()
+        return max(hint.height(), lay.minimumHeightForWidth(max(self.width(), hint.width())))
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        # the filter controls wrap (FlowLayout), so the least height is the layout's at the
+        # width the panel has.  A dock area takes minimumSizeHint, never a height for a width:
+        # at the window's minimum height the last control of the wrapped row was cut
+        s = super().minimumSizeHint()
+        self._min_h = self._min_height(s)
+        return QSize(s.width(), self._min_h)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        if ev.size().width() != ev.oldSize().width() and \
+                self._min_height(super().minimumSizeHint()) != getattr(self, "_min_h", -1):
+            self.updateGeometry()           # the controls wrap differently at this width
+
     # ---------------------------------------------------------------- texts
     def retranslate(self) -> None:
         t = self.tr_.tr

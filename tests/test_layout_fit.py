@@ -62,6 +62,7 @@ for n in ("information", "warning", "critical", "question"):
     setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
 from wiring import real_window
 import layout_audit as A
+from test_responsive_layout import at_rest
 w = real_window(user_mode="engineer")
 w.shell.fit_to_screen()
 w.show()
@@ -76,6 +77,9 @@ shots = os.environ.get("FIT_SHOTS", "")
 out, seen = [], []
 def check(label):
     pump(0.4)
+    # then until the layout is at rest: on a loaded host a lazily built page (Nest) was still
+    # in its chain of relayouts after a fixed time, and was audited mid-way
+    at_rest(w, app)
     g = w.frameGeometry()
     if g.left() < avail.left() or g.top() < avail.top() or g.right() > avail.right() or g.bottom() > avail.bottom():
         out.append(f"{label}: window {g.getRect()} outside the screen's room {avail.getRect()}")
