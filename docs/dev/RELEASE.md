@@ -16,8 +16,8 @@ Changelog) in the same commit; `uv lock` updates the lock's own entry.
 
 * **Wheels:** platform wheels with the C emitter kernel (`mlaser._native._emitter`,
   [NATIVE_KERNEL.md](NATIVE_KERNEL.md)), built by cibuildwheel in the `wheels` job of
-  `.github/workflows/package.yml` (`[tool.cibuildwheel]` in pyproject.toml): CPython 3.12 and
-  3.13 on manylinux x86_64 / aarch64, Windows AMD64, macOS arm64 (Apple silicon only; there is
+  `.github/workflows/package.yml` (`[tool.cibuildwheel]` in pyproject.toml): CPython 3.12,
+  3.13 and 3.14 on manylinux x86_64 / aarch64, Windows AMD64, macOS arm64 (Apple silicon only; there is
   no Intel macOS build). Each wheel is installed in a clean environment and must report the
   kernel active after its self-check (`python -m mlaser._native --require`), and its machine
   code must hold no fused multiply-add (`tools/build_native.py --check --installed`). The
@@ -129,8 +129,8 @@ gh release create vX.Y.Z-rcN --draft --prerelease --target main -t "mlaser X.Y.Z
   --notes-file notes.md upload/*
 ```
 
-A draft release creates its tag only when it is published. Assets: 8 wheels (cp312 / cp313 x
-manylinux x86_64, manylinux aarch64, win_amd64, macosx_11_0_arm64), the sdist, the Windows
+A draft release creates its tag only when it is published. Assets: 12 wheels (cp312 / cp313 /
+cp314 x manylinux x86_64, manylinux aarch64, win_amd64, macosx_11_0_arm64), the sdist, the Windows
 (`.zip`), Linux and macOS (`.tar.gz`, the `.app` inside) one-folder bundles and their
 `build-info-<OS>.json` (bundled distributions, sizes, LGPL check, smoke-test output), and the
 project's plugin wheels with `SHA256SUMS` and `mlaser-plugin-index.json` (job `plugins`; the
@@ -138,14 +138,25 @@ application's default plugin repository, docs/dev/PLUGIN_STANDARD.md). Without
 the signing secrets the bundles are unsigned (say so in the notes: SmartScreen on Windows,
 right-click > Open on macOS).
 
+**Build provenance.** On a `v*` tag push, the `attest` job of package.yml signs a SLSA build
+provenance attestation (Sigstore, through the job's OIDC token; no secret, no repository
+setting) for every wheel, the sdist, the plugin wheels with `SHA256SUMS` and the index, and the
+bundle archives, as CI built them. Anyone can check a download:
+`gh attestation verify <file> --repo rahilm/fiber_laser`. The release assets uploaded by hand
+must be those artifacts unchanged; a file rebuilt or re-signed outside CI has no attestation.
+
 ## CI runners and minutes
 
 The repository is public, so GitHub's standard runners cost nothing. While it was private
 (until 2026-10-19), macOS minutes counted 10x and Windows 2x against the plan, and the
 included minutes ran out after a day of CI work. Measured 2026-10-19:
 
-* `ci.yml`, per push: 2 Linux jobs (~5-7 min each), 2 Windows jobs (~8-10 min), 2 macOS arm64
-  jobs (~8-10 min; `macos-latest` is an Apple silicon VM whose timers fire late, see
+* `ci.yml`, per push since 2026-11-10: Python 3.12 on Linux, Windows and macOS, and 3.13 and
+  3.14 on Linux only (the full 3.13 column runs nightly); the Linux 3.12 job also measures
+  coverage. Measured 2026-11-08 (review F4): Linux 18-20 min, Windows 13-19 min, macOS 23-27
+  min per job; dropping Windows and macOS 3.13 from pushes saves about 36 runner-minutes per
+  push (about 16 net of the new Linux 3.14 job). Earlier figures (2026-10-19): 2 Linux jobs
+  (~5-7 min each), 2 Windows jobs (~8-10 min), 2 macOS arm64 jobs (~8-10 min; `macos-latest` is an Apple silicon VM whose timers fire late, see
   [TESTING.md](TESTING.md)), lint and architecture (< 1 min). These were serial runs; the
   test step now runs on pytest-xdist with the safety and sim tests on one worker, which halved
   the suite locally (320 s -> 160 s, [TESTING.md](TESTING.md#parallel-runs-pytest-xdist)); the
@@ -167,7 +178,11 @@ it. Recommended (details in [CONTRIBUTING.md](../../CONTRIBUTING.md#branch-prote
 * required status checks: `ubuntu-latest / Python 3.12`, `import contracts, types, i18n, docs`
   and `parity guard (goldens, parity fence)` (`.github/workflows/parity-guard.yml`: a change
   of `tests/golden/` or `mlaser/parity_ports/` needs the `parity-change` label or a
-  `Parity-Change:` commit trailer); Windows, macOS and 3.13 once stable;
+  `Parity-Change:` commit trailer; it also checks direct pushes to `main` that touch those
+  paths, after the fact); `windows-latest / Python 3.12` and `macos-latest / Python 3.12`
+  once stable. The parity guard runs on every pull request (only its push trigger has a
+  `paths` filter), so it can be required; `ci.yml` has no `paths` filter at all, because a
+  required check whose workflow is skipped stays pending and blocks the pull request;
 * linear history, no force pushes or deletions, no bypass for administrators;
 * private vulnerability reporting enabled ([SECURITY.md](../../SECURITY.md)).
 

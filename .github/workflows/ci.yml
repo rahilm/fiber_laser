@@ -1,12 +1,18 @@
 name: CI
 
+# No paths filter: a skipped workflow leaves a required check pending forever (the checks a
+# branch rule should require are listed in docs/dev/RELEASE.md, "Branch protection").
 on:
   push:
   pull_request:
   workflow_dispatch:
+  # nightly: the 3.13 column on Windows and macOS too (pushes run 3.13 on ubuntu only, F9 of the
+  # 2026-11-09 review: its results track 3.12)
+  schedule:
+    - cron: "41 2 * * *"
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -16,12 +22,25 @@ jobs:
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    # the coverage job runs under the tracer (about 1.5x slower)
+    timeout-minutes: ${{ matrix.coverage && 60 || 40 }}
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        python: ["3.12", "3.13"]
+        # 3.12 (the goldens' reference) on every OS; 3.13 on every OS only nightly
+        python: ${{ fromJSON(github.event_name == 'schedule' && '["3.12", "3.13"]' || '["3.12"]') }}
+        include:
+          # branch coverage of mlaser on this one job ([tool.coverage.*] in pyproject.toml)
+          - os: ubuntu-latest
+            python: "3.12"
+            coverage: true
+          - os: ubuntu-latest
+            python: "3.13"
+          # the newest CPython: PySide6 6.12 (abi3), numpy, shapely, OR-Tools, spyrrow, Ruckig
+          # all have 3.14 wheels in uv.lock
+          - os: ubuntu-latest
+            python: "3.14"
     env:
       QT_QPA_PLATFORM: offscreen       # headless Qt everywhere
       MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
@@ -33,7 +52,7 @@ jobs:
       MLASER_BUILD_NATIVE: "1"
       MLASER_NATIVE: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
       - name: Qt runtime libraries (Linux)
         if: runner.os == 'Linux'
@@ -43,7 +62,7 @@ jobs:
             libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
             libglib2.0-0 fonts-dejavu-core
 
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
@@ -77,7 +96,43 @@ jobs:
           MLASER_COVERAGE_TRACE: ${{ runner.temp }}/coverage.log
         # faulthandler_timeout: a test running over 10 min dumps every thread's stack (a hang
         # shows where it hangs instead of the job's 40 min cancellation)
-        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15 -o faulthandler_timeout=600
+        # coverage job: --cov measures mlaser in every xdist worker and in the spawned children
+        # (pyproject.toml [tool.coverage.run]); the report is the next steps' work
+        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15 -o faulthandler_timeout=600 ${{ matrix.coverage && '--cov --cov-report=' || '' }}
+
+      # branch coverage, no threshold yet (F5 of the 2026-11-09 review): the safety-critical
+      # modules as a table in the job summary, the whole package as the "coverage" artifact
+      # (htmlcov/index.html, coverage.xml)
+      - name: Coverage report
+        if: matrix.coverage && !cancelled()
+        shell: bash
+        run: |
+          set -euo pipefail
+          # a spawned child that saved its data after pytest-cov combined (a late streamer exit)
+          shopt -s nullglob
+          late=(.coverage.*)
+          if [ ${#late[@]} -gt 0 ]; then uv run --locked --no-sync coverage combine --append -q; fi
+          [ -f .coverage ] || { echo "no coverage data (the test step did not finish)"; exit 0; }
+          safety="mlaser/machine/safety.py,mlaser/machine/preflight.py,mlaser/controller/supervisor.py,mlaser/controller/interlocks.py,mlaser/controller/cardlock.py,mlaser/controller/stream.py,mlaser/controller/parts/gate.py,mlaser/controller/parts/jobs.py"
+          {
+            echo "## Coverage (branch), safety-critical modules"
+            echo
+            uv run --locked --no-sync coverage report --format=markdown --include="$safety"
+            echo
+            total=$(uv run --locked --no-sync coverage report --format=total)
+            echo "Whole package: $total % (statements and branches). Full report: the \`coverage\` artifact (htmlcov/index.html)."
+          } >> "$GITHUB_STEP_SUMMARY"
+          uv run --locked --no-sync coverage html -q
+          uv run --locked --no-sync coverage xml -q
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: matrix.coverage && !cancelled()
+        with:
+          name: coverage
+          path: |
+            htmlcov/
+            coverage.xml
+          if-no-files-found: ignore
+          retention-days: 14
 
       # the project's own plugins (plugins/<name>/, published by package.yml): each one installed
       # editable without dependencies (the app environment provides them, as the plugin manager
@@ -153,7 +208,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true
         run: uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
         continue-on-error: true
         with:
@@ -162,9 +217,9 @@ jobs:
           retention-days: 7
 
       # 3.13 keeps 3.12's compensated sum() and matched bit for bit locally (2026-10-18); the
-      # reference stays 3.12, so a difference here is reported, not fatal.
-      - name: Golden check (informative, 3.13, both kernels)
-        if: matrix.python == '3.13' && runner.os == 'Linux'
+      # reference stays 3.12, so a difference here (3.13, 3.14) is reported, not fatal.
+      - name: Golden check (informative, ${{ matrix.python }}, both kernels)
+        if: matrix.python != '3.12' && runner.os == 'Linux'
         continue-on-error: true
         env:
           MLASER_GOLDEN_ANY_PYTHON: "1"
@@ -178,8 +233,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
       # informative until the existing findings are cleaned up (pre-commit lints changed files)
       - name: ruff
         continue-on-error: true
@@ -193,14 +248,14 @@ jobs:
       QT_QPA_PLATFORM: offscreen
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Qt runtime libraries
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libxkbcommon-x11-0 libfontconfig1 libdbus-1-3 \
             libglib2.0-0 fonts-dejavu-core
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -224,3 +279,29 @@ jobs:
       # every relative Markdown link and anchor in docs/ and README.md, docs paths named in code
       - name: docs link check
         run: uv run --locked pytest -q tests/test_docs_links.py
+      # every ribbon command triggered headlessly (dialogs stubbed, no network): the contract is
+      # 0 unimplemented / 0 raising / 0 duplicate registrations (CONTRIBUTING.md); about 30 s
+      - name: command coverage
+        env:
+          MLASER_NO_FIRSTRUN: "1"
+        run: uv run --locked python tools/command_coverage.py
+
+  # a red nightly is visible on the run page: one table of every job's result in the summary and
+  # an error annotation (nothing is posted anywhere; F3 of the 2026-11-09 review)
+  nightly-report:
+    name: nightly report
+    if: always() && github.event_name == 'schedule'
+    needs: [test, lint, architecture]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read            # the job list of this run
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+      - name: Summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/run_report.sh "Nightly CI" "nightly report"

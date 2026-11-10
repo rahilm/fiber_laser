@@ -69,12 +69,12 @@ cache-keys = [{ file = "pyproject.toml" }, { file = "setup.py" }, { file = "mlas
 
 # ---------------------------------------------------------------------------- cibuildwheel
 # Wheels with the C emitter kernel (.github/workflows/package.yml, job "wheels"): CPython 3.12 /
-# 3.13 on Linux x86_64 + aarch64 (manylinux), Windows AMD64, macOS arm64 (Apple silicon only).  The kernel
+# 3.13 / 3.14 on Linux x86_64 + aarch64 (manylinux), Windows AMD64, macOS arm64 (Apple silicon only).  The kernel
 # is required in a wheel (MLASER_BUILD_NATIVE=1); each wheel is installed in a clean
 # environment and must select the kernel after its self-check (python -m mlaser._native).
 # No 32-bit builds (x87 excess precision, docs/dev/NATIVE_KERNEL.md), no musllinux (no PySide6).
 [tool.cibuildwheel]
-build = ["cp312-*", "cp313-*"]
+build = ["cp312-*", "cp313-*", "cp314-*"]   # not cp314t: no free-threaded PySide6 wheel
 skip = ["*-musllinux_*", "*-manylinux_i686", "*-win32", "*-win_arm64"]
 build-frontend = "build[uv]"
 environment = { MLASER_BUILD_NATIVE = "1" }
@@ -109,6 +109,38 @@ markers = [
     "safety: safety-behaviour tests (tests/safety/)",
 ]
 
+# ---------------------------------------------------------------------------- coverage
+# Branch coverage of the mlaser package (docs/dev/TESTING.md, "Coverage"); measured in CI on the
+# ubuntu / Python 3.12 job only (the tracer slows the run), report in the job summary and as the
+# "coverage" artifact; no failing threshold yet.  Locally:
+#   uv run pytest --cov --cov-report=term-missing:skip-covered -n 4 --dist loadgroup tests/safety
+# pytest-cov combines the xdist workers.  The streamer and the plan process are multiprocessing
+# *spawn* children and some tests start `python -m mlaser ...` with subprocess: "multiprocessing"
+# and patch = ["subprocess"] start coverage in those children too, sigterm / _exit save the data
+# of a child that is terminated or leaves through os._exit.  Code run on a QThread is not traced
+# by the 3.12 tracer (the controller's threads are Python threads and are).
+[tool.coverage.run]
+source = ["mlaser"]
+branch = true
+parallel = true
+concurrency = ["thread", "multiprocessing"]
+patch = ["subprocess", "_exit"]
+sigterm = true
+omit = ["mlaser/parity/*"]   # the Wine parity harness: needs the external original (-m parity)
+
+[tool.coverage.report]
+show_missing = true
+skip_empty = true
+precision = 1
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+
+[tool.coverage.html]
+directory = "htmlcov"
+
 [dependency-groups]
 dev = [
     "pytest>=7",
@@ -119,6 +151,8 @@ dev = [
     "hypothesis>=6.100",
     "pytest-rerunfailures>=16.7",
     "pytest-xdist>=3.8",      # CI: -n auto --dist loadgroup (docs/dev/TESTING.md)
+    "coverage[toml]>=7.10",   # [tool.coverage.*] below; patch = ["subprocess"] needs 7.10
+    "pytest-cov>=7",          # CI: one job (ubuntu / 3.12) measures; docs/dev/TESTING.md, "Coverage"
 ]
 # PyInstaller one-folder builds (packaging/, CI job "package"); GPL with the bootloader exception,
 # a build tool only, never shipped as a library

@@ -9,24 +9,43 @@ name: Native check
 on:
   workflow_dispatch:
   # nightly: the full responsive sweep on every platform (pushes and pull requests sample the
-  # macOS sweep, see MLASER_LAYOUT_STEP below)
+  # macOS sweep, see MLASER_LAYOUT_STEP below); its "report" job puts every job's result in the
+  # run summary
   schedule:
     - cron: "17 3 * * *"
+  # a push to main that touches the UI, the layout harness or the native integration runs it
+  # too: a layout regression shows on the commit that caused it, not at the next night (F3 of
+  # the 2026-11-09 review).  Same paths as for pull requests (YAML anchors are not supported).
   push:
-    branches: ["ui-native", "native-check/**"]
-  pull_request:
+    branches: [main, "ui-native", "native-check/**"]
     paths:
       - "mlaser/ui/**"
+      - "mlaser/i18n/*.json"
       - "mlaser/__main__.py"
       - "mlaser/_power.py"
       - "packaging/**"
       - "tools/native_check.py"
       - "tests/test_responsive_layout.py"
+      - "tests/test_responsive_helpers.py"
       - "tests/layout_audit.py"
+      - "tests/safety/test_touch_targets_mode_switch.py"
+      - ".github/workflows/native-check.yml"
+  pull_request:
+    paths:
+      - "mlaser/ui/**"
+      - "mlaser/i18n/*.json"
+      - "mlaser/__main__.py"
+      - "mlaser/_power.py"
+      - "packaging/**"
+      - "tools/native_check.py"
+      - "tests/test_responsive_layout.py"
+      - "tests/test_responsive_helpers.py"
+      - "tests/layout_audit.py"
+      - "tests/safety/test_touch_targets_mode_switch.py"
       - ".github/workflows/native-check.yml"
 
 concurrency:
-  group: native-${{ github.ref }}
+  group: native-${{ github.event_name == 'schedule' && 'nightly' || github.ref }}
   cancel-in-progress: true
 
 permissions:
@@ -44,8 +63,8 @@ jobs:
     env:
       UV_PYTHON_PREFERENCE: only-managed   # like `uv run mlaser` on a Mac: uv's own Python, not a framework build
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -100,7 +119,7 @@ jobs:
           osascript -e 'tell application "Finder" to activate' || true
           plutil -p packaging/build/dist/mlaser.app/Contents/Info.plist || true
           uv run --locked python tools/native_check.py --label mac-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect --mac-app packaging/build/dist/mlaser.app -- --demo
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: native-macos
@@ -111,8 +130,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -154,7 +173,7 @@ jobs:
         if: always()
         shell: bash
         run: uv run --locked python tools/native_check.py --label win-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- packaging/build/dist/mlaser/mlaser.exe --demo
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: native-windows
@@ -167,7 +186,7 @@ jobs:
     env:
       UV_PYTHON_PREFERENCE: only-managed   # python-build-standalone 3.12: a shared libpython for PyInstaller
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - name: Virtual display, Xfce desktop, Qt runtime
         run: |
           sudo apt-get update
@@ -185,7 +204,7 @@ jobs:
           (DISPLAY=:99 startxfce4 > /tmp/xfce.log 2>&1 &)
           sleep 10
           DISPLAY=:99 wmctrl -m || true
-      - uses: astral-sh/setup-uv@v6
+      - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
         with:
           python-version: "3.12"
           enable-cache: true
@@ -211,9 +230,29 @@ jobs:
       - name: The bundle
         if: always()
         run: uv run --locked python tools/native_check.py --label linux-app --out shots --summary "$GITHUB_STEP_SUMMARY" --expect -- packaging/build/dist/mlaser/mlaser --demo
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()
         with:
           name: native-linux
           path: shots/
           retention-days: 14
+
+  # a red nightly is visible on the run page: one table of every job's result in the summary and
+  # an error annotation (nothing is posted anywhere)
+  report:
+    name: nightly report
+    if: always() && github.event_name == 'schedule'
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read            # the job list of this run
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: .github/scripts
+      - name: Summary
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .github/scripts/run_report.sh "Nightly native check" "nightly report"

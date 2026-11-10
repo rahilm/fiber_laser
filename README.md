@@ -60,7 +60,7 @@ Each release on the GitHub release page carries:
 | asset | for |
 |---|---|
 | `mlaser-<version>-<os>-<arch>.zip` / `.tar.gz` | the one-folder program (PyInstaller, Python and Qt included): Windows x64, Linux x86_64, macOS Apple silicon |
-| `mlaser-<version>-cp312/cp313-...whl` | `pip install` into your own Python 3.12 / 3.13: manylinux x86_64 and aarch64, Windows AMD64, macOS arm64 |
+| `mlaser-<version>-cp312/cp313/cp314-...whl` | `pip install` into your own Python 3.12 / 3.13 / 3.14: manylinux x86_64 and aarch64, Windows AMD64, macOS arm64 |
 | `mlaser-<version>.tar.gz` | the source distribution (builds the C kernel when a compiler is present) |
 
 ```bash
@@ -120,8 +120,8 @@ start runs a network self-test (`python -m mlaser --selftest [--probe]` runs it 
 docs/ASSETS.md.
 
 Without uv: `python -m venv .venv && .venv/bin/pip install -e ".[test]"` (also builds the C
-kernel when a compiler is present). Python 3.12 or 3.13
-(both tested in CI). CPython 3.12 is the reference interpreter: the goldens are pinned to its float
+kernel when a compiler is present). Python 3.12, 3.13 or 3.14
+(all tested in CI). CPython 3.12 is the reference interpreter: the goldens are pinned to its float
 `sum()` semantics (compensated summation since 3.12) and are checked bit-exactly on it. Python 3.11
 is not supported: PySide6 6.12 aborts on it with "Fatal Python error: none_dealloc" (it drops one
 reference to `None` too many; 3.12 made `None` immortal, which hides the bug).

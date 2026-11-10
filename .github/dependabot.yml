@@ -1,0 +1,36 @@
+# Dependency updates, weekly and grouped so a week brings at most one pull request per ecosystem
+# and kind (F10 of the 2026-11-09 review).  The workflow actions are pinned by commit SHA with the
+# version in a comment; Dependabot updates both.  Security updates come as they are published
+# (they ignore the schedule and the groups' limits) when "Dependabot security updates" is on in
+# the repository settings.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    commit-message:
+      prefix: "CI"
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # pyproject.toml + uv.lock (the "uv" ecosystem reads both).  The goldens are bit-exact on the
+  # reference platform: a numpy / shapely / ezdxf update must pass the golden check in CI before
+  # it is merged (docs/dev/TESTING.md).
+  - package-ecosystem: uv
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    commit-message:
+      prefix: "Deps"
+    groups:
+      # every minor and patch update of the week: one pull request
+      minor-and-patch:
+        patterns: ["*"]
+        update-types: [minor, patch]
+    # a new major version (PySide6 7, numpy 3, ...) comes as its own pull request
