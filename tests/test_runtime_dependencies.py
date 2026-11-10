@@ -82,9 +82,13 @@ def _closure(names: set[str]) -> set[str]:
 
 def test_start_imports_only_declared_dependencies(tmp_path):
     pytest.importorskip("packaging.requirements")
-    declared = {_requirement_name(r) for r in tomllib.loads((ROOT / "pyproject.toml").read_text())
-                ["project"]["dependencies"]}
+    project = tomllib.loads((ROOT / "pyproject.toml").read_text())["project"]
+    declared = {_requirement_name(r) for r in project["dependencies"]}
     allowed = _closure(declared)
+    # an optional extra (the nester) is imported behind a guard, and only where it is installed
+    # (CI installs every extra): its packages are declared too, they are just not required
+    optional = _closure({_requirement_name(r) for reqs in project.get("optional-dependencies", {}).values()
+                         for r in reqs})
     env = {k: v for k, v in os.environ.items() if not k.startswith("PYTEST")}
     for k, sub in (("MLASER_CONFIG_DIR", "cfg"), ("MLASER_DATA_DIR", "data"), ("MLASER_LOG_DIR", "log"),
                    ("MLASER_APP_DIR", "app"), ("MLASER_RUNTIME_DIR", "run")):
@@ -102,8 +106,18 @@ def test_start_imports_only_declared_dependencies(tmp_path):
     for m in mods:
         if m in stdlib or m == "mlaser" or m == "__main__":
             continue
-        for d in dists.get(m, ()):
-            used.setdefault(_norm(d), set()).add(m)
+        used[m] = {_norm(d) for d in dists.get(m, ())}
     assert "platformdirs" in used, sorted(used)          # the path that used to fail was taken
-    missing = {d: sorted(ms) for d, ms in used.items() if d not in allowed and d != "mlaser"}
+    # a module is covered when one of the distributions that provide it is declared (several can
+    # provide the same top-level package: PySide6-Essentials and PySide6-Addons both do)
+    missing = {m: sorted(ds) for m, ds in used.items()
+               if ds and "mlaser" not in ds and not ds & allowed and not ds & optional}
     assert not missing, f"imported at start but not a declared dependency: {missing}"
+    # and nothing the start REQUIRES may come from an extra only: checked where no extra is installed
+    required_from_extra = {m: sorted(ds) for m, ds in used.items()
+                           if ds and not ds & allowed and "mlaser" not in ds and ds & optional}
+    for m in required_from_extra:
+        guard = subprocess.run([sys.executable, "-c",
+                                f"import sys; sys.modules[{m!r}] = None\n" + PROBE, str(out)],
+                               cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=200)
+        assert guard.returncode == 0, f"the start needs the optional {m}: {guard.stderr[-2000:]}"
