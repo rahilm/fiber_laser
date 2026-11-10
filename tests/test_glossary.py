@@ -185,7 +185,7 @@ ACRONYMS = {"FTC", "API", "LED", "PWM", "LAN", "PIN", "PLC", "VFD", "PDF", "SMTP
             "NFC", "HTML", "CSS", "WAN", "DNS", "DHCP", "MQTT", "OPC", "UA", "RTU", "UDP", "IPV", "MTU"}
 #: the state pill / chip words and STOP: capitals by design
 STATE_WORDS = {"READY", "ARMED", "DISARMED", "FAULT", "ALARM", "HOLD", "OFFLINE", "SIMULATOR", "DRY", "RUN",
-               "RUNNING", "STOP", "NOT", "HOMED"}
+               "RUNNING", "STOP", "NOT", "HOMED", "HOMING", "MOVING"}
 #: safety emphasis kept in capitals (a warning badge, an inverted-logic note)
 CAPS_OK_IDS = {"tech.example_badge", "labels.msg.fallback", "wizard.comm.hb_relay_fail", "safety.io.level_off",
                "safety.io.level_on", "safety.io.now_alarm", "notify.msg.fault.title",

@@ -77,7 +77,7 @@ def test_alarm_and_job_transitions_are_announced(window):
         ui.refresh()                        # the same alarm: spoken once
         said = a11y.since(n)
         assert len(said) == 1 and said[0][1] is True and "8030" in said[0][0] and "Reset" in said[0][0]
-        assert "8030" in ui.alarm.accessibleName()
+        assert "8030" in ui.banner.accessibleName() and "E-STOP" in said[0][0]
         alarms.clear()
         ui.refresh()
         assert list(a11y.last_announcements)[-1] == (w.tr_.tr("a11y.alarm.cleared"), False)

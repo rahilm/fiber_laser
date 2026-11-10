@@ -9,12 +9,13 @@ as the run bar: arming question, pre-flight check, the planned job, the safety s
 
 | State | Colour | Meaning |
 |---|---|---|
-| ● READY | blue | connected and idle; the line next to it says whether the laser is armed, disarmed or disabled (dry-run mode) |
-| ▶ RUNNING | green | cutting, dry run or framing (the line says which) |
-| ⏸ HOLD | amber | held, or paused at a breakpoint (with its X/Y position) |
-| ⚠ ALARM | red | a card alarm is active (code and text) |
-| ⚠ FAULT | dark red | a fault is latched (the reason); nothing moves until **Reset** |
-| ○ OFFLINE | grey | no machine connected |
+| READY | grey (amber while armed) | connected and idle; the line next to it says whether the laser is armed, disarmed or disabled (dry-run mode) |
+| RUNNING | dark slate | cutting, dry run or framing (the line says which) |
+| HOMING / MOVING | dark slate | the axes are homing or moving to a position; Start, Frame and Dry run wait ("Homing in progress"), STOP stops the move |
+| HOLD | grey | held, or paused at a breakpoint (with its X/Y position) |
+| ALARM / E-STOP | red | a card alarm or the emergency stop is active (code and text) |
+| FAULT | dark red | a fault is latched (the reason); nothing moves until **Reset** |
+| OFFLINE | grey | no machine connected |
 
 Colour is never the only cue: every state has its text and an icon.
 

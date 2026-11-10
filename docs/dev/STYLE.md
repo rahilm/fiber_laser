@@ -48,9 +48,10 @@ and an `on_*` text colour (at least 4.5:1, checked by `tests/test_style.py`), pl
 `text`, `border` and the palette tokens. `danger_fill` (STOP) is the same in every theme.
 The machine and laser states have their own tokens per theme, `STATE_TOKENS` in
 `mlaser/ui/shell/theme.py` (`style.state_colors(kind)`, `mlaser.ui.safety_ui.COLORS`), in the
-ISA-101 manner: the normal states (OFFLINE, NOT HOMED, READY, RUNNING, HOLD, DISARMED, DRY-RUN,
-SIMULATOR) are neutral greys; ARMED is the amber hazard colour; ALARM and E-STOP red; FAULT dark
-red. STOP is the only red control. Every text reads at 4.5:1 on its fill in the light, dark and
+ISA-101 manner: the normal states (OFFLINE, NOT HOMED, READY, RUNNING, HOMING, MOVING, HOLD,
+DISARMED, DRY-RUN) are neutral greys and slates (RUNNING, HOMING and MOVING the dark slate of
+motion); ARMED is the amber hazard colour; ALARM and E-STOP red; FAULT dark red; SIMULATOR is a
+violet mode marker (never red, amber or grey). STOP is the only red control. Every text reads at 4.5:1 on its fill in the light, dark and
 high-contrast themes (`tests/test_state_display.py`). The states are one vocabulary on two named
 axes, Machine and Laser (`mlaser/ui/state_display.py`): the banner, the chips, the run bar's
 pill and the Run screen draw them with `StateBadge` (an SVG icon, the axis name and the word),

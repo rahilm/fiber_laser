@@ -6,8 +6,9 @@ that looked it up.
 The chips summarise Safety's state (:class:`mlaser.machine.safety.SafetyStatus`, the same
 snapshot the state banner shows): ``SIMULATOR``, ``DRY-RUN``, ``ARMED`` / ``DISARMED``,
 ``FAULT`` and ``ALARM``.  Every chip carries its meaning as text and a shape symbol, never by
-colour alone, and has an accessible name and a tooltip.  The full-width banners and the run bar
-of :mod:`mlaser.ui.safety_ui` stay where they are; the chips only repeat the state.
+colour alone, and has an accessible name and a tooltip.  The state banner and the run bar of
+:mod:`mlaser.ui.safety_ui` stay where they are; a chip is shown only for a state the banner
+does not show itself (:func:`covered`: today the banner shows them all, the simulator included).
 """
 from __future__ import annotations
 
@@ -38,16 +39,23 @@ ORDER = ("FAULT", "ALARM", "ARMED", "DISARMED", "DRY-RUN", "SIMULATOR", "OFFLINE
 
 
 def covered(st, alarms) -> set[str]:
-    """The states the safety banners already show in full (the state banner's kind, "disarmed"
-    in the SIMULATOR banner's text, the alarm banner's alarms): their chips would only repeat
-    them (UI audit D-3: one display per state on one screen)."""
+    """The states the state banner already shows in full: its own state, the laser's (its badge,
+    or its chip inside an alarm block), the SIMULATOR chip it shows in every state, the alarm
+    and the fault of its alarm block.  Their chips would only repeat them (UI audit D-3: one
+    display per state on one screen; UI review 2026-11 #1: the top bar no longer reflows when an
+    alarm comes)."""
     if st is None:
         return {"OFFLINE"}
     out = {st.banner}
-    if st.banner == "SIMULATOR" and not st.armed:
+    state = getattr(getattr(st, "state", None), "value", "offline")
+    if st.armed:
+        out.add("ARMED")
+    elif st.dry_run:
+        out.add("DRY-RUN")
+    elif state != "offline":
         out.add("DISARMED")
-    if st.simulator and st.banner != "FAULT":
-        out.add("SIMULATOR")                 # the banner says "· simulator" (UX audit W2)
+    if st.simulator:
+        out.add("SIMULATOR")
     if alarms:
         out.add("ALARM")
     return out

@@ -200,13 +200,14 @@ def test_clear_alarms_reports_whether_anything_is_left(sim_win, app):
 def test_one_reset_alarm_name_and_one_banner(sim_win, app):
     w, su = sim_win, sim_win.safety_ui
     assert w.control.buttons["mf21"].text() == "Reset alarm"          # the dock
-    assert su.alarm.reset.text() == "Reset alarm"
+    assert su.banner.reset.text() == "Reset alarm"
     w.ctl.raise_fault("link lost: no reply from the card for 1502 ms (idle, deadline 1500 ms)")
     _estop(app, w.ctl, True)
     su.refresh()
-    assert su.banner.kind == "FAULT" and su.banner.btn.isHidden()     # the one Reset is below
-    assert su.alarm_bar.isVisible() and "FAULT" in su.alarm.title.text()
-    assert "deadline" not in su.banner.label.text() and "deadline" not in su.alarm.title.text()
+    # one alarm block (UI review 2026-11 #1): the fault and the alarm in the banner, one Reset
+    assert su.banner.kind == "FAULT" and su.banner.btn.isHidden() and su.banner.alarm
+    assert not su.banner.reset.isHidden() and "FAULT" in su.banner.title
+    assert "deadline" not in su.banner.label.text() and "deadline" not in su.banner.title
 
 
 # ----------------------------------------------------------------------------------- C3

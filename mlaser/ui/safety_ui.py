@@ -3,11 +3,13 @@
 ``install(window)`` (called once by :class:`mlaser.ui.mainwindow.MainWindow`) adds:
 
 * the **event dispatcher** (:mod:`.qtbridge`): controller events reach the GUI thread;
-* the **state banner** (top, always visible): ``FAULT`` (with the reason and *Reset*), ``ARMED``
-  (amber, *Disarm*), ``DRY-RUN``, ``SIMULATOR``, ``DISARMED`` (*Arm*), ``OFFLINE`` (*Connect…*);
-* the **alarm banner** (top, shown while card alarms or a fault are active): alarm text, time,
-  a remedy (:mod:`.safety_texts`), *Reset* and *Details* (the alarm list dialog); not on the
-  Run workspace, whose state block shows the alarm once with *Reset alarm*;
+* the **state banner** (top, always visible, :class:`StateBanner`): ``ARMED`` (amber, *Disarm*),
+  ``DRY RUN``, ``DISARMED`` (*Arm*), ``OFFLINE`` (*Connect…*), the motion (``HOMING``,
+  ``MOVING``, ``RUNNING``) and a ``SIMULATOR`` chip; while card alarms or a fault are active it
+  is the one alarm block: E-STOP / ALARM / FAULT with its icon, the alarm text and time, a
+  remedy (:mod:`.safety_texts`), the laser's state, *Reset alarm* and *Details* (the alarm list
+  dialog); on the Run workspace, whose state block shows the remedy once with *Reset alarm*,
+  only the state, its icon and colours;
 * the **run bar** (bottom toolbar, never inside a scroll area): state pill, Start (F5),
   Hold (Space), Stop (Esc / F12), Frame (F6), Dry run, Arm, progress and ETA, 56 px targets;
   one row, or two (the break after Stop or later) in a narrow window, every control in full.  On the Run
@@ -30,7 +32,7 @@ from typing import Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt, QTimer, Signal
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QCheckBox, QDialog,
-                               QDialogButtonBox, QLabel, QLineEdit, QMessageBox,
+                               QDialogButtonBox, QGridLayout, QLabel, QLineEdit, QMessageBox,
                                QPlainTextEdit, QProgressBar, QPushButton, QSizePolicy, QStyle, QTextEdit,
                                QMenu, QToolBar, QToolButton, QWidget)
 
@@ -40,7 +42,7 @@ from ..machine import events as EV
 from ..services import units
 from . import a11y, qtbridge, style
 from .responsive import keep_min_size
-from ..machine.fault_text import headline
+from ..machine.fault_text import headline, headline_id
 from .safety_texts import remedy
 from .style import TARGET_RUN
 
@@ -389,11 +391,24 @@ class PreflightDialog(QDialog):
 
 # ============================================================================== widgets
 class StateBanner(QWidget):
-    """The state banner: the laser axis (``Laser: ARMED / DISARMED / DRY RUN``) while connected,
-    the machine axis when that is what matters (``Machine: OFFLINE`` with *Connect…*,
-    ``Machine: FAULT`` with *Reset*), each as an icon, the axis name and the state's word on the
-    theme's state colours, with a plain description beside it (UX audit W1, W2, O2).  Its height
-    never changes with the state (no layout jump)."""
+    """The safety block at the top of every workspace: one place for the state.
+
+    * Normal operation: the laser axis (``Laser: ARMED / DISARMED / DRY RUN``) while connected,
+      ``Machine: OFFLINE`` with *Connect…*, each as an icon, the axis name and the state's word on
+      the theme's state colours, with a plain description beside it (UX audit W1, W2, O2).  While
+      the axes move without the laser (homing, a go-to move, a frame or a dry run) the block takes
+      the dark slate of motion and a ``HOMING`` / ``MOVING`` / ``RUNNING`` chip: "disarmed" is the
+      laser's fact, never "the machine is idle" (UX review 2026-11 #3).
+    * An alarm or a fault (E-STOP, a card alarm, FAULT, a lost link): the same block in the
+      alarm's colours, with the machine state (its own icon and word), the alarm or fault with
+      its time, the remedy (or the reason a reset was refused), the laser's state as a chip and
+      the one *Reset alarm* with *Details*: the alarm is stated once (UI review 2026-11 #1).  On
+      the Run workspace, whose state block carries the remedy and *Reset alarm*, it keeps only
+      the state and the alarm's line.
+    * The simulator: a violet ``SIMULATOR`` chip in every state (UX review 2026-11 #9).
+
+    Its height never changes between the normal states (no layout jump); an alarm block is as
+    tall as its text needs."""
 
     def __init__(self, ui: "SafetyUI"):
         super().__init__()
@@ -402,102 +417,253 @@ class StateBanner(QWidget):
         self.setAttribute(Qt.WA_StyledBackground, True)
         self.setObjectName("safety_state_banner")
         self.ui = ui
-        h = style.hbox(self)
-        h.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
+        w = ui.w
+        g = QGridLayout(self)
+        g.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
+        g.setHorizontalSpacing(style.SP2)
+        g.setVerticalSpacing(style.SP1)
         from .state_display import StateBadge
         self.badge = StateBadge("safety_state_badge", role="title", icon_px=style.ICON_L)
-        h.addWidget(self.badge)
+        g.addWidget(self.badge, 0, 0, 2, 1, Qt.AlignVCenter)
         self.label = QLabel()
         self.label.setObjectName("safety_state")
         style.set_font(self.label, "label_strong")
+        self.label.setWordWrap(True)
         self.label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        h.addWidget(self.label, 1)
+        g.addWidget(self.label, 0, 1)
+        # the second facts, as chips: the motion (HOMING ...), the laser (in an alarm block), the
+        # simulator
+        chips = QWidget()
+        cl = style.hbox(chips, sp=style.SP1)
+        cl.setContentsMargins(0, 0, 0, 0)
+        self.motion_chip = StateBadge("safety_motion_chip", role="label_strong", icon_px=style.ICON_S, caption=False)
+        self.laser_chip = StateBadge("safety_laser_chip", role="label_strong", icon_px=style.ICON_S, caption=False)
+        self.sim_chip = StateBadge("safety_sim_chip", role="label_strong", icon_px=style.ICON_S, caption=False)
+        self.sim_chip.setToolTip(_tr(w, "shell.chip.simulator.tip", "Connected to the built-in simulator, not a machine"))
+        for c in (self.motion_chip, self.laser_chip, self.sim_chip):
+            c.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
+            c.hide()
+            cl.addWidget(c)
+        g.addWidget(chips, 0, 2, Qt.AlignVCenter)
+        acts = QWidget()
+        al = style.hbox(acts, sp=style.SP1)
+        al.setContentsMargins(0, 0, 0, 0)
         # NOT HOMED (UX audit W3): the machine needs homing before a job; the fix at hand
-        self.home_btn = QPushButton(_tr(ui.w, "safety.banner.home", "Home axes"))
+        self.home_btn = QPushButton(_tr(w, "safety.banner.home", "Home axes"))
         self.home_btn.setObjectName("safety_home")
         self.home_btn.setMinimumHeight(style.TARGET)
         self.home_btn.clicked.connect(lambda _=False: self.ui.home())
         self.home_btn.setVisible(False)
-        h.addWidget(self.home_btn)
+        al.addWidget(self.home_btn)
         self.btn = QPushButton()
         self.btn.setObjectName("safety_state_action")
         self.btn.setMinimumHeight(style.TARGET)
         self.btn.clicked.connect(self._action)
-        h.addWidget(self.btn)
+        al.addWidget(self.btn)
+        g.addWidget(acts, 0, 3, Qt.AlignVCenter)
+        # the alarm block's second line: the remedy, the one Reset alarm, Details
+        self.remedy = QLabel()
+        self.remedy.setObjectName("safety_remedy")
+        self.remedy.setWordWrap(True)
+        self.remedy.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self.remedy.hide()
+        g.addWidget(self.remedy, 1, 1, 1, 2)
+        racts = QWidget()
+        rl = style.hbox(racts, sp=style.SP1)
+        rl.setContentsMargins(0, 0, 0, 0)
+        self.reset = QPushButton(_tr(w, "run.btn.reset", "Reset alarm"))
+        self.reset.setObjectName("safety_reset")
+        self.reset.setMinimumHeight(style.TARGET_TOUCH)
+        self.reset.clicked.connect(self.ui.reset_fault)
+        self.details = QPushButton(_tr(w, "run.btn.details", "Details"))
+        self.details.setObjectName("safety_details")
+        self.details.setMinimumHeight(style.TARGET_TOUCH)
+        self.details.clicked.connect(self.ui.alarm_details)
+        rl.addWidget(self.reset)
+        rl.addWidget(self.details)
+        self.reset.hide()
+        self.details.hide()
+        g.addWidget(racts, 1, 3, Qt.AlignBottom)
+        g.setColumnStretch(1, 1)
         self.kind = ""
-        self.action = ""                # what the button does: reset / disarm / arm / connect
+        self.action = ""                # what the button does: disarm / arm / connect
+        self.alarm = False              # an alarm or a fault is shown (the alarm block)
+        self.title = ""                 # the alarm block's line and remedy (also when compact:
+        self.remedy_text = ""           # the screen reader's announcement)
+        self._refusal = ("", None)      # (a reset refusal seen, the alarm it was about)
         self._style = ""
+        self._base_h = 0
+        self._hkey: tuple = ()
+        self._grow = False             # the full alarm block: as tall as its text
         self._fit_height()
 
     def _fit_height(self) -> None:
-        """One fixed height for every state: the badge (caption + word) or the button, whichever
-        is taller (O2: the OFFLINE banner used to jump when its button appeared)."""
+        """One fixed height for every normal state: the badge (caption + word) or the button,
+        whichever is taller (O2: the OFFLINE banner used to jump when its button appeared).  An
+        alarm block grows with its text (:meth:`_set_alarm_height`)."""
         m = self.layout().contentsMargins()
         bm = self.badge.layout().contentsMargins()
         # from the fonts, not from the text shown: the same for every state
         badge = (self.badge.caption.fontMetrics().height() + self.badge.text_label.fontMetrics().height()
                  + bm.top() + bm.bottom())
         need = max(badge, self.badge.icon_px + bm.top() + bm.bottom(), self.btn.sizeHint().height(), style.TARGET)
-        self.setFixedHeight(need + m.top() + m.bottom())
+        self._base_h = need + m.top() + m.bottom()
+        self._set_alarm_height(self._grow, force=True)
+
+    def _set_alarm_height(self, grow: bool, force: bool = False) -> None:
+        """The normal states' fixed height, or the full alarm block's: what its wrapped text needs
+        at the width it has (a tool bar does not ask its widget's height for a width itself)."""
+        h = self._base_h
+        if grow:
+            lay = self.layout()
+            h = max(h, lay.heightForWidth(self.width()) if lay.hasHeightForWidth() else lay.sizeHint().height())
+        if force or h != self.height() or self.minimumHeight() != h or self.maximumHeight() != h:
+            self.setFixedHeight(h)
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        if self._grow and ev.size().width() != ev.oldSize().width():
+            self._set_alarm_height(True)
 
     def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().changeEvent(ev)
-        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "badge", None) is not None:
+        if ev.type() in (QEvent.FontChange, QEvent.StyleChange) and getattr(self, "_base_h", None) is not None:
             self._fit_height()
 
     def _action(self) -> None:
         a = self.action
-        if a == "reset":
-            self.ui.reset_fault()
-        elif a == "disarm":
+        if a == "disarm":
             self.ui.disarm()
         elif a == "arm":
             self.ui.arm()
         elif a == "connect":
             self.ui.open_connection()
 
-    def refresh(self, st, ms=None, need_home: bool = False) -> None:
+    def _alarm_texts(self, alarms: list, st, since: dict) -> tuple[str, str, object]:
+        """(line, remedy, key) of the first alarm or the latched fault."""
+        w = self.ui.w
+        tr = getattr(w, "tr_", None)
+        fault = st is not None and st.banner == "FAULT"
+        if alarms:
+            a = alarms[0]
+            txt = a.text(tr) if hasattr(a, "text") else str(a)
+            code = getattr(a, "code", "")
+            t = since.get(code)
+            title = _tr(w, "safety.alarm.title", "ALARM {code}: {text}", code=code, text=txt)
+            if len(alarms) > 1:
+                title = _tr(w, "safety.alarm.with_more", "{text}  (+{n} more)", text=title, n=len(alarms) - 1)
+            if t:
+                title = _tr(w, "safety.alarm.with_since", "{text}   since {time}", text=title,
+                            time=time.strftime('%H:%M:%S', time.localtime(t)))
+            if fault:
+                # one block for a fault and the alarms together, one Reset alarm (UX audit W5)
+                title = _tr(w, "safety.alarm.with_fault", "{text}  · FAULT: {fault}", text=title,
+                            fault=headline(st.fault, tr))
+            return title, remedy(a, tr), code
+        title = _tr(w, "safety.alarm.fault_since", "FAULT: {fault}   since {time}", fault=headline(st.fault, tr),
+                    time=time.strftime('%H:%M:%S', time.localtime(st.fault_t)))
+        return title, remedy(st.fault, tr), ("fault", st.fault)
+
+    def refresh(self, st, ms=None, need_home: bool = False, alarms=(), since: Optional[dict] = None,
+                machine: str = "", compact: bool = False) -> bool:
+        """Show the state.  ``alarms``: the card's active alarms (the one alarm source);
+        ``since``: when each alarm code was first seen; ``machine``: the machine axis
+        (:func:`mlaser.ui.state_display.machine_state`); ``compact``: the Run workspace (its state
+        block has the remedy and Reset alarm).  Returns True while an alarm or a fault is shown."""
         from . import state_display as SD
         kind = st.banner if st is not None else "OFFLINE"
         self.kind = kind
         w = self.ui.w
+        alarms = list(alarms or ())
         connected = bool(ms is not None and getattr(ms, "connected", False)) if ms is not None else (
             st is not None and getattr(getattr(st, "state", None), "value", "offline") != "offline")
-        if kind == "FAULT":
-            axis, state = "machine", "fault"
-            # the plain headline; the raw reason is the tooltip and the alarm banner's Details
-            text = _tr(w, "safety.banner.fault_latched", "FAULT (latched): {fault}",
-                       fault=headline(st.fault, getattr(w, "tr_", None)))
-            # no button here: the alarm banner (or the Run screen's state block) carries the
-            # one "Reset alarm" (UX audit W5: one banner, one reset)
+        alarm = kind == "FAULT" or bool(alarms)
+        laser = SD.laser_state(st)
+        moving = machine in SD.MOTION_STATES and not alarm
+        rem = ""
+        if alarm:
+            axis = "machine"
+            state = "fault" if kind == "FAULT" else (
+                "estop" if any(getattr(a, "kind", "") == "estop" for a in alarms) else "alarm")
+            colour = SD.colour_key(axis, state)
+            look = state
+            if kind == "FAULT" and not alarms and headline_id(st.fault) == "fault.headline.link_lost":
+                look = "link_lost"                # its own icon (UI review 2026-11 #1)
+            text, rem, key = self._alarm_texts(alarms, st, since or {})
+            refusal = getattr(self.ui, "last_reset_refusal", "")
+            if refusal and refusal != self._refusal[0]:
+                self._refusal = (refusal, key)    # a reset refused while this alarm was shown
+            if refusal and self._refusal == (refusal, key):
+                rem_shown = refusal               # why the reset did not clear it, with its remedy
+            else:
+                rem_shown = _tr(w, "safety.alarm.remedy", "Remedy: {text}", text=rem)
             action = ""
         elif not connected and not (st is not None and st.armed):
             axis, state = "machine", "offline"
+            colour, look = SD.colour_key(axis, state), state
             text = _tr(w, "safety.banner.offline", "Not connected")
             action = "connect"
+            rem_shown = ""
         else:
-            axis, state = "laser", SD.laser_state(st)
+            axis, state = "laser", laser
+            colour = SD.colour_key(axis, state)
+            look = state
             key, default = {"armed": ("safety.banner.armed", "Emission enabled: the beam fires on Start"),
                             "dry_run": ("safety.banner.dry_run", "Laser output disabled (dry-run mode)")}.get(
                 state, ("safety.banner.disarmed", "The laser cannot fire"))
             text = _tr(w, key, default)
+            if moving and state != "armed":
+                # "disarmed" is the laser's fact; the motion is said too (UX review 2026-11 #3).
+                # Armed, the amber banner already warns; the motion chip names the motion
+                mkey, mdef = {"homing": ("safety.banner.motion.homing", "Homing: the axes are moving"),
+                              "moving": ("safety.banner.motion.moving", "The axes are moving")}.get(
+                    machine, ("safety.banner.motion.running", "A job is running: the axes are moving"))
+                text = _tr(w, "safety.banner.with_motion", "{state}  · {motion}", state=text,
+                           motion=_tr(w, mkey, mdef))
             action = {"armed": "disarm", "disarmed": "arm"}.get(state, "")
-        if st is not None and st.simulator and kind != "FAULT":
-            text = _tr(w, "safety.banner.with_simulator", "{state}  · simulator", state=text)
+            rem_shown = ""
         word = SD.machine_label(w, state) if axis == "machine" else SD.laser_label(w, state)
         caption = SD.axis_label(w, axis)
-        self.badge.set_state(state, SD.colour_key(axis, state), word, caption)
-        if self.label.text() != text:
-            self.label.setText(text)
+        self.badge.set_state(look, colour, word, caption)
+        self.title, self.remedy_text = (text, rem_shown) if alarm else ("", "")
+        # compact (the Run workspace): the state block below says the alarm, its remedy and Reset
+        # alarm; the banner keeps the state, its icon and colours, the laser and the simulator
+        shown = "" if alarm and compact else text
+        if self.label.text() != shown:
+            self.label.setText(shown)
+        if self.label.accessibleName() != text:
             self.label.setAccessibleName(text)
         tip = st.fault if kind == "FAULT" and st is not None else ""
         if self.label.toolTip() != tip:
             self.label.setToolTip(tip)
-        bg, fg = COLORS.get(SD.colour_key(axis, state), COLORS["OFFLINE"])
-        qss = f"QWidget#safety_state_banner{{background:{bg};}} QLabel#safety_state{{color:{fg};background:transparent;}}"
+        # the block's colours: the alarm's, the dark slate of motion while the axes move with the
+        # laser not armed, else the state's
+        block = colour if alarm or not moving or laser == "armed" else "RUNNING"
+        bg, fg = COLORS.get(block, COLORS["OFFLINE"])
+        qss = (f"QWidget#safety_state_banner{{background:{bg};}} QLabel#safety_state, QLabel#safety_remedy"
+               f"{{color:{fg};background:transparent;}}")
         if qss != self._style:                 # re-polishing is expensive: only on a change
             self._style = qss
             self.setStyleSheet(qss)
+        # the chips: the motion, the laser inside an alarm block, the simulator in every state
+        if moving:
+            self.motion_chip.set_state(machine, SD.colour_key("machine", machine), SD.machine_label(w, machine),
+                                       accessible=_tr(w, "state.axis.value", "{axis}: {state}",
+                                                      axis=SD.axis_label(w, "machine"),
+                                                      state=SD.machine_label(w, machine)))
+        if alarm:
+            self.laser_chip.set_state(laser, SD.colour_key("laser", laser), SD.laser_label(w, laser),
+                                      accessible=_tr(w, "state.axis.value", "{axis}: {state}",
+                                                     axis=SD.axis_label(w, "laser"), state=SD.laser_label(w, laser)))
+        sim = bool(st is not None and st.simulator)
+        if sim:
+            sbg, sfg = COLORS["SIMULATOR"]
+            self.sim_chip.set_state("simulator", "SIMULATOR", _tr(w, "shell.chip.simulator", "SIMULATOR"),
+                                    accessible=_tr(w, "safety.banner.simulator_name",
+                                                   "Simulator: not a machine, nothing moves"), outline=sfg)
+        for chip, on in ((self.motion_chip, moving), (self.laser_chip, alarm), (self.sim_chip, sim)):
+            if chip.isHidden() == on:
+                chip.setVisible(on)
         self.action = action
         label = {"disarm": _tr(w, "run.btn.disarm", "Disarm laser"),
                  "arm": _tr(w, "run.btn.arm", "Arm laser"),
@@ -505,78 +671,24 @@ class StateBanner(QWidget):
         if label:
             self.btn.setText(label)
         # hidden without changing the banner's height (fixed): no jump between states
-        self.btn.setVisible(label is not None)
-        # NOT HOMED: its fix at hand (W3)
-        home = bool(need_home) and kind != "FAULT" and connected
+        if self.btn.isHidden() == (label is not None):
+            self.btn.setVisible(label is not None)
+        # NOT HOMED: its fix at hand (W3); not while the axes move
+        home = bool(need_home) and not alarm and connected and not moving
         if self.home_btn.isHidden() == home:
             self.home_btn.setVisible(home)
-
-
-class AlarmBanner(QWidget):
-    def __init__(self, ui: "SafetyUI"):
-        super().__init__()
-        # the style-sheet background only paints on a plain QWidget with WA_StyledBackground;
-        # without it the white banner text sat on the window colour (invisible in light themes)
-        self.setAttribute(Qt.WA_StyledBackground, True)
-        self.ui = ui
-        h = style.hbox(self)
-        h.setContentsMargins(style.SP2, style.SP1, style.SP2, style.SP1)
-        v = style.vbox(sp=style.SP1)
-        self.title = QLabel()
-        style.set_font(self.title, "label_strong")
-        self.title.setWordWrap(True)
-        self.remedy = QLabel()
-        self.remedy.setWordWrap(True)
-        v.addWidget(self.title)
-        v.addWidget(self.remedy)
-        h.addLayout(v, 1)
-        w = ui.w
-        self.reset = QPushButton(_tr(w, "run.btn.reset", "Reset alarm"))
-        self.reset.setMinimumHeight(style.TARGET_TOUCH)
-        self.reset.clicked.connect(self.ui.reset_fault)
-        self.details = QPushButton(_tr(w, "run.btn.details", "Details"))
-        self.details.setMinimumHeight(style.TARGET_TOUCH)
-        self.details.clicked.connect(self.ui.alarm_details)
-        h.addWidget(self.reset)
-        h.addWidget(self.details)
-        self.setObjectName("safety_alarm_banner")
-        # the theme's ALARM colours (red, white text), following a theme switch
-        style.styled(self, lambda: "QWidget#safety_alarm_banner{{background:{0};}} QWidget#safety_alarm_banner QLabel"
-                     "{{color:{1};background:transparent;}}".format(*COLORS["ALARM"]))
-        self.shown_key = None
-
-    def refresh(self, alarms: list, st, since: dict) -> bool:
-        """Returns True when the banner should be visible."""
-        tr = getattr(self.ui.w, "tr_", None)
-        if alarms:
-            a = alarms[0]
-            txt = a.text(tr) if hasattr(a, "text") else str(a)
-            code = getattr(a, "code", "")
-            t = since.get(code)
-            w = self.ui.w
-            title = _tr(w, "safety.alarm.title", "ALARM {code}: {text}", code=code, text=txt)
-            if len(alarms) > 1:
-                title = _tr(w, "safety.alarm.with_more", "{text}  (+{n} more)", text=title, n=len(alarms) - 1)
-            if t:
-                title = _tr(w, "safety.alarm.with_since", "{text}   since {time}", text=title,
-                            time=time.strftime('%H:%M:%S', time.localtime(t)))
-            if st is not None and st.banner == "FAULT":
-                # one banner for a fault and the alarms together, one Reset alarm (UX audit W5)
-                title = _tr(w, "safety.alarm.with_fault", "{text}  · FAULT: {fault}", text=title,
-                            fault=headline(st.fault, tr))
-            self.title.setText(title)
-            self.title.setToolTip(st.fault if st is not None and st.banner == "FAULT" else "")
-            self.remedy.setText(_tr(w, "safety.alarm.remedy", "Remedy: {text}", text=remedy(a, tr)))
-            return True
-        if st is not None and st.banner == "FAULT":
-            w = self.ui.w
-            self.title.setText(_tr(w, "safety.alarm.fault_since", "FAULT: {fault}   since {time}",
-                                   fault=headline(st.fault, tr),
-                                   time=time.strftime('%H:%M:%S', time.localtime(st.fault_t))))
-            self.title.setToolTip(st.fault)
-            self.remedy.setText(_tr(w, "safety.alarm.remedy", "Remedy: {text}", text=remedy(st.fault, tr)))
-            return True
-        return False
+        full = alarm and not compact
+        if self.remedy.text() != rem_shown:
+            self.remedy.setText(rem_shown)
+        for x in (self.remedy, self.reset, self.details):
+            if x.isHidden() == full:
+                x.setVisible(full)
+        self.alarm, self._grow = alarm, full
+        hkey = (alarm, shown, rem_shown, full, sim, moving)
+        if hkey != self._hkey:                # the height for the text shown (not every tick)
+            self._hkey = hkey
+            self._set_alarm_height(self._grow)
+        return alarm
 
 
 class _RunStrip(QWidget):
@@ -799,7 +911,8 @@ class RunBar(QToolBar):
                                    MIN_TARGET))
         # the pill keeps one width whatever the state (no jump): its widest word
         pfm = self.pill.text_label.fontMetrics()
-        word = max(pfm.horizontalAdvance(t) for t in self._pill_texts() + [self.pill.caption.text()])
+        word = max(pfm.horizontalAdvance(t) for t in self._pill_texts() + [self.pill.caption.text(),
+                                                                         self._sim_caption()])
         m = self.pill.layout().contentsMargins()
         self.pill.setMinimumWidth(word + self.pill.icon_px + self.pill.layout().spacing() + m.left() + m.right()
                                   + fm.horizontalAdvance("M"))
@@ -837,6 +950,9 @@ class RunBar(QToolBar):
     def _pill_texts(self) -> list[str]:
         from .state_display import MACHINE_TEXT
         return [_tr(self.ui.w, k, d) for k, d, _c in MACHINE_TEXT.values()]
+
+    def _sim_caption(self) -> str:
+        return _tr(self.ui.w, "state.axis.simulator", "Simulator")
 
     def _times_text(self, elapsed: str, eta: str) -> str:
         return _tr(self.ui.w, "run.times.bar", "Elapsed {elapsed}  ·  ETA {eta}", elapsed=elapsed, eta=eta)
@@ -905,7 +1021,14 @@ class RunBar(QToolBar):
         if rs == "ready" and armed:
             col = "ARMED"
             name = _tr(w, "run.state.ready_armed", "Machine: {state}, laser armed", state=label)
-        self.pill.set_state(rs, col, label, SD.axis_label(w, "machine"), name)
+        # the simulator: "Simulator" over the state, in the simulator's violet outline (UX review
+        # 2026-11 #9: never mistaken for the machine)
+        caption, outline = SD.axis_label(w, "machine"), ""
+        if bool(getattr(st, "simulator", False)):
+            caption, outline = self._sim_caption(), COLORS["SIMULATOR"][0]
+            name = (_tr(w, "run.state.ready_armed_sim", "Simulator: {state}, laser armed", state=label) if name
+                    else _tr(w, "state.axis.value", "{axis}: {state}", axis=caption, state=label))
+        self.pill.set_state(rs, col, label, caption, name, outline=outline)
         paused = ms is not None and ms.mode == "pause"
         for k, on, why in run_enabled(w, st, ms, running, alarms):
             if k == "hold" and on and paused:
@@ -984,8 +1107,9 @@ def alarm_text(window, a) -> str:
 def run_state(st, ms, alarms=(), need_home: bool = False) -> str:
     """The machine's run state from the safety status ``st``, the machine state ``ms`` and the
     card's active ``alarms``: ``fault`` > ``estop`` (an emergency-stop alarm) > ``alarm`` >
-    ``offline`` > ``hold`` > ``running`` > ``not_homed`` > ``ready``.  Never ``ready`` while an
-    alarm is active (UX audit C2/C3/W3)."""
+    ``offline`` > ``hold`` > ``running`` > ``homing`` > ``moving`` (a go-to move or a jog) >
+    ``not_homed`` > ``ready``.  Never ``ready`` while an alarm is active (UX audit C2/C3/W3),
+    nor while the axes move (UX review 2026-11 #3)."""
     if st is not None and st.banner == "FAULT":
         return "fault"
     alarms = list(alarms or ())
@@ -999,6 +1123,10 @@ def run_state(st, ms, alarms=(), need_home: bool = False) -> str:
         return "hold"
     if ms.mode in ("process", "dry_run", "frame"):
         return "running"
+    if ms.mode == "origin":
+        return "homing"
+    if ms.mode == "jog":
+        return "moving"
     if need_home:
         return "not_homed"
     return "ready"
@@ -1009,7 +1137,8 @@ def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, b
     STOP is always enabled.  ``alarms``: the card's active alarms (None: read from the
     controller, :func:`active_alarms`): while one is active Start, Frame and Dry run are
     disabled with "Reset the alarm first: <alarm>" (UX audit C4), and so is Arm while an
-    e-stop or servo alarm is active (C3)."""
+    e-stop or servo alarm is active (C3); while the machine homes or makes a go-to move they are
+    disabled with "Homing in progress" / "The machine is moving" (UX review 2026-11 #3)."""
     connected = bool(ms is not None and ms.connected)
     fault = st is not None and st.banner == "FAULT"
     paused = ms is not None and ms.mode == "pause"
@@ -1024,6 +1153,9 @@ def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, b
                  if alarms else "")
     from ..controller.alarms import DISARM_KINDS
     arm_alarm = next((a for a in alarms if getattr(a, "kind", "") in DISARM_KINDS), None)
+    mode = getattr(ms, "mode", "") if ms is not None else ""
+    why_motion = {"origin": _tr(window, "run.why.homing", "Homing in progress"),
+                  "jog": _tr(window, "run.why.moving", "The machine is moving")}.get(mode, "")
 
     def reason(*checks: tuple[bool, str]) -> tuple[bool, str]:
         for bad, why in checks:
@@ -1032,13 +1164,14 @@ def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, b
         return True, ""
     out = []
     ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm),
-                     (running and not paused, why_running))
+                     (running and not paused, why_running), (bool(why_motion), why_motion))
     out.append(("start", ok, why))
     ok, why = reason((not connected, no_conn), (not running, _tr(window, "run.why.no_job", "No job is running")))
     out.append(("hold", ok, why))
     out.append(("stop", True, ""))
     for k in ("frame", "dry_run"):
-        ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm), (running, why_running))
+        ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm), (running, why_running),
+                         (bool(why_motion), why_motion))
         out.append((k, ok, why))
     armed = bool(getattr(st, "armed", False))
     ok, why = reason((not connected, no_conn), (fault, why_fault),
@@ -1183,16 +1316,6 @@ class SafetyUI(QObject):
         self.top.addWidget(self.banner)
         window.addToolBar(Qt.TopToolBarArea, self.top)
         window.addToolBarBreak(Qt.TopToolBarArea)
-        self.alarm_bar = QToolBar(_tr(window, "safety.bar.alarm", "Alarm"), window)
-        self.alarm_bar.setObjectName("alarm_banner")
-        self.alarm_bar.setMovable(False)
-        self.alarm_bar.setFloatable(False)
-        self.alarm_bar.toggleViewAction().setVisible(False)
-        self.alarm = AlarmBanner(self)
-        self.alarm.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.alarm_bar.addWidget(self.alarm)
-        window.addToolBar(Qt.TopToolBarArea, self.alarm_bar)
-        self.alarm_bar.setVisible(False)
         # "Stopped: resume point kept · Resume · Discard" after a Stop while held (UX audit W17):
         # Stop stays immediate (no question); the resume point is not silently thrown away
         self.kept_bar = QToolBar(_tr(window, "safety.bar.kept", "Resume point"), window)
@@ -1451,7 +1574,6 @@ class SafetyUI(QObject):
         need_home = (not running and ms is not None and ms.mode not in ("pause",) and
                      ctl.breakpoint is None and homing_needed(ctl))
         self.need_home = need_home
-        self.banner.refresh(st, ms, need_home and not alarms)
         now = time.time()
         codes = {getattr(a, "code", str(a)) for a in alarms}
         for c in codes:
@@ -1459,14 +1581,13 @@ class SafetyUI(QObject):
         for c in list(self._alarm_since):
             if c not in codes:
                 del self._alarm_since[c]
-        show = self.alarm.refresh(alarms, st, self._alarm_since)
-        # the Run screen shows the alarm once, in its state block with Reset alarm (UX audit
-        # W11): the banner would repeat it there
+        # the Run screen shows the alarm, its remedy and Reset alarm once, in its state block
+        # (UX audit W11): there the banner keeps the state, its icon and colours only
         on_run = self._current_workspace() == "run" and self.w.extension("run") is not None \
             if hasattr(self.w, "extension") else False
-        visible = show and not on_run
-        if visible != self.alarm_bar.isVisible():
-            self.alarm_bar.setVisible(visible)
+        machine = self.run_bar.run_state(st, ms, alarms, need_home)
+        show = self.banner.refresh(st, ms, need_home and not alarms, alarms, self._alarm_since, machine,
+                                   compact=on_run)
         self._refresh_kept(ctl, running)
         self._announce(st, alarms, show, running)
         self._set_filter(running)
@@ -1493,22 +1614,25 @@ class SafetyUI(QObject):
         w = self.w
         alarm_key = (getattr(alarms[0], "code", str(alarms[0])) if alarms
                      else ("fault", st.fault) if st is not None and st.banner == "FAULT" else None)
+        b = self.banner
+        # the alarm block's line with the state's word first (E-STOP, ALARM, FAULT)
+        line = _tr(w, "a11y.alarm.state_line", "{state}: {text}", state=b.badge.text(), text=b.title)
         if alarm_key != self._spoken_alarm:
             if alarm_key is not None and alarm_shown:
-                title, rem = self.alarm.title.text(), self.alarm.remedy.text()
-                a11y.name(self.alarm, title, rem)
-                a11y.announce(self.alarm, _tr(w, "a11y.alarm.spoken", "{title}\n{remedy}", title=title, remedy=rem),
+                a11y.announce(b, _tr(w, "a11y.alarm.spoken", "{title}\n{remedy}", title=line, remedy=b.remedy_text),
                               assertive=True, force=True)
             elif self._spoken_alarm is not None:
-                a11y.name(self.alarm, "", "")
-                a11y.announce(self.alarm, _tr(w, "a11y.alarm.cleared", "Alarms cleared"), force=True)
+                a11y.announce(b, _tr(w, "a11y.alarm.cleared", "Alarms cleared"), force=True)
             self._spoken_alarm = alarm_key
-        kind = self.banner.kind
+        kind = b.kind
         if kind != self._spoken_state:
-            if self._spoken_state is not None and kind != "FAULT":     # a fault is spoken above
-                a11y.announce(self.banner, self.banner.label.text(), assertive=kind == "ARMED", force=True)
+            if self._spoken_state is not None and kind != "FAULT" and not alarm_shown:   # spoken above
+                a11y.announce(b, b.label.text(), assertive=kind == "ARMED", force=True)
             self._spoken_state = kind
-        a11y.name(self.banner, self.banner.label.text())
+        if alarm_shown:
+            a11y.name(b, line, b.remedy_text)
+        else:
+            a11y.name(b, b.label.text(), "")
         if running != self._spoken_running:
             if running:
                 a11y.announce(self.run_bar, _tr(w, "a11y.job.started", "Job started"), force=True)
@@ -1975,5 +2099,5 @@ def install(window) -> SafetyUI:
     return ui
 
 
-__all__ = ["install", "SafetyUI", "RunBar", "StateBanner", "AlarmBanner", "PreflightDialog",
+__all__ = ["install", "SafetyUI", "RunBar", "StateBanner", "PreflightDialog",
            "job_locked", "job_running", "ask", "recovery_prompt"]

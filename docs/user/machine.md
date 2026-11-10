@@ -11,7 +11,7 @@ Screens: `work/w3/machine/ws_*.png` and `wiz_*.png` (offscreen captures).
 
 | Section | What it does | Lowest user mode |
 |---|---|---|
-| Connection | Simulator or real motion card (IP address, port), Connect / Disconnect, the live status (connection, safety state, address, link, homed) and the network self-test (`mlaser --selftest`), optionally with one status request to the card | Operator |
+| Connection | Built-in simulator or a network address (a motion card or the network simulator `mlaser-cardsim`: IP address, port; the card does not say which, so it is shown as "not identified"), Connect / Disconnect, the live status (connection, safety state, address, link, homed) and the network self-test (`mlaser --selftest`), optionally with one status request to the card | Operator |
 | Homing and jog | Position in mm, Home X/Y, X, Y, X/Y/Z, focus homing; **hold-to-jog** X± Y± Z± (release stops; a step size of 0.1 / 1 / 10 mm makes one click one step; the jog stops when the window loses focus or is hidden, docs/SAFETY.md §8); coordinate system, set origin, go to origin, clear the sheet rotation | Operator |
 | Procedures | The guided procedures below, each with the mode it needs | per procedure |
 | Monitors | Controller, follower (FTC), autofocus and EtherCAT monitors as panels (they poll only while visible); the ribbon's monitor commands open them here | Engineer |
