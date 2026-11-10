@@ -21,7 +21,10 @@ SEEN = {}
 def register(ctx):
     w = ctx.window
     SEEN["safety_ui"] = getattr(w, "safety_ui", None) is not None
-    SEEN["controller"] = ctx.controller
+    try:
+        SEEN["controller"] = ctx.controller
+    except PermissionError as exc:                      # no machine authority granted
+        SEEN["controller"] = exc
     ctx.register_command("{name}.hello", lambda: None, label="Hello")
 '''
 
@@ -101,10 +104,8 @@ def test_enabled_plugin_loads_after_the_safety_ui(app, fake_eps, monkeypatch, tm
         seen = sys.modules[mod].SEEN
         assert seen["safety_ui"] is True                        # the safety UI existed already
         # the Safety-core plugin view once it is merged; the controller until then
-        try:
-            import mlaser.controller.plugin_view  # noqa: F401
-        except ImportError:
-            assert seen["controller"] is w.ctl
+        # without the machine-authority grant: no controller at all (default deny)
+        assert isinstance(seen["controller"], PermissionError)
         assert w.commands.get("hello.hello") is not None
         assert w.plugin_contexts["hello"].origin == "entry-point"
     finally:
@@ -176,6 +177,7 @@ def test_third_party_plugins_get_the_plugin_view(monkeypatch):
 
     class Host:
         ctl = object()
+        config = {P.AUTHORITY_KEY: ["third"]}           # the operator granted machine authority
 
     calls = []
     fake = types.ModuleType("mlaser.controller.plugin_view")

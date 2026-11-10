@@ -8,7 +8,7 @@
 * read-only: every attribute assignment is refused (``laser_enabled``, ``require_homed`` ...);
 * privileged actions carry the plugin's name: ``arm()`` goes to the controller as
   ``arm(reason, source="plugin:<name>")``; ``arm``, ``reset_fault``, ``operator_action`` (it
-  clears the halt latch) and ``configure_safety`` need the controller's plugin policy
+  clears the halt latch), ``heartbeat_hold`` and ``configure_safety`` need the controller's plugin policy
   (``set_plugin_policy``, installed by the plugin allowlist UI) - without one they are refused
   and audited.  Everything that moves still passes the start gate, the pre-flight and the
   supervisor's guard.
@@ -50,6 +50,14 @@ class PluginControllerView:
         if self._ctl.plugin_policy_check(self._source, "operator_action", what):
             return
         self._ctl.operator_action(what or self._source)
+
+    def heartbeat_hold(self, hold: bool) -> None:
+        """Hold or release the "PC alive" output: a plugin needs the plugin policy for either
+        (releasing would end the commissioning test of the watchdog relay); refused and audited
+        otherwise."""
+        if self._ctl.plugin_policy_check(self._source, "heartbeat_hold", "hold" if hold else "release"):
+            return
+        self._ctl.heartbeat_hold(bool(hold))
 
     def configure_safety(self, **kw: Any) -> bool:
         kw["source"] = self._source
