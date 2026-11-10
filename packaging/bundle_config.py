@@ -22,6 +22,10 @@ HIDDEN_IMPORTS = [
     "svgelements", "pyclipper", "uharfbuzz", "fontTools.ttLib", "fontTools.pens.recordingPen",
     "fontTools.pens.basePen", "segno", "PIL.Image", "shapely", "ezdxf", "ezdxf.addons",
     "ezdxf.fonts", "ezdxf.render", "ezdxf.path", "platformdirs",
+    # PyInstaller's PySide6 hook adds this only when the "PySide6" distribution (the
+    # meta-package) is installed; mlaser depends on PySide6-Essentials alone (review F7): the
+    # Qt enum | and & operators (PyInstaller #7249) need it
+    "PySide6.support.deprecated",
 ]
 MODERN_IMPORTS = ["ortools.constraint_solver.pywrapcp", "ortools.constraint_solver.routing_enums_pb2",
                   "spyrrow", "ruckig"]

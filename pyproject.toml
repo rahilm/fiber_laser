@@ -15,11 +15,19 @@ classifiers = [
     "Programming Language :: Python :: 3.13",
 ]
 requires-python = ">=3.12"   # PySide6 6.12 crashes on 3.11 (none_dealloc); goldens pinned to 3.12
+# Floors (review F7): the lowest versions a clean Python 3.12 environment was started and tested
+# with (the app's --smoke-test, the half-screen, accessibility, integration, options and CAM
+# tests).  Qt: only modules of PySide6-Essentials are imported (QtCore, QtGui, QtWidgets, QtSvg,
+# QtPrintSupport, QtNetwork; QtDBus, QtTest in tests), so not the PySide6 meta-package (+Addons,
+# WebEngine, Pdf: ~440 MB never imported); 6.9 lays the docks out differently
+# (tests/test_half_screen.py), 6.10 passes.  numpy 1.26 / shapely 2.0.2: the first with
+# CPython 3.12 wheels.  platformdirs: the configuration, data and log folders (required at start).
 dependencies = [
-    "PySide6>=6.5",
+    "PySide6-Essentials>=6.10",
     "ezdxf>=1.1",
-    "numpy>=1.24",
-    "shapely>=2.0",
+    "numpy>=1.26",
+    "shapely>=2.0.2",
+    "platformdirs>=4",
     "segno>=1.6",        # Draw -> QR code
     "fontTools>=4.40",   # DXF TEXT / Draw text outlines (GGO_BEZIER-style records)
     "Pillow>=10",        # bitmap engraving (Bitmap.exe port)

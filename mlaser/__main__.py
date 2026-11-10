@@ -96,7 +96,7 @@ _BUNDLE_MODULES = [
     ("PySide6.QtSvg", True), ("PySide6.QtPrintSupport", True), ("PySide6.QtNetwork", True),
     ("numpy", True), ("shapely", True),
     ("ezdxf", True), ("svgelements", True), ("pyclipper", True), ("uharfbuzz", True),
-    ("fontTools.ttLib", True), ("segno", True), ("PIL.Image", True), ("platformdirs", False),
+    ("fontTools.ttLib", True), ("segno", True), ("PIL.Image", True), ("platformdirs", True),
 ]
 
 
