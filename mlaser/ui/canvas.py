@@ -28,11 +28,12 @@ import os
 from dataclasses import dataclass
 from typing import Optional
 
-from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QTimer, Signal
-from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QTransform)
+from PySide6.QtCore import QCoreApplication, QEvent, QObject, QPoint, QPointF, QRect, QRectF, Qt, QTimer, Signal
+from PySide6.QtGui import (QBrush, QColor, QFont, QImage, QPainter, QPainterPath, QPen, QPixmap,
+                           QRegion, QResizeEvent, QTransform)
 from PySide6.QtWidgets import (QFrame, QGraphicsEllipseItem, QGraphicsItem, QGraphicsLineItem,
                                QGraphicsPathItem, QGraphicsRectItem, QGraphicsScene,
-                               QGraphicsSimpleTextItem, QGraphicsView,
+                               QGraphicsSimpleTextItem, QGraphicsView, QStyle,
                                QStyleOptionGraphicsItem, QWidget)
 
 from .style import ICON_TINTS, SP1, SP2, font  # noqa: E402
@@ -656,6 +657,145 @@ class CanvasHud(QFrame):
         self.raise_()
 
 
+# --------------------------------------------------------------------------- live layer
+# The canvas paints in two layers (perf review 2026-11 finding 3: every head-marker move
+# repainted the whole drawing and toolpath, 32 ms at 300 parts, 261 ms at 2,700).
+#
+# * The **static picture**: the background, the drawing, the toolpath overlay and every other item
+#   of the canvas scene (:meth:`CanvasView.scene`).  It is painted once into a pixmap (by a hidden
+#   view of the same scene in the same geometry, QGraphicsView's own paint, on a pixmap of the
+#   window's size with the view at its place: the paint engine starts a dashed line that leaves
+#   the view at the device's edge, so only this gives the screen's pixels) just before the
+#   window paints, and copied while nothing in it changed.  Any change of a scene item (the scene's
+#   ``changed`` signal), of the view (transform, scroll position, size, device pixel ratio) or of
+#   what the background shows (grid, colours, display units) makes it stale; it is then painted
+#   again when a frame finds the scene and the view as the previous frame left them (only live
+#   items changed); a frame after a change of the scene or the view is painted whole, as before
+#   (making the picture costs about 15 % more than a whole paint, so a zoom, a pan or an edit
+#   keeps its old cost).  No picture is made while there are no live items.  A paint the picture does not fit (a stale picture without
+#   the window's update request, a grab, a fractional device pixel ratio such as Windows at
+#   125 %) paints the whole scene, as before.
+# * The **live items** (:meth:`CanvasView.overlay_scene`): the head marker, the cut track, the
+#   simulation trail, the drawing tools' preview and the preview player's path.  They are drawn
+#   over the static picture on every paint, in their stacking order, as the scene would draw them.
+#   The growing paths (cut track, simulation trail) are kept in chunks (:class:`_Trail`); a
+#   finished chunk never changes and is drawn into a second copy of the static picture once, so
+#   the cost of a tick does not grow with the length of the job.
+#
+# Items above :data:`LIVE_Z_MIN` belong in the overlay scene: the live items are always drawn over
+# the static picture.
+
+#: the lowest stacking value of the live items (the cut track); the drawing's items stay below
+LIVE_Z_MIN = 9.0
+
+
+class _Trail:
+    """A growing polyline (the cut track, the simulation trail) as a series of path items in the
+    overlay scene.  A chunk is closed once it holds :attr:`CHUNK` path elements and the next
+    point starts a new subpath (a laser-off move: the seam then draws exactly what one path
+    drew); a continuous cut longer than :attr:`CHUNK_MAX` elements is closed at a vertex.  A
+    closed chunk never changes again (:meth:`CanvasView._seal`)."""
+
+    CHUNK = 250
+    CHUNK_MAX = 2000
+
+    def __init__(self, view: "CanvasView", pen: QPen, z: float) -> None:
+        self.view = view
+        self.pen = QPen(pen)
+        self.z = z
+        self.items: list[QGraphicsPathItem] = []
+        self.path = QPainterPath()
+        self.item: Optional[QGraphicsPathItem] = None     # the open chunk
+        self.last: Optional[tuple] = None
+
+    def _open(self) -> None:
+        self.path = QPainterPath()
+        it = QGraphicsPathItem()
+        it.setPen(self.pen)
+        it.setZValue(self.z)
+        self.view.overlay_scene().addItem(it)
+        self.items.append(it)
+        self.item = it
+
+    def close(self) -> None:
+        """Close the open chunk (it is final): the next point starts a new one."""
+        if self.item is not None:
+            self.view._seal(self.item)
+            self.item = None
+
+    def add(self, x: float, y: float, draw: bool) -> None:
+        """A point: a line from the last point when ``draw``, else a move."""
+        line = draw and self.last is not None
+        n = self.path.elementCount() if self.item is not None else 0
+        if self.item is not None and (n >= self.CHUNK_MAX or (n >= self.CHUNK and not line)):
+            self.close()
+        if self.item is None:
+            self._open()
+            if line:
+                self.path.moveTo(*self.last)
+        if line:
+            self.path.lineTo(x, y)
+        else:
+            self.path.moveTo(x, y)
+        self.last = (x, y)
+        assert self.item is not None
+        self.item.setPath(self.path)
+
+    def set_pen(self, pen: QPen) -> None:
+        self.pen = QPen(pen)
+        for it in self.items:
+            it.setPen(self.pen)
+        self.view._invalidate_live_cache()
+
+    def remove(self) -> None:
+        for it in self.items:
+            self.view._unseal(it)
+            if it.scene() is not None:
+                it.scene().removeItem(it)
+        self.items.clear()
+        self.item = None
+        self.path = QPainterPath()
+        self.last = None
+
+    def element_count(self) -> int:
+        return sum(it.path().elementCount() for it in self.items)
+
+
+class _StaticView(QGraphicsView):
+    """A hidden view of the canvas's scene that paints the canvas's static picture (see
+    :meth:`CanvasView._static_view`): no frame, no scroll bars, the canvas's background."""
+
+    def __init__(self, canvas: "CanvasView") -> None:
+        super().__init__(canvas.scene())
+        self._canvas = canvas
+        self.setObjectName("canvas_static_view")
+        self.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setViewportUpdateMode(QGraphicsView.NoViewportUpdate)
+        self.setTransformationAnchor(QGraphicsView.NoAnchor)
+        self.setResizeAnchor(QGraphicsView.NoAnchor)
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        self._canvas.drawBackground(painter, rect)
+
+
+class _PrePaint(QObject):
+    """Event filter on the canvas's window: before the window paints (its ``UpdateRequest``) the
+    canvas brings its static picture up to date, outside of any paint event (a widget cannot
+    render itself from inside its own paint)."""
+
+    def __init__(self, view: "CanvasView") -> None:
+        super().__init__(view)
+        self._view = view
+
+    def eventFilter(self, obj, ev) -> bool:   # noqa: N802 - Qt
+        if ev.type() == QEvent.UpdateRequest:
+            self._view._prepare_static()
+        return False
+
+
 class CanvasView(QGraphicsView):
     mouseMoved = Signal(float, float)
     selectionChanged = Signal()
@@ -664,10 +804,31 @@ class CanvasView(QGraphicsView):
 
     MODE_SELECT, MODE_PAN, MODE_NODE = "select", "pan", "node"
     tool = None            # interaction tool (set_tool); class default so early events see it
+    #: paint the static picture from its cached copy (see "live layer" above); False paints the
+    #: whole scene on every paint (tests compare the two)
+    layer_cache = True
+    _painting_static = False      # class defaults: paint events can come before __init__ ends
+    _static: Optional[tuple] = None
+    _sv: Optional["_StaticView"] = None
+    _scene_gen = 0                # counts the scene's changes
+    _live_gen = 0                 # counts the overlay scene's changes
+    _last_full: Optional[tuple] = None   # (view key, both generations) at the last whole paint
 
     def __init__(self, parent=None):
         self._scene = QGraphicsScene()
+        # the live items (head, track, previews): drawn over the cached static picture
+        self._live = QGraphicsScene()
         super().__init__(self._scene, parent)
+        self._live.setSceneRect(-1e6, -1e6, 2e6, 2e6)
+        self._static_dirty = True
+        self._sealed: dict[int, QGraphicsItem] = {}    # id -> closed live item (never changes)
+        self._under: Optional[tuple] = None            # (pixmap, items drawn on it) see _live_base
+        self._prepaint = _PrePaint(self)
+        self._prepaint_on: list = []
+        #: paints from the cached picture / whole paints / pictures made (tests, measurements)
+        self.paint_stats = {"cached": 0, "full": 0, "static": 0}
+        self._scene.changed.connect(self._static_changed)
+        self._live.changed.connect(self._live_changed)
         self.document = None
         self.options = ViewOptions()
         self.mode = self.MODE_SELECT
@@ -702,13 +863,15 @@ class CanvasView(QGraphicsView):
         self._sim_timer.timeout.connect(self._sim_step)
         self._sim_path: list[tuple[float, float, bool]] = []
         self._sim_pos = 0
-        self._sim_trail: Optional[QGraphicsPathItem] = None
+        self._sim_trail: Optional[_Trail] = None
+        self._sim_trails: list[_Trail] = []       # earlier runs' trails stay until cleared
         self.sim_speed = 1.0   # multiplier (mf121 "Simulation speed")
         self.toolpath: list = []                 # mlaser.cam MotionItems (set_toolpath)
         self._tp_order: list[tuple[int, int]] = []
-        self._track: Optional[QGraphicsPathItem] = None   # live machine track
-        self._track_path = QPainterPath()
-        self._track_last = None
+        self._track: Optional[_Trail] = None      # live machine track
+        self._overlay_stale: list[QGraphicsItem] = []   # the previous toolpath's, see set_toolpath
+        self._build_gen = 0                       # counts rebuilds (the drawing's bbox cache)
+        self._doc_bbox: Optional[tuple] = None    # (document, build generation, bbox)
         self.tool = None                          # interaction tool (see set_tool)
         self._preview_items: list[QGraphicsItem] = []
         self._fit_pending: Optional[str] = "drawing"   # see _fit
@@ -740,9 +903,8 @@ class CanvasView(QGraphicsView):
         if self._head is not None:
             self._head.setPen(QPen(_cc("head"), 1.5))
         if self._track is not None:
-            pen = QPen(_cc("track"), 1.5)
-            pen.setCosmetic(True)
-            self._track.setPen(pen)
+            self._track.set_pen(self._track_pen())
+        self._static_dirty = True
         self.rebuild()
         self.hud.refresh()
 
@@ -821,6 +983,263 @@ class CanvasView(QGraphicsView):
 
     def drawForeground(self, painter, rect) -> None:  # noqa: N802 - Qt
         super().drawForeground(painter, rect)
+        if self._painting_static:
+            return                       # the static picture: no live items, no rulers
+        self._draw_live(painter, self._live_items())
+        self._draw_rulers(painter)
+
+    # ------------------------------------------------------------------ live layer (see above)
+    def overlay_scene(self) -> QGraphicsScene:
+        """The scene of the live items, drawn over the drawing on every paint: items that move
+        or change often (a marker that follows the mouse or the machine, a growing path) belong
+        here, not in :meth:`scene` (each change there repaints the whole drawing)."""
+        return self._live
+
+    def _static_changed(self, *_args) -> None:
+        self._static_dirty = True
+        self._scene_gen += 1
+
+    def _live_changed(self, *_args) -> None:
+        self._live_gen += 1
+        self.viewport().update()
+
+    def _invalidate_live_cache(self) -> None:
+        """A closed live item changed (theme): the picture with the closed items is redrawn."""
+        self._under = None
+        self.viewport().update()
+
+    def _seal(self, item: QGraphicsItem) -> None:
+        """``item`` (in the overlay scene) never changes again: it is drawn into the cached
+        picture once instead of on every paint."""
+        self._sealed[id(item)] = item
+
+    def _unseal(self, item: QGraphicsItem) -> None:
+        self._sealed.pop(id(item), None)
+
+    def _static_key(self) -> Optional[tuple]:
+        """What the static picture depends on besides the scene's items: the view (transform,
+        scroll position, size, device pixel ratio) and what the background draws.  None: no
+        cached picture (a fractional device pixel ratio: the copy would not land on whole
+        device pixels)."""
+        vp = self.viewport()
+        dpr = vp.devicePixelRatioF()
+        if dpr != int(dpr) or vp.width() <= 0 or vp.height() <= 0:
+            return None
+        t = self.viewportTransform()
+        from mlaser.services import units as U
+        return (t.m11(), t.m12(), t.m21(), t.m22(), t.dx(), t.dy(), vp.width(), vp.height(), dpr,
+                self.backgroundBrush().color().rgba(), self.options.show_grid,
+                CANVAS_COLORS["table"] if self.options.show_grid else None,
+                U.current().unit("length") if self.options.show_grid else None)
+
+    def _flush_scene(self) -> None:
+        """Deliver the scene's pending change notifications now (they are queued to the next
+        event-loop turn), so an item changed just before a synchronous paint (``repaint``,
+        ``grab``) marks the static picture stale."""
+        QCoreApplication.sendPostedEvents(self._scene, QEvent.MetaCall)
+        QCoreApplication.sendPostedEvents(self._live, QEvent.MetaCall)
+
+    def _static_valid(self) -> bool:
+        st = self._static
+        return (st is not None and not self._static_dirty and st[0] == self._static_key())
+
+    def _window_geometry(self) -> tuple:
+        """(device width, height, the viewport's x, y on it) in device pixels of the window's
+        own paint device (its backing store: the window's size at the device pixel ratio)."""
+        vp = self.viewport()
+        dpr = vp.devicePixelRatioF()
+        win = self.window()
+        off = vp.mapTo(win, QPoint(0, 0))
+        return (round(win.width() * dpr), round(win.height() * dpr), round(off.x() * dpr),
+                round(off.y() * dpr))
+
+    @staticmethod
+    def _painter_geometry(p: QPainter) -> tuple:
+        """The same for the device ``p`` paints on (the window's backing store, or a grab)."""
+        dev = p.paintEngine().paintDevice() if p.paintEngine() is not None else None
+        t = p.deviceTransform()
+        if dev is None:
+            return ()
+        return (dev.width(), dev.height(), round(t.dx()), round(t.dy()))
+
+    def _prepare_static(self) -> None:
+        """Before the window paints: paint the static picture again when it is stale.
+
+        It is painted on a pixmap of the window's paint device's size with the viewport at its
+        place on it, then cut to the viewport: the paint engine clips lines at the device's
+        edges, and a dashed line that leaves the view gets its dash phase from there, so only the
+        same device geometry gives the same pixels."""
+        if not self.layer_cache or self._painting_static or not self.isVisible() or not self._live.items():
+            return                       # (no live items: a whole paint costs less than a picture)
+        self._flush_scene()
+        if self._static_valid():
+            return
+        key = self._static_key()
+        if key is None:
+            self._static = None
+            return
+        last = self._last_full
+        if last is None or last[:2] != (key, self._scene_gen) or last[2] == self._live_gen:
+            # the scene or the view changed since the last paint: that change is painted whole
+            # (a zoom, a pan, an edit, a resize: one paint, no picture made for it); the picture
+            # is made when only live items changed since (a head move, a track point)
+            return
+        vp = self.viewport()
+        dpr = key[8]
+        geo = self._window_geometry()
+        sv = self._static_view()
+        if sv is None:
+            self._static = None
+            return
+        whole = QPixmap(geo[0], geo[1])
+        whole.setDevicePixelRatio(dpr)
+        off = vp.mapTo(self.window(), QPoint(0, 0))
+        self._static_dirty = False
+        self._painting_static = True
+        try:
+            # QGraphicsView.paintEvent of the same scene in the same view geometry, into the
+            # pixmap: the same pixels as this view's paint on the screen
+            painter = QPainter(whole)
+            painter.setClipRect(QRect(off, vp.size()))
+            sv.viewport().render(painter, off, QRegion(), QWidget.RenderFlag.DrawWindowBackground)
+            painter.end()
+        finally:
+            self._painting_static = False
+        pm = whole.copy(geo[2], geo[3], round(vp.width() * dpr), round(vp.height() * dpr))
+        pm.setDevicePixelRatio(dpr)
+        self._static = (key, pm, geo)
+        self._under = None
+        self.paint_stats["static"] += 1
+
+    def _static_view(self) -> Optional["_StaticView"]:
+        """The hidden view that paints the static picture, set to this view's size, transform
+        and scroll position (None: it cannot match them).  A view of its own: rendering this
+        canvas's viewport (``QWidget.render``) first delivered the pending move and resize
+        events of hidden widgets all over the window, and a page next to the canvas was laid
+        out differently (tests/test_half_screen.py)."""
+        sv = self._sv
+        try:
+            if sv is not None:
+                sv.isHidden()
+        except RuntimeError:                 # deleted with the other top-level widgets
+            sv = None
+        if sv is None:
+            sv = self._sv = _StaticView(self)
+        vp = self.viewport()
+        sv.setRenderHints(self.renderHints())
+        sv.setBackgroundBrush(self.backgroundBrush())
+        if sv.size() != vp.size():
+            old = sv.size()
+            sv.resize(vp.size())
+            # a hidden widget gets its resize event when it is shown, which this one never is:
+            # deliver it now (the scroll area places its viewport, the view its scroll range)
+            QCoreApplication.sendEvent(sv, QResizeEvent(vp.size(), old))
+        if sv.viewport().size() != vp.size():
+            return None
+        sv.setTransform(self.transform())
+        sv.horizontalScrollBar().setValue(self.horizontalScrollBar().value())
+        sv.verticalScrollBar().setValue(self.verticalScrollBar().value())
+        if sv.viewportTransform() != self.viewportTransform():
+            return None
+        return sv
+
+    def _live_items(self) -> list:
+        return [it for it in self._live.items(Qt.AscendingOrder) if it.isVisible()]
+
+    def _draw_live(self, painter: QPainter, items) -> None:
+        """Paint overlay-scene items as the scene paints its items (device transform, style
+        option, opacity), in the given (stacking) order."""
+        if not items:
+            return
+        vt = self.viewportTransform()
+        widget = self.viewport()
+        painter.save()
+        for it in items:
+            opt = QStyleOptionGraphicsItem()
+            br = it.boundingRect()
+            opt.state = QStyle.State_Enabled if it.isEnabled() else QStyle.State_None
+            opt.rect = br.toRect()
+            opt.exposedRect = br
+            painter.setWorldTransform(it.deviceTransform(vt), False)
+            painter.setOpacity(it.effectiveOpacity())
+            it.paint(painter, opt, widget)
+        painter.restore()
+
+    def _live_base(self, items: list) -> tuple:
+        """(pixmap, items still to draw): the static picture with the leading closed live items
+        (finished chunks of the cut track) drawn on it, kept and extended as chunks close."""
+        assert self._static is not None
+        base = self._static[1]
+        n = 0
+        while n < len(items) and id(items[n]) in self._sealed:
+            n += 1
+        if n == 0:
+            return base, items
+        under = items[:n]
+        cache = self._under
+        if cache is None or cache[0] is not base or len(cache[2]) > n or \
+                any(a is not b for a, b in zip(cache[2], under)):
+            pm = QPixmap(base)           # a copy (shared until painted on)
+            done: list = []
+        else:
+            pm, done = cache[1], cache[2]
+        if len(done) < n:
+            p = QPainter(pm)
+            p.setRenderHints(p.renderHints(), False)
+            p.setRenderHints(self.renderHints(), True)
+            self._draw_live(p, under[len(done):])
+            p.end()
+            done = list(under)
+        self._under = (base, pm, done)
+        return pm, items[n:]
+
+    def paintEvent(self, ev) -> None:   # noqa: N802 - Qt
+        if self._painting_static or not self.layer_cache:
+            super().paintEvent(ev)
+            return
+        self._flush_scene()
+        p = None
+        if self._static_valid() and self._live.items():
+            p = QPainter(self.viewport())
+            assert self._static is not None
+            if self._painter_geometry(p) != self._static[2]:
+                p.end()                  # another device (a grab of part of the window)
+                p = None
+        if p is None:
+            # no picture yet, or a stale one (a paint without the window's update request,
+            # e.g. an expose), or another device: the whole paint, as without the cache
+            self.paint_stats["full"] += 1
+            self._last_full = (self._static_key(), self._scene_gen, self._live_gen)
+            super().paintEvent(ev)
+            return
+        self.paint_stats["cached"] += 1
+        pm, rest = self._live_base(self._live_items())
+        p.drawPixmap(0, 0, pm)
+        p.setRenderHints(p.renderHints(), False)
+        p.setRenderHints(self.renderHints(), True)
+        self._draw_live(p, rest)
+        self._draw_rulers(p)
+        p.end()
+
+    def showEvent(self, ev) -> None:   # noqa: N802 - Qt
+        super().showEvent(ev)
+        win = self.window()
+        targets = [win]
+        if win.windowHandle() is not None:
+            targets.append(win.windowHandle())
+        if [id(t) for t in targets] != [id(t) for t in self._prepaint_on]:
+            for t in self._prepaint_on:
+                try:
+                    t.removeEventFilter(self._prepaint)
+                except RuntimeError:      # already deleted
+                    pass
+            for t in targets:
+                t.installEventFilter(self._prepaint)
+            self._prepaint_on = targets
+        if self._fit_pending:
+            self._fit(self._fit_pending)
+
+    def _draw_rulers(self, painter) -> None:
         if not self.options.show_rulers:
             return
         major, minor = self.ruler_steps()
@@ -918,8 +1337,10 @@ class CanvasView(QGraphicsView):
         When the parts are the same objects in the same order as at the last rebuild and every
         changed part keeps its number of contours, only the changed parts' items are updated
         (:meth:`_rebuild_changed`)."""
+        self._build_gen += 1
         if changed is not None and self._rebuild_changed(changed):
             return
+        self._drop_stale_overlay()
         for it in self._overlay:
             self._scene.removeItem(it)
         for _, rit in self._raster_items:
@@ -1005,6 +1426,7 @@ class CanvasView(QGraphicsView):
             # many parts changed (a select-all edit): new items are cheaper than re-pathing the
             # old ones (setPath re-indexes each item: 330 ms against 125 ms at 2,700 parts)
             return False
+        self._drop_stale_overlay()
         for it in self._overlay:
             self._scene.removeItem(it)
         self._overlay.clear()
@@ -1034,15 +1456,50 @@ class CanvasView(QGraphicsView):
         self.toolpath = list(items or [])
         self._tp_order = [(m.part, m.contour) for m in self.toolpath
                           if type(m).__name__ == "Marker" and getattr(m, "kind", "") == "contour"]
-        self.rebuild()
+        if not self._drawing_is_built():
+            self.rebuild()
+            return
+        # the drawing is what the last rebuild showed: only the overlay (the toolpath, the
+        # cut order) is new (perf review 2026-11 finding 5, issue #1: the full rebuild walked
+        # every contour again, 65 ms at 2,700 parts).  The previous toolpath stays on screen
+        # until the new one's paths are built (in slices for a large drawing, _overlay_steps).
+        self._order = self.contour_order()
+        self._overlay_stale.extend(self._overlay)
+        self._overlay = []
+        self._build_overlay()
 
-    def _toolpath_overlay(self) -> None:
+    def _drawing_is_built(self) -> bool:
+        """The document's parts and contours are the objects the last rebuild drew."""
+        doc, built = self.document, self._built
+        if doc is None or built is None or built[0] is not doc or len(built[1]) != len(doc.parts):
+            return False
+        pp = self._part_paths
+        for a, part in zip(built[1], doc.parts):
+            if a is not part:
+                return False
+            ent = pp.get(part.uid)
+            if ent is None or ent[0] is not part or len(ent[1]) != len(part.contours) or \
+                    any(x is not y for x, y in zip(ent[1], part.contours)):
+                return False
+        return True
+
+    def _drop_stale_overlay(self) -> None:
+        for it in self._overlay_stale:
+            if it.scene() is not None:
+                it.scene().removeItem(it)
+        self._overlay_stale.clear()
+
+    def _toolpath_overlay(self):
         """The planned toolpath, drawn over the drawing so every CAM change shows: lead-ins and
         lead-outs in their own colours, the kerf-compensated path of compensated contours (the
         drawing stays in its layer colour underneath), micro-joint gaps (laser off), the
         lead-in the lead check flagged (red) and the rapids (dashed).  The paths are cached for
         the toolpath's items (a rebuild after an edit redraws the same toolpath until the new
-        plan arrives); arcs are drawn with ``arcTo`` (review 2 P2-4)."""
+        plan arrives); arcs are drawn with ``arcTo`` (review 2 P2-4).
+
+        A generator (a step of :meth:`_overlay_steps`): a new toolpath's paths are built in
+        slices (75 ms in one go at 2,700 parts, perf review 2026-11 finding 5); the previous
+        toolpath's items (:meth:`set_toolpath`) are replaced when the new ones are complete."""
         rasters = tuple(sorted(pi for pi, _ in self._raster_items))
         flagged = frozenset(self._lead_flags())
         kerfed = frozenset(self._kerf_contours())
@@ -1053,9 +1510,11 @@ class CanvasView(QGraphicsView):
         if hit is not None and hit[0] is tp and hit[1] == len(tp) and hit[2] == key:
             paths, marks = hit[3]
         else:
-            paths, marks = self._toolpath_paths(tp, set(rasters), flagged, kerfed, dict(louts))
+            paths, marks = yield from self._toolpath_path_steps(tp, set(rasters), flagged, kerfed,
+                                                                dict(louts))
             self._tp_paths = (tp, len(tp), key, (paths, marks))
         self.toolpath_marks = marks
+        self._drop_stale_overlay()
         show_tp = self.options.show_toolpath
         for name, z, width, style, show in (
                 ("rapid", 0.4, 0, Qt.DashLine, self.options.show_move_path and show_tp),
@@ -1144,6 +1603,21 @@ class CanvasView(QGraphicsView):
         compensated contours), ``gap`` (laser off), ``lead_in``, ``lead_out``, ``bad`` (flagged
         lead-ins), ``rapid``.  ``marks``: one :class:`ToolpathMark` per contour (pierce point,
         contour start, cut direction, lead-in length) for the markers."""
+        steps = CanvasView._toolpath_path_steps(toolpath, rasters, flagged, kerfed, lead_outs)
+        while True:
+            try:
+                next(steps)
+            except StopIteration as done:
+                return done.value
+
+    #: toolpath items between two yields of :meth:`_toolpath_path_steps`
+    PATH_STEP_ITEMS = 256
+
+    @staticmethod
+    def _toolpath_path_steps(toolpath, rasters: set, flagged=frozenset(), kerfed=frozenset(),
+                             lead_outs: Optional[dict] = None):
+        """:meth:`_toolpath_paths` as a generator: it yields every :data:`PATH_STEP_ITEMS`
+        toolpath items and returns ``(paths, marks)``."""
         paths = {k: QPainterPath() for k in ("cut", "kerf", "gap", "lead_in", "lead_out", "bad", "rapid")}
         marks: list[ToolpathMark] = []
         lead_outs = lead_outs or {}
@@ -1180,7 +1654,10 @@ class CanvasView(QGraphicsView):
                                       _move_direction(body), lead_len if n_in else 0.0,
                                       _move_direction(block[n_in - 1], end=True) if n_in else None))
 
-        for m in toolpath:
+        step = CanvasView.PATH_STEP_ITEMS
+        for k, m in enumerate(toolpath):
+            if k % step == step - 1:
+                yield
             name = type(m).__name__
             if name == "Marker":
                 flush()
@@ -1207,27 +1684,28 @@ class CanvasView(QGraphicsView):
         flush()
         return paths, marks
 
+    @staticmethod
+    def _track_pen() -> QPen:
+        pen = QPen(_cc("track"), 1.5)
+        pen.setCosmetic(True)
+        return pen
+
     def add_track_point(self, x: float, y: float, cutting: bool) -> None:
-        """Live machine track while a job runs (cut segments solid, moves skipped)."""
+        """Live machine track while a job runs (cut segments solid, moves skipped).  Kept in
+        chunks (:class:`_Trail`): a tick redraws the open chunk only, at any length of job."""
         if self._track is None:
-            self._track = QGraphicsPathItem()
-            pen = QPen(_cc("track"), 1.5)
-            pen.setCosmetic(True)
-            self._track.setPen(pen)
-            self._track.setZValue(9)
-            self._scene.addItem(self._track)
-        if self._track_last is None or not cutting:
-            self._track_path.moveTo(x, y)
-        else:
-            self._track_path.lineTo(x, y)
-        self._track_last = (x, y)
-        self._track.setPath(self._track_path)
+            self._track = _Trail(self, self._track_pen(), LIVE_Z_MIN)
+        for tr in self._sim_trails:
+            tr.close()                   # a trail drawn over the track stays as it is
+        self._track.add(x, y, cutting)
 
     def clear_track(self) -> None:
-        self._track_path = QPainterPath()
-        self._track_last = None
         if self._track is not None:
-            self._track.setPath(self._track_path)
+            self._track.remove()
+
+    def track_points(self) -> int:
+        """Path elements of the cut track (all chunks); tests and measurements."""
+        return self._track.element_count() if self._track is not None else 0
 
     def refresh_styles(self) -> None:
         """Pens of the contour items; an item whose style (colour, selected) is unchanged is not
@@ -1274,8 +1752,9 @@ class CanvasView(QGraphicsView):
         """Start (re)building the overlay: what fits in :data:`OVERLAY_SLICE_S` now, the rest in
         later event-loop turns (:meth:`_overlay_run`), so a new toolpath or an edit of a large
         drawing never holds the GUI thread for the whole overlay (several markers per contour;
-        review 2 P1-1: a Stop waits for the GUI thread).  The toolpath paths and
-        ``toolpath_marks`` are built at once; :meth:`finish_overlay` completes the rest now."""
+        review 2 P1-1: a Stop waits for the GUI thread).  A new toolpath's paths and
+        ``toolpath_marks`` are built in slices too (:meth:`_toolpath_overlay`);
+        :meth:`finish_overlay` completes the rest now."""
         self._overlay_gen += 1
         self._overlay_job = (self._overlay_gen, self._overlay_steps())
         if len(self._items) <= OVERLAY_SYNC_CONTOURS:
@@ -1310,9 +1789,11 @@ class CanvasView(QGraphicsView):
         doc = self.document
         o = self.options
         prev_end = None
-        self.toolpath_marks = []
         if self.toolpath:
-            self._toolpath_overlay()
+            yield from self._toolpath_overlay()
+        else:
+            self.toolpath_marks = []
+            self._drop_stale_overlay()
         if len(self._items) > LOD_CONTOURS:
             return          # level of detail: no per-contour markers / labels / arrows / boxes
         if self.toolpath and o.show_toolpath:
@@ -1458,10 +1939,23 @@ class CanvasView(QGraphicsView):
         """Fit the whole machine table."""
         self._fit("table")
 
+    def drawing_bbox(self) -> tuple:
+        """``document.bbox()``, kept until the next rebuild (every document change rebuilds the
+        canvas): a resize in fit mode re-fits on every resize event, and the bounding box of
+        every part in Python was most of a live-resize step (perf review 2026-11 finding 14:
+        70 ms per event at 300 parts)."""
+        doc = self.document
+        hit = self._doc_bbox
+        if hit is not None and hit[0] is doc and hit[1] == self._build_gen and hit[2] == len(doc.parts):
+            return hit[3]
+        bb = doc.bbox()
+        self._doc_bbox = (doc, self._build_gen, len(doc.parts), bb)
+        return bb
+
     def fit_rect(self, kind: str = "drawing") -> QRectF:
         doc = self.document
         if kind == "drawing" and doc is not None and doc.parts:
-            x0, y0, x1, y1 = doc.bbox()
+            x0, y0, x1, y1 = self.drawing_bbox()
         else:
             w, h = self.options.table_size
             x0, y0, x1, y1 = 0, 0, w, h
@@ -1499,11 +1993,6 @@ class CanvasView(QGraphicsView):
         if getattr(self, "hud", None) is not None:
             self.hud.place()
 
-    def showEvent(self, ev) -> None:   # noqa: N802 - Qt
-        super().showEvent(ev)
-        if self._fit_pending:
-            self._fit(self._fit_pending)
-
     def set_mode(self, mode: str) -> None:
         self.mode = mode
         self.setCursor(Qt.OpenHandCursor if mode == self.MODE_PAN else Qt.ArrowCursor)
@@ -1519,7 +2008,7 @@ class CanvasView(QGraphicsView):
             self._head.setPen(pen)
             self._head.setFlag(QGraphicsItem.ItemIgnoresTransformations)
             self._head.setZValue(20)
-            self._scene.addItem(self._head)
+            self._live.addItem(self._head)
         self._head.setPos(x, y)
 
     # ------------------------------------------------------------------ selection
@@ -1718,7 +2207,7 @@ class CanvasView(QGraphicsView):
             it = QGraphicsPathItem(path)
             it.setPen(pen)
             it.setZValue(30)
-            self._scene.addItem(it)
+            self._live.addItem(it)
             self._preview_items.append(it)
         mpen = QPen(_cc("marker"), 1.5)
         for (mx, my) in markers:
@@ -1727,13 +2216,13 @@ class CanvasView(QGraphicsView):
             it.setFlag(QGraphicsItem.ItemIgnoresTransformations)
             it.setPos(mx, my)
             it.setZValue(31)
-            self._scene.addItem(it)
+            self._live.addItem(it)
             self._preview_items.append(it)
 
     def clear_preview(self) -> None:
         for it in self._preview_items:
             if it.scene() is not None:
-                self._scene.removeItem(it)
+                it.scene().removeItem(it)
         self._preview_items.clear()
 
     def _tool_call(self, name: str, *args):
@@ -1805,20 +2294,21 @@ class CanvasView(QGraphicsView):
         if not self._sim_path:
             return False
         self._sim_pos = 0
-        self._sim_trail = QGraphicsPathItem()
         pen = QPen(_cc("sim"), 2)
         pen.setCosmetic(True)
-        self._sim_trail.setPen(pen)
-        self._sim_trail.setZValue(10)
-        self._scene.addItem(self._sim_trail)
-        self._sim_draw = QPainterPath()
+        for tr in self._sim_trails:
+            tr.close()                   # an earlier run's trail stays on screen, unchanged
+        self._sim_trail = _Trail(self, pen, 10)
+        self._sim_trails.append(self._sim_trail)
         self._sim_timer.start(interval_ms)
         return True
 
     def stop_simulation(self, clear: bool = False) -> None:
         self._sim_timer.stop()
         if clear and self._sim_trail is not None:
-            self._scene.removeItem(self._sim_trail)
+            # (the latest run's trail, as before; earlier runs' trails stay)
+            self._sim_trail.remove()
+            self._sim_trails.remove(self._sim_trail)
             self._sim_trail = None
 
     def simulation_running(self) -> bool:
@@ -1826,16 +2316,16 @@ class CanvasView(QGraphicsView):
 
     def _sim_step(self) -> None:
         n = max(1, int(4 * self.sim_speed))
+        trail = self._sim_trail
+        assert trail is not None
+        if self._track is not None:
+            self._track.close()          # the trail is drawn over the track: it stays as it is
         for _ in range(n):
             if self._sim_pos >= len(self._sim_path):
                 self._sim_timer.stop()
                 self.simulationFinished.emit()
                 return
             x, y, cut = self._sim_path[self._sim_pos]
-            if cut and self._sim_pos > 0:
-                self._sim_draw.lineTo(x, y)
-            else:
-                self._sim_draw.moveTo(x, y)
+            trail.add(x, y, bool(cut) and self._sim_pos > 0)
             self._sim_pos += 1
-        self._sim_trail.setPath(self._sim_draw)
         self.set_head_position(x, y)

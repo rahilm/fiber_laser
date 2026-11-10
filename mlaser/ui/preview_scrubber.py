@@ -72,7 +72,10 @@ class PreviewOverlay:
     CHUNK = 2000
     MAX_POINTS = 60000
     def _scene(self):
-        return self.canvas.scene()
+        # the canvas's live layer: a frame redraws these items over the cached drawing
+        # (perf review 2026-11 finding 3); a plain view (tests) has only its scene
+        live = getattr(self.canvas, "overlay_scene", None)
+        return live() if callable(live) else self.canvas.scene()
 
     def _ensure(self) -> None:
         sc = self._scene()

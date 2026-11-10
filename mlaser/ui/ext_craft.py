@@ -149,7 +149,8 @@ class ToolHost(QObject):
         if callable(prev) and getattr(self.canvas, "tool", None) is not None:
             prev(markers=[p] if p is not None else [])
             return
-        sc = self.canvas.scene()
+        live = getattr(self.canvas, "overlay_scene", None)   # a marker that follows the mouse:
+        sc = live() if callable(live) else self.canvas.scene()   # the canvas's live layer
         if p is None:
             if self._marker is not None:
                 sc.removeItem(self._marker)

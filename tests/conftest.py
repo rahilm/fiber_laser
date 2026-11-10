@@ -108,6 +108,8 @@ UI_MODULES = {
     "test_large_drawing", "test_idle_timers",
     # perf review 2026-11: the document pipeline of a large drawing
     "test_pipeline_perf",
+    # perf review 2026-11: the canvas's cached picture, its cost with a large drawing
+    "test_canvas_layers", "test_canvas_perf",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -122,6 +124,7 @@ SIM_MODULES = {
     "test_large_drawing",     # GUI-thread time budgets (relative; one worker, as in a serial run)
     "test_idle_timers",       # timers, a watched folder (real-time waits)
     "test_pipeline_perf",     # GUI-thread budgets, the plan and review processes
+    "test_canvas_perf",       # GUI-thread paint / overlay budgets (relative; one worker)
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests run in a timing group (real-time assertions, simulators, sockets);
@@ -143,9 +146,10 @@ TIMING_GROUPS = {
     },
     # the window: GUI-thread latency bounds, the workspaces on the simulator, whole-app subprocesses
     "timing-gui": {
-        "test_card_ui", "test_close_save", "test_devices_ui", "test_diag_monitors", "test_idle_timers",
-        "test_integration", "test_large_drawing", "test_machine_workspace", "test_plan_process",
-        "test_responsive_layout", "test_services_jobs", "test_ws_cutting_strategy", "test_ws_run",
+        "test_canvas_perf", "test_card_ui", "test_close_save", "test_devices_ui", "test_diag_monitors",
+        "test_idle_timers", "test_integration", "test_large_drawing", "test_machine_workspace",
+        "test_pipeline_perf", "test_plan_process", "test_responsive_layout", "test_services_jobs",
+        "test_ws_cutting_strategy", "test_ws_run",
     },
 }
 #: modules marked ``safety`` or ``sim`` (by directory or by name) that run in NO timing group: no
