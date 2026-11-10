@@ -861,6 +861,13 @@ class LogPanel(QTabWidget):
     def sizeHint(self):  # keep the bottom dock compact by default
         return QSize(800, 140)
 
+    def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
+        # the tab bar and two lines of the log (a list scrolls; Qt's 70 px for a scroll area
+        # took the room a page needs on a 1280 x 800 screen with a taskbar)
+        s = super().minimumSizeHint()
+        lines = self.text.fontMetrics().lineSpacing() * 2 + 2 * self.text.frameWidth() + 8
+        return QSize(s.width(), min(s.height(), self.tabBar().sizeHint().height() + lines))
+
     def log(self, msg: str) -> None:
         # "<key>" -> its text; "<key>: detail" -> "<text>: detail"; an opaque key of the
         # original is never shown (Translator.log_text).  Templates with placeholders are
