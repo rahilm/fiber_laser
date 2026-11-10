@@ -192,8 +192,14 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
         box.setInformativeText(detail)
     rec = box.addButton(_tr(window, "safety.recovery.recover", "Recover"), QMessageBox.AcceptRole)
     box.addButton(_tr(window, "safety.recovery.not_now", "Not now"), QMessageBox.RejectRole)
+    # the evidence of the abnormal end, for a bug report (mlaser.ui.diag_bundle); back here after
+    bundle = box.addButton(_tr(window, "cmd.diag.bundle", "Save diagnostic bundle…"), QMessageBox.ActionRole)
     try:
         box.exec()
+        while box.clickedButton() is bundle:
+            from .diag_bundle import open_bundle_dialog
+            open_bundle_dialog(window)
+            box.exec()
         recover = box.clickedButton() is rec
     finally:
         box.deleteLater()

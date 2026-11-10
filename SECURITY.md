@@ -66,11 +66,27 @@ a plugin of this repository (`plugins/`) here.
 
 ## What to include
 
-* the mlaser version (`pyproject.toml`, the About dialog) or the commit, the OS and Python;
+* the mlaser version and commit (the About dialog, the first line of `mlaser.log`), the OS and
+  Python;
 * simulator or real machine (card, laser source, follower), and the command line;
 * steps to reproduce, a minimal file or a script (attach it to the private report);
-* what happened, what you expected, and the relevant part of `mlaser.log` / `audit.log`
-  (the log directory is shown in the log panel at start-up).
+* what happened, what you expected, and a **diagnostic bundle**: **Help › Save diagnostic
+  bundle…** (also in the log viewer and the fault and crash-recovery dialogs) or
+  `mlaser-cli diag-bundle out.zip`. It is a zip on your computer, never uploaded: versions, the
+  settings with tokens, passwords, notification credentials, e-mail addresses and home-folder
+  paths removed, the machine parameters, the safety transitions and halts, the last card messages,
+  the alarm history and the logs (newest first, size-limited). The drawing is included only when
+  you tick it. Read it before you attach it ([docs/user/settings.md](docs/user/settings.md) and
+  the bundle's own `README.txt` list what it holds).
+
+## The update check
+
+The **update check** is off by default and never switched on automatically (Help › Check for
+updates asks once; Settings › Network & API › Updates also asks at start). It makes one HTTPS `GET` of
+`https://api.github.com/repos/rahilm/fiber_laser/releases?per_page=20` with `User-Agent:
+mlaser-update-check`, `Accept: application/vnd.github+json` and `Accept-Encoding: identity`: no
+version, no identifier, no cookie or token; it never downloads or installs anything
+([docs/user/settings.md](docs/user/settings.md), "Update check: exactly what is sent").
 
 ## What happens next
 

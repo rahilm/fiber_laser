@@ -59,6 +59,7 @@ _OPERATOR_IDS = {
     "view.zoom_in", "view.zoom_out", "view.zoom_fit", "view.fit_table", "view.pan_mode", "view.select_mode",
     "card.alarms", "card.clear_alarms", "card.break_resume", "diag.log", "diag.work_report",
     "diag.work_report_all", "app.about", "app.help", "app.exit", "app.import_language",
+    "diag.bundle", "app.check_updates",          # a bug report from any mode (UX review 14)
     "hw.connect_sim", "hw.reconnect", "sim.stop", "sim.speed", "job.offline",
     # the Settings window: it opens in every mode, engineering pages read-only for an operator
     "app.options", "app.settings",

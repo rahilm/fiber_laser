@@ -144,6 +144,8 @@ ENTRIES: tuple[Entry, ...] = tuple(
          "plugin.ext_automation.host", "plugin.ext_automation.port", "plugin.ext_automation.queue_intake",
          "plugin.ext_automation.uploads", "plugin.ext_automation.job_folders", "plugin.ext_automation.max_upload_mb",
          home="api.settings", home_label="settings.home.api")
+    # opt-in, off: one GET of the project's GitHub releases at start (services.update_check)
+    + _e("network", "updates", "mlaser/ui/ext_diag.py", "plugin.ext_diag.update_check")
     # ---------------------------------------------------------------- Notifications
     + _e("notify", "notify_general", "mlaser/ui/ext_notify.py", "plugin.ext_notify.enabled",
          "plugin.ext_notify.machine_name", "plugin.ext_notify.include_simulator",

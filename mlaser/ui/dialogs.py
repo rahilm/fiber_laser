@@ -319,6 +319,16 @@ class AboutDialog(Dialog):
                          # product, licence and file names are not translated: placeholders
                          explanation=tr.format("about.description", toolkit="PySide6", version="v0.0.1.51",
                                                licence="MIT"))
+        # this build: version (package metadata) and the commit it was built from (mlaser._buildid)
+        from mlaser._buildid import build_identity
+        ident = build_identity()
+        commit = ident.commit if ident.commit != "unknown" else tr.tr("about.commit_unknown")
+        vl = QLabel(tr.format("about.version_modified" if ident.dirty else "about.version",
+                              version=ident.version, commit=commit))
+        vl.setObjectName("about_version")
+        vl.setWordWrap(True)
+        vl.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.body.addWidget(vl)
         lic = S.caption(tr.format("about.licences", qt="Qt for Python (PySide6)", lgpl="GNU LGPL v3",
                                   libs="Qt / PySide6",
                                   paths="packaging/licenses/ (LGPL-3.0, GPL-3.0), docs/ASSETS.md",

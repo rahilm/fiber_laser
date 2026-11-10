@@ -76,6 +76,9 @@ def stubbed(monkeypatch):
         monkeypatch.setattr(nettest, "network_test", lambda *a, **k: [])
     except ImportError:
         pass
+    # Help > Check for updates: no request to GitHub from the test suite
+    from mlaser.services import update_check
+    monkeypatch.setattr(update_check, "fetch_releases", lambda *a, **k: [])
     return events
 
 
