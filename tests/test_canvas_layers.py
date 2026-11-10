@@ -97,7 +97,10 @@ def _grab(v):
 def cached_image(v):
     """The canvas as it paints now (the cached picture plus the live items)."""
     _app().processEvents()
-    v.viewport().repaint()                       # the window's update request makes the picture
+    v.viewport().repaint()                       # a change of the view is painted whole
+    x, y = v._head.pos().toTuple()
+    v.set_head_position(x + 1.0, y)              # a live item moves (and comes back): the
+    v.set_head_position(x, y)                    # next frame draws from the picture
     before = dict(v.paint_stats)
     img = _grab(v)
     assert v.paint_stats["cached"] == before["cached"] + 1, v.paint_stats

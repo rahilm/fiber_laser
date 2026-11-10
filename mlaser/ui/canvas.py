@@ -811,7 +811,8 @@ class CanvasView(QGraphicsView):
     _static: Optional[tuple] = None
     _sv: Optional["_StaticView"] = None
     _scene_gen = 0                # counts the scene's changes
-    _last_full: Optional[tuple] = None   # (view key, scene generation) of the last whole paint
+    _live_gen = 0                 # counts the overlay scene's changes
+    _last_full: Optional[tuple] = None   # (view key, both generations) at the last whole paint
 
     def __init__(self, parent=None):
         self._scene = QGraphicsScene()
@@ -999,6 +1000,7 @@ class CanvasView(QGraphicsView):
         self._scene_gen += 1
 
     def _live_changed(self, *_args) -> None:
+        self._live_gen += 1
         self.viewport().update()
 
     def _invalidate_live_cache(self) -> None:
@@ -1035,6 +1037,7 @@ class CanvasView(QGraphicsView):
         event-loop turn), so an item changed just before a synchronous paint (``repaint``,
         ``grab``) marks the static picture stale."""
         QCoreApplication.sendPostedEvents(self._scene, QEvent.MetaCall)
+        QCoreApplication.sendPostedEvents(self._live, QEvent.MetaCall)
 
     def _static_valid(self) -> bool:
         st = self._static
@@ -1075,10 +1078,11 @@ class CanvasView(QGraphicsView):
         if key is None:
             self._static = None
             return
-        if self._last_full != (key, self._scene_gen):
+        last = self._last_full
+        if last is None or last[:2] != (key, self._scene_gen) or last[2] == self._live_gen:
             # the scene or the view changed since the last paint: that change is painted whole
-            # (a zoom, a pan, an edit: one paint, no picture made for it); the picture is made
-            # when a later paint finds them unchanged (only live items moved)
+            # (a zoom, a pan, an edit, a resize: one paint, no picture made for it); the picture
+            # is made when only live items changed since (a head move, a track point)
             return
         vp = self.viewport()
         dpr = key[8]
@@ -1205,7 +1209,7 @@ class CanvasView(QGraphicsView):
             # no picture yet, or a stale one (a paint without the window's update request,
             # e.g. an expose), or another device: the whole paint, as without the cache
             self.paint_stats["full"] += 1
-            self._last_full = (self._static_key(), self._scene_gen)
+            self._last_full = (self._static_key(), self._scene_gen, self._live_gen)
             super().paintEvent(ev)
             return
         self.paint_stats["cached"] += 1
