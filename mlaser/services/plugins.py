@@ -19,7 +19,8 @@ detected instead of depending on load order (architecture.md §1.3, P1-5):
 * hooks of the shell: ``ctx.on_workspace_changed(fn)``, ``ctx.on_user_mode_changed(fn)``.
 * ``ctx.settings_schema([...Setting])``: typed, validated, persisted plugin settings under
   ``plugin.<name>.<key>`` (:class:`mlaser.services.config.ConfigService`).
-* services: ``ctx.docs``, ``ctx.config``, ``ctx.jobs``, ``ctx.commands``; ``ctx.controller``,
+* services: ``ctx.docs``, ``ctx.config`` (third-party: :class:`PluginConfigView`), ``ctx.jobs``,
+  ``ctx.commands``; ``ctx.controller``,
   ``ctx.document``, ``ctx.window`` (Qt parent for dialogs), ``ctx.tr``, ``ctx.log(msg)``.
 * plugin API 2 (docs/dev/PLUGIN_STANDARD.md §4): ``ctx.manifest``, ``ctx.permissions``,
   ``ctx.data_dir``, ``ctx.http`` (:mod:`.plugin_http`), ``ctx.secrets``,
@@ -50,11 +51,19 @@ module enforces:
   core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
   so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
 * ``ctx.controller`` of a third-party plugin is ``mlaser.controller.plugin_view.plugin_view(ctl,
-  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), and
-  :func:`plugin_policy` decides the safety actions a plugin asks for (arm, reset a fault, hold
-  the heartbeat, reconfigure safety): refused unless the service engineer granted that plugin
-  machine authority (``plugins.authority``).  Installed with ``ctl.set_plugin_policy``
-  (:func:`install_policy`).
+  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), given
+  only with the service engineer's machine-authority grant (``plugins.authority``; default deny,
+  legacy plugins included), and :func:`plugin_policy` decides the safety actions a plugin asks
+  for (arm, reset a fault, clear the halt latch, hold or release the heartbeat, reconfigure
+  safety): refused unless the plugin is enabled and has that grant.  Installed with
+  ``ctl.set_plugin_policy`` (:func:`install_policy`);
+* ``ctx.config`` (and ``ctx.services.config``, ``ctx.settings``) of a third-party plugin is a
+  :class:`PluginConfigView`: it writes only ``plugin.<name>.*``, so a plugin cannot grant itself
+  authority or hosts, enable itself or another plugin, or change a ``safety.*`` value through
+  its context.  The grants change only in the Plugin manager (the operator).
+
+These checks are a guard against mistakes and a consent record, not a security boundary:
+``ctx.window`` is the main window itself, and Python code can reach anything.
 
 This module is Qt-free; the host (``mlaser.ui.mainwindow.MainWindow``) implements the UI calls.
 See docs/dev/PLUGINS.md.

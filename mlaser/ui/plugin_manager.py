@@ -47,9 +47,9 @@ from PySide6.QtWidgets import (
 
 from .workspaces import TOUCH_MIN, tr, trn
 
-WARNING = ("A plugin is program code that runs inside mlaser with your user account's rights. The "
-           "permissions it declares are enforced on mlaser's own interfaces (network hosts, credentials, "
-           "the drawing, orders, the queue, the machine), but they are not a sandbox. Enable only plugins "
+WARNING = ("A plugin is program code that runs inside mlaser with your user account's rights. mlaser holds "
+           "it to the permissions it declares on its own interfaces: a guard against mistakes and a record "
+           "of what you agreed to, not a lock against a plugin written to get round it. Enable only plugins "
            "you trust, from a source you trust. Changes take effect at the next start.")
 
 
@@ -439,9 +439,12 @@ class PluginManagerDialog(QDialog):
         if perms is not None and Permissions.from_dict(perms).machine:
             grant = self._ask(self.windowTitle(), _tr(
                 self.w, "plugin_manager.confirm_authority",
-                "{name} asks for the machine controller. Grant it machine authority (it may then arm, "
-                "reset faults and change the safety configuration through the controller's audited "
-                "interface)?", name=r["name"]))
+                "{name} asks for the machine controller. Grant it machine authority?\n\nWith it, {name} may move "
+                "the machine, fire the laser once the machine is armed, arm it, reset faults, hold the heartbeat "
+                "and change the safety settings. Each goes through mlaser's audited interface, and the pre-flight "
+                "check and the guard still apply.\n\nThese checks catch mistakes; they cannot stop a plugin written "
+                "to get round them. Grant machine authority only to a plugin whose author you trust with the "
+                "machine.", name=r["name"]))
         try:
             self.pm.enable(r["id"], r["entry"], perms, grant_authority=grant)
         except Exception as exc:  # noqa: BLE001

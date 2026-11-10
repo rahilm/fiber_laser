@@ -9,6 +9,25 @@ installed runs until a service engineer enables it.
 > shows what a plugin declares it will use (its *permissions*) and holds it to that on its own
 > interfaces, but this is not a sandbox. Install only plugins from authors you trust.
 
+### What the permissions protect, and what they do not
+
+The permissions and the machine-authority grant are a **record of what you agreed to** and a
+**guard against mistakes** in a plugin you trust. They are **not a lock against a hostile
+plugin**.
+
+* What they do: a plugin that uses mlaser's plugin interface as documented cannot contact a
+  server it did not declare, read another plugin's credentials, change the drawing, the orders
+  or the queue without the permission, or touch the machine controller without the machine
+  authority you granted. It can change only its own settings: not the plugin grants, not the
+  safety settings, not another plugin's settings. Even with machine authority, everything it
+  sends to the machine passes the same safety checks as your own commands (pre-flight, the
+  start gate, the guard that refuses laser output while disarmed).
+* What they do not: a plugin is Python code inside mlaser. Written on purpose to get round
+  these checks, it can (for example by importing Python modules directly or reaching into the
+  main window). The checks cannot stop that. The protection against a hostile plugin is not
+  installing it. The machine's own hardware safety (E-stop, door and interlock wiring, the
+  watchdog relay) does not depend on any software.
+
 Open the Plugin manager from **Settings › Plugins**, with **Tools › Plugins** (macOS: the **mlaser** menu › **Plugins…**; or the command palette, Ctrl+K,
 "Plugins"). Engineer mode can look; **installing, enabling, updating and removing need Service
 mode**.
@@ -28,9 +47,13 @@ installed into the Python environment with pip), its **status** and its permissi
 | legacy | an old-style plugin without a manifest: no declared permissions |
 
 * **Enable...** shows the permissions and the warning and asks for confirmation. A plugin that
-  asks for the **machine** controller asks a second question: grant it *machine authority*
-  (it may then arm, reset faults or change safety settings through mlaser's audited interface).
-  Answer no unless you know why the plugin needs it.
+  asks for the **machine** controller asks a second question: grant it *machine authority*.
+  With it the plugin may use the machine controller: move the machine, fire the laser once the
+  machine is armed, arm it, reset faults, hold the "PC alive" heartbeat and change the safety
+  settings, each through mlaser's checked and audited interface. Without it the plugin gets no
+  controller at all. Answer no unless you know why the plugin needs it. Only you grant it,
+  here (or in **Options+ › Plugins**); a plugin cannot grant it to itself through its interface,
+  but this is a safeguard for honest plugins, not a lock (see above).
 * **Disable** stops it at the next start.
 * **Update** appears after *Check for updates* finds a newer compatible version. If the new
   version asks for different permissions it is disabled until you enable it again.
