@@ -12,10 +12,19 @@ from __future__ import annotations
 import math
 import time
 
+import pytest
+
 
 from mlaser.model import Contour, Craft, Document, LayerParams, Line, Part
 
 SPEED = 100.0                 # mm/s cutting speed of the test job
+
+#: ``make_ctl`` keywords of the two streaming paths: the in-thread streamer at the simulator's
+#: link deadline (1 s), and the configuration a real card runs, the process streamer with the
+#: real 150 ms link deadline (review arch.md A5).  Tests of the second may rerun once
+#: (``@pytest.mark.flaky(reruns=1)``, docs/dev/TESTING.md "Timing-sensitive tests").
+REAL_AND_THREAD = [pytest.param(dict(process=False), id="thread"),
+                   pytest.param(dict(process=True, link_deadline_ms=150.0), id="process-150ms")]
 
 
 def rect_doc(x0=0.0, y0=0.0, w=800.0, h=600.0, layer=1, define=True, speed=SPEED):

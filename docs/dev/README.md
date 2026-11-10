@@ -9,6 +9,7 @@
 | [Performance](PERFORMANCE.md) | measurements, the optional native kernel ([NATIVE_KERNEL.md](NATIVE_KERNEL.md)) |
 | [Testing](TESTING.md) | test suites and markers, goldens, the contract checked on every commit |
 | [Parity](PARITY.md) | how behaviour is kept identical to the original, profiles, the Wine harness |
+| [Bench checks](BENCH_CHECKS.md) | card behaviour the simulator assumes, and how to settle it on the machine with the laser disabled |
 | [Native project format](project-format.md) | the `.mlz` project file |
 | [Display units audit](units-audit.md) | every site that shows or takes a length, speed, area or pressure, its status in imperial, the allowlist |
 | [Translations and fonts](i18n.md) | the string catalogue, Qt Linguist, the i18n check, the cutting-text font |

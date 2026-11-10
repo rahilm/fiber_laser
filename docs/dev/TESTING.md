@@ -140,7 +140,10 @@ are Python threads and are.
 * Domain logic is Qt-free and tested as `unit`; widget tests build the window through
   `tests/wiring.py`, the application's real wiring.
 * Safety behaviour is tested against the simulator in pessimistic mode
-  (`CardSimulator(pessimistic=True)`, `tests/safety/safety_helpers.py`).
+  (`CardSimulator(pessimistic=True)`, `tests/safety/safety_helpers.py`). A job-run safety test
+  runs on both streaming paths, `@pytest.mark.parametrize("card", REAL_AND_THREAD)` with
+  `make_ctl(**card)`: the in-thread streamer and the configuration a real card gets, the process
+  streamer with the real 150 ms link deadline (see [Hardware reality](#hardware-reality)).
 * Randomised equivalence tests (hypothesis) compare a new implementation with the reference one
   before the reference is retired.
 * Qt object lifetimes: give every widget handed to a Qt setter a Qt parent (PySide does not
@@ -159,6 +162,76 @@ are Python threads and are.
   the timing tests.
 * Screenshots of new screens: offscreen, at 1280×800 and at 150 % of 1920×1080, light and dark.
 
+## Hardware reality
+
+The simulator shares the client's codec (`mlaser.protocol.frames`), and its card reactions are
+the project's own inferences. A wrong reading of the format or of the card is then wrong on both
+sides and the suite stays green: the first real Frame on the owner's machine failed twice that
+way (alarm 9001, RO[19] read as `== 1`; [protocol.md §15](../re/protocol.md#15-fifo-capacity-underrun-and-streaming-robustness)).
+Four things look past that:
+
+* **An independent wire check.** `tests/wire_reference.py` is a second codec of the frame format
+  written from [protocol.md](../re/protocol.md) alone: it imports nothing of `mlaser` and
+  restates every constant with its section (keep it that way; a new constant comes from the
+  documentation, never from `mlaser.protocol`). `tests/test_wire_reference.py` checks that the
+  documented example frames round-trip through the production codec, that the client's bytes for
+  each command class (status read, mailbox commands, FIFO frames and step items, job start and
+  end, the halt sequence, the heartbeat output) decode to what the documentation says, and that
+  the simulator, driven through the reference codec only, behaves as the captures of the real
+  card recorded (RO[19] bit field, `[9999, 16]`, alarm 9001 without the step format).
+* **Both streamers.** The real card gets the process streamer and the 150 ms link deadline; the
+  simulator defaults to the in-thread streamer and 1 s. The job-run safety tests (start to end,
+  pause and resume, stop, link loss, alarm mid-job, starvation, hold, a second client's stop) run
+  on both (`REAL_AND_THREAD`, `tests/safety/test_real_card_path.py` and the files it names); the
+  150 ms ones may rerun once.
+* **Card behaviour that is not known is a switch, not an assumption.** A FIFO frame received
+  twice (the client re-sends after a lost reply) is `CardSimulator(duplicate_fifo=...)`:
+  `accept-twice` (default, the worst case), `dedupe` or `reject`; the simulator counts the
+  duplicates under every model (`state.fifo_duplicates`) and `sim.inject(fifo_reply_loss=n)`
+  loses the replies of the next n FIFO frames. `tests/safety/test_duplicate_fifo_frame.py` pins
+  what the host does under each model on both streamers. Under `accept-twice` the host cannot
+  see the duplicate and ends the job as "done" with one segment run twice; on the process
+  streamer (and at 150 ms on either) a lost FIFO reply is a FAULT before the re-send, which then
+  reaches a stopped, cleared FIFO. The bench procedure that settles it is in
+  [Bench checks](BENCH_CHECKS.md).
+* **Replaying your own captures**, below.
+
+### Replaying your own captures
+
+The repository holds no capture, parameter file or vendor data, and none is ever committed
+(`test_no_capture_is_committed`). The owner replays their own captures of the card traffic
+locally:
+
+```bash
+MLASER_CAPTURE_DIR=/path/to/captures uv run pytest tests/test_capture_replay.py -q
+```
+
+Every `.pcap` / `.pcapng` in the folder (UDP, or TCP for AccessType=0; card port 502; captured as
+in [parity.md §8.2](../re/parity.md#82-capturing), of the original or of mlaser) is read with the
+parity tooling (`mlaser.parity.pcap` / `mlaser.parity.capture`, the reader of
+`tools/compare_capture.py`), and every request / reply pair goes through the production decoder
+and the status interpretation (`MCStatus`, the alarm decoder). A capture fails on:
+
+* a decode error, or a function, register, mailbox command or FIFO opcode outside the classes
+  protocol.md documents (the message names the packet number: open it in Wireshark);
+* transaction ids that are not consecutive per client, FIFO frame sequence numbers with gaps,
+  conflicting re-sends or a first frame other than 1 after `[9999, 16]`;
+* a FIFO start without the step format `[9999, 1, mask|0x66800000, 0]` before it;
+* RO[19] bits outside 0x301, executing (0x200) without the low byte 1, the low byte 1 between a
+  job's FIFO clear and its start or (100 ms after) its FIFO stop; RO[6] / RO[7] bits outside the
+  documented alarms;
+* a normal end without the PWM off after the FIFO stop; a stop or pause that does not begin with
+  the decelerated stop or the FIFO stop, has no PWM off, switches the follower or clears the FIFO
+  before the PWM off, or contains a FIFO start or a FIFO frame.
+
+Registers 59500 and 59503 (licence / authorisation traffic) are out of scope: a request that
+touches them, and its reply, are dropped before anything is decoded, and nothing about them is
+printed or asserted. Without `MLASER_CAPTURE_DIR` the test is skipped with that hint. In CI the
+harness runs on tiny synthetic captures recorded from the simulator, and on edited copies that
+must fail (a missing frame, a missing step format, a missing PWM off, a halt out of order,
+undocumented status bits and registers). A failure on a real capture is either a wrong reading
+in protocol.md or a rebuild bug: compare with the original's capture before changing either, and
+record what the card did.
 
 ## Parallel runs (pytest-xdist)
 

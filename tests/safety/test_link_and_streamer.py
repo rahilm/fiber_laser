@@ -29,7 +29,7 @@ import pytest
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.machine.safety import SafetyState
 
-from safety_helpers import SPEED, Watch, rect_doc, safe, start_and_run, stopped, wait_until
+from safety_helpers import REAL_AND_THREAD, SPEED, Watch, rect_doc, safe, start_and_run, stopped, wait_until
 
 
 # One rerun allowed: this test runs the card simulator in the test process with the real 150 ms
@@ -166,9 +166,11 @@ def test_streaming_child_killed_parent_halts(make_ctl):
     assert ctl.wait_job(5) and ctl.breakpoint is not None
 
 
+@pytest.mark.flaky(reruns=1)       # process: the real 150 ms deadline (docs/dev/TESTING.md)
+@pytest.mark.parametrize("card", REAL_AND_THREAD)
 @pytest.mark.parametrize("cmd", ["fifo_stop", "stop_manu"])
-def test_second_client_stop_is_never_overridden(make_ctl, cmd):
-    ctl = make_ctl(process=False)
+def test_second_client_stop_is_never_overridden(make_ctl, cmd, card):
+    ctl = make_ctl(**card)
     start_and_run(ctl, run_s=0.5)
     sim = ctl.sim
     with MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port)) as other:
@@ -198,9 +200,12 @@ def test_prefill_is_capped(make_ctl, process):
     assert b.get("prefill_ms", 0) <= ctl.max_buffer_ms + 150
 
 
-def test_pause_holds_before_the_stop_in_process_mode(make_ctl):
-    """C4: the pause used to send the program stop before the child knew -> FIFO restart."""
-    ctl = make_ctl(process=True)
+@pytest.mark.flaky(reruns=1)       # process: the real 150 ms deadline (docs/dev/TESTING.md)
+@pytest.mark.parametrize("card", REAL_AND_THREAD)
+def test_pause_holds_before_the_stop(make_ctl, card):
+    """C4: the pause used to send the program stop before the child knew -> FIFO restart (process
+    mode); the in-thread streamer must hold the same way."""
+    ctl = make_ctl(**card)
     start_and_run(ctl, run_s=0.5)
     ctl.pause()
     assert wait_until(lambda: ctl.breakpoint is not None, 5) is not None
@@ -211,8 +216,10 @@ def test_pause_holds_before_the_stop_in_process_mode(make_ctl):
     assert ctl.sim.position(0) == x
 
 
-def test_estop_during_job_faults_with_breakpoint_then_resumes(make_ctl):
-    ctl = make_ctl(process=False)
+@pytest.mark.flaky(reruns=1)       # process: the real 150 ms deadline (docs/dev/TESTING.md)
+@pytest.mark.parametrize("card", REAL_AND_THREAD)
+def test_estop_during_job_faults_with_breakpoint_then_resumes(make_ctl, card):
+    ctl = make_ctl(**card)
     start_and_run(ctl, run_s=0.5)
     sim = ctl.sim
     sim.set_estop(True)
