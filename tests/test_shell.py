@@ -360,9 +360,9 @@ def test_chips_carry_text(win, app):
     assert win.ctl.arm()
     win.safety_ui.refresh()
     sh._poll()
-    # ARMED is the banner's, and so is "· simulator" in its text: no chip repeats them (W2)
+    # ARMED is the banner's, and so is its SIMULATOR chip: no top-bar chip repeats them (W2)
     assert banner.kind == "ARMED" and chips["ARMED"].isHidden() and chips["SIMULATOR"].isHidden()
-    assert "simulator" in banner.label.text()
+    assert banner.sim_chip.isVisibleTo(banner) and "SIMULATOR" in banner.sim_chip.text()
     assert chips["DISARMED"].isHidden()
     win.ctl.raise_fault("test fault")
     win.safety_ui.refresh()
@@ -370,7 +370,10 @@ def test_chips_carry_text(win, app):
     # a plain headline in the banner, the raw reason behind it (UX audit W12)
     assert banner.kind == "FAULT" and "test fault" in banner.label.toolTip() and chips["FAULT"].isHidden()
     assert "fault" in banner.label.text().lower()
-    assert not chips["SIMULATOR"].isHidden()
+    # the alarm block keeps the laser and the simulator as its chips: the top bar does not
+    # reflow with chips of its own when an alarm comes (UI review 2026-11 #1)
+    assert banner.sim_chip.isVisibleTo(banner) and banner.laser_chip.isVisibleTo(banner)
+    assert all(c.isHidden() for c in chips.values())
     win.ctl.reset_fault()
 
 

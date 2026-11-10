@@ -531,8 +531,12 @@ class MachineWorkspace(QWidget):
         box = QWidget()
         g = QGridLayout(box)
         g.setContentsMargins(0, 0, 0, 0)
-        self.r_sim = QRadioButton(T(w, "ws.machine.simulator"))
-        self.r_real = QRadioButton(T(w, "ws.machine.real_card"))
+        # named by what they are (UX review 2026-11 #9): an address can be a card or the network
+        # simulator (mlaser-cardsim); the card does not say which
+        self.r_sim = QRadioButton(T(w, "ws.machine.sim_builtin"))
+        self.r_sim.setToolTip(T(w, "ws.machine.sim_builtin.tip"))
+        self.r_real = QRadioButton(T(w, "ws.machine.network_addr"))
+        self.r_real.setToolTip(T(w, "ws.machine.network_addr.tip"))
         self.r_sim.setChecked(True)
         g.addWidget(self.r_sim, 0, 0)
         g.addWidget(self.r_real, 0, 1)
@@ -873,14 +877,18 @@ class MachineWorkspace(QWidget):
 
 
 def controller_kind_text(window: Any, ctl: Any, st: Any) -> str:
-    """Machine › Connection "Controller": Simulator, Real motion card, "Not connected" for a
-    card controller without a card, "Demo (no card)" only for the demo controller (UX audit O9)."""
+    """Machine › Connection "Controller": "Built-in simulator (not a machine)", "Card at
+    <address>: not identified (a real card or mlaser-cardsim)", "Not connected" for a card
+    controller without a card, "Demo (no card)" only for the demo controller (UX audit O9).
+    A card reached at an address is never called a real card: the protocol carries no
+    identification, and the network simulator answers like a card (UX review 2026-11 #9)."""
     if ctl.is_demo():
         return T(window, "ws.machine.demo")
     if ctl.is_simulator():
-        return T(window, "ws.machine.simulator")
+        return T(window, "ws.machine.kind_sim")
     if ctl.card() is not None:
-        return T(window, "ws.machine.real_card")
+        ep = ctl.endpoint()
+        return T(window, "ws.machine.kind_network", address=f"{ep[0]}:{ep[1]}" if ep else "–")
     return T(window, "ws.machine.kind_not_connected")
 
 

@@ -6,6 +6,7 @@
  "strings": {
   "a11y.alarm.cleared": "Alarms cleared",
   "a11y.alarm.spoken": "{title}\n{remedy}",
+  "a11y.alarm.state_line": "{state}: {text}",
   "a11y.canvas.empty": "The drawing is empty",
   "a11y.canvas.part": "Part {index} of {total}: {name}, {size}",
   "a11y.canvas.part_n": "part {n}",
@@ -3544,14 +3545,11 @@
   "safety.banner.disarmed": "The laser cannot fire",
   "safety.banner.dry_run": "Laser output disabled (dry-run mode)",
   "safety.banner.fault": "FAULT",
-  "safety.banner.fault_latched": "FAULT (latched): {fault}",
   "safety.banner.home": "Home axes",
   "safety.banner.offline": "Not connected",
   "safety.banner.reset": "Reset alarm",
   "safety.banner.simulator": "SIMULATOR: no machine",
   "safety.banner.simulator_disarmed": "SIMULATOR: disarmed",
-  "safety.banner.with_simulator": "{state}  · simulator",
-  "safety.bar.alarm": "Alarm",
   "safety.bar.kept": "Resume point",
   "safety.bar.state": "Safety state",
   "safety.dont_ask": "Don't ask again",
@@ -4799,7 +4797,6 @@
   "ws.machine.p_laser": "Fire short test pulses at chosen duty levels, with arming and disarming.",
   "ws.machine.port": "Port",
   "ws.machine.position_box": "Position",
-  "ws.machine.real_card": "Real motion card",
   "ws.machine.return_origin": "Go to origin",
   "ws.machine.safety_armed": "Armed: laser emission enabled",
   "ws.machine.safety_disarmed": "Disarmed: the laser cannot fire",
@@ -4819,7 +4816,6 @@
   "ws.machine.selftest_probe": "Also send one status request to the card",
   "ws.machine.selftest_run": "Run self-test",
   "ws.machine.set_origin": "Set origin here",
-  "ws.machine.simulator": "Simulator",
   "ws.machine.st_conn": "Connection",
   "ws.machine.st_endpoint": "Address",
   "ws.machine.st_homed": "Homed",
@@ -4907,6 +4903,19 @@
   "shell.redo.done": "Redone: {action}",
   "clip.paste_failed": "Paste: the clipboard data could not be read ({error})",
   "clip.paste_unreadable": "The clipboard holds no drawing mlaser can read",
+  "run.reason.homing": "Homing: the axes are moving to their reference switches",
+  "run.reason.moving": "Moving: the axes are moving to a position",
+  "run.state.homing": "HOMING",
+  "run.state.moving": "MOVING",
+  "run.state.ready_armed_sim": "Simulator: {state}, laser armed",
+  "run.why.homing": "Homing in progress",
+  "run.why.moving": "The machine is moving",
+  "safety.banner.motion.homing": "Homing: the axes are moving",
+  "safety.banner.motion.moving": "The axes are moving",
+  "safety.banner.motion.running": "A job is running: the axes are moving",
+  "safety.banner.simulator_name": "Simulator: not a machine, nothing moves",
+  "safety.banner.with_motion": "{state}  · {motion}",
+  "state.axis.simulator": "Simulator",
   "undo.edit": "Edit",
   "undo.draw": "Drawing",
   "undo.craft": "Process change",
@@ -4951,12 +4960,22 @@
   "undo.home_ref": "Move to reference",
   "undo.laser_type": "Laser type",
   "undo.clear_edge_seek": "Clear edge seek",
-  "undo.import": "Import"
+  "undo.import": "Import",
+  "ws.machine.kind_network": "Card at {address}: not identified (a real card or mlaser-cardsim)",
+  "ws.machine.kind_sim": "Built-in simulator (not a machine)",
+  "ws.machine.network_addr": "Network address",
+  "ws.machine.network_addr.tip": "A motion card at an IP address, or the network simulator (mlaser-cardsim): the card does not say which",
+  "ws.machine.sim_builtin": "Built-in simulator",
+  "ws.machine.sim_builtin.tip": "The simulator inside this program: no machine moves"
  },
  "args": {
   "a11y.alarm.spoken": [
    "title",
    "remedy"
+  ],
+  "a11y.alarm.state_line": [
+   "state",
+   "text"
   ],
   "a11y.canvas.part": [
    "index",
@@ -6196,12 +6215,6 @@
    "text",
    "time"
   ],
-  "safety.banner.fault_latched": [
-   "fault"
-  ],
-  "safety.banner.with_simulator": [
-   "state"
-  ],
   "safety.kept.text": [
    "x",
    "y"
@@ -7364,6 +7377,16 @@
    "libs",
    "paths",
    "fonts"
+  ],
+  "run.state.ready_armed_sim": [
+   "state"
+  ],
+  "safety.banner.with_motion": [
+   "state",
+   "motion"
+  ],
+  "ws.machine.kind_network": [
+   "address"
   ],
   "ws.machine.safety_with_fault": [
    "state",

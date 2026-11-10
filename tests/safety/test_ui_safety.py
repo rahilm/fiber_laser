@@ -111,11 +111,12 @@ def test_state_banner_follows_the_safety_state(win, app):
     _pump(app)
     # the plain headline is shown, the raw reason is behind it (tooltip, Details: UX audit W12)
     assert st.kind == "FAULT" and "test fault" in st.label.toolTip() and "FAULT" in st.label.text()
-    assert win.safety_ui.alarm_bar.isVisible() and "Remedy" in win.safety_ui.alarm.remedy.text()
+    # the banner is the one alarm block: the remedy and Reset alarm in it (UI review 2026-11 #1)
+    assert st.alarm and st.remedy.isVisibleTo(st) and "Remedy" in st.remedy.text()
     assert "FAULT" in win.st_mc.text() and "Ready" not in win.st_mc.text()   # never Ready while latched
     win.safety_ui.reset_fault()
     _pump(app)
-    assert st.kind == "SIMULATOR" and not win.safety_ui.alarm_bar.isVisible()
+    assert st.kind == "SIMULATOR" and not st.alarm and not st.remedy.isVisibleTo(st)
 
 
 def test_status_bar_never_says_ready_with_an_alarm(win, app):
@@ -124,8 +125,8 @@ def test_status_bar_never_says_ready_with_an_alarm(win, app):
     win.ctl.active_alarms = decode(1 << 30, 0)
     _pump(app)
     assert "ALARM" in win.st_mc.text() and "Ready" not in win.st_mc.text()
-    assert win.safety_ui.alarm_bar.isVisible()
-    assert "e-stop" in win.safety_ui.alarm.remedy.text().lower()
+    assert win.safety_ui.banner.alarm
+    assert "e-stop" in win.safety_ui.banner.remedy.text().lower()
 
 
 def test_no_file_open_or_new_document_during_a_job(win, app, tmp_path):
@@ -226,8 +227,7 @@ def test_state_banner_background_paints_in_the_light_theme(win, app):
     must actually paint (WA_StyledBackground), or the text is invisible on a light window."""
     from PySide6.QtCore import Qt
     su = win.safety_ui
-    for b in (su.banner, su.alarm):
-        assert b.testAttribute(Qt.WA_StyledBackground)
+    assert su.banner.testAttribute(Qt.WA_StyledBackground)
     su.banner.show()
     app.processEvents()
     img = su.banner.grab().toImage()

@@ -105,8 +105,10 @@ THEMES: dict[str, dict[str, str]] = {
     },
 }
 #: the machine and laser state colours, (fill, text) per state and theme (ISA-101 style, UX audit
-#: W1): normal states (offline, not homed, ready, running, hold, disarmed, dry run, simulator) are
-#: neutral greys and slates; ARMED is the amber hazard colour; ALARM / E-STOP red; FAULT dark red.
+#: W1): normal states (offline, not homed, ready, running, hold, disarmed, dry run) are neutral
+#: greys and slates (RUNNING, also homing and a host-commanded move, the dark slate of motion);
+#: ARMED is the amber hazard colour; ALARM / E-STOP red; FAULT dark red.  SIMULATOR is a mode
+#: marker, violet: never red or amber, never mistaken for a normal grey (UX review 2026-11 #9).
 #: Red is never a normal state, and the only red control is STOP (``danger_fill``).  Every text
 #: colour reads at >= 4.5:1 on its fill (tests/test_state_display.py); the state is always written
 #: out with an icon too, never colour alone.
@@ -114,21 +116,21 @@ _NEUTRAL = {LIGHT: ("#e3e7ed", "#1d2127"), DARK: ("#353a42", "#e6e8eb"), HIGH_CO
 STATE_TOKENS: dict[str, dict[str, tuple[str, str]]] = {
     LIGHT: {
         "READY": _NEUTRAL[LIGHT], "DISARMED": _NEUTRAL[LIGHT], "DRY-RUN": _NEUTRAL[LIGHT],
-        "SIMULATOR": _NEUTRAL[LIGHT], "HOLD": _NEUTRAL[LIGHT], "NOT-HOMED": _NEUTRAL[LIGHT],
+        "SIMULATOR": ("#5b3cc4", "#ffffff"), "HOLD": _NEUTRAL[LIGHT], "NOT-HOMED": _NEUTRAL[LIGHT],
         "OFFLINE": ("#c9ced6", "#1d2127"), "RUNNING": ("#3d4450", "#ffffff"),
         "ARMED": ("#f5b400", "#1d2127"), "ALARM": ("#c62828", "#ffffff"), "E-STOP": ("#c62828", "#ffffff"),
         "FAULT": ("#7f0000", "#ffffff"),
     },
     DARK: {
         "READY": _NEUTRAL[DARK], "DISARMED": _NEUTRAL[DARK], "DRY-RUN": _NEUTRAL[DARK],
-        "SIMULATOR": _NEUTRAL[DARK], "HOLD": _NEUTRAL[DARK], "NOT-HOMED": _NEUTRAL[DARK],
+        "SIMULATOR": ("#b9a8ff", "#000000"), "HOLD": _NEUTRAL[DARK], "NOT-HOMED": _NEUTRAL[DARK],
         "OFFLINE": ("#2a2e34", "#c4c9d1"), "RUNNING": ("#4b5568", "#ffffff"),
         "ARMED": ("#ffb300", "#000000"), "ALARM": ("#c62828", "#ffffff"), "E-STOP": ("#c62828", "#ffffff"),
         "FAULT": ("#8e0000", "#ffffff"),
     },
     HIGH_CONTRAST: {
         "READY": _NEUTRAL[HIGH_CONTRAST], "DISARMED": _NEUTRAL[HIGH_CONTRAST], "DRY-RUN": _NEUTRAL[HIGH_CONTRAST],
-        "SIMULATOR": _NEUTRAL[HIGH_CONTRAST], "HOLD": _NEUTRAL[HIGH_CONTRAST], "NOT-HOMED": _NEUTRAL[HIGH_CONTRAST],
+        "SIMULATOR": ("#d0c4ff", "#000000"), "HOLD": _NEUTRAL[HIGH_CONTRAST], "NOT-HOMED": _NEUTRAL[HIGH_CONTRAST],
         "OFFLINE": ("#000000", "#d0d0d0"), "RUNNING": ("#ffffff", "#000000"),
         "ARMED": ("#ffd400", "#000000"), "ALARM": ("#d50000", "#ffffff"), "E-STOP": ("#d50000", "#ffffff"),
         "FAULT": ("#7f0000", "#ffffff"),

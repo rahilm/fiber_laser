@@ -140,9 +140,11 @@ COMMAND_COLORS: dict[str, str] = {
 #: or an emoji) and never colour alone
 STATE_ICONS: dict[str, str] = {
     "offline": "plug-connected-x", "not_homed": "home-question", "ready": "circle-dot",
-    "running": "player-play", "hold": "player-pause", "alarm": "alert-triangle", "estop": "alert-triangle",
+    "running": "player-play", "hold": "player-pause", "alarm": "alert-triangle", "estop": "hexagon",
     "fault": "circle-x", "armed": "triangle", "disarmed": "bolt-off", "dry_run": "route",
     "simulator": "device-desktop", "interlock": "alert-triangle",
+    # the axes moving without a job (homing, a go-to move or a jog), a fault from a lost link
+    "homing": "home-dot", "moving": "arrows-move", "link_lost": "unlink",
 }
 
 

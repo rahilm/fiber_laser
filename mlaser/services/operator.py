@@ -2,8 +2,8 @@
 
 Qt-free.  :func:`run_status` turns the controller's state (``MachineState``), the safety status
 (``SafetyStatus``), the active alarms, the planned job and the queue runner into the figures of
-docs/review/ux.md §4.4: the state (``READY`` / ``RUNNING`` / ``HOLD`` / ``FAULT`` / ``ALARM`` /
-``OFFLINE``) with its reason, progress, elapsed time and ETA, part n/N and contour n/N from the
+docs/review/ux.md §4.4: the state (``READY`` / ``RUNNING`` / ``HOMING`` / ``MOVING`` / ``HOLD`` /
+``FAULT`` / ``ALARM`` / ``OFFLINE``) with its reason, progress, elapsed time and ETA, part n/N and contour n/N from the
 job markers, and the live process values of the layer being cut.
 """
 from __future__ import annotations
@@ -14,10 +14,11 @@ from dataclasses import dataclass, field
 from typing import Any, Optional
 
 GAS_NAMES = {0: "Air", 1: "O2", 2: "N2", 3: "Air HP", 4: "O2 HP", 5: "N2 HP"}
-KINDS = ("offline", "ready", "running", "hold", "fault", "alarm")
+KINDS = ("offline", "ready", "running", "homing", "moving", "hold", "fault", "alarm")
 #: text glyphs of the states for the LAN monitor's HTML page only; the Qt UI draws SVG icons
 #: (:data:`mlaser.ui.icons.STATE_ICONS`, UX audit O7: font glyphs rendered as missing or as emoji)
-ICONS = {"offline": "○", "ready": "●", "running": "▶", "hold": "⏸", "fault": "⚠", "alarm": "⚠"}
+ICONS = {"offline": "○", "ready": "●", "running": "▶", "homing": "⌂", "moving": "✥", "hold": "⏸", "fault": "⚠",
+         "alarm": "⚠"}
 
 
 @dataclass
@@ -163,6 +164,9 @@ def run_status(ms: Any, st: Any, alarms: list, plan: Any = None, elapsed_s: floa
         r.kind = "running"
         r.reason = {"process": "run.reason.cutting", "dry_run": "run.reason.dry_run",
                     "frame": "run.reason.frame"}[mode]
+    elif mode in ("origin", "jog"):
+        # the axes move without a job: never "Ready" (UX review 2026-11 #3)
+        r.kind, r.reason = ("homing", "run.reason.homing") if mode == "origin" else ("moving", "run.reason.moving")
     else:
         r.kind = "ready"
         r.reason = ("run.reason.laser_off" if r.dry_run else

@@ -20,7 +20,7 @@ from mlaser.ui.shell import theme as T  # noqa: E402
 from mlaser.ui.shell.contrast import contrast  # noqa: E402
 
 THEMES = (T.LIGHT, T.DARK, T.HIGH_CONTRAST)
-NORMAL = ("READY", "DISARMED", "DRY-RUN", "SIMULATOR", "HOLD", "NOT-HOMED", "OFFLINE", "RUNNING")
+NORMAL = ("READY", "DISARMED", "DRY-RUN", "HOLD", "NOT-HOMED", "OFFLINE", "RUNNING")
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ def _hsv(c: str) -> tuple[float, float, float]:
 @pytest.mark.parametrize("theme", THEMES)
 def test_state_colours_read_and_follow_isa101(theme):
     t = T.STATE_TOKENS[theme]
-    assert set(t) >= set(NORMAL) | set(T.ABNORMAL_STATES)
+    assert set(t) >= set(NORMAL) | set(T.ABNORMAL_STATES) | {"SIMULATOR"}
     for kind, (bg, fg) in t.items():
         assert contrast(bg, fg) >= 4.5, (theme, kind, bg, fg, contrast(bg, fg))
     for kind in NORMAL:                                   # normal states: grey / slate, no hue
@@ -129,7 +129,9 @@ def test_one_vocabulary_on_every_display(win, app):
     scr.refresh()
     words = {SD.machine_label(win, s) for s in SD.MACHINE_STATES}
     assert su.run_bar.pill.text() in words and scr.state.text() == su.run_bar.pill.text()
-    assert su.run_bar.pill.accessibleName().startswith(SD.axis_label(win, "machine"))
+    # the machine axis, named: "Machine", or "Simulator" when that is what is connected (2026-11 #9)
+    caption = su.run_bar._sim_caption() if win.ctl.safety().simulator else SD.axis_label(win, "machine")
+    assert su.run_bar.pill.accessibleName().startswith(caption)
     assert su.banner.badge.text() == SD.laser_label(win, "disarmed")
     assert su.banner.badge.accessibleName().startswith(SD.axis_label(win, "laser"))
     assert win.ctl.arm()
@@ -172,9 +174,13 @@ def test_offline_banner_connects_and_keeps_its_height(win, app, monkeypatch):
     win.ctl.raise_fault("test")
     su.refresh()
     pump(app)
-    # FAULT: no button of its own (the alarm banner carries the one Reset alarm), same height
-    assert b.action == "" and not b.btn.isVisibleTo(b) and b.height() == h
-    assert su.alarm_bar.isVisible() and su.alarm.reset.isVisibleTo(su.alarm)
+    # FAULT: the banner is the alarm block, with the one Reset alarm; as tall as its text
+    assert b.action == "" and not b.btn.isVisibleTo(b) and b.height() >= h
+    assert b.alarm and b.reset.isVisibleTo(b)
+    win.ctl.reset_fault()
+    su.refresh()
+    pump(app)
+    assert not b.alarm and b.height() == h            # back to the one height of the normal states
 
 
 def test_connect_opens_machine_connection(win, app):

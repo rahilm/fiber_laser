@@ -1,7 +1,9 @@
 """One state vocabulary on two named axes (UX audit W1, W2, O7), shown the same way everywhere.
 
-* **Machine**: Offline / Not homed / Ready / Running / Hold / Alarm / E-stop / Fault: the run
-  bar's pill, the Run screen's big state block, the status bar;
+* **Machine**: Offline / Not homed / Ready / Running / Homing / Moving / Hold / Alarm / E-stop /
+  Fault: the run bar's pill, the Run screen's big state block, the status bar, the state
+  banner's motion chip (HOMING and MOVING: the axes move without a job, a homing or a go-to
+  move; never shown as an idle state, UX review 2026-11 #3);
 * **Laser**: Disarmed / Armed / Dry run: the state banner.
 
 :func:`machine_state` and :func:`laser_state` derive them from the controller's snapshots
@@ -25,7 +27,10 @@ from . import style
 from .icons import STATE_ICONS, icon
 
 #: the machine axis, in order of precedence when several apply
-MACHINE_STATES = ("fault", "estop", "alarm", "offline", "hold", "running", "not_homed", "ready")
+MACHINE_STATES = ("fault", "estop", "alarm", "offline", "hold", "running", "homing", "moving", "not_homed",
+                  "ready")
+#: the machine states in which the axes move (the dark slate of motion, the banner's motion chip)
+MOTION_STATES = ("running", "homing", "moving")
 #: the laser axis
 LASER_STATES = ("disarmed", "armed", "dry_run")
 
@@ -35,6 +40,8 @@ MACHINE_TEXT = {
     "not_homed": ("run.state.not_homed", "NOT HOMED", "NOT-HOMED"),
     "ready": ("run.state.ready", "READY", "READY"),
     "running": ("run.state.running", "RUNNING", "RUNNING"),
+    "homing": ("run.state.homing", "HOMING", "RUNNING"),
+    "moving": ("run.state.moving", "MOVING", "RUNNING"),
     "hold": ("run.state.hold", "HOLD", "HOLD"),
     "alarm": ("run.state.alarm", "ALARM", "ALARM"),
     "estop": ("run.state.estop", "E-STOP", "E-STOP"),
@@ -54,9 +61,10 @@ def _tr(window: Any, key: str, default: str, **kw: Any) -> str:
 
 
 def machine_state(st: Any, ms: Any, alarms: Any = (), ctl: Any = None, need_home: Optional[bool] = None) -> str:
-    """The machine axis: offline / not_homed / ready / running / hold / alarm / estop / fault.
-    The safety UI's :func:`mlaser.ui.safety_ui.run_state` (fault > estop > alarm > offline >
-    hold > running > not_homed > ready, from the one alarm source ``ctl.active_alarms``), plus
+    """The machine axis: offline / not_homed / ready / running / homing / moving / hold / alarm /
+    estop / fault.  The safety UI's :func:`mlaser.ui.safety_ui.run_state` (fault > estop > alarm
+    > offline > hold > running > homing > moving > not_homed > ready, from the one alarm source
+    ``ctl.active_alarms``), plus
     HOLD while a job waits at a breakpoint.  ``need_home``: None asks
     :func:`mlaser.services.readiness.homing_needed`."""
     from .safety_ui import run_state
@@ -135,7 +143,10 @@ class StateBadge(QFrame):
         """The state's word (compatibility with the former label)."""
         return self.text_label.text()
 
-    def set_state(self, state: str, colour: str, word: str, caption: str = "", accessible: str = "") -> None:
+    def set_state(self, state: str, colour: str, word: str, caption: str = "", accessible: str = "",
+                  outline: str = "") -> None:
+        """Show ``state`` (its icon) in the ``colour`` key's fill and text with ``word`` under the
+        ``caption``; ``outline``: a border colour (the run bar's pill on the simulator)."""
         if self.text_label.text() != word:
             self.text_label.setText(word)
         if caption and self.caption.text() != caption:
@@ -147,13 +158,14 @@ class StateBadge(QFrame):
             self.text_label.setAccessibleName(name)
         self.state = state
         bg, fg = style.state_colors(colour)
-        look = (state, colour, bg, fg)
+        look = (state, colour, bg, fg, outline)
         if look == self._look:
             return
         self._look = look
         self.kind = colour
         n = self.objectName()
-        self.setStyleSheet(f"QFrame#{n}{{background:{bg};border-radius:{style.SP1}px;}}"
+        border = f"border:2px solid {outline};" if outline else ""
+        self.setStyleSheet(f"QFrame#{n}{{background:{bg};border-radius:{style.SP1}px;{border}}}"
                            f"QFrame#{n} QLabel{{color:{fg};background:transparent;}}")
         self.icon.setPixmap(icon(STATE_ICONS.get(state, ""), fg).pixmap(QSize(self.icon_px, self.icon_px)))
 
@@ -162,5 +174,5 @@ class StateBadge(QFrame):
         return (self._look[2], self._look[3]) if self._look else ("", "")
 
 
-__all__ = ["MACHINE_STATES", "LASER_STATES", "MACHINE_TEXT", "LASER_TEXT", "machine_state", "laser_state",
+__all__ = ["MACHINE_STATES", "MOTION_STATES", "LASER_STATES", "MACHINE_TEXT", "LASER_TEXT", "machine_state", "laser_state",
            "machine_label", "laser_label", "axis_label", "colour_key", "StateBadge"]
