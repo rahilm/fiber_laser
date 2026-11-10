@@ -46,5 +46,10 @@ checkout, it reads the `docs/` folder; `$MLASER_HELP_DIR` points it at another f
 
 ## How do I report a problem?
 
-Attach the device report (**System Analysis → Device report**) and the log files from the data
-folder.
+Save a diagnostic bundle (**Help › Save diagnostic bundle…**, or `mlaser-cli diag-bundle
+out.zip` without the window) and attach it. It is one zip file on your computer, nothing is sent:
+the version and commit, the settings (tokens, passwords, notification credentials, e-mail
+addresses and home-folder paths removed), the machine parameters, the alarm history, what the
+safety supervisor did, the last card messages and the logs. The window lists what goes in before
+you save; the drawing is included only when you tick it. The device report (**System Analysis →
+Device report**) can go with it.

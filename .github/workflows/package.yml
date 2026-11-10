@@ -14,6 +14,8 @@ on:
       - "mlaser/_native/**"
       - "mlaser/parity_ports/profiles/native.py"
       - "setup.py"
+      - "tools/help_build.py"
+      - "mlaser/_buildid.py"
       - "MANIFEST.in"
       - "pyproject.toml"
       - "uv.lock"
@@ -46,6 +48,12 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+      # the build identity (the commit, mlaser._buildid) as mlaser/_build_info.py (git-ignored):
+      # the build_py hook takes it from git, and keeps this file where git cannot run (the Linux
+      # build container's copy of the checkout)
+      - name: Build identity
+        shell: bash
+        run: python tools/help_build.py --build-info mlaser/_build_info.py
       # configuration: [tool.cibuildwheel] in pyproject.toml (cp312 / cp313 / cp314, kernel
       # required, each wheel installed in a clean environment and `python -m mlaser._native --require`)
       - uses: pypa/cibuildwheel@8d2b08b68458a16aeb24b64e68a09ab1c8e82084 # v3.4.1

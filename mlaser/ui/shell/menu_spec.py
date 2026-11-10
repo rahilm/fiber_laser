@@ -187,7 +187,8 @@ def _menus(plat: str) -> list[Menu]:
         Sub("shell.menu.panels", id="docks"), "shell.reset_layout", SEP,
         "window.bring_all_front", Sub("", id=WINDOW_LIST),
     ])
-    help_items: list[Entry] = ["shell.palette", SEP, "app.help", "shell.docs", "shell.shortcuts", "shell.welcome"]
+    help_items: list[Entry] = ["shell.palette", SEP, "app.help", "shell.docs", "shell.shortcuts", "shell.welcome",
+                               SEP, "diag.bundle", "app.check_updates"]
     if plat != MACOS:
         help_items += [SEP, "app.about"]
     help_ = Menu("help", "shell.menu.help", help_items)

@@ -23,6 +23,8 @@ aux.interferometer     mf180 17000  interferometer dock (:class:`InterferometerP
 aux.batch_cut          mf705 4270   :class:`BatchDialog` + batch runner / production counter
 aux.maintain           A251113_0    :class:`MaintainDialog` + reminders
 app.help               mf23         :class:`HelpWindow` (packaged docs + About)
+diag.bundle            (new)        :class:`mlaser.ui.diag_bundle.BundleDialog` (review A8)
+app.check_updates      (new)        :func:`mlaser.ui.diag_bundle.check_updates` (opt-in, F11)
 =====================  ===========  =========================================================
 
 Job statistics, device counters, the planned-quantity interlock and the maintenance reminders
@@ -807,6 +809,8 @@ class LogViewer(Dialog):
         self.body.addLayout(top)
         b = self.buttons.addButton(_tr(ext.w, "mf431", "Open Log Directory"), QDialogButtonBox.ActionRole)
         b.clicked.connect(self.open_folder)
+        from .diag_bundle import bundle_button
+        bundle_button(ext.w, self.buttons, self)
         sp = QSplitter()
         self.files = QListWidget()
         # long file names are elided in the middle (date and extension stay), the whole name in
@@ -1711,6 +1715,16 @@ class DiagExtension:
     def help(self):
         return self._show("help", lambda: HelpWindow(self))
 
+    def save_bundle(self):
+        """Help › Save diagnostic bundle… (mlaser.ui.diag_bundle)."""
+        from .diag_bundle import open_bundle_dialog
+        return open_bundle_dialog(self.w)
+
+    def check_updates(self, quiet: bool = False):
+        """Help › Check for updates; ``quiet``: the opt-in check at start (UPDATE_SETTING)."""
+        from .diag_bundle import check_updates
+        return check_updates(self.w, quiet=quiet)
+
 
 def data_dir(settings) -> str:
     """``settings["data_dir"]``, else :func:`mlaser.services.config.data_dir` (``$MLASER_DATA_DIR``,
@@ -1752,8 +1766,11 @@ COMMANDS = {
     "aux.custom_io_nl": ("custom_io_dialog", False), "aux.dedust": "dedust",
     "aux.light_test": "light_test", "aux.burn_in": "burn_in", "aux.ball_arm": "ball_arm",
     "aux.interferometer": "interferometer", "aux.batch_cut": "batch_cut", "aux.maintain": "maintain",
-    "app.help": "help",
+    "app.help": "help", "diag.bundle": "save_bundle", "app.check_updates": "check_updates",
 }
+#: opt-in update check at start (plugin.ext_diag.update_check, off; mlaser.services.update_check)
+UPDATE_SETTING = "update_check"
+UPDATE_DELAY_MS = 8000          # after start-up settled; one GET in a worker
 
 
 def _handler(ext: DiagExtension, spec):
@@ -1776,6 +1793,12 @@ def register(ctx) -> DiagExtension:
         act.setText(_tr(window, "mf171", "Enable Dedust"))
     ctx.on_controller_changed(lambda _ctl: ext.attach())
     ctx.on_close(ext.save_state)
+    schema = getattr(ctx, "settings_schema", None)
+    if callable(schema):
+        from mlaser.services.config import Setting
+        ext.update_settings = schema([Setting(UPDATE_SETTING, "bool", False, label="diag.set.update_check")])
+        if bool(ext.update_settings[UPDATE_SETTING]):        # opt-in only: never asked for
+            QTimer.singleShot(UPDATE_DELAY_MS, lambda: ext.check_updates(quiet=True))
     if ctx.jobs is not None:
         ctx.jobs.add_start_guard(ext.svc.start_allowed)
     return ext

@@ -53,6 +53,9 @@
   "about.licences": "Uses {qt}, licensed under the {lgpl}: you may replace the {libs} libraries with your own build.  Licence texts: {paths}.  Bundled fonts: {fonts}.",
   "about.netcheck_not_run": "Network self-test: not run yet (Settings > Network self-test)",
   "about.netcheck_unavailable": "Network self-test unavailable: {error}",
+  "about.version": "Version {version}, commit {commit}",
+  "about.version_modified": "Version {version}, commit {commit} (with local changes)",
+  "about.commit_unknown": "unknown",
   "alarm.axis_control_command_execution_exception": "Axis control command execution exception",
   "alarm.axis_dual_drive_alarm": "{axis} dual-drive alarm",
   "alarm.axis_hard_negative_limit_alarm": "{axis} hard negative limit alarm",
@@ -294,6 +297,7 @@
   "cmd.app.profile": "Parity profile",
   "cmd.app.recovery": "System recovery",
   "cmd.app.settings": "Settings",
+  "cmd.app.check_updates": "Check for updates",
   "cmd.aux.ball_arm": "Ball arm",
   "cmd.aux.batch_cut": "Batch cut",
   "cmd.aux.burn_in": "Burn-in test",
@@ -354,6 +358,7 @@
   "cmd.diag.measure": "Data measurement",
   "cmd.diag.work_report": "Work report (new)",
   "cmd.diag.work_report_all": "Work report (all)",
+  "cmd.diag.bundle": "Save diagnostic bundle…",
   "cmd.draw.adv_text": "Advanced text",
   "cmd.draw.advert_text": "Sign lettering",
   "cmd.draw.arc3": "3-point arc",
@@ -692,6 +697,27 @@
   "diag.batch.remove_tip": "Remove the selected drawing",
   "diag.batch.reset_done": "Reset done",
   "diag.batch.reset_done_tip": "Set every done quantity to 0",
+  "diag.bundle.title": "Save diagnostic bundle",
+  "diag.bundle.explanation": "One zip file for a bug report. Nothing is sent: the file stays on this computer and you decide whether to send it. No card command is used.",
+  "diag.bundle.include_drawing": "Include the drawing",
+  "diag.bundle.item_line": "• {what}",
+  "diag.bundle.item.readme": "What this bundle is and what was left out",
+  "diag.bundle.item.system": "Version, commit, Python, Qt, operating system, processor, locale, screens, kernel, library versions",
+  "diag.bundle.item.config": "Settings (passwords, tokens, personal data and home folder paths removed)",
+  "diag.bundle.item.controller": "Card identity as read at connect, machine state, safety transitions, halts, recent card messages, events",
+  "diag.bundle.item.params": "Machine parameters: fingerprint (SHA-256), summary and values",
+  "diag.bundle.item.plan": "Summary of the current drawing and job (no geometry)",
+  "diag.bundle.item.alarms": "Alarm and fault history",
+  "diag.bundle.item.logs": "Program, audit and crash logs and the daily logs, newest first, size-limited",
+  "diag.bundle.item.drawing": "The current drawing",
+  "diag.bundle.no_drawing": "The drawing is empty",
+  "diag.bundle.no_geometry": "• No drawing geometry (tick the box to include it)",
+  "diag.bundle.save": "Save…",
+  "diag.bundle.saved": "Diagnostic bundle saved: {path}",
+  "diag.bundle.contents": "The bundle will contain:",
+  "diag.bundle.filter": "Zip archives (*.zip)",
+  "diag.bundle.failed": "Not written: {error}",
+  "diag.bundle.writing": "Writing the bundle…",
   "diag.col.addr": "addr",
   "diag.col.name": "name",
   "diag.col.raw": "raw",
@@ -763,6 +789,7 @@
   "diag.pitch.moves.other": "{n} moves",
   "diag.pitch.progress": "{state}: step {step}/{total} {label}",
   "diag.report.value": "Value",
+  "diag.set.update_check": "Check for updates at start",
   "draw.log.fill_parts.one": "Sign lettering: {n} part",
   "draw.log.fill_parts.other": "Sign lettering: {n} parts",
   "draw.log.similar.one": "Select similar contours: {n} contour selected",
@@ -3718,6 +3745,7 @@
   "settings.group.startup": "Start-up",
   "settings.group.tools": "Last-used tool values",
   "settings.group.units": "Display units",
+  "settings.group.updates": "Updates",
   "settings.help.app.reopen_last": "At start, open the drawing that was open last. Off by default: a machine should start with an empty drawing unless you ask for one.",
   "settings.help.bed.slat_direction": "The direction the slats run in.",
   "settings.help.bed.slat_offset": "Position of the first slat; -1 when unknown (the checks then assume the worst position).",
@@ -3815,6 +3843,7 @@
   "settings.help.plugin.ext_options.kerf_clipper": "When the exact kerf offset of a contour fails, offset it with pyclipper instead of reporting an error.",
   "settings.help.plugin.ext_options.parity_profile": "The motion and import rules. 'original' is bit-exact with the original program (the goldens and the parity runs use it); the others show their warning when chosen.",
   "settings.help.plugin.ext_project.autosave_interval_s": "How often a changed project is saved to the recovery file (0 = never). The recovery file is offered after a crash.",
+  "settings.help.plugin.ext_diag.update_check": "Off by default. When on, mlaser asks GitHub once at start whether a newer release exists and shows a notice with a link. Nothing is downloaded or installed, and no identifier is sent. Help › Check for updates asks at any time.",
   "settings.help.plugin.orders.close_gap": "The review closes gaps up to this size.",
   "settings.help.plugin.orders.feature_layers": "Layers whose geometry stays with the part it lies in (engraving, marking). Comma separated, * matches any text.",
   "settings.help.plugin.orders.ignore_layers": "Layers that are never cut (bend lines, dimensions, frames). Comma separated, * matches any text.",
@@ -4985,7 +5014,13 @@
   "undo.home_ref": "Move to reference",
   "undo.laser_type": "Laser type",
   "undo.clear_edge_seek": "Clear edge seek",
-  "undo.import": "Import"
+  "undo.import": "Import",
+  "update.checking": "Checking for updates…",
+  "update.failed": "Could not check for updates (see the log).",
+  "update.latest": "mlaser {version} is the newest release.",
+  "update.newer": "mlaser {latest} is available (you have {current}). Nothing is downloaded or installed automatically.",
+  "update.title": "Update available",
+  "update.open_page": "Open release page"
  },
  "args": {
   "a11y.alarm.spoken": [
@@ -5248,6 +5283,15 @@
   ],
   "diag.batch.plan_reached": [
    "text"
+  ],
+  "diag.bundle.item_line": [
+   "what"
+  ],
+  "diag.bundle.failed": [
+   "error"
+  ],
+  "diag.bundle.saved": [
+   "path"
   ],
   "diag.controller.di": [
    "n"
@@ -7451,9 +7495,24 @@
    "paths",
    "fonts"
   ],
+  "about.version": [
+   "version",
+   "commit"
+  ],
+  "about.version_modified": [
+   "version",
+   "commit"
+  ],
   "ws.machine.safety_with_fault": [
    "state",
    "fault"
+  ],
+  "update.latest": [
+   "version"
+  ],
+  "update.newer": [
+   "latest",
+   "current"
   ]
  },
  "legacy": {

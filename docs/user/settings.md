@@ -168,6 +168,26 @@ The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operatio
 | Accept uploaded drawings | `plugin.ext_automation.uploads` | on | Clients may upload drawings. Read-only here: Edit in Automation API settings. |
 | Job folders | `plugin.ext_automation.job_folders` | (empty) | Folders watched for new jobs (separated by ;). Read-only here: Edit in Automation API settings. |
 | Largest upload (MB) | `plugin.ext_automation.max_upload_mb` | 20 | The largest drawing a client may upload. Read-only here: Edit in Automation API settings. |
+| Check for updates at start | `plugin.ext_diag.update_check` | off | Off by default. When on, mlaser asks GitHub once at start whether a newer release exists and shows a notice with a link. Nothing is downloaded or installed, and no identifier is sent. Help › Check for updates asks at any time. |
+
+### Update check: exactly what is sent
+
+Neither the setting above nor **Help › Check for updates** is ever switched on or offered
+automatically. When you use one of them, mlaser makes **one** HTTPS request, in the background:
+
+* `GET https://api.github.com/repos/rahilm/fiber_laser/releases?per_page=20`
+* headers: `User-Agent: mlaser-update-check` (no version, no operating system, no identifier),
+  `Accept: application/vnd.github+json`, `Accept-Encoding: identity`, plus the `Host` and
+  `Connection` headers Python adds; no cookie, no token, no body.
+* a redirect is followed only to `api.github.com`; 10 s timeout; at most 2 MB read; no retry.
+
+GitHub sees your IP address, as for any web request. The answer (the list of published releases)
+is compared with the running version; when a newer release exists a notice offers a link to its
+page on github.com. **Nothing is downloaded or installed**: a cutting machine's controller does
+not replace itself. A pre-release counts only while you run a pre-release. If the request fails
+(offline, a proxy, GitHub's rate limit) the check at start stays silent (one line in the log);
+**Help › Check for updates** says it could not check. No check runs while you are not asking for
+it, and the check at start never shows a dialog over a running job.
 
 
 ## Notifications

@@ -34,13 +34,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from collections import deque
 from dataclasses import dataclass, field, replace
 from typing import Callable, Optional
 
 from ..machine.audit import audit
 from ..machine.safety import Cmd, SafetyFSM, SafetyState, classify_request
 from ..protocol import frames as F
-from .client import ControllerError, MotionController, TransportConfig
+from .client import FRAME_RING, ControllerError, MotionController, TransportConfig
 
 log = logging.getLogger(__name__)
 
@@ -227,6 +228,7 @@ class SafetySupervisor:
         self.fifo_frames = 0
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
+        self._rings = {"main": deque(maxlen=FRAME_RING), "halt": deque(maxlen=FRAME_RING)}
         self._halt_lock = threading.RLock()
         self._soon: set = set()               # halts on their way (send_soon)
         self._soon_lock = threading.Lock()
@@ -267,6 +269,8 @@ class SafetySupervisor:
         hcfg = replace(cfg, timeout_ms=self.halt_timeout_ms,
                        fifo_time_ms=self.halt_timeout_ms * self.halt_sends, max_recv=1)
         self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm, guard=self._halt_guard)
+        # the channels' frame rings outlive a disconnect (a bug report after a link loss)
+        mc.recent, self._halt.recent = self._rings["main"], self._rings["halt"]
         self._latch = False
         self.link_ok = False
         self._lost = False
@@ -284,6 +288,22 @@ class SafetySupervisor:
                     pass
         self._mc = self._halt = None
         self.streaming = None
+
+    def recent_frames(self) -> list[tuple]:
+        """The last requests of both channels, oldest first: ``(channel, time.time(), func,
+        addr, request bytes, reply bytes or None, outcome)``.  A copy of the in-memory rings
+        (:attr:`MotionController.recent`); sends nothing (the diagnostic bundle)."""
+        out = []
+        for ch, ring in self._rings.items():
+            for _ in range(5):            # a copy taken while another thread appends: try again
+                try:
+                    items = list(ring)
+                    break
+                except RuntimeError:
+                    items = []
+            out += [(ch, *e) for e in items]
+        out.sort(key=lambda e: e[1])
+        return out
 
     def _halt_channel(self) -> Optional[MotionController]:
         h = self._halt

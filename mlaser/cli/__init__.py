@@ -14,6 +14,9 @@ command        what it does
                enable, disable, repo add|remove|list (:mod:`mlaser.cli.plugin`)
 =============  =====================================================================
 
+``diag-bundle OUT.zip`` writes a diagnostic bundle for a bug report (:mod:`mlaser.cli.diag`);
+nothing is sent anywhere.
+
 ``--json`` prints one JSON object on stdout (``{"command", "ok", "exit_code", "units", ...}``;
 on an error ``"error": {"code", "message"}``); without it the output is short text.  JSON is
 always in mm (mm/s, mm², ...; ``"units": "mm"``); ``--units metric|imperial`` sets the text
@@ -43,7 +46,7 @@ from mlaser.services.units import SYSTEMS
 from .common import (EXIT_CHECK, EXIT_FAILED, EXIT_INPUT, EXIT_OK, EXIT_OUTPUT, EXIT_REFUSED, EXIT_USAGE,
                      JSON_UNITS, CliError, parse_length, set_output_units)
 
-SUBCOMMANDS = ("compile", "estimate", "nest", "validate", "convert", "queue", "plugin")
+SUBCOMMANDS = ("compile", "estimate", "nest", "validate", "convert", "queue", "plugin", "diag-bundle")
 EXIT_CODES = {EXIT_OK: "ok", EXIT_CHECK: "check failed", EXIT_USAGE: "usage", EXIT_INPUT: "input",
               EXIT_FAILED: "failed", EXIT_OUTPUT: "output", EXIT_REFUSED: "refused"}
 
@@ -178,6 +181,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--data-dir", metavar="DIR")
     from .plugin import add_parser as _plugin_parser
     _plugin_parser(sub, _common, _Parser)
+    from .diag import add_parser as _diag_parser
+    _diag_parser(sub, _common)
     return ap
 
 
@@ -208,7 +213,7 @@ def main(argv: Optional[list[str]] = None, out: Any = None, err: Any = None) -> 
             return int(exc.code or 0)
         if args.command is None or (args.command == "queue" and getattr(args, "queue_command", None) is None):
             raise CliError("a command is required (compile, estimate, nest, validate, convert, queue add|list, "
-                           "plugin ...)", EXIT_USAGE, "usage")
+                           "plugin ..., diag-bundle)", EXIT_USAGE, "usage")
         if args.command == "plugin" and getattr(args, "plugin_command", None) is None:
             raise CliError("plugin: a command is required (list, search, info, install, uninstall, update, "
                            "enable, disable, repo add|remove|list)", EXIT_USAGE, "usage")
@@ -220,6 +225,9 @@ def main(argv: Optional[list[str]] = None, out: Any = None, err: Any = None) -> 
         if args.command == "plugin":
             from .plugin import cmd_plugin
             fn = cmd_plugin
+        if args.command == "diag-bundle":
+            from .diag import cmd_diag_bundle
+            fn = cmd_diag_bundle
         name = args.command + (f" {args.queue_command}" if args.command == "queue" else "")
         if args.command == "plugin":
             name += f" {args.plugin_command}" + (f" {args.repo_command}" if args.plugin_command == "repo"

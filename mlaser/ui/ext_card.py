@@ -62,6 +62,9 @@ class AlarmListDialog(Dialog):
         S.set_enabled(clr, bool(alarms or fault), "" if alarms or fault else _tr(
             window, "card.alarms.nothing_to_clear", "No alarm to reset"))
         clr.clicked.connect(lambda: (self.accept(), self._reset(window)))
+        if fault or alarms:              # the evidence for a report, offered where the fault is seen
+            from .diag_bundle import bundle_button
+            bundle_button(window, self.buttons, self)
 
     @staticmethod
     def _reset(window) -> None:

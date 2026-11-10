@@ -26,6 +26,14 @@ Changelog) in the same commit; `uv lock` updates the lock's own entry.
   for the running interpreter and platform). The `build_py` hook (`tools/help_build.py`, named
   in `[tool.setuptools.cmdclass]`) copies the help documents into the wheel as
   `mlaser/help/docs`.
+* **Build identity:** the version is the package metadata; the commit is generated at build
+  time into `mlaser/_build_info.py` (`COMMIT`, `DIRTY`; ignored by git, never committed) by the
+  `build_py` hook (wheel: `git describe` of the checkout), the `sdist` hook (written into the
+  sdist and kept by a wheel built from it) and `packaging/build.py` (the bundle). CI writes it
+  before cibuildwheel (`python tools/help_build.py --build-info mlaser/_build_info.py`), so the
+  Linux build container needs no working git. A checkout asks git itself at run time; otherwise
+  it is "unknown" (`mlaser._buildid`). It shows in About, in the first line of `mlaser.log` (and
+  the `session` audit event), in the diagnostic bundle and in `build-info.json`.
 * **sdist:** `uv build --sdist`; `MANIFEST.in` puts `docs/`, `setup.py` and the kernel's C
   source into it. Installed without a C compiler it gives mlaser without the kernel (the Python
   port runs; checked by the `sdist` job with `CC=/bin/false`).
