@@ -235,6 +235,9 @@ class SettingsPanel(QWidget):
         row.addWidget(self.status, 1)
         self.b_revert = _button(window, "ws.machine.hw_revert", self.build)
         self.b_apply = _button(window, "ws.machine.hw_apply", self.apply)
+        self.b_reconnect = _button(window, "wizard.import.reconnect", self.reconnect)
+        self.b_reconnect.setVisible(False)
+        row.addWidget(self.b_reconnect)
         row.addWidget(self.b_revert)
         row.addWidget(self.b_apply)
         lay.addLayout(row)
@@ -390,13 +393,15 @@ class SettingsPanel(QWidget):
                     c.setText(0, self._name(c.data(0, Qt.UserRole), s))
 
     def _filter(self, text: str) -> None:
+        from mlaser.services.settings_catalog import SEARCH_TERMS, query_matches
         t = text.strip().lower()
         for i in range(self.tree.topLevelItemCount()):
             g = self.tree.topLevelItem(i)
             any_vis = False
             for j in range(g.childCount()):
                 c = g.child(j)
-                vis = not t or t in c.text(0).lower() or t in c.text(2).lower()
+                terms = SEARCH_TERMS.get(c.text(2))
+                vis = not t or query_matches(t, c.text(0), c.text(2), T(self.w, terms) if terms else "")
                 c.setHidden(not vis)
                 any_vis |= vis
             g.setHidden(not any_vis)
@@ -404,22 +409,78 @@ class SettingsPanel(QWidget):
     def changed(self) -> dict[str, Any]:
         return {k: self._read(w) for k, w in self._editors.items() if self._read(w) != self._initial.get(k)}
 
-    def apply(self) -> int:
+    def _change_line(self, key: str, new: Any) -> str:
+        s = self.config.setting(key)
+        name = key
+        for i in range(self.tree.topLevelItemCount()):
+            g = self.tree.topLevelItem(i)
+            for j in range(g.childCount()):
+                if g.child(j).text(2) == key:
+                    name = g.child(j).text(0)
+        old = self.config.get(key, getattr(s, "default", None))
+        return T(self.w, "ws.machine.hw_change_line", name=name, setting=key, old=str(old), new=str(new))
+
+    def confirm(self, changes: dict) -> bool:
+        """"Apply changes" / "Cancel" (Cancel the default) with every change old -> new under
+        "Show details", the ones that change how the machine moves counted and listed first, the
+        backup, and the reconnect the card needs (UX review 2026-11-09 finding 11)."""
+        from mlaser.services import settings_import as SI
+
+        from ..verb_question import verb_question
+        safe = [k for k in changes if SI.safety_category(k)]
+        rest = [k for k in changes if k not in safe]
+        info = [T(self.w, "wizard.import.confirm_safety", n=len(safe))] if safe else []
+        info.append(T(self.w, "wizard.import.confirm_backup"))
+        info.append(T(self.w, "wizard.import.confirm_reconnect"))
+        detail = "\n".join(("⚠ " if k in safe else "") + self._change_line(k, changes[k]) for k in safe + rest)
+        return verb_question(self, T(self.w, "ws.machine.hw_confirm_title"),
+                             T(self.w, "wizard.import.confirm_text", n=len(changes)), T(self.w, "wizard.import.apply"),
+                             T(self.w, "wizard.import.cancel"), informative="\n\n".join(info), warning=bool(safe),
+                             detail=detail)
+
+    def apply(self, confirm: bool = True) -> int:
+        """Apply the edited values after a confirmation, with a timestamped backup of the
+        configuration first; then say that the card needs a reconnect (and offer it)."""
+        from mlaser.services import settings_import as SI
         if not self.editable:
             return 0
         self.errors = []
+        changes = self.changed()
+        if changes and confirm and not self.confirm(changes):
+            self.status.setText(T(self.w, "wizard.import.cancelled"))
+            return 0
+        bak = SI.backup_config(self.config) if changes else None
         n = 0
-        for k, v in self.changed().items():
+        for k, v in changes.items():
             try:
                 self.config.set(k, v)
                 n += 1
             except ValueError as e:
                 self.errors.append(str(e))
         done = T(self.w, "ws.machine.hw_applied", n=n)
-        self.status.setText(T(self.w, "ws.machine.hw_applied_errors", text=done, errors="; ".join(self.errors))
-                            if self.errors else done)
+        lines = [T(self.w, "ws.machine.hw_applied_errors", text=done, errors="; ".join(self.errors))
+                 if self.errors else done]
+        if bak is not None:
+            lines.append(T(self.w, "wizard.import.backup", path=str(bak)))
+        connected = False
+        try:
+            connected = bool(n and self.w.ctl.state().connected)
+        except Exception:  # noqa: BLE001 - no controller
+            connected = False
+        if connected:
+            lines.append(T(self.w, "wizard.import.reconnect_needed"))
+        self.b_reconnect.setVisible(connected)
+        self.status.setText("\n".join(lines))
         self.build()
         return n
+
+    def reconnect(self) -> Any:
+        """Reconnect the card (``hw.reconnect``): the new parameters reach it."""
+        cmds = getattr(self.w, "commands", None)
+        self.b_reconnect.setVisible(False)
+        if cmds is None or cmds.get("hw.reconnect") is None:
+            return None
+        return cmds.run("hw.reconnect")
 
 
 def _resolve(window: Any, vid: str, target: Any = None) -> Optional[QWidget]:
@@ -682,10 +743,12 @@ class MachineWorkspace(QWidget):
         form = ResponsiveForm()
         form.addRow(QLabel(T(w, "ws.machine.coord_system")), self.coord)
         cl.addWidget(form)
+        self.b_set_origin = _button(w, "ws.machine.set_origin", lambda: self.ctx.commands.run("coord.set_origin"),
+                                    "map-pin-plus")
+        self.b_return_origin = _button(w, "ws.machine.return_origin",
+                                       lambda: self.ctx.commands.run("coord.return_origin"), "current-location")
         cl.addWidget(flow([
-            _button(w, "ws.machine.set_origin", lambda: self.ctx.commands.run("coord.set_origin"), "map-pin-plus"),
-            _button(w, "ws.machine.return_origin", lambda: self.ctx.commands.run("coord.return_origin"),
-                    "current-location"),
+            self.b_set_origin, self.b_return_origin,
             _button(w, "ws.machine.edge_clear", lambda: self.ctx.commands.run("machine.edge_clear"), "eraser")],
             uniform=True))
         self.origins = QLabel()
@@ -813,8 +876,21 @@ class MachineWorkspace(QWidget):
         self._fill_alarms()
         return page
 
-    def _clear_history(self) -> None:
+    def _clear_history(self) -> bool:
+        """Delete the alarm history after a question (UX review 2026-11-09 finding 14: it is what
+        a service technician asks for first): "Clear history" is the destructive button,
+        Cancel the default."""
+        from ..verb_question import verb_question
+        n = len(self.history.entries())
+        if n == 0:
+            return False
+        if not verb_question(self, T(self.w, "ws.machine.alarm_clear_title"),
+                             T(self.w, "ws.machine.alarm_clear_text", n=n),
+                             T(self.w, "ws.machine.alarm_clear_history"), T(self.w, "ws.machine.alarm_clear_cancel"),
+                             informative=T(self.w, "ws.machine.alarm_clear_info"), destructive=True):
+            return False
         self.history.clear()
+        return True
 
     def _fill_alarms(self) -> None:
         from ..safety_texts import remedy
@@ -850,6 +926,8 @@ class MachineWorkspace(QWidget):
         if mode != self._mode:
             self._mode = mode
             self.apply_mode(mode)
+            self._origin_kind = None
+        self.sync_origin_controls()        # the menus' actions too: also while the page is hidden
         if not self.isVisible():
             return
         ctl = self.ctx.controller
@@ -880,6 +958,36 @@ class MachineWorkspace(QWidget):
             self.coord.setCurrentIndex(c.kind)
         self.origins.setText(T(self.w, "ws.machine.origins", unit=u.suffix("length"), tools="  ".join(
             f"{i + 1}: ({u.number(x, 'length')}, {u.number(y_, 'length')})" for i, (x, y_) in enumerate(c.tools))))
+
+    #: the commands that set / return to the origin of a tool coordinate system (or Manual)
+    ORIGIN_COMMANDS = ("coord.set_origin", "coord.return_origin")
+
+    def sync_origin_controls(self) -> None:
+        """"Set origin here" and "Go to origin" act on a tool coordinate system (1-6) or Manual
+        (MachineOps.set_origin / return_origin); in the Float system the job origin is the head
+        position and they do nothing (UX review 2026-11-09 finding 14): disabled there, with the
+        reason, on this page and in the menus / ribbon."""
+        kind = self.ext.ops.coords.kind
+        if getattr(self, "_origin_kind", None) == kind:
+            return
+        self._origin_kind = kind
+        ok = bool(self.ext.ops.coords.can_set_or_return)
+        why = "" if ok else T(self.w, "ws.machine.origin_float_why")
+        for b in (getattr(self, "b_set_origin", None), getattr(self, "b_return_origin", None)):
+            if b is not None:
+                style.set_enabled(b, ok, why)
+        acts = getattr(getattr(self.w, "ribbon", None), "actions", None) or {}
+        shell = getattr(self.w, "shell", None)
+        for cmd in self.ORIGIN_COMMANDS:
+            a = acts.get(cmd)
+            if a is None:
+                continue
+            if a.property("tooltip_enabled") is None:
+                a.setProperty("tooltip_enabled", a.toolTip())
+            allowed = shell is None or not hasattr(shell, "allows") or bool(shell.allows(cmd))
+            a.setEnabled(ok and allowed)
+            normal = str(a.property("tooltip_enabled") or "")
+            a.setToolTip(normal if ok else (f"{normal}\n{why}" if normal and why not in normal else why))
 
     def apply_mode(self, mode: Optional[str]) -> None:
         for i, (sid, _k, _ic, need) in enumerate(SECTIONS):

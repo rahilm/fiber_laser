@@ -12,11 +12,11 @@ Screens: `work/w3/machine/ws_*.png` and `wiz_*.png` (offscreen captures).
 | Section | What it does | Lowest user mode |
 |---|---|---|
 | Connection | Built-in simulator or a network address (a motion card or the network simulator `mlaser-cardsim`: IP address, port; the card does not say which, so it is shown as "not identified"), Connect / Disconnect, the live status (connection, safety state, address, link, homed) and the network self-test (`mlaser --selftest`), optionally with one status request to the card | Operator |
-| Homing and jog | Position in mm, Home X/Y, X, Y, X/Y/Z, focus homing; **hold-to-jog** X± Y± Z± (release stops; a step size of 0.1 / 1 / 10 mm makes one click one step; the jog stops when the window loses focus or is hidden, docs/SAFETY.md §8); coordinate system, set origin, go to origin, clear the sheet rotation | Operator |
+| Homing and jog | Position in mm, Home X/Y, X, Y, X/Y/Z, focus homing; **hold-to-jog** X± Y± Z± (release stops; a step size of 0.1 / 1 / 10 mm makes one click one step; the jog stops when the window loses focus or is hidden, docs/SAFETY.md §8); coordinate system, set origin, go to origin (in a tool coordinate system or Manual; disabled, with the reason, in Float, where the job starts at the head), clear the sheet rotation | Operator |
 | Procedures | The guided procedures below, each with the mode it needs | per procedure |
 | Monitors | Controller, follower (FTC), autofocus and EtherCAT monitors as panels (they poll only while visible); the ribbon's monitor commands open them here | Engineer |
 | Hardware settings | The hardware parameter sections with readable names, a search box, typed editors with units and ranges; Apply validates every value; read-only below Service mode.  Changes reach the card at the next connect.  **Safety I/O...** opens the interlock and heartbeat settings ([below](#safety-io-interlocks-and-the-pc-alive-heartbeat)) | Engineer (view), Service (edit); Safety I/O: Engineer |
-| Alarms | Every card alarm and latched fault with raise and clear time, duration, code, text and **what to do**; Reset alarms; Clear history.  Kept in `alarm_history.jsonl` in the data folder | Operator |
+| Alarms | Every card alarm and latched fault with raise and clear time, duration, code, text and **what to do**; Reset alarms; Clear history (asks first; Cancel is the default).  Kept in `alarm_history.jsonl` in the data folder | Operator |
 
 User modes (Operator / Engineer / Service) come from the shell.  Without them every section is
 open.  A command above the current mode says which mode it needs instead of running.
@@ -115,6 +115,14 @@ the laser source off (key switch) first.
 | Watchdog heartbeat | the "PC alive" output toggles at its frequency, and the watchdog relay drops when you press **Hold heartbeat** (docs/SAFETY.md §11) | set the output in Safety I/O |
 | Jog direction X / Y | a +10 mm jog increases the position, and you confirm the head moved right (X+) / away from you (Y+) | reverse the axis (`MAC.AxisReverse`, written at the next connect) |
 
+**Order.** A step that moves waits for the checks it depends on: Home X/Y and the jogs stay
+disabled, with the reason, while Card scaling fails (a wrong scale makes every move the wrong
+distance and speed), and the jogs also wait until the emergency stop was tested (press it,
+release it, clear the alarm: the Emergency stop row passes).  A blocked step can be left with
+**Skip, do later**.  The checklist ends "Finished" only when every check passed or warned;
+with a failed check it ends "Not finished: N checks failed" (or "N checks not done" for skipped
+ones), and its last button reads *Close, not finished*.
+
 The report (`commissioning/commissioning-<date>.json` in the data folder) lists every check
 with the measured values.
 
@@ -138,7 +146,13 @@ Procedures › Import (Service mode) takes the settings of an existing Mlaser in
 1. choose the install folder, and the parameter folder (`%LOCALAPPDATA%\NexCut` or a copy of
    it; it is found automatically when it sits in the install folder as `dat` or `NexCut`);
 2. **Preview** lists every change, grouped by area, with the current and the imported value;
-3. untick what you do not want, then **Apply**.
+   the values that change how the machine moves (travel, scaling, homing, limit switches, axis
+   direction) first, in bold, named in the *Check* column;
+3. untick what you do not want, then **Apply changes**: it asks first (Cancel the default),
+   backs up the configuration (`config.json.<date>-<time>.bak`) and, with the card connected,
+   offers **Reconnect now** (the card takes the new values when it connects).
+   **Compare with backup or file…** shows the difference to a backup and restores it.
+   File › Import parameters from an Mlaser installation… opens this same window in every mode.
 
 | Area | From | To |
 |---|---|---|

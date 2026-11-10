@@ -9,14 +9,36 @@ The original keeps the machine description in `<Mlaser>/dat/HardPara.xml`, `Manu
 the older `SystemPara.xml`): axis scale (pulses per revolution and lead), travel, speeds, IO
 wiring, the follower and the gas.
 
-* `ConfigService.import_dat("<Mlaser>/dat")` (`mlaser.services.config`) takes every value that
-  differs from the default as one of your settings and switches the machine profile to it. A
-  button for it belongs to the [Machine](machine.md) workspace (Wave 3).
-* `Machine.from_dat_dir("<Mlaser>/dat")` (`mlaser.nc`) builds a machine for compiling jobs from
-  the same files.
+In the app there is one import, the same in every user mode: **File › Import parameters from an
+Mlaser installation…** (or Machine › Import from my Mlaser installation, or the welcome sheet).
+Choose the `dat` folder (or the install folder and `%LOCALAPPDATA%\NexCut`); then:
+
+1. **Preview.** Every value that would change is listed with its current and its new value,
+   grouped by area. The values that change how the machine moves (travel limits, axis scaling,
+   homing, limit switches, axis direction) come first, in bold, with the word in the *Check*
+   column. Untick an area to leave it out. Nothing has changed yet.
+2. **Apply changes** asks first (Cancel is the default) and names how many of the changes affect
+   motion; *Show Details* lists them old → new.
+3. Before anything is written, the current configuration is saved next to it as
+   `config.json.<date>-<time>.bak`.
+4. If the motion card is connected, it keeps the old values until it reconnects: **Reconnect
+   now** appears for that.
+
+**Compare with backup or file…** in the same window lists the differences between the current
+values and a backup (or another mlaser `config.json`); **Restore these values** takes them back
+the same way. Machine › Setup › Apply asks, backs up and offers the reconnect the same way.
+
+For scripts: `ConfigService.import_dat("<Mlaser>/dat")` (`mlaser.services.config`) takes the
+values without a preview, and `Machine.from_dat_dir("<Mlaser>/dat")` (`mlaser.nc`) builds a
+machine for compiling jobs from the same files; `export_dat` writes the three XML files back in
+the original's format.
 
 After the import, check the step scale with a short jog in dry-run mode (see [Safety](safety.md)).
-`export_dat` writes the three XML files back in the original's format.
+
+**Back up / restore parameters** (Machine menu) are separate: *Back up parameters to the motion
+card…* / *to a file…* store this PC's parameters there; *Restore parameters from the motion
+card…* / *from a file…* replace this PC's parameters with that copy. A restore asks first (Cancel
+the default) and saves the current parameters as `File/params-before-restore-<date>-<time>.xml`.
 
 ## Card address
 

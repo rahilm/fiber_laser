@@ -22,7 +22,15 @@ lang       ``Lang/*.txt``                                       imported catalog
 
 **Nothing is ever written to the original installation**: every destination is checked to lie
 outside the install folder and the parameter folder (:class:`WriteBackError`), and the files are
-read only.  Before applying, ``config.json`` is backed up next to itself.
+read only.  Before applying, ``config.json`` is backed up next to itself (:func:`backup_config`,
+timestamped).
+
+This is the one parameter import of every user mode (UX review 2026-11-09 finding 11): the
+preview always comes first, the values that make motion safe (travel limits, scaling, homing,
+limit switches, axis direction: :func:`safety_category`) are marked, the apply is confirmed and
+says when the card needs a reconnect (:func:`needs_reconnect`).  :func:`preview_backup` compares
+the configuration with one of those backups (or another ``config.json``) the same way, and
+applying that plan restores it.
 """
 from __future__ import annotations
 
@@ -45,6 +53,29 @@ INI_PROCESS = {"FollowOvertime": "follow_timeout_ms", "SectionDrillOvertime": "d
 IP_DEFAULTS = {"pd445": "10.1.1.168", "pd446": "255.255.255.0", "pd447": "10.1.1.1",
                "pd448": "10.1.1.169", "pd449": "255.255.255.0", "pd450": "10.1.1.1",
                "pd451": "10.1.1.170", "pd452": "255.255.255.0", "pd453": "10.1.1.1"}
+
+
+#: the parameters that make motion safe, by the end of their key (after the table prefix):
+#: category -> key fragments (case-insensitive).  A change of one of these is marked in the
+#: preview and named in the confirmation.
+SAFETY_KEYS: dict[str, tuple[str, ...]] = {
+    "travel": ("softlimit", "stroke", "maxlen", "minlen"),
+    "scaling": ("writepluse", "speedratio", "interpolationcycle", "pulse", "gear"),
+    "homing": ("home", "origin", "gozero", "backzero"),
+    "limits": ("limit",),
+    "direction": ("reverse", "axisdir", "dirinvert"),
+}
+
+
+def safety_category(key: str) -> str:
+    """The safety category of parameter ``key`` ("travel", "scaling", "homing", "limits",
+    "direction"; "" for an ordinary one).  Travel is checked before the limit switches (the soft
+    limit is a travel limit)."""
+    tail = key.rsplit(".", 1)[-1].lower()
+    for cat, frags in SAFETY_KEYS.items():
+        if any(f in tail for f in frags):
+            return cat
+    return ""
 
 
 class WriteBackError(RuntimeError):
@@ -71,6 +102,14 @@ class ImportPlan:
     layers: int = 0
     warnings: list[str] = field(default_factory=list)
     errors: list[str] = field(default_factory=list)
+    #: "install" (an original installation) or "backup" (a saved configuration to restore)
+    kind: str = "install"
+
+    def safety_changes(self, areas: Optional[Iterable[str]] = None) -> list[Change]:
+        """The changes of parameters that make motion safe (:func:`safety_category`)."""
+        want = None if areas is None else set(areas)
+        return [c for c in self.changes if c.area == "params" and (want is None or "params" in want)
+                and safety_category(c.key)]
 
     def by_area(self) -> dict[str, list[Change]]:
         out: dict[str, list[Change]] = {a: [] for a in AREAS}
@@ -303,6 +342,82 @@ def preview(install: Optional[os.PathLike | str], config: Any,
     return plan
 
 
+def preview_backup(path: os.PathLike | str, config: Any) -> ImportPlan:
+    """Compare the configuration with a saved one (a :func:`backup_config` file or another
+    ``config.json``): every parameter value that differs, current -> saved (nothing is written).
+    Applying the plan restores the saved values."""
+    import json
+
+    p = Path(path)
+    plan = ImportPlan(None, kind="backup")
+    try:
+        data = json.loads(p.read_text("utf-8"))
+        saved = dict(data.get("values") or {})
+    except (OSError, ValueError, AttributeError) as e:
+        plan.errors.append(f"{p.name}: {e}")
+        return plan
+    plan.files["config"] = p
+    for key in sorted(set(saved) | set(config.values)):
+        s = config.setting(key)
+        if s is None or s.source != "registry":            # machine parameters only
+            continue
+        new = saved.get(key, s.default)
+        try:
+            new = s.validate(new)
+        except ValueError:
+            pass
+        old = config.get(key, None)
+        if new == old:
+            continue
+        plan.changes.append(Change("params", key, s.label or "", old, new, s.unit or ""))
+    return plan
+
+
+def backup_config(config: Any) -> Optional[Path]:
+    """A timestamped copy of ``config.json`` next to itself (``config.json.YYYYmmdd-HHMMSS.bak``)
+    before parameters change; None when there is nothing to back up yet."""
+    try:
+        config.save()                                      # what is in memory, as it is now
+        if not config.path.exists():
+            return None
+        stamp = time.strftime(".%Y%m%d-%H%M%S")
+        bak = config.path.with_name(config.path.name + stamp + ".bak")
+        n = 1
+        while bak.exists():
+            n += 1
+            bak = config.path.with_name(f"{config.path.name}{stamp}-{n}.bak")
+        shutil.copy2(config.path, bak)
+        return bak
+    except (OSError, AttributeError):
+        return None
+
+
+def list_backups(config: Any) -> list[Path]:
+    """The configuration backups, newest first."""
+    try:
+        d = config.path.parent
+        return sorted(d.glob(config.path.name + ".*.bak"), key=lambda q: q.stat().st_mtime, reverse=True)
+    except (OSError, AttributeError):
+        return []
+
+
+def needs_reconnect(plan: ImportPlan, areas: Optional[Iterable[str]] = None) -> bool:
+    """The chosen changes reach the card only at the next connect (the machine parameters are
+    written to the card when it connects)."""
+    want = set(plan.available() if areas is None else areas)
+    return "params" in want and any(c.area == "params" for c in plan.changes)
+
+
+def _saved_keys(plan: ImportPlan) -> set:
+    """The keys the saved configuration of a backup plan sets explicitly."""
+    import json
+    p = plan.files.get("config")
+    try:
+        return set((json.loads(p.read_text("utf-8")).get("values") or {})) if p is not None else set()
+    except (OSError, ValueError, AttributeError):
+        return set()
+
+
 # --------------------------------------------------------------------------- apply
 def _inside(p: Path, root: Path) -> bool:
     try:
@@ -341,6 +456,25 @@ def apply(plan: ImportPlan, config: Any, areas: Optional[Iterable[str]] = None,
 
     want = set(plan.available() if areas is None else areas)
     res = ImportResult()
+    if plan.kind == "backup":                 # restore a saved configuration's parameter values
+        res.config_backup = backup_config(config)
+        n = 0
+        for c in plan.changes if "params" in want else ():
+            try:
+                if c.new == getattr(config.setting(c.key), "default", None) and c.key not in _saved_keys(plan):
+                    config.reset(c.key)
+                else:
+                    config.set(c.key, c.new)
+                n += 1
+            except ValueError as e:
+                res.errors.append(f"{c.key}: {e}")
+        if n:
+            res.applied["params"] = n
+        try:
+            config.save()
+        except OSError as e:
+            res.errors.append(f"config save: {e}")
+        return res
     data = Path(data_root) if data_root is not None else data_dir()
     if app_root is None:
         from mlaser.controller.machine_ops import default_app_dir
@@ -349,11 +483,9 @@ def apply(plan: ImportPlan, config: Any, areas: Optional[Iterable[str]] = None,
         check_destination(root, plan)
     # backup of the configuration first
     try:
-        if config.path.exists():
-            bak = config.path.with_name(config.path.name + time.strftime(".%Y%m%d-%H%M%S.bak"))
-            check_destination(bak, plan)
-            shutil.copy2(config.path, bak)
-            res.config_backup = bak
+        if getattr(config, "path", None) is not None:
+            check_destination(config.path, plan)
+        res.config_backup = backup_config(config)
     except OSError as e:
         res.errors.append(f"config backup: {e}")
     by = plan.by_area()
@@ -415,4 +547,5 @@ def apply(plan: ImportPlan, config: Any, areas: Optional[Iterable[str]] = None,
 
 
 __all__ = ["preview", "apply", "locate", "find_param_dir", "ImportPlan", "ImportResult", "Change",
-           "WriteBackError", "AREAS", "IP_KEYS", "read_ip_ini", "localappdata_nexcut"]
+           "WriteBackError", "AREAS", "IP_KEYS", "read_ip_ini", "localappdata_nexcut", "safety_category",
+           "SAFETY_KEYS", "preview_backup", "backup_config", "list_backups", "needs_reconnect"]

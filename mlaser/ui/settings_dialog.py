@@ -993,7 +993,8 @@ class SettingsDialog(QDialog):
             if s.source == "registry" and not (s.live or s.home == "machine"):
                 continue
             label = self._home_label(s)
-            if t in label.lower() or t in s.key.lower():
+            terms = C.SEARCH_TERMS.get(s.key)
+            if C.query_matches(t, label, s.key, self.tr.tr(terms) if terms else ""):
                 out.append((s, label))
         return out
 

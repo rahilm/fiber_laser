@@ -261,6 +261,13 @@ def test_scaling_mismatch_import_parameters(app, mismatch_win, monkeypatch, tmp_
         assert _row(d, "scaling").status == CL.FAIL
         d.panel.rows["scaling"].buttons["import_params"].click()   # the existing shell.import_params
         assert asked, "the import asks for the folder (File > Import parameters)"
+        # the reviewing import (UX review 2026-11-09 finding 11): a preview, applied on confirm
+        imp = w.shell._import_dialog
+        assert imp.plan is not None and "MAC.SpeedRatio" in {c.key for c in imp.plan.changes}
+        assert "MAC.SpeedRatio" in {c.key for c in imp.plan.safety_changes()}     # marked: scaling
+        assert w.config.machine().pulses_per_mm_x == pytest.approx(100.0)       # nothing applied yet
+        assert imp.apply(confirm=False) is not None
+        imp.close()
         assert w.config.machine().pulses_per_mm_x == pytest.approx(200.0)
         assert _row(d, "scaling").status == CL.PASS
         assert d.proc.items["scaling"].status == "pass"

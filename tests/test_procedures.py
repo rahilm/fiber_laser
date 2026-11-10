@@ -406,6 +406,7 @@ def test_commissioning_checklist_all_pass(tmp_path):
     ctl = simrig.simulator_controller("card", heartbeat_output=7)
     try:
         p = CM.CommissioningProcedure(ctl, report_dir=tmp_path, netcheck_fn=_netcheck_ok)
+        p.live_tests["estop"] = "tested"         # the operator tested the e-stop (the jogs wait for it)
         run_all(p)
         assert p.state == PE.DONE, p.error
         st = {k: it.status for k, it in p.items.items()}
@@ -428,6 +429,7 @@ def test_commissioning_failures_and_fixes(tmp_path):
     try:
         cfg.set("A0.PulseEquivalent", 1.0)                   # untouched machine: scaling still matches
         p = CM.CommissioningProcedure(ctl, config=cfg, report_dir=tmp_path, netcheck_fn=_netcheck_ok)
+        p.live_tests["estop"] = "tested"         # the operator tested the e-stop (the jogs wait for it)
         run_all(p, answers={"jog_x_dir": False, "jog_y_dir": True})
         assert p.items["heartbeat"].status == CM.FAIL and p.items["heartbeat"].detail == "wizard.comm.hb_off"
         assert "heartbeat_relay" not in p.answers                    # skipped without a heartbeat

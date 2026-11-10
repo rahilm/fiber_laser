@@ -184,8 +184,9 @@ The first start shows a **welcome sheet**:
 * **Practice on the simulator** — *Connect the simulator* runs the built-in motion-card
   simulator over the real protocol: import, simulate, frame and cut as on the machine.
 * **Your Mlaser parameters and languages** — *Import parameters…* reads `HardPara.xml` and
-  `ManuPara.xml` from the `dat` folder of your original Mlaser install; *Import languages…*
-  reads its `Lang` folder.
+  `ManuPara.xml` from the `dat` folder of your original Mlaser install and shows what would
+  change before anything is applied ([Importing your Mlaser setup](importing-mlaser-setup.md));
+  *Import languages…* reads its `Lang` folder.
 * **The safety model** — every connection starts disarmed; arming is a confirmed operator
   action; Start, Frame and Dry run run a pre-flight check; while a job runs Space holds (it never continues) and
   Esc/F12 stop; F5, F6 and Shift+F6 act only on the Run workspace; a fault latches until it is reset ([docs/SAFETY.md](../SAFETY.md)).

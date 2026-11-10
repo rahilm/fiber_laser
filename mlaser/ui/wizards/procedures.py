@@ -21,7 +21,7 @@ from mlaser.services.procedures.follower_cal import FollowerCalibrationProcedure
 from mlaser.services.procedures.focus_home import AF_TYPES, FocusHomingProcedure
 from mlaser.services.procedures.laser_test import LaserTestParams, LaserTestProcedure
 
-from .. import icons
+from .. import icons, style
 from ..units_qt import spin_for_unit
 from . import commissioning_live as CLV
 from .base import WizardDialog
@@ -386,9 +386,15 @@ class CommissioningWizard(WizardDialog):
             return {}
         before = p.items["interlocks"].status
         p.record_live_tests(self.live.results())
+        sc = rows.get("scaling")
+        if (sc is not None and p.items["scaling"].status != CM.PENDING and not p.busy() and p.items["scaling"].status != sc.status
+                and sc.status in (CM.PASS, CM.FAIL)):
+            p.recheck_scaling()                      # fixed (or broken) while the checklist is open
         self.panel.set_rows(rows)
         if p.items["interlocks"].status != before:
             self.status.setText(self.status_text())
+        if getattr(self, "panel", None) is not None:
+            self._apply_order()                      # the e-stop test or a scaling fix unblocks a step
         return rows
 
     def fix_enabled(self, fix: str) -> tuple[bool, str]:
@@ -526,6 +532,50 @@ class CommissioningWizard(WizardDialog):
         super().refresh()
         if getattr(self, "timer", None) is not None:
             self.update_live()
+        self._apply_order()
+
+    #: the end of the checklist per :meth:`CommissioningProcedure.finish_state`
+    FINISH_TITLES = {"failed": "wizard.comm.not_finished_failed", "open": "wizard.comm.not_finished_open",
+                     "warn": "wizard.comm.finished_warn", "ok": "wizard.state_done"}
+
+    def finish_title(self) -> str:
+        """"Finished" only when every check passed (or warned): "Not finished: N checks failed"
+        otherwise (UX review 2026-11-09 finding 4)."""
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        state, n = p.finish_state()
+        return T(self.w, self.FINISH_TITLES[state], n=n) if n else T(self.w, self.FINISH_TITLES[state])
+
+    def _apply_order(self) -> None:
+        """A motion step whose prerequisite has not passed: Run disabled, with the reason (the
+        status line and the tooltip); the last step's button and the final title say whether
+        the checklist is finished."""
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        if p.state == PE.DONE:
+            self.title.setText(self.finish_title())
+            return
+        s = p.step
+        if s is None:
+            return
+        final = p.state in PE.FINAL
+        if not final and s.kind == "action" and p.state == PE.WAITING and s.id not in p.done:
+            why = p.blocked_reason()
+            if why or self.b_run.property("disabled_reason"):
+                style.set_enabled(self.b_run, not why, T(self.w, why) if why else "")
+                self.status.setText(self.status_text())
+        if final and p.state == PE.DONE:
+            self.title.setText(self.finish_title())
+        elif not final and s.id == "summary":
+            state, _n = p.finish_state()
+            self.b_next.setText(T(self.w, "wizard.finish" if state in ("ok", "warn")
+                                  else "wizard.comm.finish_incomplete"))
+            self.status.setText(self.status_text())
+
+    def run(self) -> None:
+        p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
+        if p.blocked_reason():
+            self._apply_order()
+            return
+        super().run()
 
     def status_text(self) -> str:
         p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
@@ -533,6 +583,12 @@ class CommissioningWizard(WizardDialog):
             s = p.summary()["counts"]
             return T(self.w, "wizard.comm.report", path=str(p.report_path), passed=s[CM.PASS], warned=s[CM.WARN],
                      failed=s[CM.FAIL])
+        if p.state == PE.WAITING and p.step is not None:
+            why = p.blocked_reason() if p.step.id not in p.done else ""
+            if why:
+                return "⚠ " + T(self.w, why)
+            if p.step.id == "summary":
+                return self.finish_title()
         return super().status_text()
 
     def on_close(self) -> None:

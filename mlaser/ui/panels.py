@@ -476,23 +476,53 @@ class ControlPanel(QWidget):
     machine_ops = None       # controller.machine_ops.MachineOps, set by ui.ext_machine.register
     confirm_fn: Optional[Callable[[str], bool]] = None   # tests / scripting: answers the prompts
 
-    DONT_ASK_KEYS = ("mp119",)        # start-up go-origin prompt: "don't ask again" offered
-    settings: Optional[dict] = None   # where "don't ask again" answers persist (window.settings)
+    #: no motion prompt offers "don't ask again" (UX review 2026-11 finding 2: reconnecting
+    #: must never move the axes unprompted; an answer stored by an earlier version is ignored)
+    DONT_ASK_KEYS: tuple = ()
+    settings: Optional[dict] = None   # window.settings (kept for callers; no answer is read from it)
     _confirmed_at: tuple = ("", 0.0)
+    #: the prompts that start motion: key -> (title, text (None: the key's own), yes button,
+    #: what moves).  "Not now" is the default and the Escape answer.
+    MOTION_PROMPTS = {
+        "mp119": ("panel.home_prompt.title", None, "panel.home_prompt.yes", "home"),
+        "mf156": ("panel.home_prompt.title", None, "panel.home_prompt.yes", "home"),
+        "mp133": ("panel.home_prompt.title", "panel.home_prompt.not_homed", "panel.home_prompt.yes", "home"),
+        "mp79": ("panel.origin_prompt.title", None, "panel.origin_prompt.yes", "origin"),
+    }
+    #: the second question of a pair that one "Home now" answers (start-up: mp119 then mf156;
+    #: go to origin while not homed: mp133 then mf156)
+    _PAIRS = {"mf156": ("mp119", "mp133")}
+
+    def _home_axes_key(self) -> str:
+        """The informative line naming the axes the homing moves (start-up homing: X/Y, with
+        the focus axis for AF.AFType 5 / 6, as UiController.startup_homing)."""
+        af = 0
+        m = getattr(self.ctl, "machine", None)
+        try:
+            af = int(m.iparam("AF.AFType", 0)) if m is not None and hasattr(m, "iparam") else 0
+        except (TypeError, ValueError):
+            af = 0
+        return {5: "panel.home_prompt.axes_xyz", 6: "panel.home_prompt.axes_xyw"}.get(af, "panel.home_prompt.axes_xy")
 
     def confirm(self, key: str) -> bool:
-        """OK/Cancel prompt with the text of lang key ``key`` (BCGPMessageBox 0x1001), as a real
-        dialog.  The original asks twice at start-up (mp119 then mf156, both "go origin?"): a
-        yes to mp119 answers the mf156 that follows at once."""
+        """The question of lang key ``key`` before the controller moves (BCGPMessageBox 0x1001 in
+        the original), as a real dialog with verb buttons: "Home now" / "Not now" (or "Go to
+        origin" / "Not now"), "Not now" the default, a title, and one line saying which axes
+        move and to check the table.  The original asks twice at start-up (mp119 then mf156,
+        both "go origin?"): a yes to the first answers the mf156 that follows at once."""
         if self.confirm_fn is not None:
             return bool(self.confirm_fn(key))
         last, t = self._confirmed_at
-        if key == "mf156" and last == "mp119" and time.monotonic() - t < 2.0:
+        if last in self._PAIRS.get(key, ()) and time.monotonic() - t < 2.0:
             self._confirmed_at = ("", 0.0)
             return True
-        from .safety_ui import ask
-        ok = ask(self, key, self.tr_.tr(key), dont_ask=key in self.DONT_ASK_KEYS, settings=self.settings,
-                 default_yes=True)       # homing questions: unchanged (not a laser hazard)
+        from .verb_question import verb_question
+        tr = self.tr_
+        title, text, yes, what = self.MOTION_PROMPTS.get(
+            key, ("panel.motion_prompt.title", None, "panel.motion_prompt.yes", "motion"))
+        info = {"home": self._home_axes_key(), "origin": "panel.origin_prompt.axes"}.get(what, "panel.motion_prompt.info")
+        ok = verb_question(self, tr.tr(title), tr.tr(text or key), tr.tr(yes), tr.tr("panel.prompt.not_now"),
+                           informative=tr.tr(info), warning=True)
         if ok:
             self._confirmed_at = (key, time.monotonic())
         return ok

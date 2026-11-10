@@ -81,10 +81,12 @@ class SettingsImportDialog(QDialog):
             b.clicked.connect(lambda: self.params.setText(str(nex)))
             f.addRow("", b)
         lay.addLayout(f)
+        # the list of changes is the one part that scrolls (its rows); the form around it does not
         self.tree = QTreeWidget()
-        self.tree.setColumnCount(4)
+        self.tree.setColumnCount(5)
         self.tree.setHeaderLabels([T(window, "wizard.import.c_setting"), T(window, "wizard.import.c_label"),
-                                   T(window, "wizard.import.c_current"), T(window, "wizard.import.c_new")])
+                                   T(window, "wizard.import.c_current"), T(window, "wizard.import.c_new"),
+                                   T(window, "wizard.import.c_safety")])
         self.tree.setAccessibleName(T(window, "wizard.import.preview"))
         lay.addWidget(self.tree, 1)
         self.status = QLabel()
@@ -92,16 +94,24 @@ class SettingsImportDialog(QDialog):
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(self.status)
         bb = QDialogButtonBox()
+        self.b_compare = bb.addButton(T(window, "wizard.import.compare"), QDialogButtonBox.ActionRole)
+        self.b_compare.setToolTip(T(window, "wizard.import.compare_tip"))
         self.b_preview = bb.addButton(T(window, "wizard.import.preview"), QDialogButtonBox.ActionRole)
-        self.b_apply = bb.addButton(T(window, "wizard.import.apply"), QDialogButtonBox.AcceptRole)
+        self.b_reconnect = bb.addButton(T(window, "wizard.import.reconnect"), QDialogButtonBox.ActionRole)
+        self.b_reconnect.setVisible(False)
+        self.b_apply = bb.addButton(T(window, "wizard.import.apply"), QDialogButtonBox.ActionRole)
         bb.addButton(QDialogButtonBox.Close)
-        for b in (self.b_preview, self.b_apply):
+        for b in (self.b_compare, self.b_preview, self.b_reconnect, self.b_apply):
             b.setMinimumHeight(MIN_TARGET)
+        self.b_compare.clicked.connect(lambda: self.compare())
         self.b_preview.clicked.connect(self.preview)
-        self.b_apply.clicked.connect(self.apply)
+        self.b_reconnect.clicked.connect(self.reconnect)
+        self.b_apply.clicked.connect(lambda: self.apply())
         bb.rejected.connect(self.reject)
         self.b_apply.setEnabled(False)
         lay.addWidget(bb)
+        if param_dir or install:
+            self.preview()
 
     def _pick_install(self) -> None:
         d = QFileDialog.getExistingDirectory(self, T(self.w, "wizard.import.install"), self.install.text())
@@ -120,44 +130,84 @@ class SettingsImportDialog(QDialog):
         if inst is None and pd is None:
             self.status.setText("⚠ " + T(self.w, "wizard.import.choose"))
             return None
-        self.plan = plan = SI.preview(inst, self.config, pd)
+        return self._fill(SI.preview(inst, self.config, pd))
+
+    def compare(self, path: str = "") -> Optional[SI.ImportPlan]:
+        """Compare the configuration with a backup (made before every import and Apply) or
+        another mlaser configuration file; Apply then restores it."""
+        if not path:
+            backups = SI.list_backups(self.config)
+            start = str(backups[0]) if backups else str(getattr(self.config, "path", "") or "")
+            path, _ = QFileDialog.getOpenFileName(self, T(self.w, "wizard.import.compare"), start,
+                                                  T(self.w, "wizard.import.compare_filter"))
+        if not path:
+            return None
+        return self._fill(SI.preview_backup(path, self.config))
+
+    def _fill(self, plan: SI.ImportPlan) -> SI.ImportPlan:
+        """Show what ``plan`` changes: per area, every value current -> new; the values that
+        make motion safe marked (a word in the Check column and bold, never colour alone)."""
+        self.plan = plan
+        self.result = None
+        self.b_reconnect.setVisible(False)
         self.tree.clear()
+        self.b_apply.setText(T(self.w, "wizard.import.restore" if plan.kind == "backup" else "wizard.import.apply"))
         if plan.errors:
             self.status.setText("⚠ " + "; ".join(plan.errors))
             self.b_apply.setEnabled(False)
             return plan
         by = plan.by_area()
         avail = plan.available()
-        for area in SI.AREAS:
+        areas = ("params",) if plan.kind == "backup" else SI.AREAS
+        for area in areas:
             changes = by.get(area, [])
             n = len(changes)
             if area == "layers":
                 n = plan.layers
             elif area == "lang":
                 n = len(plan.languages)
-            top = QTreeWidgetItem([T(self.w, AREA_KEYS[area]), T(self.w, "wizard.import.count", n=n), "", ""])
+            nsafe = len([c for c in changes if SI.safety_category(c.key)]) if area == "params" else 0
+            top = QTreeWidgetItem([T(self.w, AREA_KEYS[area]), T(self.w, "wizard.import.count", n=n), "", "",
+                                   T(self.w, "wizard.import.safety_count", n=nsafe) if nsafe else ""])
             top.setData(0, Qt.UserRole, area)
             top.setFlags(top.flags() | Qt.ItemIsUserCheckable)
             top.setCheckState(0, Qt.Checked if area in avail else Qt.Unchecked)
             if area not in avail:
                 top.setDisabled(True)
             self.tree.addTopLevelItem(top)
-            for c in changes:
+            # the safety-relevant values first: they are the ones to read
+            for c in sorted(changes, key=lambda c: not SI.safety_category(c.key)):
                 label = self._label(c)
-                top.addChild(QTreeWidgetItem([c.key, label, _value(c.old, c.unit, c.key), _value(c.new, c.unit, c.key)]))
+                cat = SI.safety_category(c.key) if area == "params" else ""
+                it = QTreeWidgetItem([c.key, label, _value(c.old, c.unit, c.key), _value(c.new, c.unit, c.key),
+                                      ("⚠ " + T(self.w, f"wizard.import.safety_{cat}")) if cat else ""])
+                if cat:
+                    it.setData(0, Qt.UserRole, "safety")
+                    f = it.font(0)
+                    f.setBold(True)
+                    for col in range(5):
+                        it.setFont(col, f)
+                        it.setToolTip(col, T(self.w, "wizard.import.safety_tip"))
+                top.addChild(it)
             if area == "lang":
                 for code, name, cnt in plan.languages:
                     top.addChild(QTreeWidgetItem([code, name, "", T(self.w, "wizard.import.texts", n=cnt)]))
             if area == "layers" and plan.layers:
                 top.addChild(QTreeWidgetItem(["LayerPara.xml", T(self.w, "wizard.import.layers_note"), "",  # i18n: ok (file name)
                                               T(self.w, "wizard.import.count", n=plan.layers)]))
-            top.setExpanded(area != "params" or n <= 20)
-        for i in range(4):
+            top.setExpanded(area != "params" or n <= 20 or nsafe > 0)
+        for i in range(5):
             self.tree.resizeColumnToContents(i)
-        warn = [T(self.w, f"wizard.import.warn_{w}") if w == "no_params" else w for w in plan.warnings]
-        src = [f"{k}: {v}" for k, v in plan.files.items()]
-        self.status.setText(T(self.w, "wizard.import.found", n=len(plan.files)) + "  " + "; ".join(src)
-                            + (("\n⚠ " + "; ".join(warn)) if warn else ""))
+        if plan.kind == "backup":
+            head = T(self.w, "wizard.import.comparing", path=str(plan.files.get("config", "")))
+            if not plan.changes:
+                head += "\n" + T(self.w, "wizard.import.no_difference")
+            self.status.setText(head)
+        else:
+            warn = [T(self.w, f"wizard.import.warn_{w}") if w == "no_params" else w for w in plan.warnings]
+            src = [f"{k}: {v}" for k, v in plan.files.items()]
+            self.status.setText(T(self.w, "wizard.import.found", n=len(plan.files)) + "  " + "; ".join(src)
+                                + (("\n⚠ " + "; ".join(warn)) if warn else ""))
         self.b_apply.setEnabled(bool(avail))
         return plan
 
@@ -178,11 +228,41 @@ class SettingsImportDialog(QDialog):
                 out.append(it.data(0, Qt.UserRole))
         return out
 
-    def apply(self) -> Optional[SI.ImportResult]:
+    def confirm(self, areas: list[str]) -> bool:
+        """"Apply changes" / "Cancel" (Cancel the default): how many values change, how many of
+        them change how the machine moves (listed under "Show details"), that the configuration
+        is backed up first and whether the card needs a reconnect."""
+        from ..verb_question import verb_question
+        plan = self.plan
+        assert plan is not None
+        by = plan.by_area()
+        extra = {"layers": plan.layers, "lang": len(plan.languages), "calib": 1}
+        n = sum(extra[a] if a in extra else len(by.get(a, [])) for a in areas)
+        safe = plan.safety_changes(areas)
+        info = [T(self.w, "wizard.import.confirm_safety", n=len(safe))] if safe else []
+        info.append(T(self.w, "wizard.import.confirm_backup"))
+        if SI.needs_reconnect(plan, areas):
+            info.append(T(self.w, "wizard.import.confirm_reconnect"))
+        detail = "\n".join(f"{c.key}  {self._label(c)}: {_value(c.old, c.unit, c.key)} → {_value(c.new, c.unit, c.key)}"
+                           for c in safe)
+        restore = plan.kind == "backup"
+        return verb_question(self, T(self.w, "wizard.import.confirm_title"),
+                             T(self.w, "wizard.import.confirm_restore" if restore else "wizard.import.confirm_text", n=n),
+                             T(self.w, "wizard.import.restore" if restore else "wizard.import.apply"),
+                             T(self.w, "wizard.import.cancel"), informative="\n\n".join(info),
+                             warning=bool(safe), detail=detail)
+
+    def apply(self, confirm: bool = True) -> Optional[SI.ImportResult]:
         if self.plan is None:
             return None
+        areas = self.chosen_areas()
+        if not areas:
+            return None
+        if confirm and not self.confirm(areas):
+            self.status.setText(T(self.w, "wizard.import.cancelled"))
+            return None
         try:
-            self.result = res = SI.apply(self.plan, self.config, self.chosen_areas())
+            self.result = res = SI.apply(self.plan, self.config, areas)
         except SI.WriteBackError as e:
             self.status.setText("⚠ " + str(e))
             return None
@@ -196,9 +276,27 @@ class SettingsImportDialog(QDialog):
             tr = getattr(self.w, "tr_", None)
             if tr is not None:
                 tr.reload()
+        if "params" in res.applied and self._connected():
+            txt += "\n" + T(self.w, "wizard.import.reconnect_needed")
+            self.b_reconnect.setVisible(True)
         self.status.setText(txt)
         self.b_apply.setEnabled(False)
         return res
+
+    def _connected(self) -> bool:
+        ctl = getattr(self.w, "ctl", None)
+        try:
+            return bool(ctl is not None and ctl.state().connected)
+        except Exception:  # noqa: BLE001 - no controller state: nothing to reconnect
+            return False
+
+    def reconnect(self) -> Any:
+        """Reconnect the card now (``hw.reconnect``): the new parameters reach the card."""
+        cmds = getattr(self.w, "commands", None)
+        if cmds is None or cmds.get("hw.reconnect") is None:
+            return None
+        self.b_reconnect.setVisible(False)
+        return cmds.run("hw.reconnect")
 
 
 __all__ = ["SettingsImportDialog"]

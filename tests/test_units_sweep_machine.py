@@ -125,7 +125,7 @@ def test_machine_setting_edited_in_imperial_is_stored_in_mm(win, app):
     assert ed.suffix() == " in" and sp_ed.suffix() == " in/min"
     _type(ed, "1/2")                                          # 0.5 in
     _type(sp_ed, "120")                                       # 120 in/min
-    assert sp.apply() == 2
+    assert sp.apply(confirm=False) == 2             # the question: tests/test_param_import_review.py
     assert win.config.get("A0.HomeOffset") == pytest.approx(12.7)
     assert win.config.get("HP.FastSpeed") == pytest.approx(50.8)
     assert win.config.get("A1.HomeOffset") == 10.0            # untouched

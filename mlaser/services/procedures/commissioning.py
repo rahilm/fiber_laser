@@ -20,6 +20,14 @@ values, and the whole list is saved as a JSON report in mlaser's data directory:
    confirms the watchdog relay drops when the heartbeat is held (docs/SAFETY.md §11).
 7. **jog direction**: X+ and Y+ steps; the position must increase and the operator confirms
    the direction; the fix toggles the axis direction parameter (``MAC.AxisReverse``).
+
+**Order** (UX review 2026-11-09 finding 4): a step that moves runs only when the checks it
+depends on passed (:meth:`CommissioningProcedure.blocked_reason`): the card's scaling must
+match the parameters before any motion (a 10x mismatch makes a 10 mm jog a 100 mm move and the
+homing approach ten times as fast), and the emergency stop must have been tested (seen pressed
+and released, the live "test it" row) before a jog.  A blocked step says why and can be left
+for later; a checklist with a failed or open check ends "Not finished".  Nothing in the
+interlocks or the pre-flight changes: this is the order inside the checklist.
 """
 from __future__ import annotations
 
@@ -96,12 +104,14 @@ class CommissioningProcedure(Procedure):
             # skipped too (an axis at an unknown place could be driven into its end stop)
             Step("jog_x", TITLES["jog_x"], "wizard.comm.jog_x_text", "action", run=lambda p: _jog(p, "X"),
                  motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_x_button",
-                 skip=_not_homed),
-            Step("jog_x_dir", "wizard.comm.jog_x_q_title", "wizard.comm.jog_x_q", "question", skip=_not_homed),
+                 skip=_not_homed, skippable=True),
+            Step("jog_x_dir", "wizard.comm.jog_x_q_title", "wizard.comm.jog_x_q", "question",
+                 skip=lambda p: _jog_left(p, "x")),
             Step("jog_y", TITLES["jog_y"], "wizard.comm.jog_y_text", "action", run=lambda p: _jog(p, "Y"),
                  motion=True, safety=("wizard.safety.motion",), action_label="wizard.comm.jog_y_button",
-                 skip=_not_homed),
-            Step("jog_y_dir", "wizard.comm.jog_y_q_title", "wizard.comm.jog_y_q", "question", skip=_not_homed),
+                 skip=_not_homed, skippable=True),
+            Step("jog_y_dir", "wizard.comm.jog_y_q_title", "wizard.comm.jog_y_q", "question",
+                 skip=lambda p: _jog_left(p, "y")),
             Step("summary", "wizard.comm.summary_title", "wizard.comm.summary_text", "info"),
         ]
 
@@ -136,6 +146,60 @@ class CommissioningProcedure(Procedure):
             self.set_item("homing", SKIP, "wizard.comm.home_skipped")
             for axis in ("x", "y"):
                 self.set_item(f"jog_{axis}", SKIP, "wizard.comm.jog_needs_homing", axis=axis.upper())
+        elif step.id in ("jog_x", "jog_y"):
+            self.set_item(step.id, SKIP, "wizard.comm.jog_skipped", axis=step.id[-1].upper())
+
+    # ------------------------------------------------------------------ order
+    def scaling_ok(self) -> bool:
+        """The card's scaling (read at connect) matches the parameters now (recomputed: an
+        import or "adopt the card's values" fixes it while the checklist is open)."""
+        from .commissioning_live import compare_scaling
+        sc = self.machine.scaling
+        if sc is None:
+            return False
+        if self.config is not None:
+            m = self.config.machine()
+        else:
+            from mlaser.nc.machine import Machine
+            m = Machine()
+        return not compare_scaling(sc, m, SCALE_TOL)[0]
+
+    def estop_tested(self) -> bool:
+        """The live "test it" of the emergency stop saw it pressed and released
+        (:meth:`record_live_tests`)."""
+        return self.live_tests.get("estop") == "tested"
+
+    def blocked_reason(self, step: Optional[Step] = None) -> str:
+        """Why the motion step ``step`` (default: the current one) may not run yet: a catalogue
+        id, "" when it may.  Scaling before any motion; the emergency stop test before a jog."""
+        s = self.step if step is None else step
+        if s is None or not s.motion:
+            return ""
+        if not self.scaling_ok():
+            return "wizard.comm.blocked_scaling"
+        if s.id in ("jog_x", "jog_y") and not self.estop_tested():
+            return "wizard.comm.blocked_estop"
+        return ""
+
+    def _require_order(self, step_id: str) -> None:
+        """The run function's own check (the wizard disables the step; a caller that does not
+        is refused before anything moves)."""
+        st = next((s for s in self.steps if s.id == step_id), None)
+        why = self.blocked_reason(st) if st is not None else ""
+        if why:
+            raise StepFailed(why)
+
+    def finish_state(self) -> tuple[str, int]:
+        """How the checklist ends: ("failed", n) with n failed checks, ("open", n) with n checks
+        not done (pending or skipped), ("warn", n) finished with n warnings, ("ok", 0)."""
+        c = self.summary()["counts"]
+        if c[FAIL]:
+            return "failed", c[FAIL]
+        if c[PENDING] or c[SKIP]:
+            return "open", c[PENDING] + c[SKIP]
+        if c[WARN]:
+            return "warn", c[WARN]
+        return "ok", 0
 
     #: the check item a step reports (its status is the item's)
     STEP_ITEMS = {"interlock_test": "interlocks", "heartbeat_relay": "heartbeat", "jog_x_dir": "jog_x",
@@ -465,8 +529,15 @@ def _not_homed(p: "CommissioningProcedure") -> bool:
     return p.items["homing"].status == SKIP
 
 
+def _jog_left(p: "CommissioningProcedure", axis: str) -> bool:
+    """The jog of ``axis`` did not run (homing skipped, or the jog left for later): its
+    direction question is skipped too."""
+    return _not_homed(p) or p.items[f"jog_{axis}"].status == SKIP
+
+
 def _homing(p: CommissioningProcedure) -> dict:
     p.require_connected()
+    p._require_order("homing")
     p.operator_action("home XY")
     t0 = time.monotonic()
     p.machine.home("XY")
@@ -503,6 +574,7 @@ def _heartbeat(p: CommissioningProcedure) -> dict:
 
 def _jog(p: CommissioningProcedure, axis: str) -> dict:
     p.require_connected()
+    p._require_order(f"jog_{axis.lower()}")
     key = f"jog_{axis.lower()}"
     p.operator_action(f"jog {axis}+")
     st0 = p.machine.state()

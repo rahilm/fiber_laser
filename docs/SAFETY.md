@@ -462,7 +462,9 @@ screen, which is a workspace page in the shell's scroll area, Stop, Hold, Start,
 and Arm are always in view, the resume and queue controls below them may need a vertical
 scroll at that size), the laser fire button
 only when armed, no file open / import / new document while a job runs, start-up homing as one
-dialog with "don't ask again", crash recovery as a dialog.  Recovery (deep review 2026-11, UX 6): the clean-exit marker is
+dialog asked on every connect ("Home now" / "Not now", "Not now" the default and the Escape
+answer, the axes that move named, never "don't ask again": reconnecting never moves the axes
+unprompted; "Go to origin" asks the same way), crash recovery as a dialog.  Recovery (deep review 2026-11, UX 6): the clean-exit marker is
 written from the first session on; the dialog says exactly what Recover restores; the resume
 point of a held job (`File/resume_point.json`, `mlaser/services/resume_point.py`) comes back only
 when its document fingerprint matches the recovered document and the recompiled job reaches the
