@@ -19,8 +19,15 @@ engravings, nest results, the queue). Use `.chf` to exchange drawings with the o
 ## mlaser crashed. Is my work lost?
 
 Usually not. mlaser autosaves the project every two minutes when something changed, and when a
-job is prepared. At the next start it offers to recover the last state; **System Recovery** does
-the same at any time.
+job is prepared. At the next start it offers to recover the last state, also after the very first
+session, and says exactly what it restores; **System Recovery** does the same at any time.
+
+If the machine was **held** (Hold, or a fault mid-job) when mlaser ended, the resume point comes
+back too, when it belongs to the recovered drawing: it is offered in the resume bar ("Recovered
+resume point ... Resume from here"). Nothing moves on its own: resuming runs the pre-flight check
+and asks to arm the laser, and on a real machine you must home it first (an E-stop or a power
+loss can lose the position). A job that was **cutting** when mlaser ended keeps no resume point:
+the drawing is recovered, and the message says that parts may already be cut.
 
 ## Why is the interface in English only?
 

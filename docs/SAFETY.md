@@ -393,7 +393,13 @@ screen, which is a workspace page in the shell's scroll area, Stop, Hold, Start,
 and Arm are always in view, the resume and queue controls below them may need a vertical
 scroll at that size), the laser fire button
 only when armed, no file open / import / new document while a job runs, start-up homing as one
-dialog with "don't ask again", crash recovery as a dialog.
+dialog with "don't ask again", crash recovery as a dialog.  Recovery (deep review 2026-11, UX 6): the clean-exit marker is
+written from the first session on; the dialog says exactly what Recover restores; the resume
+point of a held job (`File/resume_point.json`, `mlaser/services/resume_point.py`) comes back only
+when its document fingerprint matches the recovered document and the recompiled job reaches the
+same position, and only as a *kept* point (no motion); on a real card it cannot be brought back
+before a homing in this session (`ControllerFacade.restore_kept_breakpoint`, `home_first`), and
+the resume itself goes through the controller's pre-flight and the arm question as usual.
 
 ## 11. Hardware watchdog ("PC alive")
 

@@ -79,7 +79,8 @@ SimSun lookup is available with the environment variable `MLASER_TEXT_FONT=syste
   complete.
 * mlaser autosaves the project every two minutes when something changed, and when a job is
   prepared (`File/autosave.mlz` next to the original's `File/autosave.chf`). After a crash it
-  offers to recover the last state. You can also recover any time with **System Recovery**.
+  offers to recover the last state (and the resume point of a held job, see the
+  [FAQ](faq.md#mlaser-crashed-is-my-work-lost)). You can also recover any time with **System Recovery**.
 
 A project file that is damaged, or that was made by a newer mlaser, is not opened. The message
 says what is wrong, for example "document.json is damaged (checksum mismatch)". The open drawing

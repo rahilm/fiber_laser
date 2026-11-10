@@ -998,6 +998,7 @@
   "log.reset_refused_alarm": "Reset refused: {alarm} still active",
   "log.reset_refused_no_answer": "Reset refused: the motion card does not answer",
   "log.resume_point_discarded": "Resume point discarded",
+  "log.resume_point_home_first": "Resume point not brought back: home the machine first (the point was recovered after a restart, and the position may have been lost)",
   "log.resume_point_restored": "Resume point restored: Start continues the job",
   "log.stopped_at_fault": "Stopped by a fault: resume point at X {x}, Y {y} mm",
   "machine.hw.confirm": "This transfers hardware parameters between the PC and the card. Continue?",
@@ -1016,14 +1017,18 @@
   "machine.log.mode_needed": "{text} ({mode})",
   "machine.log.nettest": "Network test: testing {card} and {follower} ...",
   "machine.log.no_autosave": "System recovery: no {path}",
+  "machine.log.nothing_to_recover": "Nothing was saved to recover",
   "machine.log.offline_written.one": "Offline job written to {path} ({n} step)",
   "machine.log.offline_written.other": "Offline job written to {path} ({n} steps)",
   "machine.log.params_exported": "Parameters exported to {path}",
   "machine.log.params_import_failed": "Importing the parameters failed: {error}",
   "machine.log.params_imported": "Parameters imported {counts}",
   "machine.log.recovered": "System recovered from {name}",
+  "machine.log.recovered_no_point": "System recovered from {name}: the document only. The resume point was not restored: {why}",
+  "machine.log.recovered_point": "System recovered from {name}, with the resume point at X {x}, Y {y} mm (resume it from the resume bar)",
   "machine.log.recovered_resuming": "System recovered from {name} (resuming breakpoint)",
   "machine.log.recovery_failed": "System recovery: {error}",
+  "machine.log.resume_point_failed": "Resume point not saved: {error}",
   "machine.log.setting_moved": "Settings: {setting} = {value} (moved from machine_ops.{setting})",
   "machine.log.setting_not_moved": "Settings: machine_ops.{setting} = {value} not moved ({error})",
   "machine.log.task_imported.one": "Task {name} imported ({n} part, break {brk})",
@@ -3152,6 +3157,16 @@
   "ready.why.offline": "Connect the machine or the simulator first",
   "ready.why.technology.one": "{n} layer has no technology (layer {layers})",
   "ready.why.technology.other": "{n} layers have no technology (layers {layers})",
+  "recovery.detail.no_point": "Recover restores the drawing of the last session ({parts}).\n\nThe cutting position is not restored: {why}. Parts may already be cut: check the sheet before you cut it again.",
+  "recovery.detail.unreadable": "The saved document could not be read: Recover will try again and report what it finds.",
+  "recovery.detail.with_point": "Recover restores the drawing of the last session ({parts}) and the resume point of the interrupted job at X {x}, Y {y} mm.\n\nNothing moves. The point is offered in the resume bar; resuming runs the pre-flight check and asks to arm the laser. On a real machine, home it first: the position may have been lost.",
+  "recovery.n_parts.one": "{n} part",
+  "recovery.n_parts.other": "{n} parts",
+  "recovery.why.controller": "this machine connection cannot hold a resume point now",
+  "recovery.why.none": "no job was held when the program ended (a running job keeps no resume point)",
+  "recovery.why.other_document": "the saved resume point belongs to another drawing",
+  "recovery.why.rebuild": "the job built again does not reach the same point",
+  "recovery.why.unreadable": "the saved resume point is unreadable",
   "register.acceleration": "Acceleration",
   "register.accumulated_pulse_number": "Accumulated pulse number",
   "register.ad_sampling_value": "AD sampling value",
@@ -3580,6 +3595,8 @@
   "safety.io.title": "Safety I/O",
   "safety.io.unwired": "not wired",
   "safety.kept.discard": "Discard",
+  "safety.kept.recovered": "Recovered resume point of the interrupted job at X {x}, Y {y} mm",
+  "safety.kept.recovered_home": "Recovered resume point of the interrupted job at X {x}, Y {y} mm: home the machine before you resume",
   "safety.kept.resume": "Resume from here",
   "safety.kept.text": "Stopped: resume point kept at X {x}, Y {y} mm",
   "safety.locked.breakpoint": "{what}: not available while a job is paused at a breakpoint (resume it, or stop it to discard the breakpoint first)",
@@ -3628,7 +3645,7 @@
   "safety.preflight.travel": "travel X {x0}..{x1} {unit}, Y {y0}..{y1} {unit} ({source})",
   "safety.preflight.warnings.one": "{n} warning: continue anyway?",
   "safety.preflight.warnings.other": "{n} warnings: continue anyway?",
-  "safety.recovery.message": "The last session ended abnormally (crash, power loss or forced exit).\n\nRecover the last document and the breakpoint of the interrupted job?",
+  "safety.recovery.message": "The last session ended abnormally (crash, power loss or forced exit).\n\nRecover what was saved?",
   "safety.recovery.not_now": "Not now",
   "safety.recovery.recover": "Recover",
   "safety.recovery.title": "Previous run interrupted",
@@ -5413,10 +5430,22 @@
   "machine.log.recovered": [
    "name"
   ],
+  "machine.log.recovered_no_point": [
+   "name",
+   "why"
+  ],
+  "machine.log.recovered_point": [
+   "name",
+   "x",
+   "y"
+  ],
   "machine.log.recovered_resuming": [
    "name"
   ],
   "machine.log.recovery_failed": [
+   "error"
+  ],
+  "machine.log.resume_point_failed": [
    "error"
   ],
   "machine.log.setting_moved": [
@@ -5934,6 +5963,21 @@
    "sheets",
    "left"
   ],
+  "recovery.detail.no_point": [
+   "parts",
+   "why"
+  ],
+  "recovery.detail.with_point": [
+   "parts",
+   "x",
+   "y"
+  ],
+  "recovery.n_parts.one": [
+   "n"
+  ],
+  "recovery.n_parts.other": [
+   "n"
+  ],
   "repair.done.closed": [
    "n"
   ],
@@ -6210,6 +6254,14 @@
   ],
   "safety.banner.with_simulator": [
    "state"
+  ],
+  "safety.kept.recovered": [
+   "x",
+   "y"
+  ],
+  "safety.kept.recovered_home": [
+   "x",
+   "y"
   ],
   "safety.kept.text": [
    "x",

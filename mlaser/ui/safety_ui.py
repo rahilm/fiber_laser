@@ -187,7 +187,7 @@ def recovery_prompt(window, on_recover: Callable[[], None], detail: str = "") ->
     box.setIcon(QMessageBox.Warning)
     box.setWindowTitle(_tr(window, "safety.recovery.title", "Previous run interrupted"))
     box.setText(_tr(window, "safety.recovery.message", "The last session ended abnormally (crash, power loss or "
-                    "forced exit).\n\nRecover the last document and the breakpoint of the interrupted job?"))
+                    "forced exit).\n\nRecover what was saved?"))
     if detail:
         box.setInformativeText(detail)
     rec = box.addButton(_tr(window, "safety.recovery.recover", "Recover"), QMessageBox.AcceptRole)
@@ -1037,6 +1037,14 @@ class _KeyFilter(QObject):
         return isinstance(win, QDialog) and win is not self.ui.w
 
 
+def _is_simulator(window) -> bool:
+    fn = getattr(_ctl(window), "is_simulator", None)
+    try:
+        return bool(fn()) if callable(fn) else False
+    except Exception:  # noqa: BLE001 - unknown counts as a real machine
+        return False
+
+
 class KeptNotice(QWidget):
     """The resume point a Stop while held kept (UX audit W17): "Stopped: resume point kept at
     X…, Y… mm" with *Resume from here* (the breakpoint comes back; Start / Continue resumes it
@@ -1064,8 +1072,15 @@ class KeptNotice(QWidget):
         h.addWidget(self.discard)
 
     def show_point(self, bp) -> None:
-        text = _tr(self.ui.w, "safety.kept.text", "Stopped: resume point kept at X {x}, Y {y} mm",
-                   x=f"{float(getattr(bp, 'x', 0.0)):.1f}", y=f"{float(getattr(bp, 'y', 0.0)):.1f}")
+        x, y = f"{float(getattr(bp, 'x', 0.0)):.1f}", f"{float(getattr(bp, 'y', 0.0)):.1f}"
+        if getattr(bp, "home_first", False) and not _is_simulator(self.ui.w):
+            text = _tr(self.ui.w, "safety.kept.recovered_home", "Recovered resume point of the interrupted job at "
+                       "X {x}, Y {y} mm: home the machine before you resume", x=x, y=y)
+        elif getattr(bp, "recovered", False):
+            text = _tr(self.ui.w, "safety.kept.recovered", "Recovered resume point of the interrupted job at "
+                       "X {x}, Y {y} mm", x=x, y=y)
+        else:
+            text = _tr(self.ui.w, "safety.kept.text", "Stopped: resume point kept at X {x}, Y {y} mm", x=x, y=y)
         if self.label.text() != text:
             self.label.setText(text)
             a11y.name(self, text)
@@ -1745,8 +1760,12 @@ class SafetyUI(QObject):
 
     def resume_kept(self) -> None:
         """Bring the kept resume point back (held at it again); Start / Continue then resumes
-        with its pre-flight."""
-        self.w.ctl.restore_kept_breakpoint()
+        with its pre-flight.  Refused (and said) for a recovered point on a real machine that
+        was not homed in this session."""
+        if not self.w.ctl.restore_kept_breakpoint():
+            why = self._last_reason()
+            if why:
+                self.w.statusBar().showMessage(why, 10000)
         self.refresh()
 
     def discard_kept(self) -> None:

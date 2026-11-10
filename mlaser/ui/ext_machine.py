@@ -200,6 +200,11 @@ class MachineExtension:
             ctl.coords = self.ops.coords
         if self.autosave not in ctl.job_start_hooks:
             ctl.job_start_hooks.append(self.autosave)
+        bus = getattr(ctl, "events", None)
+        if bus is not None and getattr(self, "_homing_bus", None) is not bus:
+            from mlaser.machine import events as EV
+            bus.subscribe(EV.HomingDone, self._homing_done)
+            self._homing_bus = bus
         self.history.attach(ctl.events)       # alarm history follows the controller
 
     def params(self):
@@ -605,8 +610,11 @@ class MachineExtension:
             self.log(_tr(self.w, "machine.log.autosave_failed", "Autosave not written: {error}", error=e))
 
     def recovery(self, confirm: bool = True) -> None:
-        """mf138 System Recovery (FUN_004bb100): mf167, reload File\\autosave.mlz (else
-        File\\autosave.chf) and the AutosaveParam breakpoint (FUN_00480860), mf169."""
+        """mf138 System Recovery (FUN_004bb100): reload File\\autosave.mlz (else
+        File\\autosave.chf) and, when it belongs to that document, the resume point of the
+        interrupted job (File\\resume_point.json, :mod:`mlaser.services.resume_point`).  The
+        resume point comes back as a kept point: nothing moves; it is resumed through the normal
+        flow (pre-flight, the arm question) and, on a real card, only after homing."""
         store = self.autosave_store()
         p = store.available()
         if p is None:
@@ -626,16 +634,107 @@ class MachineExtension:
         for n in rec.notes:
             self.log(n)
         doc = rec.document
+        from mlaser.services import resume_point as RP
+        point, why = RP.assess(self.ops.file_dir, doc)
         self._set_doc(doc, "system recovery")
         proj = self.w.extension("ext_project") if hasattr(self.w, "extension") else None
         if proj is not None:
             proj.apply(rec.project)
-        from .qtbridge import when_done
         name = rec.path.name
-        when_done(self.w.ctl.resume_saved(doc, str(self.ops.file_dir)),
-                  lambda resumed: self.log(_tr(self.w, "machine.log.recovered_resuming" if resumed
-                                               else "machine.log.recovered",
-                                               "System recovered from {name}", name=name)))
+        bp = None
+        if point is not None:
+            bp, why = self._restore_point(point, self.w.document if self.w.document is not None else doc)
+        if bp is not None:
+            self.log(_tr(self.w, "machine.log.recovered_point", "System recovered from {name}, with the resume "
+                         "point at X {x}, Y {y} mm (resume it from the resume bar)", name=name,
+                         x=f"{bp.x:.1f}", y=f"{bp.y:.1f}"))
+            return
+        text = _tr(self.w, "machine.log.recovered_no_point", "System recovered from {name}: the document only. "
+                   "The resume point was not restored: {why}", name=name, why=self.recovery_reason(why))
+        self.log(text)
+        if point is not None and not getattr(self.w, "_test_no_dialogs", False):
+            # the prompt promised the point: say at once that it could not be rebuilt
+            QMessageBox.warning(self.w, _tr(self.w, "mf138", "System Recovery"), text)
+
+    def _restore_point(self, point: dict, doc):
+        """The recorded resume point as the controller's kept point: (breakpoint, "") or
+        (None, reason)."""
+        from mlaser.services import resume_point as RP
+        ctl = self.w.ctl
+        if getattr(ctl, "breakpoint", None) is not None or ctl.job_active():
+            return None, RP.CONTROLLER
+        bp, why = RP.rebuild(point, doc, ctl)
+        if bp is None:
+            return None, why
+        ctl.kept_breakpoint = bp
+        self._recovered_bp = bp
+        return bp, ""
+
+    def recovery_reason(self, why: str) -> str:
+        """Why a resume point is not restored, in the UI language."""
+        from mlaser.services import resume_point as RP
+        texts = {
+            RP.NONE: ("recovery.why.none", "no job was held when the program ended (a running job keeps no "
+                      "resume point)"),
+            RP.OTHER_DOCUMENT: ("recovery.why.other_document", "the saved resume point belongs to another drawing"),
+            RP.UNREADABLE: ("recovery.why.unreadable", "the saved resume point is unreadable"),
+            RP.REBUILD: ("recovery.why.rebuild", "the job built again does not reach the same point"),
+            RP.CONTROLLER: ("recovery.why.controller", "this machine connection cannot hold a resume point now"),
+        }
+        key, default = texts.get(why, texts[RP.UNREADABLE])
+        return _tr(self.w, key, default)
+
+    def recovery_detail(self) -> str:
+        """What Recover will restore, exactly (the start-up prompt's text)."""
+        from mlaser.services import resume_point as RP
+        store = self.autosave_store()
+        try:
+            rec = store.recover()
+        except Exception:  # noqa: BLE001 - said by Recover itself
+            rec = None
+        if rec is None:
+            return _tr(self.w, "recovery.detail.unreadable", "The saved document could not be read: Recover "
+                       "will try again and report what it finds.")
+        doc = rec.document
+        parts = _plural(self.w, "recovery.n_parts", len(getattr(doc, "parts", ()) or ()))
+        point, why = RP.assess(self.ops.file_dir, doc)
+        if point is not None:
+            return _tr(self.w, "recovery.detail.with_point",
+                       "Recover restores the drawing of the last session ({parts}) and the resume point of the "
+                       "interrupted job at X {x}, Y {y} mm.\n\nNothing moves. The point is offered in the resume "
+                       "bar; resuming runs the pre-flight check and asks to arm the laser. On a real machine, home "
+                       "it first: the position may have been lost.", parts=parts,
+                       x=f"{float(point['x']):.1f}", y=f"{float(point['y']):.1f}")
+        return _tr(self.w, "recovery.detail.no_point",
+                   "Recover restores the drawing of the last session ({parts}).\n\nThe cutting position is not "
+                   "restored: {why}. Parts may already be cut: check the sheet before you cut it again.",
+                   parts=parts, why=self.recovery_reason(why))
+
+    _recovered_bp = None
+    _saved_bp = None
+
+    def sync_resume_point(self) -> None:
+        """Keep File/resume_point.json in step with the controller's resume point (the window
+        timer: a held breakpoint, else a kept one; none: the file is removed)."""
+        ctl = self.w.ctl
+        bp = getattr(ctl, "breakpoint", None) or getattr(ctl, "kept_breakpoint", None)
+        if bp is self._saved_bp:
+            return
+        self._saved_bp = bp
+        from mlaser.services import resume_point as RP
+        try:
+            if bp is None:
+                RP.clear(self.ops.file_dir)
+            elif getattr(bp, "job", None) is not None:
+                RP.save(self.ops.file_dir, bp)
+        except Exception as e:  # noqa: BLE001 - never in the way of the machine
+            self.log(_tr(self.w, "machine.log.resume_point_failed", "Resume point not saved: {error}", error=e))
+
+    def _homing_done(self, ev) -> None:
+        """A homing in this session clears the recovered point's homing requirement."""
+        bp = self._recovered_bp
+        if bp is not None and getattr(ev, "ok", False):
+            bp.home_first = False
 
     def startup_homing(self, ctl) -> None:
         """After the card connected: FUN_00596320's red light off, go-origin prompt (mp119,
@@ -659,33 +758,49 @@ class MachineExtension:
     normal_exit = True       # softPara.ini SC2000 NormalExit read at start-up (FUN_00596320)
 
     def startup_check(self) -> None:
-        """FUN_00596320: NormalExit == 0 -> mp18 (offer recovery); then NormalExit := 0."""
+        """FUN_00596320: NormalExit == 0 -> mp18 (offer recovery); then NormalExit := 0.
+
+        The File folder is created here, so the marker exists from the first session on (the
+        first crash of a new profile used to go unnoticed).  An autosave without any marker
+        (a profile from before) also counts as an interrupted session."""
         from mlaser.formats.scfile import read_ini, write_ini
         ini = self.ops.file_dir / "softPara.ini"
-        if not self.ops.file_dir.exists():
+        try:
+            self.ops.file_dir.mkdir(parents=True, exist_ok=True)
+        except OSError:
             return
         try:
             data = read_ini(ini) if ini.exists() else {}
         except Exception:  # noqa: BLE001
             data = {}
         sec = data.setdefault("SC2000", {})
-        self.normal_exit = sec.get("NormalExit", "1") != "0"
-        if sec.get("NormalExit", "1") == "0":
+        flag = sec.get("NormalExit")
+        has_autosave = self.autosave_store().available() is not None
+        interrupted = flag == "0" or (flag is None and has_autosave)
+        self.normal_exit = not interrupted
+        if interrupted:
             # a real dialog, not a log line (docs/review/ux.md P0-7)
             self.log(_tr(self.w, "machine.log.abnormal_exit", "The last run ended abnormally"))
-            try:
-                from PySide6.QtCore import QTimer
+            if not has_autosave:
+                self.log(_tr(self.w, "machine.log.nothing_to_recover", "Nothing was saved to recover"))
+            elif not getattr(self.w, "_test_no_dialogs", False):
+                try:
+                    from PySide6.QtCore import QTimer
 
-                from .safety_ui import recovery_prompt
-                if not getattr(self.w, "_test_no_dialogs", False):
-                    QTimer.singleShot(0, lambda: recovery_prompt(self.w, lambda: self.recovery(confirm=False)))
-            except Exception:  # noqa: BLE001
-                pass
+                    QTimer.singleShot(0, self._recovery_prompt)
+                except Exception:  # noqa: BLE001
+                    pass
         sec["NormalExit"] = "0"
         try:
             write_ini(data, ini)
         except OSError:
             pass
+
+    def _recovery_prompt(self) -> None:
+        if getattr(self.w, "_test_no_dialogs", False):
+            return
+        from .safety_ui import recovery_prompt
+        recovery_prompt(self.w, lambda: self.recovery(confirm=False), self.recovery_detail())
 
     def clean_exit(self) -> None:
         from mlaser.formats.scfile import read_ini, write_ini
@@ -783,6 +898,9 @@ def register(ctx, app_dir: Optional[str] = None) -> MachineExtension:
     ctx.on_close(lambda: (ext.history.detach(), ext.workspace.close()))
     ctx.on_controller_changed(lambda _ctl: ext.attach())
     ext.attach()
+    t = getattr(ctx.window, "_timer", None)
+    if t is not None:                         # File/resume_point.json follows the resume point
+        t.timeout.connect(ext.sync_resume_point)
     ext.startup_check()
     ctx.on_close(ext.clean_exit)
     return ext
