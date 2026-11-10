@@ -448,8 +448,15 @@ def test_import_params(win, app, tmp_path):
     val = s.min + (s.max - s.min) / 3
     src.set(key, val)
     src.export_dat(tmp_path / "dat")
-    n = win.shell.import_params(str(tmp_path / "dat"))
-    assert n >= 1 and win.config.get(key) == pytest.approx(val, rel=1e-3)
+    old = win.config.get(key)
+    # the reviewing import (UX review 2026-11-09 finding 11): a preview first, nothing applied
+    d = win.shell.import_params(str(tmp_path / "dat"))
+    assert d is not None and d.plan is not None and any(c.key == key for c in d.plan.changes)
+    assert win.config.get(key) == old
+    res = d.apply(confirm=False)
+    assert res is not None and res.applied.get("params", 0) >= 1
+    assert win.config.get(key) == pytest.approx(val, rel=1e-3)
+    d.close()
 
 
 def test_focus_order(win, app):

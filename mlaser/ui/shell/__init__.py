@@ -815,20 +815,23 @@ class Shell:
         from .dialogs import open_docs
         return open_docs(self.w, self.tr)
 
-    def import_params(self, path: Optional[str] = None) -> int:
+    def import_params(self, path: Optional[str] = None):
         """Import the HardPara.xml / ManuPara.xml of an original Mlaser install (its ``dat``
-        folder) into the ConfigService."""
+        folder): the one reviewing import of every mode (UX review 2026-11-09 finding 11), the
+        dialog of Machine › Import from my Mlaser installation with the folder chosen and its
+        preview shown; nothing changes until the operator confirms Apply there.  Returns the
+        dialog (None when no folder was chosen)."""
         if path is None:
             path = QFileDialog.getExistingDirectory(self.w, self.tr.tr("shell.import_params"))
         if not path:
-            return 0
-        try:
-            n = self.config.import_dat(path)
-        except (OSError, ValueError) as exc:
-            self.w.log(self.tr.format("shell.import_params.failed", error=str(exc)))
-            return 0
-        self.w.log(self.tr.format("shell.import_params.done", count=n, path=path))
-        return n
+            return None
+        from ..wizards.settings_import import SettingsImportDialog
+        d = SettingsImportDialog(self.w, self.config, param_dir=str(path))
+        d.setAttribute(Qt.WA_DeleteOnClose)
+        self._import_dialog = d
+        if not getattr(self.w, "_test_no_dialogs", False):
+            d.exec()
+        return d
 
     # ------------------------------------------------------------------ menu bar
     @property

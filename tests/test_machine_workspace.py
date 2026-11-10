@@ -106,7 +106,7 @@ def test_settings_panel_applies_typed_values(app, win):
     sp.section.setCurrentIndex(i)
     ed = sp._editors["MAC.SoftLimitMaxLen"]
     ed.setValue(2500.0)
-    assert sp.apply() == 1
+    assert sp.apply(confirm=False) == 1        # the question itself: tests/test_param_import_review.py
     assert win.config.get("MAC.SoftLimitMaxLen") == 2500.0
     # the search looks through every Setup section (Machine › Setup, WORK_ITEMS R-1)
     sp.search.setText("stroke")
@@ -254,6 +254,6 @@ def test_settings_import_dialog(app, win, tmp_path):
     from PySide6.QtCore import Qt
     top.setCheckState(0, Qt.Unchecked)                       # skip the machine parameters
     assert "params" not in d.chosen_areas()
-    res = d.apply()
+    res = d.apply(confirm=False)               # the question itself: tests/test_param_import_review.py
     assert res is not None and "params" not in res.applied and "ip" in res.applied
     d.done(0)

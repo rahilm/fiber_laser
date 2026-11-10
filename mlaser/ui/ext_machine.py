@@ -524,10 +524,29 @@ class MachineExtension:
             self.log(_tr(self.w, "machine.log.hw_export_failed",
                          "Writing the parameters to the hardware failed: {error}", error=e))
 
+    def _confirm_restore(self, title_key: str, text: str) -> bool:
+        """Before parameters on this PC are replaced (UX review 2026-11-09 finding 11): a
+        question with verb buttons, Cancel the default, after a timestamped copy of the current
+        parameters (named in the question)."""
+        import time
+
+        from .verb_question import verb_question
+        bk = Path(self.ops.file_dir) / time.strftime("params-before-restore-%Y%m%d-%H%M%S.xml")
+        try:
+            bk.parent.mkdir(parents=True, exist_ok=True)
+            self._backup().export_to_file(bk)
+        except Exception as e:  # noqa: BLE001 - no copy: say so, do not restore blind
+            self.log(_tr(self.w, "machine.log.params_import_failed", "Importing the parameters failed: {error}",
+                         error=e))
+            return False
+        return verb_question(self.w, _tr(self.w, title_key, ""), text,
+                             _tr(self.w, "machine.params.restore_yes", ""), _tr(self.w, "wizard.import.cancel", ""),
+                             informative=_tr(self.w, "machine.params.restore_info", "", path=str(bk)), warning=True)
+
     def restore_hw(self) -> None:
         if not self.ops.require_card("mf481") or not self._password():
             return
-        if not self._ask(_tr(self.w, "mf481", "Import Parameters From Hardware"), _tr(self.w, "mf238", "Continue?")):
+        if not self._confirm_restore("machine.hw.restore_title", _tr(self.w, "machine.hw.restore_text", "")):
             return
         try:
             n = self._backup().import_from_hardware(self.ops.mc)
@@ -545,6 +564,9 @@ class MachineExtension:
     def restore_file(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self.w, _tr(self.w, "lp9", "Import"), "", "xml file(*.xml)")
         if not path:
+            return
+        if not self._confirm_restore("machine.file.restore_title",
+                                     _tr(self.w, "machine.file.restore_text", "", name=Path(path).name)):
             return
         layers = self._ask(_tr(self.w, "mf235", "Import"), _tr(self.w, "A250107_0", "Also restore layer parameters?"))
         try:
