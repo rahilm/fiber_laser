@@ -16,6 +16,7 @@ with it.  Qt-free.
 from __future__ import annotations
 
 from dataclasses import fields, replace
+from pathlib import Path
 from typing import Any, Optional
 
 from mlaser.controller.client import TransportConfig
@@ -65,7 +66,7 @@ def record_from_ini(path: str) -> dict[str, Any]:
     """The record fields an ``ipAdd.ini`` sets (``pd445`` and the transport fields its keys
     name; read by :meth:`TransportConfig.from_ini`, the app's one ini reader)."""
     from .settings_import import read_ip_ini
-    present = read_ip_ini(path)
+    present = read_ip_ini(Path(path))
     tc = TransportConfig.from_ini(path)
     out: dict[str, Any] = {}
     if "CardIP" in present:
