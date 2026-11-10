@@ -150,8 +150,10 @@ class StubCtx:
             from mlaser.services.technology import TechnologyStore
             tech = TechnologyStore(Path(tmp) / "tech.sqlite3")
             tech.seed_examples()
+        self.loaded_groups: list = []          # orders_load_group(key) calls
         self.services = types.SimpleNamespace(orders=OrderBook(None), technology=tech, queue=None, intake=None,
-                                              config=self.config)
+                                              config=self.config,
+                                              orders_load_group=lambda key, replace=None: self.loaded_groups.append(key))
         self.commands = Commands()
         self.messages, self.logs, self.workspaces, self.docks, self.registered = [], [], [], [], {}
         self.background = []

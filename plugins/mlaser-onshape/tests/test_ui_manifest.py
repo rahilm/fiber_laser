@@ -89,7 +89,7 @@ def test_workspace_flow(ws, ctx, fake):
     assert len(cards) == len(ws.service.groups()) >= 3
     from PySide6.QtWidgets import QPushButton
     cards[0].findChild(QPushButton).click()
-    assert ctx.commands.ran and ctx.commands.ran[-1][0] == "orders.to_nest"
+    assert ctx.loaded_groups == [ws.service.groups()[0].key]
     assert int(ws.calls.text().split(":")[1]) > 0
     # made counts edit the quantity
     row = next(r for r in range(ws.table.rowCount()) if ws.table.item(r, 0).text() == "Side plate")

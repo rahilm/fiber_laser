@@ -9,7 +9,7 @@ import pytest
 import fake_onshape as F
 from mlaser_onshape import pipeline as PL
 from mlaser_onshape.bom import MachineConfig
-from mlaser_onshape.client import AuthError, OnshapeClient, QuotaError, check_server
+from mlaser_onshape.client import AuthError, OnshapeClient, OnshapeError, QuotaError, check_server
 from mlaser_onshape.service import OnshapeService
 
 
@@ -128,20 +128,13 @@ def test_full_run_statuses_dxfs_and_orders(svc, fake, ctx):
     assert g3.parts == 4 and g3.quantity == 5 + 3 + 7 + 3 and g3.sheets == 1
     # the book groups by the same key, so Load into Nest finds the lines
     assert g3.key in dict(book.groups())
-    svc.load_into_nest(g3.key)                           # no window: the command
-    assert ctx.commands.ran == [("orders.to_nest", (g3.key,))]
-    got = []
-
-    class Orders:
-        def to_nest(self, key=None, replace=None):
-            got.append(key)
-            return ["parts"]
-
-    class Win:
-        def extension(self, name):
-            return Orders() if name == "orders" else None
-    ctx.window = Win()
-    assert svc.load_into_nest(g3.key) == ["parts"] and got == [g3.key]
+    svc.load_into_nest(g3.key)                           # the plugin API, never the window
+    assert ctx.loaded_groups == [g3.key] and ctx.commands.ran == []
+    ctx.services.orders_load_group = lambda key, replace=None: ["parts", key]
+    assert svc.load_into_nest(list(g3.key)) == ["parts", g3.key]
+    ctx.services.orders_load_group = None                # no Orders workspace
+    with pytest.raises(OnshapeError):
+        svc.load_into_nest(g3.key)
 
 
 def test_dxfs_import_as_closed_parts_in_mlaser(svc):
