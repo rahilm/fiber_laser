@@ -29,10 +29,35 @@ It disappears once everything is wired; a sensor declared "not fitted" stays lis
 
 ## Live view and process values
 
-The live view draws the job as it is placed on the machine: parts already cut in grey, the part
-being cut thick and orange, the others in their layer colour, the head as a red dot. The strip
-underneath shows speed (mm/s), the layer's power (%), gas and pressure (bar), cut height (mm) and
-the X/Y/Z position (mm).
+The live view draws the job as it is placed on the machine: parts already cut grey and dashed,
+the part being cut thick in the accent colour, the others in their layer colour, the head as a
+red dot. The row underneath shows each value under its name: speed, the layer's power (%), gas
+and pressure, cut height and the X / Y / Z position, in the display units; the figures keep their
+width as they change, and in a narrow window the row wraps between two values, never inside one.
+When the link is lost the last values stay, greyed, marked *Last known values*.
+
+## After a job: where it stopped, and cutting the rest
+
+When a job ends the screen keeps it until the next start: a line under the state says
+*Last job stopped at 14:02 in part 5 of 6 (4 finished), after 2:15 · gear.dxf*, or
+*Last job finished at 14:03: all 6 parts, in 2:40*. The live view numbers every part in the
+order it was cut and draws the finished ones grey and dashed. A part the job was cutting when
+it stopped counts as not finished, even if most of it was cut.
+
+The section **Cut the rest: new job** then offers:
+
+* **Cut the n remaining parts**: a new job of the parts the last job did not finish;
+* **Start from part n**: a new job from that part of the cut order to the end. Type the number,
+  or click the part in the live view; the live view shows which parts that job would leave out
+  (dotted).
+
+Both select those parts (you see the selection in Design too) and start them exactly like
+*Start selection only*: the pre-flight check and the arming question run as for Start. Each part
+is cut from its beginning, with its own pierce. This is not **Resume from the breakpoint**, which
+continues inside the contour where a held or faulted job stopped. When the drawing changed since
+that job (an edit, another file, other technology) the offer is withdrawn and the line says why;
+while a job is held at a breakpoint, resume it or stop it first. *Cut remaining parts* is also in
+the Start button's menu of the run bar and in the command search.
 
 ## Buttons
 

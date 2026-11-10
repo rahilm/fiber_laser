@@ -3417,9 +3417,13 @@
   "run.alarm.title.one": "⚠ {n} active alarm",
   "run.alarm.title.other": "⚠ {n} active alarms",
   "run.api_on": "Automation API ON {host}:{port}",
+  "run.bar.status": "{percent} %  ·  {times}",
   "run.btn.arm": "Arm laser",
   "run.btn.confirm_sheet": "Sheet loaded: start",
   "run.btn.continue": "Continue",
+  "run.btn.cut_remaining.one": "Cut the remaining part",
+  "run.btn.cut_remaining.other": "Cut the {n} remaining parts",
+  "run.btn.cut_remaining_none": "Cut remaining parts",
   "run.btn.details": "Details",
   "run.btn.disarm": "Disarm laser",
   "run.btn.dry_run": "Dry run",
@@ -3431,15 +3435,31 @@
   "run.btn.resume_contour": "Contour start",
   "run.btn.resume_here": "Here",
   "run.btn.start": "Start",
+  "run.btn.start_from": "Start from part {n}",
   "run.btn.stop": "STOP",
   "run.canvas.empty": "No job loaded",
+  "run.cap.gas": "Gas",
+  "run.cap.height": "Height",
+  "run.cap.power": "Power",
+  "run.cap.speed": "Speed",
+  "run.cap.x": "X",
+  "run.cap.y": "Y",
+  "run.cap.z": "Z",
   "run.card_busy": "Waiting for the card to answer…",
+  "run.cmd.cut_remaining": "Cut remaining parts of the last job",
   "run.count.contour": "contour {n}/{total}",
   "run.count.part": "part {n}/{total}",
   "run.count.sheet": "Sheet {n}/{total}",
   "run.count.sheet_job": "Sheet {n}/{total} · {name}",
+  "run.last.dry_finished": "Last dry run finished at {time}, after {duration} · {name}",
+  "run.last.dry_stopped": "Last dry run stopped at {time} in part {part} of {total} · {name}",
+  "run.last.finished.one": "Last job finished at {time}: its {n} part, in {duration} · {name}",
+  "run.last.finished.other": "Last job finished at {time}: all {n} parts, in {duration} · {name}",
+  "run.last.stopped": "Last job stopped at {time} in part {part} of {total} ({done} finished), after {duration} · {name}",
+  "run.last.with_reason": "{summary}\n{reason}",
   "run.legend.current": "Cutting now",
   "run.legend.done": "Done",
+  "run.legend.not_cut": "Left out",
   "run.legend.todo": "To cut (layer colours)",
   "run.load.n": "sheet {n}",
   "run.load.nozzle": "Nozzle: {nozzle}",
@@ -3460,6 +3480,9 @@
   "run.queue.pending.other": "{n} submitted jobs wait for approval (Queue tab)",
   "run.queue.title.one": "Queue: {n} job, {left}",
   "run.queue.title.other": "Queue: {n} jobs, {left}",
+  "run.ready.do": "Fix...",
+  "run.ready.do_home": "Home X/Y",
+  "run.ready.do_technology": "Assign technology...",
   "run.reason.alarm": "Alarm {code}: {text}",
   "run.reason.armed": "Ready: ARMED, the laser fires on Start",
   "run.reason.breakpoint": "Held at a breakpoint ({position}): resume here or from the contour start",
@@ -3472,6 +3495,10 @@
   "run.reason.laser_off": "Ready: laser output disabled (dry-run mode)",
   "run.reason.not_homed": "Not homed: home X and Y before you start",
   "run.reason.offline": "No machine connected",
+  "run.rest.from_name": "First part to cut (cut-order number)",
+  "run.rest.from_tip": "The number of the first part to cut, as numbered in the live view: type it, or click the part there",
+  "run.rest.hint": "A new job: each part from its beginning, with Start's checks. Resume continues inside the stopped contour.",
+  "run.rest.title": "Cut the rest: new job",
   "run.resume": "Resume from the breakpoint",
   "run.set.monitor_enabled": "LAN monitor enabled",
   "run.set.monitor_host": "LAN monitor interface address",
@@ -3501,7 +3528,7 @@
   "run.tab.live": "Live view",
   "run.tab.queue": "Queue",
   "run.times": "Elapsed {elapsed}   ETA {eta}",
-  "run.times.bar": "Elapsed {elapsed}\nETA {eta}",
+  "run.times.bar": "Elapsed {elapsed}  ·  ETA {eta}",
   "run.tip.arm": "Arm or disarm laser emission",
   "run.tip.dry_run": "Run the job with the laser off",
   "run.tip.frame": "Trace the job outline, laser off (F6)",
@@ -3510,10 +3537,13 @@
   "run.tip.stop": "Stop the job (Esc or F12)",
   "run.untitled": "(untitled)",
   "run.val.gas": "Gas {v}",
+  "run.val.gas_bar": "{gas} {pressure}",
   "run.val.height": "Height {v}",
   "run.val.last_known": "{values}   (last known)",
+  "run.val.last_known_note": "Last known values",
   "run.val.position": "X {x}  Y {y}  Z {z} {unit}",
   "run.val.power": "Power {v} %",
+  "run.val.power_pct": "{v} %",
   "run.val.speed": "Speed {v}",
   "run.why.alarm": "Reset the alarm first: {alarm}",
   "run.why.fault": "Reset the fault first",
@@ -3524,6 +3554,10 @@
   "run.why.no_sheet_wait": "The queue is not waiting for a sheet",
   "run.why.offline": "Connect the machine or the simulator first",
   "run.why.queue_empty": "The queue has no job left to run",
+  "run.why.rest_changed": "The drawing changed since the last job: cutting its rest is no longer offered",
+  "run.why.rest_held": "A job is held at a breakpoint: resume it or stop it first",
+  "run.why.rest_none": "The last job finished every part",
+  "run.why.rest_unknown": "The parts of the last job are not known",
   "run.why.running": "Not while a job runs",
   "safety.alarm.fault_since": "FAULT: {fault}   since {time}",
   "safety.alarm.remedy": "Remedy: {text}",
@@ -6083,6 +6117,41 @@
    "total",
    "name"
   ],
+  "run.last.dry_finished": [
+   "time",
+   "duration",
+   "name"
+  ],
+  "run.last.dry_stopped": [
+   "time",
+   "part",
+   "total",
+   "name"
+  ],
+  "run.last.finished.one": [
+   "time",
+   "n",
+   "duration",
+   "name"
+  ],
+  "run.last.finished.other": [
+   "time",
+   "n",
+   "duration",
+   "name"
+  ],
+  "run.last.stopped": [
+   "time",
+   "part",
+   "total",
+   "done",
+   "duration",
+   "name"
+  ],
+  "run.last.with_reason": [
+   "summary",
+   "reason"
+  ],
   "run.load.n": [
    "n"
   ],
@@ -6701,6 +6770,10 @@
   "run.val.gas": [
    "v"
   ],
+  "run.val.gas_bar": [
+   "gas",
+   "pressure"
+  ],
   "run.val.height": [
    "v"
   ],
@@ -6711,6 +6784,9 @@
    "unit"
   ],
   "run.val.power": [
+   "v"
+  ],
+  "run.val.power_pct": [
    "v"
   ],
   "run.val.speed": [
@@ -6974,6 +7050,16 @@
   "run.api_on": [
    "host",
    "port"
+  ],
+  "run.bar.status": [
+   "percent",
+   "times"
+  ],
+  "run.btn.cut_remaining.other": [
+   "n"
+  ],
+  "run.btn.start_from": [
+   "n"
   ],
   "notify.msg.alarm": [
    "code",
