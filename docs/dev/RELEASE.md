@@ -144,12 +144,13 @@ The repository is public, so GitHub's standard runners cost nothing. While it wa
 (until 2026-10-19), macOS minutes counted 10x and Windows 2x against the plan, and the
 included minutes ran out after a day of CI work. Measured 2026-10-19:
 
-* `ci.yml`, per push: 2 Linux jobs (~5-7 min each), 2 Windows jobs (~8-10 min), 2 macOS arm64
-  jobs (~8-10 min; `macos-latest` is an Apple silicon VM whose timers fire late, see
-  [TESTING.md](TESTING.md)), lint and architecture (< 1 min). These were serial runs; the
-  test step now runs on pytest-xdist with the safety and sim tests on one worker, which halved
-  the suite locally (320 s -> 160 s, [TESTING.md](TESTING.md#parallel-runs-pytest-xdist)); the
-  CI figures are to be re-measured on the next runs. On a private repository the macOS
+* `ci.yml`, per push: 2 Linux, 2 Windows and 2 macOS arm64 test jobs (`macos-latest` is an
+  Apple silicon VM whose timers fire late, see [TESTING.md](TESTING.md)), lint and architecture
+  (< 1 min). Measured in the 2026-11-09 deep review: 18-20 min per Linux job, 13-19 min per Windows
+  job, 23-27 min per macOS job, set by one 8-10 min layout test and the serial `timing` group.
+  The layout sweeps are now parametrised and the timing tests split into three groups
+  ([TESTING.md](TESTING.md#parallel-runs-pytest-xdist)), which halved the affected files'
+  wall time on the development host; the CI figures are to be re-measured on the next runs. On a private repository the macOS
   jobs are most of the billed cost (~200 Linux-equivalent minutes per push).
 * `package.yml`: wheels (Linux x86_64 and the `ubuntu-24.04-arm` runner, Windows, macOS
   arm64; ~1-4 min each), sdist (< 1 min), bundles (Linux on ubuntu-22.04, Windows, macOS;
