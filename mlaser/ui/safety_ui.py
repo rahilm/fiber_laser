@@ -1278,12 +1278,43 @@ class SafetyUI(QObject):
         return str(getattr(host, "current", "") or "")
 
     def start_target_name(self) -> str:
-        """What Start runs: the open drawing's name (UX audit W18)."""
+        """What Start runs (UX audit W18; deep review 2026-11, UX 13): the nest sheet ("Sheet 1
+        of 3 (gear.dxf): gear × 6") or the drawing ("gear.dxf: 4 parts"), with its parts."""
+        doc = getattr(self.w, "document", None)
         path = getattr(self.w, "path", None)
-        if path:
-            import os
-            return os.path.basename(path)
-        return _tr(self.w, "run.untitled", "(untitled)")
+        sheet = (getattr(doc, "extra", None) or {}).get("nest_sheet") if doc is not None else None
+        n = len(getattr(doc, "parts", ()) or ()) if doc is not None else 0
+        key = (id(doc), n, path, repr(sheet), getattr(getattr(self.w, "tr_", None), "language", None))
+        cached = getattr(self, "_target_cache", None)
+        if cached is not None and cached[0] == key:
+            return cached[1]
+        import os
+        from collections import Counter
+        names = Counter(str(getattr(p, "name", "") or "") for p in (getattr(doc, "parts", ()) or ()))
+        if len(names) == 1 and next(iter(names)):
+            parts = _tr(self.w, "run.target.same_parts", "{part} × {n}", part=next(iter(names)), n=n)
+        else:
+            tr = getattr(self.w, "tr_", None)
+            if tr is not None and hasattr(tr, "plural"):
+                parts = tr.plural("run.target.n_parts", n)
+            else:
+                from .. import i18n
+                parts = i18n.plural("run.target.n_parts", n)
+        name = os.path.basename(path) if path else _tr(self.w, "run.untitled", "(untitled)")
+        if isinstance(sheet, dict) and sheet.get("n"):
+            src = str(sheet.get("source") or "")
+            if src:
+                text = _tr(self.w, "run.target.sheet_of", "Sheet {n} of {total} ({source}): {parts}",
+                           n=sheet.get("n"), total=sheet.get("total") or sheet.get("n"), source=src, parts=parts)
+            else:
+                text = _tr(self.w, "run.target.sheet", "Sheet {n} of {total}: {parts}",
+                           n=sheet.get("n"), total=sheet.get("total") or sheet.get("n"), parts=parts)
+        elif doc is None or not n:
+            text = name
+        else:
+            text = _tr(self.w, "run.target.drawing", "{name}: {parts}", name=name, parts=parts)
+        self._target_cache = (key, text)
+        return text
 
     def queue_waiting(self) -> Optional[tuple[int, int, str]]:
         """(n, total, name) of the queue's next job when the queue is idle with a job waiting;
@@ -1514,7 +1545,15 @@ class SafetyUI(QObject):
             return True
         actions = [a for c in _contributors(self.w) for a in (c.actions(rep) if hasattr(c, "actions") else ())]
         d = PreflightDialog(rep, self.w, actions=actions)
-        return bool(d.exec()) and rep.ok
+        ok = bool(d.exec()) and rep.ok
+        if ok:                       # the operator went ahead past these warnings (UX 13)
+            for c in _contributors(self.w):
+                if hasattr(c, "acknowledge"):
+                    try:
+                        c.acknowledge(rep, doc)
+                    except Exception:  # noqa: BLE001 - a broken contributor never blocks
+                        log.exception("pre-flight contributor acknowledge failed")
+        return ok
 
     last_report = None             # the last pre-flight report preflight_ok() decided on (tests)
 

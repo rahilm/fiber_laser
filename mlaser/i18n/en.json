@@ -1155,6 +1155,8 @@
   "main.wifi": "Wifi",
   "main.world_time": "World time",
   "material.ask": "The sheet does not match the technology:\n\n{issues}\n\nCut it anyway? Only when you have checked the sheet and the technology. This is recorded.",
+  "material.example_ask": "{message}. Going ahead confirms these values for this recipe until mlaser closes.",
+  "material.example_confirmed": "{message} (confirmed in this session)",
   "material.not_declared": "(not declared)",
   "material.override": "Override and cut",
   "material.title": "Material check",
@@ -1211,9 +1213,12 @@
   "nestws.btn.import": "Import file...",
   "nestws.btn.nest": "Nest ▶",
   "nestws.btn.queue": "Send to queue",
+  "nestws.btn.queue_all": "Send all sheets to the queue",
   "nestws.btn.remove": "Remove",
   "nestws.btn.technology": "Technology",
   "nestws.btn.to_drawing": "Copy sheet to drawing",
+  "nestws.btn.to_run": "Open sheet in Run ▶",
+  "nestws.btn.to_run_n": "Open sheet {n} of {total} in Run ▶",
   "nestws.col.cut": "Cut",
   "nestws.col.engine": "Engine",
   "nestws.col.max": "Max",
@@ -3515,6 +3520,12 @@
   "run.state.running": "RUNNING",
   "run.tab.live": "Live view",
   "run.tab.queue": "Queue",
+  "run.target.drawing": "{name}: {parts}",
+  "run.target.n_parts.one": "{n} part",
+  "run.target.n_parts.other": "{n} parts",
+  "run.target.same_parts": "{part} × {n}",
+  "run.target.sheet": "Sheet {n} of {total}: {parts}",
+  "run.target.sheet_of": "Sheet {n} of {total} ({source}): {parts}",
   "run.times": "Elapsed {elapsed}   ETA {eta}",
   "run.times.bar": "Elapsed {elapsed}\nETA {eta}",
   "run.tip.arm": "Arm or disarm laser emission",
@@ -5650,6 +5661,12 @@
   "material.ask": [
    "issues"
   ],
+  "material.example_ask": [
+   "message"
+  ],
+  "material.example_confirmed": [
+   "message"
+  ],
   "nest.file_saved_path": [
    "path"
   ],
@@ -5662,6 +5679,10 @@
   "nest.result_row": [
    "n",
    "sheet"
+  ],
+  "nestws.btn.to_run_n": [
+   "n",
+   "total"
   ],
   "nestws.msg.imported.one": [
    "n",
@@ -6215,6 +6236,31 @@
   ],
   "run.state.ready_armed": [
    "state"
+  ],
+  "run.target.drawing": [
+   "name",
+   "parts"
+  ],
+  "run.target.n_parts.one": [
+   "n"
+  ],
+  "run.target.n_parts.other": [
+   "n"
+  ],
+  "run.target.same_parts": [
+   "part",
+   "n"
+  ],
+  "run.target.sheet": [
+   "n",
+   "total",
+   "parts"
+  ],
+  "run.target.sheet_of": [
+   "n",
+   "total",
+   "source",
+   "parts"
   ],
   "run.times.bar": [
    "elapsed",

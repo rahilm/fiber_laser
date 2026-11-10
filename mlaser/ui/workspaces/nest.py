@@ -448,11 +448,16 @@ class NestWorkspace(QWidget):
         ColumnFitter(self.compare, {1: 4, 2: 5, 3: 2, 4: 1, 5: 3}, stretch=0)
         self.compare.itemSelectionChanged.connect(self._run_selected)
         rv.addWidget(self.compare, 2)
-        self.queue_btn = self._button("nestws.btn.queue", "Send to queue", self.send_to_queue, TOUCH_MIN + 8)
+        # the hand-off (deep review 2026-11, UX 13): one primary way to cut a sheet, "Open sheet
+        # n of N in Run" (the sheet becomes the drawing, the Run workspace is shown with Start
+        # naming it); the queue is the second way, for all the sheets, named as such
+        self.main_btn = self._button("nestws.btn.to_run", "Open sheet in Run ▶", self.to_run, TOUCH_MIN + 8)
+        self.main_btn.setObjectName("nestws_to_run")
+        style.set_font(self.main_btn, "title")
+        rv.addWidget(self.main_btn)
+        self.queue_btn = self._button("nestws.btn.queue_all", "Send all sheets to the queue", self.send_to_queue)
         self.queue_btn.setObjectName("nestws_send")
         rv.addWidget(self.queue_btn)
-        self.main_btn = self._button("nestws.btn.to_drawing", "Copy sheet to drawing", self.to_drawing)
-        rv.addWidget(self.main_btn)
         split.addWidget(right, tr(w, "nestws.results", "Results"))
         split.splitter.setSizes([300, 540, 380])
         split.splitter.setStretchFactor(1, 1)
@@ -1063,6 +1068,11 @@ class NestWorkspace(QWidget):
         w = self.window_
         self._apply_params()
         job = self._nest_job()
+        doc = getattr(w, "document", None)
+        if not job.parts and doc is not None and any(p.contours for p in doc.parts):
+            # the drawing's parts are the parts to nest (one action fewer, UX 13)
+            if self.add_from_drawing():
+                job = self._nest_job()
         if not job.parts:
             self.status.setText(tr(w, "nestws.msg.no_parts", "Add parts first (from the drawing or a file)."))
             return False
@@ -1173,6 +1183,8 @@ class NestWorkspace(QWidget):
                 self._show_run(run)
 
     def _result_selected(self, row: int) -> None:
+        if hasattr(self, "main_btn"):
+            self._hand_off_text()
         run = self.run
         if run is None or not (0 <= row < len(run.result.layouts)):
             return
@@ -1202,6 +1214,21 @@ class NestWorkspace(QWidget):
         style.set_enabled(self.queue_btn, not why and self.queue is not None,
                           why or tr(w, "nestws.why.no_queue", "The job queue is not available"))
         style.set_enabled(self.main_btn, not why, why)
+        self._hand_off_text()
+
+    def _hand_off_text(self) -> None:
+        """The primary button names the sheet it opens ("Open sheet 2 of 3 in Run")."""
+        w = self.window_
+        run = self.run
+        lays = run.result.layouts if run is not None else []
+        if lays:
+            row = min(max(0, self.results.currentRow()), len(lays) - 1)
+            text = tr(w, "nestws.btn.to_run_n", "Open sheet {n} of {total} in Run ▶", n=row + 1, total=len(lays))
+        else:
+            text = tr(w, "nestws.btn.to_run", "Open sheet in Run ▶")
+        if self.main_btn.text() != text:
+            self.main_btn.setText(text)
+            self.main_btn.setAccessibleName(text)
 
     def send_to_queue(self) -> list:
         w = self.window_
@@ -1259,12 +1286,27 @@ class NestWorkspace(QWidget):
         lays = run.result.layouts
         if not lays:
             return False
-        doc, _info = sheet_document(job, lays[min(row, len(lays) - 1)], base.layers, **opts)
+        k = min(row, len(lays) - 1)
+        doc, _info = sheet_document(job, lays[k], base.layers, **opts)
         doc.layers = copy.deepcopy(base.layers)
+        # what Start names in the run bar and on the Run screen ("Sheet 1 of 3 (gear.dxf): gear × 6")
+        src = (self.ext.path if self.ext is not None else None) or getattr(self.window_, "path", None)
+        doc.extra["nest_sheet"] = {"n": k + 1, "total": len(lays),
+                                   "source": os.path.basename(src) if src else ""}
         if self.material.text().strip() or self.thickness.value():   # the material check (Start)
             from mlaser.services.material_check import SheetSpec, set_sheet
             set_sheet(doc, SheetSpec(self.material.text().strip(), self.thickness.value(), "nest"))
         self.ctx.replace_document(doc, tr(self.window_, "nestws.undo.to_drawing", "nest result"))
+        return True
+
+    def to_run(self) -> bool:
+        """The hand-off: the selected sheet becomes the drawing (undoable) and the Run workspace
+        is shown, its Start naming the sheet.  Nothing starts."""
+        if not self.to_drawing():
+            return False
+        switch = getattr(self.window_, "show_workspace", None)
+        if callable(switch):
+            switch("run")
         return True
 
 

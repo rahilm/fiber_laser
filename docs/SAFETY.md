@@ -399,7 +399,8 @@ point of a held job (`File/resume_point.json`, `mlaser/services/resume_point.py`
 when its document fingerprint matches the recovered document and the recompiled job reaches the
 same position, and only as a *kept* point (no motion); on a real card it cannot be brought back
 before a homing in this session (`ControllerFacade.restore_kept_breakpoint`, `home_first`), and
-the resume itself goes through the controller's pre-flight and the arm question as usual.
+the resume itself is an ordinary resume: the controller's pre-flight and start gate (a laser
+resume needs the machine armed; the Run screen's Resume asks to arm first).
 
 ## 11. Hardware watchdog ("PC alive")
 
