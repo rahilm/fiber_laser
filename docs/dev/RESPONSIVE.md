@@ -40,6 +40,7 @@ or "two columns of the widest section no longer fit".
 | `ColumnsPanel(max_columns, grow=…, scroll_overflow=…)` | Arranges sections in 1–3 columns. Default: as many columns as the width allows. `grow=True`: one column until the height runs out, then more columns, asking the parent for the width. `add_pinned` widgets (STOP) are always shown in full. `column_min`: a callable giving the width a column needs before a second one is used (forms pass the width their labels need beside the fields). `scroll_overflow=True` (a panel in a scroll area: Properties, the technology form): the section the user opened last is never folded again, what does not fit then scrolls; its minimum is the folded height at its width (headers side by side when wide), and after folding it reopens the sections that still fit (`refill`). `fold=False`: nothing folds (a list). |
 | `CompactWhenNarrow`, `set_compact` | Smaller paddings, and icon-only `compactable` tool buttons whose text moves to the tooltip. |
 | `ColumnFitter(view, priorities, stretch)` | Tables and trees: hides low-priority columns while the view is narrow and shows them again when it widens. |
+| `TabsWhenNarrow(extra)` | Panes side by side in a splitter while the width has room, tabs below that (the Nest page). `set_sizes` gives the default widths, which the panes come back to from tabs; widths taken while the page was hidden are never kept. Side by side, its minimum height is each pane's at the width it has. |
 | `FitArea` | The shell's page wrapper. It takes the page's minimum (height-for-width aware) as its own, capped at 85 % of the screen. |
 | `CurrentPageStack` | A stacked widget sized by its *current* page. |
 | `keep_min_size(widget, size)` | Keeps a minimum size when a style sheet's `min-height` rule stops matching. |
@@ -48,6 +49,8 @@ or "two columns of the widest section no longer fit".
 ## Docks (`mlaser/ui/shell/dock_policy.py`)
 
 * The side docks run the full height of the window. The log dock sits under the page only.
+  Its minimum is its tab bar and two lines of the log, and it gives way first when the page
+  above needs the height (a 1280 × 800 screen with a taskbar).
 * A dock's width is either the width the user dragged it to (remembered, and restored from the
   saved layout) or its content's `sizeHint`. It is never less than the content's minimum.
 * When the window shrinks, the docks give way in proportion, down to their minimums. When the
@@ -89,6 +92,10 @@ or "two columns of the widest section no longer fit".
   | Report | 968 × 716 |
   | Machine | 881 × 564 |
 
+  Through the start path at 1280 px wide (2026-11, after the log dock's two-line minimum and
+  the Nest panes' default widths) the minimum heights are: Design 457, Process 586, Nest 708,
+  Run 653, Report 709, Machine 541.
+
   (Design's minimum grew from 404 when the layer legend's swatches moved to the responsive
   `FlowLayout`, whose minimum counts the rows it wraps to. The Properties dock's minimum width
   is its sections' own, so it is never squeezed below a field; with a selection that is wider
@@ -103,6 +110,13 @@ or "two columns of the widest section no longer fit".
   an overflow menu. The rail sets the floor of the height: it switches to icon-only buttons
   before any workspace can disappear. A larger font raises these minimums. The harness
   (`test_minimum_size_fits_the_smallest_sample`) keeps Design within 1280 × 800.
+* **Never past the screen:** a window placed by `Shell.fit_to_screen` (the application's start
+  path) holds its minimum to the room on its screen (`availableGeometry` less the window frame)
+  for every workspace and tab, also those built later, and again when it moves to another
+  screen. A page that cannot fit that room scrolls (the documented fallback below the
+  supported size); the window never grows off the screen. `tests/test_layout_fit.py` checks
+  every workspace through that path on 1280 × 800 (with a 48 px and an 80 px taskbar, and with
+  a 10 pt font) and 1512 × 982 at 2×. 1366 × 768 is below the supported height and not checked.
 * **First start:** the whole available screen, without the menu bar and Dock or taskbar.
   **Later starts:** the saved geometry (`shell.geometry`), clamped to the current screen
   (`Shell.fit_to_screen`, called by `mlaser.ui.__main__`).
