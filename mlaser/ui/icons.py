@@ -54,6 +54,7 @@ COMMAND_ICONS: dict[str, str] = {
     "edit.undo": "arrow-back-up", "edit.redo": "arrow-forward-up",
     "select.all": "select-all", "select.invert": "arrows-exchange", "select.unclosed": "line-dashed",
     "select.similar": "copy", "select.inner": "border-inner", "select.outer": "border-outer",
+    "partlist.show": "list-numbers",
     "show.bbox": "frame", "show.unclosed_red": "highlight", "show.index": "list-numbers",
     "show.start": "flag", "show.direction": "arrow-narrow-right", "show.move_path": "route",
     # transforms

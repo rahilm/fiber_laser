@@ -47,8 +47,8 @@ class WorkspaceSpec:
       in a side panel to the right of the canvas.
     * ``toolbar``: command ids of the slim contextual toolbar above the page (at most ~15).
     * ``docks``: object names of the dock widgets shown while the workspace is active
-      (``"lp0"`` layers/parts, ``"mf141"`` run control, ``"mf124"`` log, ``"mf460"`` nest);
-      ``None`` keeps the docks as they are.
+      (``"lp0"`` layers, ``"parts"`` the part list, ``"mf141"`` run control, ``"mf124"`` log,
+      ``"mf460"`` nest); ``None`` keeps the docks as they are.
     * ``description``: one line for the rail tooltip and the empty-state placeholder.
     * ``slot``: the built-in slot this fills (``""``: derived from ``id``/``title``, see the
       module docstring).
@@ -79,7 +79,7 @@ BUILTIN: dict[str, WorkspaceSpec] = {
                  "draw.line", "draw.rect", "draw.circle", "draw.text", "-", "edit.undo", "edit.redo",
                  "-", "xform.align", "xform.mirror_h", "xform.rot_cw90", "tool.array", "-",
                  "view.zoom_fit", "show.toolpath"),
-        docks=("lp0", "plugin.ext_process.properties", "mf141", "mf124"),
+        docks=("lp0", "parts", "plugin.ext_process.properties", "mf141", "mf124"),
         description="shell.ws.design.desc", slot=DESIGN,
         # the commands that keep their labels first when not all fit (shell: fit_toolbar)
         extra={"toolbar_labels": ("file.import", "view.zoom_fit", "show.toolpath", "edit.undo")}),
@@ -88,7 +88,7 @@ BUILTIN: dict[str, WorkspaceSpec] = {
         toolbar=("craft.lead", "craft.kerf", "craft.microjoint", "craft.reverse", "craft.start_point",
                  "-", "sort.run", "sort.nearest", "-", "tool.onekey", "-", "show.toolpath", "show.start",
                  "show.direction", "show.move_path", "-", "sim.speed", "sim.stop"),
-        docks=("lp0", "mf141", "mf124"), description="shell.ws.process.desc", slot=PROCESS,
+        docks=("lp0", "parts", "mf141", "mf124"), description="shell.ws.process.desc", slot=PROCESS,
         placeholder=True,
         extra={"toolbar_labels": ("craft.lead", "craft.kerf", "craft.microjoint", "sort.run", "tool.onekey",
                                   "show.toolpath")}),

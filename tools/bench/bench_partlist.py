@@ -7,7 +7,7 @@ app = QApplication([])
 from mlaser import ops
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft
 from mlaser.ui.i18n import translator
-from mlaser.ui.panels import PartListPanel
+from mlaser.ui.part_list import PartListPanel
 import copy, math
 def part(i):
     x, y = (i % 50) * 60.0, (i // 50) * 60.0

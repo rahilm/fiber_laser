@@ -246,9 +246,11 @@ def test_layer_table_and_part_list_in_imperial(win, app):
     _type(fld, "0.04")                                    # 0.04 in
     app.processEvents()
     assert win.document.layers[li].cut_height == pytest.approx(0.04 * IN)
-    hdr = win.part_list.headerItem().text(4)
+    from mlaser.ui.part_list import SIZE
+    m = win.part_list.model
+    hdr = m.headerData(SIZE, Qt.Horizontal)
     assert hdr.endswith("(in)")
-    assert win.part_list.topLevelItem(win.part_list.topLevelItemCount() - 1).text(4) == "4.000×2.000"
+    assert m.index(m.rowCount() - 1, SIZE).data() == "4.000×2.000"
 
 
 def test_jog_steps_follow_units_in_the_run_control_pad(win, app):

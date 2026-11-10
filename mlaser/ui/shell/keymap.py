@@ -34,6 +34,7 @@ WINDOW_KEYS: dict[str, str] = {
     "edit.undo": "Ctrl+Z|Alt+Backspace", "edit.redo": "Ctrl+Y|Ctrl+Shift+Z", "edit.cut": "Ctrl+X",
     "edit.copy": "Ctrl+C", "edit.paste": "Ctrl+V",
     "edit.delete": "Del", "select.all": "Ctrl+A", "select.invert": "Ctrl+Shift+I",
+    "partlist.find": "Ctrl+F",
     # view
     "view.zoom_fit": "F", "view.zoom_in": "Ctrl+=", "view.zoom_out": "Ctrl+-",
     # run (pre-flight first; Stop always passes)

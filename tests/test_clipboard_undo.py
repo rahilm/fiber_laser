@@ -66,6 +66,16 @@ def test_copy_puts_every_representation_on_the_system_clipboard(win, app):
     md = QApplication.clipboard().mimeData()
     assert md.hasFormat(clipboard.MIME_PARTS)
     assert md.hasFormat(clipboard.MIME_SVG) and md.text().lstrip().startswith("<svg")
+    # the DXF follows from a worker a moment later (ui/clipboard.copy_document)
+    from PySide6.QtCore import QDeadlineTimer, QEventLoop
+
+    def has_dxf() -> bool:
+        return any(QApplication.clipboard().mimeData().hasFormat(m) for m in clipboard.MIME_DXF)
+    deadline = QDeadlineTimer(20000)
+    while not has_dxf() and not deadline.hasExpired():
+        app.processEvents(QEventLoop.WaitForMoreEvents, 50)
+    assert has_dxf(), "no DXF on the clipboard"
+    md = QApplication.clipboard().mimeData()
     assert any(md.hasFormat(m) for m in clipboard.MIME_DXF)
     back = clipboard.document_from_mime(md)
     assert len(back.parts) == len(sel)
@@ -168,7 +178,7 @@ w.set_document(ops.demo_document())
 w.canvas.select_parts([0, 1])
 w.run("edit.copy"); w.run("edit.paste"); w.run("edit.cut")
 w.nudge(1, 0); w.run("edit.undo")
-w.part_list.mimeData(w.part_list.selectedItems())        # a drag's data
+w.part_list.model.mimeData([])                           # a drag's data
 for m in w.shell.menubar.findChildren(QMenu):             # access keys, window list, recent
     m.aboutToShow.emit()
 app.processEvents()
@@ -258,7 +268,7 @@ def test_drop_on_the_window_and_unknown_data_refused(win, app, tmp_path):
 
 def test_part_list_drags_the_selected_parts_out(win, app):
     sel = _demo(win, select=(1, 2))
-    md = win.part_list.mimeData(win.part_list.selectedItems())
+    md = win.part_list.model.mimeData([])
     assert md.hasFormat(clipboard.MIME_PARTS) and md.hasUrls()
     path = md.urls()[0].toLocalFile()
     assert path.endswith(".dxf")

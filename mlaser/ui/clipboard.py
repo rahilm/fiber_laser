@@ -106,6 +106,41 @@ def mime_for(doc: Document, parts: Iterable[Part], file_dir: Optional[str] = Non
     return md
 
 
+def copy_document(sub: Document) -> None:
+    """Edit > Copy of ``sub`` (a :func:`parts_document`): the native format, SVG and text go to
+    the system clipboard at once; the DXF follows from a worker thread a moment later and is
+    added only while the clipboard still holds this copy.  Writing the DXF was 0.5 s of the
+    1 s a copy of 256 parts kept the window frozen (ezdxf; UX review 2026-11 finding 12), and
+    only other programs read it (mlaser pastes its own format)."""
+    from PySide6.QtWidgets import QApplication
+    from mlaser.project.format import dumps_project
+    native = dumps_project(sub, embed_fonts=False)
+    svg = svg_text(sub)
+    formats = {MIME_PARTS: native, MIME_SVG: svg.encode("utf-8")}
+    set_clipboard(_mime(formats, svg))
+
+    def done(dxf, err) -> None:
+        if err is not None or not dxf:
+            if err is not None:
+                log.info("clipboard: no DXF (%s)", err)
+            return
+        cb = QApplication.clipboard()
+        cur = cb.mimeData()
+        if cur is None or any(cur.hasFormat(m) for m in MIME_DXF) or bytes(cur.data(MIME_PARTS).data()) != native:
+            return                               # another copy (or another program) since
+        set_clipboard(_mime({**formats, **{m: dxf for m in MIME_DXF}}, svg))
+    from .save_worker import start_worker
+    start_worker(lambda: dxf_bytes(sub), done, name="mlaser-clipboard-dxf")
+
+
+def _mime(formats: dict, text: str) -> QMimeData:
+    md = QMimeData()
+    for f, data in formats.items():
+        md.setData(f, data)
+    md.setText(text)
+    return md
+
+
 def native_mime(md: QMimeData) -> QMimeData:
     """A copy of ``md`` allocated by Qt itself, for :meth:`QClipboard.setMimeData`.
 
