@@ -3528,6 +3528,7 @@
   "safety.alarm.fault_since": "FAULT: {fault}   since {time}",
   "safety.alarm.remedy": "Remedy: {text}",
   "safety.alarm.title": "ALARM {code}: {text}",
+  "safety.alarm.unknown": "Alarm state unknown: the controller does not report it",
   "safety.alarm.with_fault": "{text}  · FAULT: {fault}",
   "safety.alarm.with_more": "{text}  (+{n} more)",
   "safety.alarm.with_since": "{text}   since {time}",
@@ -3555,6 +3556,10 @@
   "safety.bar.kept": "Resume point",
   "safety.bar.state": "Safety state",
   "safety.dont_ask": "Don't ask again",
+  "safety.guard.material": "material check",
+  "safety.guard.missing": "Start is blocked: the {check} could not be installed ({plugin} failed to load, see the log). Restart the application; report it if it stays.",
+  "safety.guard.quantity": "planned-quantity check",
+  "safety.guard.title": "Start blocked",
   "safety.io.active": "Alarm when",
   "safety.io.button": "Safety I/O...",
   "safety.io.door": "Door / guard interlock",
@@ -6201,6 +6206,10 @@
   ],
   "safety.banner.with_simulator": [
    "state"
+  ],
+  "safety.guard.missing": [
+   "check",
+   "plugin"
   ],
   "safety.kept.text": [
    "x",
