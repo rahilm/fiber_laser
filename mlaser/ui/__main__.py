@@ -223,6 +223,13 @@ def _run(args, app, inst) -> int:
         win.log_panel.log(f"log files: {logdir}")
     win.shell.fit_to_screen()            # the saved geometry or the available screen, never larger
     win.show()
+    # a config.json that could not be loaded: the blocking notice (restore / defaults / quit);
+    # until it is answered nothing is written and arming is refused (ui/config_notice.py)
+    from .config_notice import show_if_needed
+    if not show_if_needed(win):
+        win._test_no_dialogs = True
+        win.close()
+        return 1
     from . import native_report
     native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs

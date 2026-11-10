@@ -508,6 +508,23 @@
   "cmd.xform.rotate": "Rotate",
   "cmd.xform.scale_dialog": "Scale",
   "cmd.xform.size": "Size",
+  "config.notice.title": "Settings not loaded",
+  "config.notice.heading.damaged": "The settings file is damaged",
+  "config.notice.heading.unreadable": "The settings file could not be read",
+  "config.notice.heading.newer": "The settings file is from a newer version of mlaser",
+  "config.notice.explanation": "mlaser has started with the default settings: the step scale, the safety inputs, the heartbeat output and every other machine setting are the defaults, not this machine's. Arming is refused and the settings file is not changed until you choose how to continue.",
+  "config.notice.file": "Settings file: {path}",
+  "config.notice.problem": "Problem: {error}",
+  "config.notice.copy": "A copy of the file was kept as: {path}",
+  "config.notice.backup": "The last settings that loaded without error are in: {path}",
+  "config.notice.no_backup": "There is no copy of earlier settings to restore. Restore the file from your own backup and start mlaser again, or continue with the default settings and commission the machine again.",
+  "config.notice.restore": "Restore last good settings",
+  "config.notice.defaults": "Continue with default settings",
+  "config.notice.quit": "Quit mlaser",
+  "config.notice.arm_hold": "the settings file could not be loaded and the start-up notice has not been answered",
+  "config.notice.log": "Settings not loaded ({error}): running on the default settings, arming refused until the notice is answered",
+  "config.notice.log_restored": "Settings restored from {path}",
+  "config.notice.log_defaults": "Continuing with the default settings: commission the machine again before cutting (Machine > Safety I/O, machine parameters)",
   "cost.hint": "From the planned job that Start runs. Lines marked ≈ are estimates, not measurements.",
   "cost.kind.estimate": "estimate",
   "cost.kind.measured": "from the planned job",
@@ -4954,6 +4971,24 @@
   "undo.import": "Import"
  },
  "args": {
+  "config.notice.file": [
+   "path"
+  ],
+  "config.notice.problem": [
+   "error"
+  ],
+  "config.notice.copy": [
+   "path"
+  ],
+  "config.notice.backup": [
+   "path"
+  ],
+  "config.notice.log": [
+   "error"
+  ],
+  "config.notice.log_restored": [
+   "path"
+  ],
   "a11y.alarm.spoken": [
    "title",
    "remedy"

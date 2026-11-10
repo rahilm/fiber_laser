@@ -23,6 +23,7 @@ from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover
 
 from . import dialogs, homes, settings_apply, style
 from .canvas import CanvasView, layer_color
+from .config_notice import apply_hold
 from ..machine.api import ControllerFacade
 from .facade import DemoController
 from .i18n import Translator, translator
@@ -242,6 +243,7 @@ class MainWindow(QMainWindow):
         # with its undo history, the command registry and the plugin hooks
         self.config = config or ConfigService()
         self.settings = self.config.mapping()     # dict view of the set values (Options dialogs)
+        apply_hold(self)                          # a config.json that did not load: no arming (A3)
         _units.bind(self.config)                  # display units follow units.* (docs/user/units.md)
         from .units_qt import follow_locale
         follow_locale()                           # "1,50 mm" under de_DE like Qt's spin boxes; RTL-safe
@@ -1801,6 +1803,7 @@ class MainWindow(QMainWindow):
         except Exception:  # noqa: BLE001
             pass
         self.ctl = ctl
+        apply_hold(self)                                 # the config's arm hold (ui/config_notice.py)
         self.control.ctl = self.run_controls
         ctl.add_log_listener(self.log_panel.log)
         self.hooks.emit("controller_changed", ctl)      # plugins re-attach (PluginContext)
