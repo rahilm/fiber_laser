@@ -28,7 +28,9 @@ from __future__ import annotations
 
 import copy
 import json
+import logging
 import math
+import os
 import re
 import sqlite3
 import time
@@ -38,6 +40,8 @@ from typing import Any, Iterable, Optional
 
 from mlaser._atomic import atomic_write_text
 from mlaser.model import Document, LayerParams, LeadParams, Part
+
+log = logging.getLogger("mlaser.technology")
 
 FORMAT = "mlaser-technology/1"
 SCHEMA_VERSION = 1
@@ -436,6 +440,11 @@ class VersionInfo:
     origin: str
 
 
+def _suppress():
+    import contextlib
+    return contextlib.suppress(OSError, sqlite3.Error)
+
+
 class TechnologyStore:
     """SQLite store of technology records with a version history (see the module docstring)."""
 
@@ -443,8 +452,32 @@ class TechnologyStore:
                  seed_examples: bool = True) -> None:
         self.profile = profile
         self.path = Path(path) if path is not None else store_path(profile)
+        #: why the database file could not be opened ("" = it opened): it was moved aside to
+        #: ``<name>.bad`` and an empty store opened in its place (review A9); the Process
+        #: workspace says so
+        self.load_error = ""
         if str(self.path) != ":memory:":
             self.path.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._open(seed_examples)
+        except sqlite3.DatabaseError as exc:
+            if str(self.path) == ":memory:":
+                raise
+            db = self.__dict__.get("db")
+            if db is not None:
+                with _suppress():
+                    db.close()
+            self.load_error = f"{type(exc).__name__}: {exc}"
+            bad = self.path.with_name(self.path.name + ".bad")
+            os.replace(self.path, bad)            # an OSError here is the caller's (nothing to save)
+            for side in ("-wal", "-shm", "-journal"):
+                with _suppress():
+                    os.replace(str(self.path) + side, str(bad) + side)
+            log.error("technology database %s: %s; kept as %s, an empty database is used", self.path,
+                      self.load_error, bad)
+            self._open(seed_examples)
+
+    def _open(self, seed_examples: bool) -> None:
         self.db = sqlite3.connect(str(self.path))
         self.db.row_factory = sqlite3.Row
         self._schema()

@@ -264,6 +264,7 @@ class MainWindow(QMainWindow):
         self.plan = None                          # the current preview PlannedJob
         self._plan_head: Optional[tuple] = None
         self.extensions: dict = {}
+        self.extension_failures: dict = {}       # built-in plugin -> why it did not load (A9)
         self.plugin_contexts: dict = {}
         self.workspaces: dict = {}
         # lead dialog state: defaults of a fresh install (D-17) + options (D-18/D-19)
@@ -397,6 +398,11 @@ class MainWindow(QMainWindow):
     def _register(self, info) -> bool:
         ctx, result = register_plugin(self, info)
         if ctx is None:
+            if info.origin == "builtin":         # a missing built-in feature is said, not only logged
+                self.extension_failures[info.name] = f"{type(result).__name__}: {result}"
+                text = self.tr_.format("main.log.extension_failed", name=info.name, error=type(result).__name__)
+                self.log_panel.log(text)
+                self.statusBar().showMessage(text)
             return False
         self.plugin_contexts[info.name] = ctx
         self.extensions[info.name] = result

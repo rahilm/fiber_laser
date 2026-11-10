@@ -525,6 +525,10 @@
   "config.notice.log": "Settings not loaded ({error}): running on the default settings, arming refused until the notice is answered",
   "config.notice.log_restored": "Settings restored from {path}",
   "config.notice.log_defaults": "Continuing with the default settings: commission the machine again before cutting (Machine > Safety I/O, machine parameters)",
+  "machine.log.history_damaged": "Alarm history: {error} (the file was kept as {path})",
+  "process.log.store_damaged": "Technology database could not be opened ({error}): it was kept as {path} and an empty database is used",
+  "process.log.store_unavailable": "Technology database unavailable ({error}): an empty database is used for this session and nothing is saved",
+  "main.log.extension_failed": "Built-in part {name} did not load ({error}): its commands and workspace are missing. The log file has the details.",
   "cost.hint": "From the planned job that Start runs. Lines marked ≈ are estimates, not measurements.",
   "cost.kind.estimate": "estimate",
   "cost.kind.measured": "from the planned job",
@@ -4971,6 +4975,21 @@
   "undo.import": "Import"
  },
  "args": {
+  "machine.log.history_damaged": [
+   "error",
+   "path"
+  ],
+  "process.log.store_damaged": [
+   "error",
+   "path"
+  ],
+  "process.log.store_unavailable": [
+   "error"
+  ],
+  "main.log.extension_failed": [
+   "name",
+   "error"
+  ],
   "config.notice.file": [
    "path"
   ],

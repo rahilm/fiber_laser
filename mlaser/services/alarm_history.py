@@ -8,6 +8,8 @@ texts; a new controller is attached again on ``controller_changed``.
 from __future__ import annotations
 
 import json
+import logging
+import os
 import threading
 import time
 from dataclasses import asdict, dataclass
@@ -15,7 +17,9 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from mlaser import _writebehind
-from mlaser._atomic import atomic_write_text
+from mlaser._atomic import atomic_write, atomic_write_text
+
+log = logging.getLogger("mlaser.alarm_history")
 
 FILE = "alarm_history.jsonl"
 
@@ -64,6 +68,10 @@ class AlarmHistory:
         self.listeners: list[Callable[[], None]] = []
         self._lock = threading.Lock()
         self._unsub: list[Callable[[], None]] = []
+        #: why lines of the file were unusable ("" = none): the readable records are kept, the
+        #: whole file as it was is copied to ``<name>.bad`` (review A9), the Machine workspace
+        #: says so in the log
+        self.load_error = ""
         self.load()
 
     # ------------------------------------------------------------------ events
@@ -144,17 +152,41 @@ class AlarmHistory:
             return
         _writebehind.flush(2.0, _key(self.path))      # a save still on its way (another instance's)
         try:
-            lines = self.path.read_text("utf-8").splitlines()
-        except OSError:
+            raw = self.path.read_bytes()
+        except FileNotFoundError:
             return
-        recs = []
-        for ln in lines[-self.limit:]:
-            try:
-                recs.append(AlarmRecord(**json.loads(ln)))
-            except (ValueError, TypeError):
+        except OSError as exc:
+            self._bad(None, f"{type(exc).__name__}: {exc}")
+            return
+        recs, bad = [], 0
+        for ln in raw.splitlines()[-self.limit:]:
+            if not ln.strip():
                 continue
+            try:                          # one damaged line (a power cut mid-write) costs that line
+                d = json.loads(ln.decode("utf-8"))
+                recs.append(AlarmRecord(**d) if isinstance(d, dict) else _not_a_record(d))
+            except (ValueError, TypeError):
+                bad += 1
         with self._lock:
             self.records = recs
+        if bad:
+            self._bad(raw, f"{bad} unreadable line(s)")
+
+    def _bad(self, raw: Optional[bytes], why: str) -> None:
+        assert self.path is not None
+        self.load_error = why
+        keep = self.path.with_name(self.path.name + ".bad")
+        if raw is not None:
+            try:
+                atomic_write(keep, raw)
+            except OSError:
+                keep = self.path
+        else:                              # unreadable: move it aside so a save does not replace it
+            try:
+                os.replace(self.path, keep)
+            except OSError:
+                keep = self.path
+        log.error("alarm history %s: %s (the file as it was is kept as %s)", self.path, why, keep)
 
     def save(self) -> None:
         """Write the records (by the file writer thread, :mod:`mlaser._writebehind`: a fault
@@ -173,6 +205,10 @@ class AlarmHistory:
 
 def _key(path: Path) -> tuple:
     return ("alarm_history", str(path))
+
+
+def _not_a_record(d: Any) -> AlarmRecord:
+    raise TypeError(f"not an alarm record: {type(d).__name__}")
 
 
 def _write(path: Path, data: str) -> None:
