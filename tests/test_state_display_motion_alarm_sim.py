@@ -278,3 +278,19 @@ def test_network_address_is_never_called_a_real_card(sim_win, app):
     finally:
         c2.disconnect()
         ext.stop()
+
+
+def test_banner_motion_chip_and_text_while_armed_or_disarmed(sim_win, app):
+    """Disarmed and moving: the text says the axes move (never the calm "idle" look); armed: the
+    amber banner keeps its one warning line and the motion is its chip (no clipped third line in
+    a half-screen window)."""
+    from mlaser.ui import style
+    su = sim_win.safety_ui
+    b = su.banner
+    ms = SimpleNamespace(connected=True, mode="frame")
+    b.refresh(_st(simulator=True), ms, machine="running")
+    assert "axes are moving" in b.label.text() and b.motion_chip.text() == "RUNNING"
+    assert style.state_colors("RUNNING")[0] in b.styleSheet()
+    b.refresh(_st(banner="ARMED", armed=True), SimpleNamespace(connected=True, mode="process"), machine="running")
+    assert b.label.text() == "Emission enabled: the beam fires on Start" and b.motion_chip.isVisibleTo(b)
+    assert style.state_colors("ARMED")[0] in b.styleSheet()

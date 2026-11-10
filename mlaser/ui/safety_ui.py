@@ -606,8 +606,9 @@ class StateBanner(QWidget):
                             "dry_run": ("safety.banner.dry_run", "Laser output disabled (dry-run mode)")}.get(
                 state, ("safety.banner.disarmed", "The laser cannot fire"))
             text = _tr(w, key, default)
-            if moving:
-                # "disarmed" is the laser's fact; the motion is said too (UX review 2026-11 #3)
+            if moving and state != "armed":
+                # "disarmed" is the laser's fact; the motion is said too (UX review 2026-11 #3).
+                # Armed, the amber banner already warns; the motion chip names the motion
                 mkey, mdef = {"homing": ("safety.banner.motion.homing", "Homing: the axes are moving"),
                               "moving": ("safety.banner.motion.moving", "The axes are moving")}.get(
                     machine, ("safety.banner.motion.running", "A job is running: the axes are moving"))
