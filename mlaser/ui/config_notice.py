@@ -41,11 +41,10 @@ def apply_hold(win: Any) -> None:
     answered; lift that refusal once it is."""
     cfg = getattr(win, "config", None)
     ctl = getattr(win, "ctl", None)
-    fn = getattr(ctl, "set_arm_hold", None)
-    if cfg is None or fn is None:
+    if cfg is None or ctl is None:
         return
     blocked = bool(getattr(cfg, "load_blocked", False))
-    fn(HOLD_KEY, _tr(win, "config.notice.arm_hold") if blocked else None)
+    ctl.set_arm_hold(HOLD_KEY, _tr(win, "config.notice.arm_hold") if blocked else None)
 
 
 def _breakable(path: Any) -> str:

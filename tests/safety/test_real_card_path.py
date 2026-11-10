@@ -51,7 +51,8 @@ def test_job_runs_from_start_to_end(make_ctl, card):
     assert wait_until(lambda: sim.state.fifo_running, 20) is not None, "job did not start"
     assert ctl.wait_job(30)
     assert not ctl.fsm.faulted, ctl.fsm.fault
-    assert ctl.fsm.state == SafetyState.ARMED and ctl.breakpoint is None
+    # a finished cut gives the arming back (arming lasts for one cut)
+    assert ctl.fsm.state == SafetyState.DISARMED and ctl.breakpoint is None
     assert _executed_steps(sim) == _steps(ctl.job.wire)
     cmds = sim.state.commands
     assert [F.OP_SYS, F.SYS_JOB_RESET] in cmds
@@ -82,7 +83,7 @@ def test_pause_then_resume_runs_to_the_end(make_ctl, card):
     assert wait_until(lambda: ctl.breakpoint is None and not ctl._busy(), 40) is not None
     assert ctl.wait_job(10)
     assert not ctl.fsm.faulted, ctl.fsm.fault
-    assert ctl.fsm.state == SafetyState.ARMED
+    assert ctl.fsm.state == SafetyState.DISARMED
     assert wait_until(lambda: safe(sim) and not sim.state.program_active, 2.0) is not None
 
 

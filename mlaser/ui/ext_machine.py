@@ -207,8 +207,8 @@ class MachineExtension:
             ctl.coords = self.ops.coords
         if self.autosave not in ctl.job_start_hooks:
             ctl.job_start_hooks.append(self.autosave)
-        bus = getattr(ctl, "events", None)
-        if bus is not None and getattr(self, "_homing_bus", None) is not bus:
+        bus = ctl.events
+        if getattr(self, "_homing_bus", None) is not bus:
             from mlaser.machine import events as EV
             bus.subscribe(EV.HomingDone, self._homing_done)
             self._homing_bus = bus
@@ -668,7 +668,7 @@ class MachineExtension:
         (None, reason)."""
         from mlaser.services import resume_point as RP
         ctl = self.w.ctl
-        if getattr(ctl, "breakpoint", None) is not None or ctl.job_active():
+        if ctl.breakpoint is not None or ctl.job_active():
             return None, RP.CONTROLLER
         bp, why = RP.rebuild(point, doc, ctl)
         if bp is None:
@@ -724,7 +724,7 @@ class MachineExtension:
         """Keep File/resume_point.json in step with the controller's resume point (the window
         timer: a held breakpoint, else a kept one; none: the file is removed)."""
         ctl = self.w.ctl
-        bp = getattr(ctl, "breakpoint", None) or getattr(ctl, "kept_breakpoint", None)
+        bp = ctl.breakpoint or ctl.kept_breakpoint
         if bp is self._saved_bp:
             return
         self._saved_bp = bp
