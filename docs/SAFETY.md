@@ -368,8 +368,11 @@ decelerated stop instead of stopping dead. In every mode the simulator models th
 exactly (sub 2 reaches outputs 1..10 only, sub 13 outputs 11..26) and reports a jog in progress
 (machine state 2, axis velocity, live position), so it cannot hide a halt that misses the
 extended board or a start during a jog. `sim.inject(...)` / `SimFaults`: `link_down`,
-`request_loss`, `reply_loss`, `latency_ms`, `jitter_ms`, `duplicate_writes`. The safety tests use
-the pessimistic mode. A halt completes the step being executed (the 1-pulse resume flake).
+`request_loss`, `reply_loss`, `latency_ms`, `jitter_ms`, `duplicate_writes`, `fifo_reply_loss`
+(the replies of the next n FIFO frames). What the card does with a FIFO frame it receives twice
+(the client's re-send after a lost reply) is unknown and switchable, `duplicate_fifo`
+(`accept-twice` by default, `dedupe`, `reject`; [Bench checks](dev/BENCH_CHECKS.md)). The safety
+tests use the pessimistic mode. A halt completes the step being executed (the 1-pulse resume flake).
 
 ## 10. UI
 

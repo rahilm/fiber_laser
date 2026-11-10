@@ -27,3 +27,14 @@ scenarios driven with xdotool. `MLASER_REBUILD` points the harness at the checko
 The full report, the accepted differences and how to verify against your own machine are in
 the [parity notes](../re/parity.md), in particular
 [§8 Verifying against your machine](../re/parity.md#8-verifying-against-your-machine).
+
+## Your own captures
+
+`tools/compare_capture.py` compares the original's job stream in a capture of your machine with
+the rebuild's ([parity.md §8](../re/parity.md#8-verifying-against-your-machine)).
+`tests/test_capture_replay.py` replays any capture of the card traffic (of the original or of
+mlaser) through the production decoder and checks the documented invariants; it reads the folder
+named by `MLASER_CAPTURE_DIR` and skips without it ([Testing](TESTING.md#replaying-your-own-captures)).
+Captures stay on your machine: the repository contains none. Registers 59500 and 59503 (licence
+traffic) are skipped. What the card does with a FIFO frame it receives twice is settled with
+`tools/bench_duplicate_frame.py` ([Bench checks](BENCH_CHECKS.md)).
