@@ -39,7 +39,7 @@ import os
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import Qt, QTimer, QUrl
+from PySide6.QtCore import QSize, Qt, QTimer, QUrl
 
 from .qtbridge import BackgroundCall
 from PySide6.QtGui import QDesktopServices
@@ -809,6 +809,10 @@ class LogViewer(Dialog):
         b.clicked.connect(self.open_folder)
         sp = QSplitter()
         self.files = QListWidget()
+        # long file names are elided in the middle (date and extension stay), the whole name in
+        # the tooltip: no sideways scrolling at a large font (issue #3)
+        self.files.setTextElideMode(Qt.ElideMiddle)
+        self.files.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.files.currentRowChanged.connect(self._load)
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
@@ -824,8 +828,12 @@ class LogViewer(Dialog):
     def reload(self) -> None:
         self.paths = L.list_logs(self.ext.log_dirs())
         self.files.clear()
+        row_h = self.files.fontMetrics().height() + 6
         for p in self.paths:
-            self.files.addItem(QListWidgetItem(os.path.basename(p)))
+            it = QListWidgetItem(os.path.basename(p))
+            it.setToolTip(os.path.basename(p))
+            it.setSizeHint(QSize(0, row_h))          # as wide as the list: the text elides
+            self.files.addItem(it)
         if self.paths:
             self.files.setCurrentRow(0)
         else:
