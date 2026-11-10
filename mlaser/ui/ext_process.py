@@ -68,7 +68,8 @@ class ProcessExtension:
         self.page = LazyPage(self._build_workspace, "process_workspace_page")
         # the Process slot of the shell: the canvas with this panel at its right
         ctx.add_workspace("process", self.page, t("process.title"), canvas=True,
-                          docks=["plugin.ext_process.properties", "plugin.ext_process.preview", "mf124"])
+                          docks=["plugin.ext_process.properties", "parts", "plugin.ext_process.preview",
+                                "mf124"])
         self.properties = PropertiesPanel(ctx, self.canvas,
                                           technology_name=lambda li: technology_name(ctx.document, li),
                                           store=self.store)
@@ -76,8 +77,8 @@ class ProcessExtension:
         self.overlay = PreviewOverlay(self.canvas)
         self.props_dock = ctx.add_dock(self.properties, t("props.title"), "left", key="plugin.ext_process.properties")
         self.preview_dock = ctx.add_dock(self.scrubber, t("preview.title"), "bottom", key="plugin.ext_process.preview")
-        # one tab group with the layer / part dock (left), so the run controls on the right keep
-        # their height: Layers | Properties
+        # one tab group with the layer and part docks (left), so the run controls on the right
+        # keep their height: Layers | Parts | Properties (Process: Parts | Properties)
         left = getattr(win, "left_dock", None)
         try:
             if left is not None:

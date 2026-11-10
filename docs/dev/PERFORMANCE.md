@@ -185,8 +185,14 @@ items, not the emitter.
 
 ## Part list (Wave 3, run track)
 
-`ui/panels.PartListPanel` caches each part's bounding box by `uid`, validated by the identity of
-its segment objects (edits replace them), and reuses its tree items.  2,000 parts (a square and a
+`ui/part_list.PartBoxes` (formerly in `ui/panels.PartListPanel`) caches each part's bounding box
+by `uid`, validated by the identity of its segment objects (edits replace them).  The list is a
+`QAbstractTableModel` (`ui/part_list.PartListModel`, since 2026-11): an edit compares only the
+rows of the parts it changed and signals only the rows that differ (`dataChanged`; a paste
+inserts rows), and sorting / filtering keep a list of part indices instead of a proxy model, so
+the selection maps rows to parts directly.  Measured at 2,700 parts: an unchanged update 5 ms,
+a one-part edit 3-4 ms, the selection of all rows from the canvas a few ms (the model's
+`flags()` is a constant: three enum ORs per cell cost 0.5 s on a select-all).  2,000 parts (a square and a
 circle each), offscreen, machine load ~230 on 64 cores:
 
 | | before | after |
@@ -375,7 +381,7 @@ hash and the plan-process request reuse per-part digests and encodings.
 
 ### Linear selection (P1-8)
 
-`PartListPanel` selects its rows in one `QItemSelectionModel.select` call. The canvas re-pens
+`PartListPanel` (`ui/part_list.py`) selects its rows in one `QItemSelectionModel.select` call. The canvas re-pens
 only items whose style changed, and caches part boxes for the rubber band.
 
 | real window, n = 3 | 2,000 before | 2,000 after | 10,000 before | 10,000 after |

@@ -1,10 +1,11 @@
-"""Part list: bounding boxes cached by part uid (ui/panels.PartListPanel)."""
+"""Part list: bounding boxes cached by part uid (ui/part_list.PartListPanel)."""
 from __future__ import annotations
 
 import pytest
 
 pytest.importorskip("PySide6")
 
+from PySide6.QtCore import QItemSelectionModel, Qt  # noqa: E402
 from PySide6.QtWidgets import QApplication  # noqa: E402
 
 from mlaser import ops  # noqa: E402
@@ -27,7 +28,9 @@ def panel():
 
 
 def sizes(panel):
-    return [panel.topLevelItem(i).text(4) for i in range(panel.topLevelItemCount())]
+    from mlaser.ui.part_list import SIZE
+    m = panel.model
+    return [m.index(r, SIZE).data() for r in range(m.rowCount())]
 
 
 def test_only_changed_parts_are_measured(panel):
@@ -52,21 +55,25 @@ def test_only_changed_parts_are_measured(panel):
 def test_rows_follow_removals_and_open_contours(panel):
     doc = Document(parts=[sq(0, 0), sq(20, 0, closed=False), sq(40, 0, 5)])
     panel.set_document(doc)
-    from mlaser.ui import style
-    assert panel.topLevelItem(1).foreground(1).color().name() == style.color("danger").name()   # open contour
+    from mlaser.ui.part_list import STATE
+    m = panel.model
+    # an open contour is a warning in words with an icon (not colour alone, and not alarm red)
+    assert panel.tr_.tr("partlist.warn.open") in m.index(1, STATE).data()
+    assert not m.index(1, STATE).data(Qt.DecorationRole).isNull()
+    assert panel.tr_.tr("partlist.warn.open") not in (m.index(0, STATE).data() or "")
     doc.parts.pop(0)
     doc.parts[0].selected = True
     panel.refresh()
-    assert panel.topLevelItemCount() == 2
+    assert m.rowCount() == 2
     assert sizes(panel) == ["10.00×10.00", "5.00×5.00"]
-    assert panel.topLevelItem(0).isSelected() and not panel.topLevelItem(1).isSelected()
+    assert _selected_rows(panel) == [0]
     doc.parts[0].contours[0].segments[1] = Line((30, 0), (35, 10))     # an in-list replacement
     panel.refresh()
     assert sizes(panel)[0] == "15.00×10.00"
 
 
 def _selected_rows(panel):
-    return sorted(panel.indexOfTopLevelItem(it) for it in panel.selectedItems())
+    return sorted(ix.row() for ix in panel.view.selectionModel().selectedRows())
 
 
 def test_sync_selection_follows_the_part_flags(panel):
@@ -88,7 +95,9 @@ def test_sync_selection_follows_the_part_flags(panel):
     panel.refresh()
     assert _selected_rows(panel) == [i for i, p in enumerate(doc.parts) if p.selected]
     # a click in the list still reaches the canvas
-    panel.topLevelItem(5).setSelected(True)
+    panel.view.selectionModel().select(panel.model.index(5, 0),
+                                       QItemSelectionModel.Select | QItemSelectionModel.Rows)
+    panel.flush()
     assert echoed and 5 in echoed[-1]
 
 
@@ -102,7 +111,8 @@ def _grid_doc(n):
 def test_rubber_band_selection_at_10000_parts_is_linear():
     """Rubber band and select-all on 10,000 parts with the part list attached (canvas selection
     -> PartListPanel.sync_selection, the application's wiring).  Before: 222-223 s for the full
-    rubber band and 77 s for a small one right after (QTreeWidgetItem.setSelected per row)."""
+    rubber band and 77 s for a small one right after (QTreeWidgetItem.setSelected per row; the
+    list is a model / view since, the selection is still applied in one call)."""
     import time
 
     from PySide6.QtCore import QRectF
@@ -124,7 +134,7 @@ def test_rubber_band_selection_at_10000_parts_is_linear():
     cv._rubber_select(QRectF(x0 - 1, y0 - 1, x1 - x0 + 2, y1 - y0 + 2), True, False)
     t_all = time.perf_counter() - t
     assert all(p.selected for p in doc.parts)
-    assert len(pl.selectedItems()) == n
+    assert len(_selected_rows(pl)) == n
     t = time.perf_counter()
     cv._rubber_select(QRectF(-1, -1, 12, 12), False, False)        # just the first square
     t_small = time.perf_counter() - t

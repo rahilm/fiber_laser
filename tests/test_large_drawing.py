@@ -346,11 +346,13 @@ def test_canvas_and_part_list_update_incrementally(win, app, monkeypatch):
     assert len(canvas._items) == len(contour_items)
     assert all(a is b for a, (pi, _, b, _) in zip(contour_items, canvas._items) if pi != 5)
     assert drawing_items() <= n_items + 5, (drawing_items(), n_items)
-    rows = [tuple(win.part_list.topLevelItem(i).text(c) for c in range(5))
-            for i in range(win.part_list.topLevelItemCount())]
+    m = win.part_list.model
+
+    def rows() -> list:
+        return [tuple(m.index(r, c).data() for c in range(m.columnCount())) for r in range(m.rowCount())]
+    before = rows()
     win.part_list.refresh()                                  # a full refresh shows the same
-    assert rows == [tuple(win.part_list.topLevelItem(i).text(c) for c in range(5))
-                    for i in range(win.part_list.topLevelItemCount())]
+    assert before == rows()
     win.refresh_views()                                      # a full rebuild: the same scene
     assert _scene_state(canvas) == _expected(win.document)
     # deleting a part (the part list changes): a full rebuild, still exact

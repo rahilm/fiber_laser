@@ -69,6 +69,7 @@ def _menus(plat: str) -> list[Menu]:
         "select.all", "select.invert",
         Sub("shell.menu.select", ["select.unclosed", "select.similar", "select.inner", "select.outer",
                                   "tool.group_select_all"]),
+        "partlist.find", "partlist.show",
         SEP,
         Sub("", head="xform.size", items=["xform.scale_10", "xform.scale_30", "xform.scale_50", "xform.scale_75",
                                           "xform.scale_200", "xform.scale_500", SEP, "xform.size_10mm",
@@ -107,7 +108,8 @@ def _menus(plat: str) -> list[Menu]:
         "tool.measure",
     ])
     process = Menu("process", "shell.menu.process", [
-        "process.show", "process.library", "nav.layer_parameters", "process.apply", "process.rates", SEP,
+        "process.show", "process.library", "nav.layer_parameters", "process.apply", "partlist.assign_tech",
+        "process.rates", SEP,
         Sub("", head="craft.lead", items=["craft.lead_manual", "craft.lead_check", "craft.lead_clear_mark",
                                           "craft.lead_clear", SEP, "cam.lead_place", "cam.lead_check",
                                           "cam.lead_fix", "cam.tip_check", "cam.tip_fix"]),

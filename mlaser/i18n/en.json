@@ -1763,6 +1763,60 @@
   "panel.the_machine_has_not_been_homed_so_this": "The machine has not been homed, so this action is not possible. Click OK to home it now.",
   "panel.when_done_return_to": "When done, return to",
   "panel.why.offline": "Connect first",
+  "partlist.title": "Parts",
+  "partlist.cmd.find": "Find part…",
+  "partlist.cmd.show": "Part list",
+  "partlist.cmd.assign": "Assign technology to selected parts…",
+  "partlist.col.num": "#",
+  "partlist.col.name": "Name",
+  "partlist.col.layer": "Layer",
+  "partlist.col.tech": "Technology",
+  "partlist.col.size": "Size",
+  "partlist.col.contours": "Contours",
+  "partlist.col.order": "Cut order",
+  "partlist.col.state": "Warnings",
+  "partlist.part_n": "Part {n}",
+  "partlist.layer_n": "Layer {n}",
+  "partlist.warn.open": "Open contour",
+  "partlist.warn.no_settings": "No cut settings",
+  "partlist.tech.none": "no technology",
+  "partlist.a11y.row": "Part {n}, {name}: layer {layer}, {tech}, {size}, {contours} contours, {state}",
+  "partlist.a11y.ok": "no warnings",
+  "partlist.a11y.desc": "Every part of the drawing. Selecting rows selects the parts on the canvas; Enter shows them there.",
+  "partlist.filter.placeholder": "Find part: number, name, technology, >50 (Ctrl+F)",
+  "partlist.filter.name": "Find part",
+  "partlist.filter.tip": "Words match the part number, name, layer, technology or warning; #12 is part 12; >50 or <50 compares the larger side of the part (Ctrl+F). Filtering never changes the drawing.",
+  "partlist.filter.layer": "Show layer",
+  "partlist.filter.all_layers": "All layers",
+  "partlist.filter.warnings": "Warnings only",
+  "partlist.filter.warnings_tip": "Show only the parts with an open contour or on a layer without cut settings",
+  "partlist.filter.clear": "Clear filter",
+  "partlist.show": "Show on canvas",
+  "partlist.show_tip": "Zoom the canvas to the selected parts (Enter or double-click in the list)",
+  "partlist.assign_btn": "Assign technology…",
+  "partlist.assign_tip": "Cut the selected parts with another technology: they move to a layer that uses it",
+  "partlist.need_selection": "Select one or more parts first",
+  "partlist.only_design_process": "The part list is in the Design and Process workspaces",
+  "partlist.status": "Part list status",
+  "partlist.empty": "No parts yet. Import or draw a drawing: its parts are listed here.",
+  "partlist.no_match": "No part matches the filter.",
+  "partlist.count.one": "{n} part · {selected} selected",
+  "partlist.count.other": "{n} parts · {selected} selected",
+  "partlist.count_filtered.one": "{shown} of {n} part shown · {selected} selected",
+  "partlist.count_filtered.other": "{shown} of {n} parts shown · {selected} selected",
+  "partlist.assign.title": "Assign technology",
+  "partlist.assign.explain.one": "The selected part will be cut with the technology you pick. Technology belongs to a layer: the part moves to a layer that uses it (a free layer when none does). One undo step.",
+  "partlist.assign.explain.other": "The {n} selected parts will be cut with the technology you pick. Technology belongs to a layer: the parts move to a layer that uses it (a free layer when none does). One undo step.",
+  "partlist.assign.ok": "Assign",
+  "partlist.assign.moved.one": "{n} part moved to layer {layer} · {tech}",
+  "partlist.assign.moved.other": "{n} parts moved to layer {layer} · {tech}",
+  "partlist.assign.layer.one": "{n} part: layer {layer} now uses {tech}",
+  "partlist.assign.layer.other": "{n} parts: layer {layer} now uses {tech}",
+  "partlist.assign.no_layer": "Every layer is in use: no free layer for another technology. Move some parts to another layer first.",
+  "busy.copy.one": "Copying {n} part…",
+  "busy.copy.other": "Copying {n} parts…",
+  "busy.paste": "Pasting…",
+  "busy.array": "Making copies…",
   "param.4th_axis.axis_index": "4th axis.Axis index",
   "param.4th_axis.double_drive": "4th axis.Double drive",
   "param.4th_axis.encoder_reverse": "4th axis.Encoder reverse",
@@ -7506,6 +7560,68 @@
   "ws.machine.safety_with_fault": [
    "state",
    "fault"
+  ],
+  "partlist.part_n": [
+   "n"
+  ],
+  "partlist.layer_n": [
+   "n"
+  ],
+  "partlist.a11y.row": [
+   "n",
+   "name",
+   "layer",
+   "tech",
+   "size",
+   "contours",
+   "state"
+  ],
+  "partlist.count.one": [
+   "n",
+   "selected"
+  ],
+  "partlist.count.other": [
+   "n",
+   "selected"
+  ],
+  "partlist.count_filtered.one": [
+   "shown",
+   "n",
+   "selected"
+  ],
+  "partlist.count_filtered.other": [
+   "shown",
+   "n",
+   "selected"
+  ],
+  "partlist.assign.explain.other": [
+   "n"
+  ],
+  "partlist.assign.moved.one": [
+   "n",
+   "layer",
+   "tech"
+  ],
+  "partlist.assign.moved.other": [
+   "n",
+   "layer",
+   "tech"
+  ],
+  "partlist.assign.layer.one": [
+   "n",
+   "layer",
+   "tech"
+  ],
+  "partlist.assign.layer.other": [
+   "n",
+   "layer",
+   "tech"
+  ],
+  "busy.copy.one": [
+   "n"
+  ],
+  "busy.copy.other": [
+   "n"
   ],
   "update.latest": [
    "version"

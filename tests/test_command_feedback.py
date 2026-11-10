@@ -33,6 +33,9 @@ IDEMPOTENT = {
     "nest.show": lambda w: w.extensions["ext_nest"][0].dock.isVisible(),
     # already the tab on top: nothing more to show
     "props.show": lambda w: not w.extension("ext_process").props_dock.visibleRegion().isEmpty(),
+    # the part list already in front (Find part also puts the cursor in its filter field)
+    "partlist.show": lambda w: not w.parts_dock.visibleRegion().isEmpty(),
+    "partlist.find": lambda w: not w.parts_dock.visibleRegion().isEmpty(),
     "shell.mode_service": lambda w: w.user_mode == "service",
     "workspace.design": lambda w: w.shell.host.current == "design",
     "view.zoom_fit": lambda w: True,          # the drawing is shown fitted when it is set

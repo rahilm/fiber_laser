@@ -135,7 +135,7 @@ NEEDS: dict[str, tuple[Need, ...]] = {
     "sort.manual_end": (MANUAL_SORT,), "sort.manual_prev": (MANUAL_SORT,),
     # technology and checks on the drawing
     "process.apply": (DOCUMENT,), "cam.lead_check": (DOCUMENT,), "cam.tip_check": (DOCUMENT,),
-    "parts.review": (DOCUMENT,),
+    "parts.review": (DOCUMENT,), "partlist.assign_tech": (SELECTION,),
     # nest
     "nest.add_sheet": (SELECTION,), "nest.to_main": (NEST_RESULT,), "nest.export": (NEST_RESULT,),
 }

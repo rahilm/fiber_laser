@@ -51,10 +51,40 @@ settings. The copy also carries SVG and DXF, so a drawing program or CAD program
 mlaser pastes DXF or SVG copied from other programs too (the same import limits as for files).
 Pasted parts land 10 mm from the originals.
 
+Copying, pasting or arraying a few hundred parts takes a moment: the status bar says so
+("Copying 256 parts…") and the pointer shows the busy cursor until it is done. The DXF for other
+programs is added to the clipboard a moment after the copy, in the background.
+
 Drag and drop: drop DXF, SVG or G-code files on the window or the canvas to import them into the
 drawing, a project (`.mlz`) or `.chf` to open it. Drag selected rows out of the **Parts** list
 onto the canvas (a copy where you drop it), into another mlaser window, or into a folder (a
 `.dxf` file).
+
+## Parts list
+
+The **Parts** dock lists every part of the drawing, one row each: number, name, layer,
+technology, size, contours, cut order and warnings (an open contour, or a layer with no cut
+settings: the warning sign beside the name, and the text in the *Warnings* column and its
+tooltip). It is a tab next to *Layer parameters* and *Properties* in Design, and next to
+*Properties* in Process; **Edit → Part list** brings it to the front. In a narrow window the
+least important columns hide first (contours, cut order, size, warnings text); widen the dock to
+see them again. Click a column header to sort by it.
+
+**Find a part:** **Ctrl+F** (⌘F on a Mac, also **Edit → Find part…**) puts the cursor in the
+filter field. Type words that must all match the part number, name, layer, technology or warning
+text; `#12` is part 12 exactly; `>50` and `<50` compare the larger side of the part with 50 (in
+the display units). **All layers** picks one layer, **Warnings only** shows the parts with a
+warning. **Esc** clears the field, **Down** or **Enter** moves into the list. Filtering only
+hides rows: it never changes the drawing, and parts selected but hidden by the filter stay
+selected.
+
+**Selection** works both ways: selecting rows selects the parts on the canvas, and selecting on
+the canvas selects the rows and scrolls the first one into view. **Enter**, a double-click or
+**Show on canvas** zooms the canvas to the selected parts. In the list the arrow keys move
+through the rows (they do not nudge the parts there); **Esc** goes back to the filter field.
+
+**Assign technology…** gives the selected parts another technology; see
+[Process › Technology for some parts](process.md#technology-for-some-parts).
 
 ## Text
 

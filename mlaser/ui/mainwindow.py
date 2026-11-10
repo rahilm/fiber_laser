@@ -9,7 +9,7 @@ from typing import Callable, Optional
 from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
 from PySide6.QtWidgets import (QApplication, QComboBox, QDockWidget, QFileDialog, QLabel, QMainWindow,
-                               QMessageBox, QTabWidget, QWidget)
+                               QMessageBox, QWidget)
 
 from mlaser import ops
 from mlaser.model import Document, LayerParams, LeadParams
@@ -17,7 +17,7 @@ from mlaser.ops.craft import MicroJointParams, default_lead_params  # noqa: F401
 from mlaser.services.commands import CommandRegistry, UnknownCommandError
 from mlaser.services import units as _units
 from mlaser.services.config import ConfigService
-from mlaser.services.document import DocumentService, clone_parts
+from mlaser.services.document import DocumentService
 from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
@@ -26,7 +26,7 @@ from .canvas import CanvasView, layer_color
 from ..machine.api import ControllerFacade
 from .facade import DemoController
 from .i18n import Translator, translator
-from .panels import ControlPanel, LayerPanel, LogPanel, PartListPanel
+from .panels import ControlPanel, LayerPanel, LogPanel
 from .ribbon import Ribbon
 
 # ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/re/cam.md §8;
@@ -111,6 +111,8 @@ class _Bridge(QObject):
 
 
 _JOB_MODES = ("process", "dry_run", "frame")
+#: copying this many parts shows the busy state (ui/busy.py): a few hundred take a moment
+BUSY_PARTS = 50
 
 
 class _CanvasDrop(QObject):
@@ -293,16 +295,12 @@ class MainWindow(QMainWindow):
         from .shell import install as install_shell
         install_shell(self)
 
-        # left: layers + parts (tabbed dock)
+        # left: layers, and the parts in a dock of their own tabbed with it (ui/part_list.py)
         self.layer_panel = LayerPanel(self.tr_)
         self.layer_panel.pressure_unit = lambda: int(self.config.get("UN.GasPressureUnit", 0) or 0)
-        self.part_list = PartListPanel(self.tr_)
-        left = QTabWidget()
-        left.addTab(self.layer_panel, "")
-        left.addTab(self.part_list, "")
-        self.tr_.bind(left, "gp83", lambda t: left.setTabText(0, t))
-        self.tr_.bind(left, "np_Part", lambda t: left.setTabText(1, t))
-        self.left_dock = self._dock("lp0", left, Qt.LeftDockWidgetArea)
+        self.left_dock = self._dock("lp0", self.layer_panel, Qt.LeftDockWidgetArea)
+        from . import part_list as _part_list
+        self.part_list = _part_list.make_dock(self)
 
         # right: control panel
         # (no scroll area: the panel reflows and folds to fit the dock, ui/responsive.py)
@@ -321,6 +319,7 @@ class MainWindow(QMainWindow):
         self.resizeDocks([self.left_dock, self.right_dock], [320, 300], Qt.Horizontal)
         self._status_bar()
         self._wire()
+        _part_list.install(self)
         self._shortcuts()
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._poll)
@@ -1244,11 +1243,14 @@ class MainWindow(QMainWindow):
         if not sel:
             return 0
         from . import clipboard
-        self._clipboard = clone_parts(sel)          # what was copied (the feedback counts it)
-        try:
-            clipboard.set_clipboard(clipboard.mime_for(self.document, sel))
-        except Exception as exc:  # noqa: BLE001 - the copy is kept in the window
-            self.log_panel.log(f"clipboard: {exc}")
+        from .busy import busy
+        with busy(self, self.tr_.plural("busy.copy", len(sel)), on=len(sel) >= BUSY_PARTS):
+            sub = clipboard.parts_document(self.document, sel)
+            self._clipboard = sub.parts             # what was copied (the feedback counts it)
+            try:
+                clipboard.copy_document(sub)        # DXF follows from a worker (ui/clipboard.py)
+            except Exception as exc:  # noqa: BLE001 - the copy is kept in the window
+                self.log_panel.log(f"clipboard: {exc}")
         return len(sel)
 
     def cut_selected(self) -> int:
@@ -1299,7 +1301,9 @@ class MainWindow(QMainWindow):
                 d.layers.setdefault(li, lp)
             return len(ops.paste_parts(d, doc.parts, dx, dy))
         # paste deselects every part, so all parts are in the scope (selection flags change)
-        return int(self._edit(run, label="paste", scope="all") or 0)
+        from .busy import busy
+        with busy(self, self.tr_.tr("busy.paste"), on=len(doc.parts) >= BUSY_PARTS):
+            return int(self._edit(run, label="paste", scope="all") or 0)
 
     def open_or_import(self, paths: list) -> int:
         """Files dropped on the window / canvas: a project or ``.chf`` opens (one: the first),

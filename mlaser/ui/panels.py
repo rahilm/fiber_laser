@@ -1,15 +1,15 @@
-"""Side panels: layer parameters, part list, machine control panel, log/alarm dock."""
+"""Side panels: layer parameters, machine control panel, log/alarm dock (the part list:
+ui/part_list.py)."""
 from __future__ import annotations
 
 import time
 from typing import Callable, Optional
 
-from PySide6.QtCore import QItemSelection, QItemSelectionModel, QSize, Qt, QTimer, Signal
+from PySide6.QtCore import QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QIcon, QPixmap
 from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QComboBox, QHBoxLayout, QHeaderView, QLabel,
                                QPlainTextEdit, QPushButton, QSpinBox, QTableWidget,
-                               QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget,
-                               QTreeWidgetItem, QVBoxLayout, QWidget)
+                               QTableWidgetItem, QTabWidget, QToolButton, QVBoxLayout, QWidget)
 
 from mlaser.model import LayerParams
 
@@ -22,7 +22,7 @@ from mlaser.services import units as U
 from .params import GAS_KEYS
 from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 from . import style
-from .responsive import (CollapsibleSection, ColumnFitter, ColumnsPanel, ResponsiveForm, flow)
+from .responsive import (CollapsibleSection, ColumnsPanel, ResponsiveForm, flow)
 
 
 
@@ -235,175 +235,8 @@ class LayerPanel(QWidget):
 
 
 # --------------------------------------------------------------------------- parts
-class PartListPanel(QTreeWidget):
-    """Part list (np_Part / np_PartName): index, name, layer, contour count, size, closed.
-
-    The size column needs every part's bounding box, which flattens every contour (the bulk of
-    a refresh: ~250 ms of ~300 ms at 2,000 parts).  The boxes are cached by part ``uid`` and
-    validated by the identity of the part's segment objects (edits replace segment lists and
-    segment objects, never mutate them in place: ``ops.document.transform_parts``,
-    ``cad.edit``), so an edit re-measures only the parts it changed.  The tree items are reused
-    and only changed texts are set."""
-    selectionToCanvas = Signal(list)
-
-    def __init__(self, tr: Translator, parent=None):
-        super().__init__(parent)
-        self.tr_ = tr
-        self.document = None
-        self.setColumnCount(5)
-        self.setRootIsDecorated(False)
-        self.setUniformRowHeights(True)
-        self.setSelectionMode(QAbstractItemView.ExtendedSelection)
-        # drag the selected parts out: to the canvas (paste there), another mlaser window, a
-        # drawing program or a file manager (a .dxf file); MainWindow sets the data source
-        self.setDragEnabled(True)
-        self.setDragDropMode(QAbstractItemView.DragOnly)
-        self.setDefaultDropAction(Qt.CopyAction)
-        self.mime_for_selection = None
-        self._sync = False
-        self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
-        self._rows: list = []              # the part shown in each row at the last refresh
-        self._swatches: dict[int, QIcon] = {}
-        self.bbox_hits = self.bbox_misses = 0
-        self.itemSelectionChanged.connect(self._sel_changed)
-        tr.bind(self, "np_Part", lambda _t: self._headers())
-        ColumnFitter(self, {0: 1, 2: 3, 3: 2, 4: 0}, stretch=1)
-        on_units_changed(self, lambda _u: (self._headers(), self.refresh()), now=False)
-
-    def _headers(self):
-        t = self.tr_
-        size = U.current().header(t.tr("sf1").strip(" :："), "length")
-        self.setHeaderLabels([t.tr("gp75"), t.tr("np_PartName"), t.tr("gp83"), t.tr("gp76"), size])
-
-    def set_document(self, doc, changed=None) -> None:
-        """Show ``doc``; ``changed`` as for ``CanvasView.rebuild`` (the uids of the parts an
-        edit may have changed: a row whose part is the same object and not in it is skipped)."""
-        if doc is not self.document:
-            changed = None
-        self.document = doc
-        self.refresh(changed)
-
-    def part_bbox(self, p) -> tuple:
-        """``p.bbox()``, cached by uid while the part's segment objects are the same."""
-        segs = tuple(s for c in p.contours for s in c.segments)
-        hit = self._bbox_cache.get(p.uid)
-        if hit is not None and len(hit[0]) == len(segs) and all(a is b for a, b in zip(hit[0], segs)):
-            self.bbox_hits += 1
-            return hit[1]
-        self.bbox_misses += 1
-        bb = p.bbox()
-        self._bbox_cache[p.uid] = (segs, bb)
-        return bb
-
-    def _swatch(self, layer: int) -> QIcon:
-        ic = self._swatches.get(layer)
-        if ic is None:
-            ic = self._swatches[layer] = _swatch(layer_color(layer))
-        return ic
-
-    def refresh(self, changed=None) -> None:
-        self._sync = True
-        doc = self.document
-        rows = self._rows if changed is not None else []
-        self._rows = []
-        parts = list(doc.parts) if doc is not None else []
-        n_items = self.topLevelItemCount()
-        if n_items > len(parts):
-            for i in range(n_items - 1, len(parts) - 1, -1):
-                self.takeTopLevelItem(i)
-        part_word = self.tr_.tr("np_Part")
-        u = U.current()
-        dec = 2 if u.unit("length") == "mm" else u.decimals("length")
-        red = style.color("danger")
-        live = set()
-        new_items = []
-        for i, p in enumerate(parts):
-            live.add(p.uid)
-            self._rows.append(p)
-            if i < n_items and i < len(rows) and rows[i] is p and p.uid not in changed:
-                continue                     # the same part, unchanged: the row is up to date
-            x0, y0, x1, y1 = self.part_bbox(p)
-            vals = (str(i + 1), p.name or f"{part_word}{i + 1}", str(p.craft.layer), str(len(p.contours)),
-                    f"{u.number(x1 - x0, 'length', dec)}×{u.number(y1 - y0, 'length', dec)}")
-            is_open = any(not c.closed for c in p.contours)
-            if i < n_items:
-                it = self.topLevelItem(i)
-                for col, v in enumerate(vals):
-                    if it.text(col) != v:
-                        it.setText(col, v)
-            else:
-                it = QTreeWidgetItem(list(vals))
-                it.setData(0, Qt.UserRole, i)
-                new_items.append(it)
-            if it.data(2, Qt.UserRole) != p.craft.layer:
-                it.setIcon(2, self._swatch(p.craft.layer))
-                it.setData(2, Qt.UserRole, p.craft.layer)
-            if bool(it.data(1, Qt.UserRole)) != is_open:
-                it.setData(1, Qt.UserRole, is_open)
-                if is_open:
-                    it.setForeground(1, red)
-                else:
-                    it.setData(1, Qt.ForegroundRole, None)
-        if new_items:
-            self.addTopLevelItems(new_items)
-        self._apply_selection([p.selected for p in parts])
-        if len(self._bbox_cache) > 2 * max(len(live), 64):
-            self._bbox_cache = {u: v for u, v in self._bbox_cache.items() if u in live}
-        self._sync = False
-
-    def sync_selection(self) -> None:
-        if self.document is None:
-            return
-        self._sync = True
-        try:
-            parts = self.document.parts
-            n = min(self.topLevelItemCount(), len(parts))
-            self._apply_selection([parts[i].selected for i in range(n)])
-        finally:
-            self._sync = False
-
-    def _apply_selection(self, flags: list) -> None:
-        """Select the rows whose flag is set, all in one ``QItemSelectionModel.select`` call
-        (contiguous rows as one range).
-
-        ``QTreeWidgetItem.setSelected`` per row went through the selection model once per item
-        and its cost grew with the selection: select-all of 10,000 parts took 222 s (review 2
-        §1.4, P1-8).  The rows are item ``i`` = part ``i`` (``refresh`` reuses items by
-        position); rows beyond ``flags`` are deselected."""
-        model = self.model()
-        n = min(len(flags), self.topLevelItemCount())
-        last_col = self.columnCount() - 1
-        sel = QItemSelection()
-        start = None
-        for i in range(n):
-            if flags[i]:
-                if start is None:
-                    start = i
-            elif start is not None:
-                sel.select(model.index(start, 0), model.index(i - 1, last_col))
-                start = None
-        if start is not None:
-            sel.select(model.index(start, 0), model.index(n - 1, last_col))
-        self.selectionModel().select(sel, QItemSelectionModel.ClearAndSelect)
-
-    def _sel_changed(self):
-        if self._sync:
-            return
-        self.selectionToCanvas.emit([it.data(0, Qt.UserRole) for it in self.selectedItems()])
-
-    def mimeTypes(self) -> list:  # noqa: N802 - Qt API
-        from .clipboard import MIME_DXF, MIME_PARTS, MIME_SVG
-        return [MIME_PARTS, MIME_SVG, *MIME_DXF, "text/plain", "text/uri-list"]
-
-    def mimeData(self, items):  # noqa: N802 - Qt API
-        """The dragged rows' parts (the selection: rows and parts are kept in step)."""
-        fn = self.mime_for_selection
-        md = fn() if fn is not None else None
-        return md if md is not None else super().mimeData(items)
-
-    def startDrag(self, actions) -> None:  # noqa: N802 - Qt API
-        # copy only: a "move" accepted by the target must not remove rows from the list
-        super().startDrag(Qt.CopyAction)
+# the part list moved to its own module and dock (ui/part_list.py); the name stays importable here
+from .part_list import PartListPanel  # noqa: E402,F401
 
 
 # --------------------------------------------------------------------------- control

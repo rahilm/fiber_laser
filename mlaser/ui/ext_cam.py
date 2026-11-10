@@ -189,6 +189,11 @@ class CamExtension:
         return ok
 
     # ---------------------------------------------------------------- array (mf79)
+    def _busy(self):
+        """The busy state while an array is made (ui/busy.py): a few hundred copies take a moment."""
+        from .busy import busy
+        return busy(self.w, self.w.tr_.tr("busy.array"))
+
     def array_dialog(self) -> None:
         f = [("rows", "pd332", "int", (1, 10000)), ("cols", "pd333", "int", (1, 10000)),
              ("offset_type", "pd334", "enum", ["pd301", "pd302"]),
@@ -196,7 +201,8 @@ class CamExtension:
              ("row_dir", "pd337", "enum", ["pd303", "pd304"]),
              ("col_dir", "pd338", "enum", ["pd305", "pd306"])]
         if self.ask("mf79", self.array, f):
-            n = self.edit(lambda doc: OC.rect_array(doc, self.array), "array", parts=())
+            with self._busy():
+                n = self.edit(lambda doc: OC.rect_array(doc, self.array), "array", parts=())
             self._count("camx.log.copies", "mf79", n)
 
     def circular_array_dialog(self) -> None:
@@ -206,14 +212,16 @@ class CamExtension:
              ("rotate_items", "camx.circ.rotate", "bool", None),
              ("use_bbox_center", "camx.circ.use_bbox_center", "bool", None)]
         if self.ask("camx.cmd.array_circular", self.circ, f):
-            n = self.edit(lambda doc: OC.circular_array(doc, self.circ), "circular array", parts=())
+            with self._busy():
+                n = self.edit(lambda doc: OC.circular_array(doc, self.circ), "circular array", parts=())
             self._count("camx.log.copies", "camx.cmd.array_circular", n)
 
     def sheet_array_dialog(self) -> None:
         f = [("width", "camx.sheet.width", "len", (1, 1e5)), ("height", "camx.sheet.height", "len", (1, 1e5)),
              ("gap", "pd302", "len", (0, 1e4)), ("margin", "pd727", "len", (0, 1e4))]
         if self.ask("camx.cmd.array_sheet", self.sheet, f):
-            n = self.edit(lambda doc: OC.sheet_fill(doc, self.sheet), "fill sheet")
+            with self._busy():
+                n = self.edit(lambda doc: OC.sheet_fill(doc, self.sheet), "fill sheet")
             self._count("camx.log.instances", "camx.cmd.array_sheet", n)
 
     # ---------------------------------------------------------------- fill (mf100_1, A250707_10)
