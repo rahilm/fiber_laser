@@ -57,6 +57,7 @@ as before, and may carry a unit: `--sheet 120inx60in`, `--spacing 0.125in`, `--t
 | `queue add` | submits a job for approval (see below); a `.mlz` is converted to a `.chf` for the queue |
 | `queue list` | the queue and the jobs waiting for approval (read-only) |
 | `plugin ...` | the Plugin manager: `list`, `search`, `info`, `install`, `uninstall`, `update`, `enable`, `disable`, `hosts`, `repo add/remove/list` ([Plugins](plugins.md#command-line)) |
+| `diag-bundle OUT.zip` | a diagnostic bundle for a bug report, as Help › Save diagnostic bundle… but without the window and its controller state: version and commit, the settings (redacted), the machine parameters, the alarm history and the logs. `--drawing FILE` adds a drawing (only when given); `--data-dir`, `--log-dir`, `--config` pick other folders. Nothing is sent ([FAQ](faq.md#how-do-i-report-a-problem)) |
 
 `--tech` picks a record of the technology database like Process > Apply: material (any unique
 part of its name), thickness, and the gas and nozzle when needed to make it unique, e.g.
