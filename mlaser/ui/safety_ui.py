@@ -721,6 +721,10 @@ class RunBar(QToolBar):
                 act = menu.addAction(_tr(w, "run.start_selection", "Start selection only"))
                 act.setObjectName("run_start_selection")
                 act.triggered.connect(lambda _=False: ui.start_selection())
+                # after a stopped job: its parts not finished, a new job (UX deep review 5)
+                self.cut_rest_act = menu.addAction("")
+                self.cut_rest_act.setObjectName("run_cut_remaining")
+                self.cut_rest_act.triggered.connect(lambda _=False: self._cut_rest())
                 menu.aboutToShow.connect(self._start_menu_show)
                 self._start_menu_show()
                 more.menu_ = menu
@@ -733,14 +737,41 @@ class RunBar(QToolBar):
                 bl.addWidget(more)
                 self.strip.add(box)
                 self.start_menu = more
+        # after the buttons, calm (UI deep review 5): what Start runs as plain caption text (no
+        # frame: it read as an empty input), and while a job runs a thin progress line under
+        # "8 % · Elapsed · ETA" in tabular figures; on the Run workspace, whose header shows
+        # the target, the progress and the times, only the line (set_controls_shown)
+        from .workspaces.run import tabular
+        self.info = QWidget()
+        self.info.setObjectName("run_bar_info")
+        iv = style.vbox(self.info, sp=style.SP1)
+        top = style.hbox(sp=style.SP3)
+        self.target = QLabel("")
+        self.target.setObjectName("run_bar_target")
+        style.set_font(self.target, "caption")
+        self.target.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.target.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)   # elided, never widens
+        style.styled(self.target, lambda: f"color:{style.css('muted')};")
+        top.addWidget(self.target, 1)
+        self.eta = tabular(QLabel(""))
+        self.eta.setObjectName("run_bar_times")
+        self.eta.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.eta.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        top.addWidget(self.eta, 1)
         self.progress = QProgressBar()
+        self.progress.setObjectName("run_bar_progress")
         self.progress.setRange(0, 1000)
-        self.progress.setTextVisible(True)
-        self.progress.setFormat("")
-        self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
-        self.strip.add(self.progress, 1)
-        self.eta = QLabel("")
-        self.strip.add(self.eta)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(style.SP2)
+        self.progress.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+        self.progress.setVisible(False)
+        iv.addStretch(1)
+        iv.addLayout(top)
+        iv.addWidget(self.progress)
+        iv.addStretch(1)
+        self.info.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+        self._on_run = False                 # on the Run workspace (set_controls_shown)
+        self.strip.add(self.info, 1)
         self.strip.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
         self.addWidget(self.strip)
         # the longer texts the buttons take in their other state
@@ -766,10 +797,11 @@ class RunBar(QToolBar):
         m = self.pill.layout().contentsMargins()
         self.pill.setMinimumWidth(word + self.pill.icon_px + self.pill.layout().spacing() + m.left() + m.right()
                                   + fm.horizontalAdvance("M"))
-        self.progress.setMinimumWidth(fm.horizontalAdvance("100 %") * 2)
-        # "Elapsed 0:00:00" over "ETA 0:00:00" (two lines: the bar is 56 px tall)
-        self.eta.setMinimumWidth(max(fm.horizontalAdvance(t) for t in self._times_text("0:00:00", "0:00:00").split("\n"))
-                                 + fm.horizontalAdvance("M"))
+        # one width whatever is shown (the target, or the times of a running job): the strip's
+        # rows never change with the job's state; the target is elided to it
+        efm = self.eta.fontMetrics()
+        self.info.setMinimumWidth(efm.horizontalAdvance(self._status_text(
+            "100", self._times_text("0:00:00", "0:00:00"))) + fm.horizontalAdvance("M"))
         lay = self.layout()
         st = self.style()
         chrome = 0
@@ -801,7 +833,10 @@ class RunBar(QToolBar):
         return [_tr(self.ui.w, k, d) for k, d, _c in MACHINE_TEXT.values()]
 
     def _times_text(self, elapsed: str, eta: str) -> str:
-        return _tr(self.ui.w, "run.times.bar", "Elapsed {elapsed}\nETA {eta}", elapsed=elapsed, eta=eta)
+        return _tr(self.ui.w, "run.times.bar", "Elapsed {elapsed}  ·  ETA {eta}", elapsed=elapsed, eta=eta)
+
+    def _status_text(self, percent: str, times: str) -> str:
+        return _tr(self.ui.w, "run.bar.status", "{percent} %  ·  {times}", percent=percent, times=times)
 
     def run_state(self, st, ms, alarms=None, need_home: bool = False) -> str:
         """The machine axis: offline / fault / estop / alarm / hold / running / not_homed /
@@ -817,12 +852,12 @@ class RunBar(QToolBar):
     def set_controls_shown(self, on: bool) -> None:
         """The run controls (Start .. Arm) shown, or only the state, the progress and the times:
         the Run workspace has its own large set in the same order (UX audit W4: one set of run
-        controls per screen).  STOP stays on screen either way (the Run screen's)."""
+        controls per screen).  STOP stays on screen either way (the Run screen's).  On the Run
+        workspace the bar is one calm row, the state and a thin progress line: the page's
+        header shows the target, the progress figures and the times (UI deep review 5)."""
         if on == (not self.buttons["stop"].isHidden()):
             return
-        # the bar keeps its height (no window resize on a workspace switch: a small screen's
-        # window would grow and stay grown)
-        self.strip.setMinimumHeight(0 if on else self.strip.height())
+        self._on_run = not on
         for k, b in self.buttons.items():
             (b.parentWidget() if k == "start" else b).setVisible(on)
         self.fit()
@@ -831,6 +866,12 @@ class RunBar(QToolBar):
         """The Start menu: with a queue waiting, "Start drawing: <name>" (what Start runs) and
         "Run queue: job n of N" (UX audit W18)."""
         q = self.ui.queue_waiting()
+        run = self.ui.w.extension("run") if hasattr(self.ui.w, "extension") else None
+        last, why = run.rest_state() if run is not None and hasattr(run, "rest_state") else (None, "")
+        left = len(last.remaining()) if last is not None and not why else 0
+        self.cut_rest_act.setVisible(bool(left))
+        if left:
+            self.cut_rest_act.setText(_trn(self.ui.w, "run.btn.cut_remaining", left))
         self.start_drawing_act.setVisible(q is not None)
         self.start_queue_act.setVisible(q is not None)
         if q is not None:
@@ -838,6 +879,11 @@ class RunBar(QToolBar):
                                                name=self.ui.start_target_name()))
             self.start_queue_act.setText(_tr(self.ui.w, "run.start_queue", "Run queue: job {n} of {total} ({name})",
                                              n=q[0], total=q[1], name=q[2]))
+
+    def _cut_rest(self) -> None:
+        run = self.ui.w.extension("run") if hasattr(self.ui.w, "extension") else None
+        if run is not None and hasattr(run, "cut_rest"):
+            run.cut_rest(None)
 
     def refresh(self, st, ms, running: bool, eta: str, alarms=None, need_home: bool = False, status=None) -> None:
         from . import state_display as SD
@@ -872,21 +918,28 @@ class RunBar(QToolBar):
         active = running or bool(getattr(status, "mode", ""))
         p = float(getattr(status, "progress", 0.0) or 0.0) if active else 0.0
         self.progress.setValue(int(round(p * 1000)))
-        if active:
-            fmt = f"{p * 100:.0f} %"
-        else:
-            # what Start will run (UX audit W18): "Start: gear.dxf"
-            fmt = _tr(w, "run.start_target", "Start: {name}", name=self.ui.start_target_name())
-            fmt = self.progress.fontMetrics().elidedText(fmt, Qt.ElideMiddle, max(self.progress.width() - style.SP3, 40))
-        if self.progress.format() != fmt:
-            self.progress.setFormat(fmt)
-            self.progress.setAccessibleName(fmt)
+        percent = f"{p * 100:.0f}"
+        if self.progress.accessibleName() != f"{percent} %":
+            self.progress.setAccessibleName(f"{percent} %")
         tip = _tr(w, "run.start_target", "Start: {name}", name=self.ui.start_target_name())
+        # what Start will run (UX audit W18): "Start: gear.dxf", plain text while idle
+        if self.target.toolTip() != tip:
+            self.target.setToolTip(tip)
+            self.target.setAccessibleName(tip)
+        shown = self.target.fontMetrics().elidedText(tip, Qt.ElideMiddle, max(self.info.width(), 40))
+        if self.target.text() != shown:
+            self.target.setText(shown)
+        times = self._status_text(percent, eta) if active and eta else ""
+        if self.eta.text() != times:
+            self.eta.setText(times)
+        for wid, on in ((self.target, not active and not self._on_run), (self.eta, active and not self._on_run),
+                        (self.progress, active)):
+            if wid.isHidden() == on:
+                wid.setVisible(on)
         b = self.buttons["start"]
         if b.property("start_target") != tip:
             b.setProperty("start_target", tip)
             b.setAccessibleDescription(tip)
-        self.eta.setText(eta)
 
 
     @staticmethod

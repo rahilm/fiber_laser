@@ -34,7 +34,7 @@ import time
 from typing import Any, Optional
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QPainter, QPainterPath, QPalette, QPen
+from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPalette, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayout, QHBoxLayout,
                                QHeaderView, QLabel, QMessageBox,
                                QProgressBar, QPushButton, QSizePolicy, QSpinBox, QTableWidget,
@@ -43,6 +43,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QFileDialog, QFrame, QGridLayo
 from mlaser.machine import events as EV
 from mlaser.services.config import Setting
 from mlaser.services.intake import IntakeStore
+from mlaser.services.job_parts import JobPartsTracker, LastJob
 from mlaser.services.operator import RunStatus, fmt_duration, run_status
 from mlaser.services.queue import JobQueue, QueueEntry, QueueRunner
 from mlaser.services.remnants import RemnantStore, polygon_of
@@ -85,6 +86,16 @@ QUEUE_MSGS = {
     "queue.msg.start_refused": "The sheet did not start (pre-flight or arming): check, then confirm again.",
     "queue.msg.sheet_stopped": "The sheet was stopped: confirm to run it again, or skip it in the queue.",
 }
+
+
+def tabular(label: QLabel) -> QLabel:
+    """Figures of equal width in ``label``'s font (OpenType ``tnum``): a value that changes
+    while a job runs keeps its place instead of shifting the row (UI deep review 13).  A font
+    without the feature draws its own figures."""
+    f = label.font()
+    f.setFeature(QFont.Tag("tnum"), 1)
+    label.setFont(f)
+    return label
 
 
 def _big(btn: QPushButton, h: int = TOUCH, w: int = 0, role: str = "label_strong") -> QPushButton:
@@ -242,10 +253,81 @@ class LoadSheetCard(QFrame):
         self.picture.setPixmap(parts_pixmap(parts, QSize(216, 136), self.palette(), data.get("rings")))
 
 
+# ============================================================================== readout
+class ReadoutRow(QWidget):
+    """The live process values as label / value pairs (UI deep review 13): a muted caption
+    above each value, the value in tabular figures (it does not shift as it changes); the pairs
+    wrap between them (FlowLayout), never inside one.  :meth:`text`: every pair on one line
+    (the accessible description, tests)."""
+
+    KEYS = (("speed", "run.cap.speed", "Speed"), ("power", "run.cap.power", "Power"),
+            ("gas", "run.cap.gas", "Gas"), ("height", "run.cap.height", "Height"),
+            ("x", "run.cap.x", "X"), ("y", "run.cap.y", "Y"), ("z", "run.cap.z", "Z"))
+
+    def __init__(self, window: Any) -> None:
+        super().__init__()
+        self.window_ = window
+        self.setObjectName("run_values")
+        self.flow = FlowLayout(self, justify=False, hspacing=style.SP4)
+        self.flow.setContentsMargins(0, 0, 0, 0)
+        self.captions: dict[str, QLabel] = {}
+        self.fields: dict[str, QLabel] = {}
+        for key, tid, default in self.KEYS:
+            tile = QWidget()
+            tile.setObjectName(f"run_value_{key}")
+            v = style.vbox(tile, sp=0)
+            cap = style.caption(tr(window, tid, default), wrap=False)
+            val = QLabel("-")
+            val.setObjectName(f"run_value_{key}_value")
+            val.setTextFormat(Qt.PlainText)
+            style.set_font(val, "label_strong")
+            tabular(val)
+            v.addWidget(cap)
+            v.addWidget(val)
+            self.flow.addWidget(tile)
+            self.captions[key], self.fields[key] = cap, val
+        # the link is lost: the last values the card reported, muted, and said so (W2)
+        self.note = style.caption(tr(window, "run.val.last_known_note", "Last known values"), wrap=False)
+        self.note.setObjectName("run_values_note")
+        self.note.setVisible(False)
+        self.flow.addWidget(self.note)
+        self.stale = False
+        self._text = ""
+
+    def set_values(self, values: dict, stale: bool = False) -> None:
+        for key, text in values.items():
+            lab = self.fields[key]
+            if lab.text() != text:
+                lab.setText(text)
+                # a tile only grows: the row does not jump back and forth as figures change
+                need = lab.fontMetrics().horizontalAdvance(text)
+                if need > lab.minimumWidth():
+                    lab.setMinimumWidth(need)
+        if stale != self.stale:
+            self.stale = stale
+            for lab in self.fields.values():
+                style.styled(lab, (lambda: f"color:{style.css('muted')};") if stale else (lambda: ""))
+            self.note.setVisible(stale)
+        text = "    ".join(f"{self.captions[k].text()} {self.fields[k].text()}" for k, _t, _d in self.KEYS)
+        if stale:
+            text = tr(self.window_, "run.val.last_known", "{values}   (last known)", values=text)
+        if text != self._text:
+            self._text = text
+            self.setAccessibleDescription(text)
+
+    def text(self) -> str:
+        return self._text
+
+
 # ============================================================================== canvas
 class RunCanvas(QWidget):
-    """Live view of the sheet: done parts grey, the current part bright and thick, the rest in
-    their layer colour, the head as a red dot (Y up, fitted)."""
+    """Live view of the sheet: done parts grey and dashed, the current part bright and thick,
+    the rest in their layer colour, the head as a red dot (Y up, fitted).
+
+    After a job (:meth:`set_rest`): the parts the last job finished dashed, the parts a new
+    "cut the rest" job would cut in their layer colour, the parts it would leave out dotted, and
+    each part's number in the last job's cut order; a click on a part picks it (:attr:`pick`,
+    "Start from part")."""
 
     def __init__(self) -> None:
         super().__init__()
@@ -256,6 +338,9 @@ class RunCanvas(QWidget):
         self.done: set = set()
         self.current = -1
         self.head: Optional[tuple[float, float]] = None
+        self.skip: set = set()             # after a job: parts a new job would leave out
+        self.numbers: dict = {}            # after a job: part index -> its number in the cut order
+        self.pick: Any = None              # fn(part index): a click on a part (after a job)
         self._paths: list[tuple[int, int, QPainterPath]] = []      # (part index, layer, path)
         self._doc_id: Optional[int] = None
         self._bounds = (0.0, 0.0, 1.0, 1.0)
@@ -304,6 +389,44 @@ class RunCanvas(QWidget):
             self.head = head
             self.update()
 
+    def set_rest(self, done, skip, numbers: dict) -> None:
+        """After a job: ``done`` the parts it finished, ``skip`` the parts the offered new job
+        leaves out, ``numbers`` the cut-order numbers to draw (empty: the job view)."""
+        done, skip = set(done), set(skip)
+        if done != self.done or skip != self.skip or numbers != self.numbers:
+            self.done, self.skip, self.numbers = done, skip, dict(numbers)
+            self.current = -1
+            self._a11y()
+            self.update()
+        self.setCursor(Qt.PointingHandCursor if self.numbers and self.pick is not None else Qt.ArrowCursor)
+
+    def part_at(self, pos) -> int:
+        """The part index under the widget point ``pos`` (-1: none): inside a closed outline,
+        or within a few pixels of it; the smallest such part wins."""
+        if not self._paths:
+            return -1
+        s, ox, oy = self._transform()
+        pt = QPointF((pos.x() - ox) / s, (oy - pos.y()) / s)
+        tol = 6.0 / s
+        best, area = -1, float("inf")
+        for i, _layer, path in self._paths:
+            r = path.boundingRect().adjusted(-tol, -tol, tol, tol)
+            if not r.contains(pt):
+                continue
+            a = r.width() * r.height()
+            if a < area:
+                best, area = i, a
+        return best
+
+    def mousePressEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self.pick is not None and self.numbers and ev.button() == Qt.LeftButton:
+            i = self.part_at(ev.position())
+            if i in self.numbers:
+                self.pick(i)
+                ev.accept()
+                return
+        super().mousePressEvent(ev)
+
     def _a11y(self) -> None:
         """Accessible name and the progress as its description (F7: the view is painted)."""
         from .. import a11y
@@ -350,11 +473,14 @@ class RunCanvas(QWidget):
             p.setBrush(Qt.NoBrush)
             # done parts grey, the part being cut in the accent colour (never the alarm red:
             # UX audit O8), the rest in their layer colour
-            done_pen = QPen(self.done_color(), 0)
+            done_pen = QPen(self.done_color(), 0, Qt.DashLine)     # not by colour alone
+            skip_pen = QPen(self.done_color(), 0, Qt.DotLine)
             cur_col = self.current_color()
             for i, layer, path in self._paths:
                 if i in self.done:
                     p.setPen(done_pen)
+                elif i in self.skip:
+                    p.setPen(skip_pen)
                 elif i == self.current:
                     continue
                 else:
@@ -371,6 +497,7 @@ class RunCanvas(QWidget):
                 p.setBrush(QColor(CANVAS_COLORS["head"]))
                 p.drawEllipse(QPointF(*self.head), r, r)
             p.resetTransform()
+            self._numbers(p, s, ox, oy)
             self._legend(p)
         finally:
             p.end()
@@ -383,21 +510,47 @@ class RunCanvas(QWidget):
     def current_color() -> QColor:
         return style.color("accent")
 
-    def legend_items(self) -> list[tuple[str, QColor]]:
+    def _numbers(self, p: QPainter, s: float, ox: float, oy: float) -> None:
+        """Each part's number in the last job's cut order, on a small plate at its centre."""
+        if not self.numbers:
+            return
+        fm = p.fontMetrics()
+        pal = self.palette()
+        p.setPen(QPen(pal.color(QPalette.Mid), 1))
+        for i, _layer, path in self._paths:
+            n = self.numbers.get(i)
+            if not n:
+                continue
+            c = path.boundingRect().center()
+            text = str(n)
+            w, h = fm.horizontalAdvance(text) + style.SP2, fm.height()
+            r = QRectF(c.x() * s + ox - w / 2, oy - c.y() * s - h / 2, w, h)
+            p.setPen(QPen(pal.color(QPalette.Mid), 1))
+            p.setBrush(pal.color(QPalette.Base))
+            p.drawRoundedRect(r, 3, 3)
+            p.setPen(pal.color(QPalette.Text))
+            p.drawText(r, Qt.AlignCenter, text)
+        p.setBrush(Qt.NoBrush)
+
+    def legend_items(self) -> list[tuple[str, QColor, Qt.PenStyle]]:
         w = self.window()
-        return [(tr(w, "run.legend.done", "Done"), self.done_color()),
-                (tr(w, "run.legend.current", "Cutting now"), self.current_color()),
-                (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text))]
+        if self.numbers:
+            return [(tr(w, "run.legend.done", "Done"), self.done_color(), Qt.DashLine),
+                    (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text), Qt.SolidLine),
+                    (tr(w, "run.legend.not_cut", "Left out"), self.done_color(), Qt.DotLine)]
+        return [(tr(w, "run.legend.done", "Done"), self.done_color(), Qt.DashLine),
+                (tr(w, "run.legend.current", "Cutting now"), self.current_color(), Qt.SolidLine),
+                (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text), Qt.SolidLine)]
 
     def _legend(self, p: QPainter) -> None:
         """A small legend in the bottom-left corner: what grey, the accent and the layer
-        colours mean (O8)."""
+        colours mean (O8), and the line styles that tell them apart without colour."""
         fm = p.fontMetrics()
         x, y = style.SP2, self.height() - style.SP2 - fm.height()
         pal = self.palette()
-        for text, col in self.legend_items():
-            sw = style.SP3
-            p.setPen(QPen(col, 3))
+        for text, col, pen_style in self.legend_items():
+            sw = style.SP4
+            p.setPen(QPen(col, 2, pen_style))
             p.drawLine(x, y + fm.height() // 2, x + sw, y + fm.height() // 2)
             x += sw + style.SP1
             p.setPen(pal.color(QPalette.Text))
@@ -639,6 +792,13 @@ class OperatorScreen(QWidget):
         self.counters.setObjectName("run_counters")
         style.set_font(self.counters, "title")
         texts.addWidget(self.counters)          # in the block: the header is as tall as before
+        # the last job (UX deep review 5): "Last job stopped at 14:02 in part 5 of 6 ...", kept
+        # until the next start; with the reason when its "cut the rest" offer is withdrawn
+        self.last_job = QLabel()
+        self.last_job.setObjectName("run_last_job")
+        self.last_job.setWordWrap(True)
+        self.last_job.setVisible(False)
+        texts.addWidget(self.last_job)
         self.monitor_chip = QLabel()
         self.monitor_chip.setObjectName("run_monitor_chip")
         style.chip(self.monitor_chip, "warning")
@@ -654,8 +814,9 @@ class OperatorScreen(QWidget):
         # arming have their own place (banner, state block)
         self.ready_box = QWidget()
         self.ready_box.setObjectName("run_readiness")
-        self.ready_flow = FlowLayout(self.ready_box)
-        self.ready_buttons: dict[str, QPushButton] = {}
+        self.ready_flow = FlowLayout(self.ready_box, justify=False)
+        self.ready_buttons: dict[str, QPushButton] = {}         # each item's action
+        self.ready_notices: dict[str, QWidget] = {}
         self._ready_tick = 0
         self.ready_box.setVisible(False)
         chips.addWidget(self.ready_box, 1)
@@ -700,11 +861,7 @@ class OperatorScreen(QWidget):
         self.load_card.setVisible(False)
         left.addWidget(self.load_card)
         left.addWidget(self.tabs, 1)
-        self.values = QLabel()
-        self.values.setObjectName("run_values")
-        self.values.setTextFormat(Qt.PlainText)
-        style.set_font(self.values, "title")
-        self.values.setWordWrap(True)
+        self.values = ReadoutRow(w)
         left.addWidget(self.values)
         body.addLayout(left, 1)
 
@@ -759,6 +916,37 @@ class OperatorScreen(QWidget):
                                                  priority=0)
         self.resume_section.setObjectName("run_resume_section")
         self.controls.add_section(self.resume_section)
+        # after a stopped or finished job: a NEW job of the parts not finished, or from a part
+        # in the cut order (UX deep review 5).  Both select those parts and use the ordinary
+        # "Start selection only" (pre-flight, arming question, compile: unchanged); unlike the
+        # resume above they start each part from its beginning
+        rest = QWidget()
+        rest.setObjectName("run_rest_box")
+        rv = style.vbox(rest)
+        self.rest_hint = style.caption(tr(w, "run.rest.hint", "A new job: each part from its beginning, with "
+                                          "Start's checks. Resume continues inside the stopped contour."))
+        self.rest_hint.setObjectName("run_rest_hint")
+        rv.addWidget(self.rest_hint)
+        rv.addWidget(add("cut_remaining", "run.btn.cut_remaining", "Cut remaining parts", self.cut_remaining,
+                         TOUCH_MIN, ico="cut"))
+        self.from_spin = QSpinBox()
+        self.from_spin.setObjectName("run_from_part")
+        self.from_spin.setRange(1, 1)
+        self.from_spin.setMinimumHeight(TOUCH_MIN)
+        self.from_spin.setAccessibleName(tr(w, "run.rest.from_name", "First part to cut (cut-order number)"))
+        self.from_spin.setToolTip(tr(w, "run.rest.from_tip", "The number of the first part to cut, as numbered "
+                                     "in the live view: type it, or click the part there"))
+        self.from_spin.valueChanged.connect(self._from_changed)
+        self._from_chosen = False             # the operator chose the part to start from
+        from_btn = add("start_from", "run.btn.start_from", "Start from part...", self.start_from, TOUCH_MIN,
+                       ico="arrow-bar-right")
+        rv.addWidget(row(self.from_spin, from_btn))
+        self.rest_section = CollapsibleSection(tr(w, "run.rest.title", "Cut the rest: new job"), rest, priority=0)
+        self.rest_section.setObjectName("run_rest_section")
+        self.rest_section.setVisible(False)
+        self.controls.add_section(self.rest_section)
+        self.canvas.pick = self.pick_part
+        self._rest_key: Any = None
         # queue card
         card = QWidget()
         card.setObjectName("run_queue_card")
@@ -815,6 +1003,23 @@ class OperatorScreen(QWidget):
     def confirm_sheet(self) -> None:
         self.ws.runner.confirm_sheet()
         self.refresh()
+
+    def cut_remaining(self) -> None:
+        """A new job of the parts the last job did not finish (UX deep review 5)."""
+        self.ws.cut_rest(None)
+        self.refresh()
+
+    def start_from(self) -> None:
+        """A new job from the part numbered in the spin box (the last job's cut order) to the end."""
+        self.ws.cut_rest(self.from_spin.value())
+        self.refresh()
+
+    def pick_part(self, canvas_index: int) -> None:
+        """A click on a part in the live view after a job: "Start from" that part."""
+        n = self.canvas.numbers.get(canvas_index, 0)
+        if n:
+            self.from_spin.setValue(n)
+            self.from_spin.setFocus(Qt.MouseFocusReason)
 
     def toggle_queue(self) -> None:
         r = self.ws.runner
@@ -886,6 +1091,7 @@ class OperatorScreen(QWidget):
         running = s.kind in ("running", "hold") or s.mode != ""
         # idle: what Start will run (UX audit W18)
         self.counters.setText("  ·  ".join(bits) or tr(w, "run.start_target", "Start: {name}", name=self.ws.job_name()))
+        self._last_job(running)
         p = s.progress if running else 0.0
         self.progress.setValue(int(round(p * 1000)))
         self.progress.setFormat(f"{p * 100:.0f} %" if running else "")
@@ -896,24 +1102,18 @@ class OperatorScreen(QWidget):
         # process values
         dash = "-"
         u = U.current()
-        vals = [tr(w, "run.val.speed", "Speed {v}", v=u.fmt(s.speed, "speed")),
-                tr(w, "run.val.power", "Power {v} %", v=f"{s.power_pct:.0f}" if s.power_pct is not None else dash),
-                tr(w, "run.val.gas", "Gas {v}", v=(s.gas + (f" {u.fmt(s.gas_bar, 'pressure', decimals=1)}"
-                                                            if s.gas_bar else "")) or dash),
-                tr(w, "run.val.height", "Height {v}", v=u.fmt(s.height_mm, "length", missing=dash)),
-                tr(w, "run.val.position", "X {x}  Y {y}  Z {z} {unit}", x=u.number(s.x, "length"),
-                   y=u.number(s.y, "length"), z=u.number(s.z, "length"), unit=u.suffix("length"))]
+        gas = s.gas
+        if s.gas_bar:
+            gas = tr(w, "run.val.gas_bar", "{gas} {pressure}", gas=gas, pressure=u.fmt(s.gas_bar, "pressure", decimals=1))
+        vals = {"speed": u.fmt(s.speed, "speed"),
+                "power": tr(w, "run.val.power_pct", "{v} %", v=f"{s.power_pct:.0f}") if s.power_pct is not None
+                else dash,
+                "gas": gas or dash,
+                "height": u.fmt(s.height_mm, "length", missing=dash),
+                "x": u.fmt(s.x, "length"), "y": u.fmt(s.y, "length"), "z": u.fmt(s.z, "length")}
         connected = bool(ms is not None and ms.connected)
-        text = "    ".join(vals)
-        stale = not connected and self.ws.ever_connected
-        if stale:
-            # the link is lost: the last values the card reported, greyed and marked (W2)
-            text = tr(w, "run.val.last_known", "{values}   (last known)", values=text)
-        if self.values.text() != text:
-            self.values.setText(text)
-        if bool(self.values.property("stale")) != stale:
-            self.values.setProperty("stale", stale)
-            style.styled(self.values, (lambda: f"color:{style.css('muted')};") if stale else (lambda: ""))
+        # the link is lost: the last values the card reported, greyed and marked (W2)
+        self.values.set_values(vals, stale=not connected and self.ws.ever_connected)
         # alarms
         self._alarms(s)
         # buttons (the same rules as the run bar)
@@ -940,6 +1140,7 @@ class OperatorScreen(QWidget):
                   tr(w, "run.why.fault", "Reset the fault first") if fault or s.alarms else "")
         style.set_enabled(b["resume_here"], not why_bp, why_bp)
         style.set_enabled(b["resume_contour"], not why_bp, why_bp)
+        self._rest_buttons(b["start"].isEnabled(), str(b["start"].property("disabled_reason") or ""))
         # queue card
         r = self.ws.runner
         title = trn(w, "run.queue.title", len(self.ws.queue),
@@ -998,11 +1199,124 @@ class OperatorScreen(QWidget):
         # canvas
         doc, sheet = self.ws.view_document()
         self.canvas.set_document(doc, sheet)
-        self.canvas.set_progress(s.done_parts if running else (), s.part_index if running else -1,
-                                 (s.x, s.y) if connected else None)
+        rest = None if running else self._rest_view(doc)
+        if rest is None:
+            if self.canvas.numbers or self.canvas.skip:
+                self.canvas.set_rest((), (), {})
+            self.canvas.set_progress(s.done_parts if running else (), s.part_index if running else -1,
+                                     (s.x, s.y) if connected else None)
+        else:
+            self.canvas.set_progress(rest[0], -1, (s.x, s.y) if connected else None)
+
+    # ------------------------------------------------------------------ the last job (UX deep review 5)
+    def _last_job(self, running: bool) -> None:
+        """The last job's line in the state block and the "Cut the rest" section."""
+        w = self.ws.window
+        last, why = self.ws.rest_state()
+        any_last = self.ws.parts.last
+        text = ""
+        if any_last is not None and any_last.over and not running:
+            text = self.ws.last_job_text(any_last)
+            if why and last is not None:
+                text = tr(w, "run.last.with_reason", "{summary}\n{reason}", summary=text, reason=why)
+        if self.last_job.text() != text:
+            self.last_job.setText(text)
+        if bool(text) != self.last_job.isVisibleTo(self):
+            self.last_job.setVisible(bool(text))
+        show = last is not None and not running
+        key = (id(last), last.outcome, last.done, last.total, why) if last is not None else None
+        if key != self._rest_key:
+            self._rest_key = key
+            if last is not None:
+                self.from_spin.blockSignals(True)
+                self.from_spin.setRange(1, max(1, last.total))
+                self.from_spin.setValue(last.done + 1 if last.done < last.total else 1)
+                self.from_spin.blockSignals(False)
+                self._from_chosen = False
+                # open after a stop: the operator decides what happens to the rest
+                prio = 5 if last.outcome == "stopped" and not why else 0
+                if self.rest_section.priority != prio:
+                    self.rest_section.priority = prio
+                    if prio:
+                        self.rest_section.user_choice = None
+                    self.controls.schedule()
+        if show != self.rest_section.isVisibleTo(self.controls):
+            self.rest_section.setVisible(show)
+            self.controls.schedule()
+        # one of the two ways on: after a job with no breakpoint held there is nothing to
+        # resume, and "Cut the rest" takes its place (its hint names the difference); with a
+        # breakpoint, Resume is shown (and "Cut the rest" says to resume or stop first)
+        resume = not show or w.ctl.breakpoint is not None
+        if resume != self.resume_section.isVisibleTo(self.controls):
+            self.resume_section.setVisible(resume)
+            self.controls.schedule()
+
+    def _rest_buttons(self, start_ok: bool, start_why: str) -> None:
+        """"Cut remaining parts" / "Start from part": Start's own rules (connected, no alarm, no
+        job running), then the offer's (the same drawing, no job held at a breakpoint)."""
+        w = self.ws.window
+        last, why = self.ws.rest_state()
+        b = self.buttons
+        n_left = len(last.remaining()) if last is not None else 0
+        text = (trn(w, "run.btn.cut_remaining", n_left) if n_left
+                else tr(w, "run.btn.cut_remaining_none", "Cut remaining parts"))
+        if b["cut_remaining"].text() != text:
+            b["cut_remaining"].setText(text)
+            b["cut_remaining"].setAccessibleName(text)
+        text = tr(w, "run.btn.start_from", "Start from part {n}", n=self.from_spin.value())
+        if b["start_from"].text() != text:
+            b["start_from"].setText(text)
+            b["start_from"].setAccessibleName(text)
+        why_left = why or (tr(w, "run.why.rest_none", "The last job finished every part") if not n_left else "")
+        style.set_enabled(b["cut_remaining"], start_ok and not why_left, why_left or start_why)
+        style.set_enabled(b["start_from"], start_ok and not why, why or start_why)
+        style.set_enabled(self.from_spin, not why, why)
+
+    def _rest_view(self, doc: Any) -> Optional[tuple]:
+        """The live view after a job: (done, left out, numbers) as part indices of ``doc`` (the
+        view's document; set on the canvas), or None when there is no offer to show."""
+        last, why = self.ws.rest_state()
+        if last is None or why:
+            return None
+        wparts = list(getattr(self.ws.window.document, "parts", []) or [])
+        where = {getattr(p, "uid", None): i for i, p in enumerate(getattr(doc, "parts", []) or [])}
+
+        def view(indices) -> list[int]:
+            out = []
+            for i in indices:
+                j = where.get(getattr(wparts[i], "uid", None)) if 0 <= i < len(wparts) else None
+                if j is not None:
+                    out.append(j)
+            return out
+        # the last job as it ended (its finished parts dashed, the rest to cut); once the
+        # operator chose a part to start from, the job that would run
+        todo = set(last.from_part(self.from_spin.value()) if self._from_chosen else last.remaining())
+        done = [i for i in last.done_parts() if i not in todo]
+        numbers = dict(zip(view(last.order), range(1, last.total + 1)))
+        if len(numbers) != last.total:
+            return None                                 # the view shows another document
+        keep = set(view(todo)) | set(view(done))
+        skip = [j for j in range(len(getattr(doc, "parts", []) or [])) if j not in keep]
+        out = (view(done), skip, numbers)
+        self.canvas.set_rest(*out)
+        return out
+
+    def _from_changed(self, _v: int = 0) -> None:
+        self._from_chosen = True
+        self._rest_refresh()
+
+    def _rest_refresh(self) -> None:
+        """The spin box moved: the live view's preview and the button's number."""
+        self._rest_buttons(self.buttons["start"].isEnabled(),
+                           str(self.buttons["start"].property("disabled_reason") or ""))
+        doc, _sheet = self.ws.view_document()
+        self._rest_view(doc)
 
     #: the readiness items shown on this screen (the others have their own display)
     READY_IDS = ("homed", "technology")
+    #: the readiness fixes' button texts (their command ids, services.readiness)
+    READY_ACTIONS = {"machine.home": ("run.ready.do_home", "Home X/Y"),
+                     "workspace.process": ("run.ready.do_technology", "Assign technology...")}
 
     def _readiness(self, job: bool) -> None:
         self._ready_tick += 1
@@ -1016,26 +1330,46 @@ class OperatorScreen(QWidget):
             except Exception:  # noqa: BLE001 - a display never fails the screen
                 log.debug("readiness failed", exc_info=True)
         shown = {i.id for i in items}
-        for rid, b in list(self.ready_buttons.items()):
+        for rid, box in list(self.ready_notices.items()):
             if rid not in shown:
-                b.setVisible(False)
+                box.setVisible(False)
         for i in items:
             b = self.ready_buttons.get(i.id)
             if b is None:
+                # a notice with its action (UI deep review 13): the text on the warning (or
+                # information) chip, its fix as an ordinary button beside it; never a full-width
+                # button that reads as the action itself
+                box = QWidget()
+                box.setObjectName(f"run_ready_notice_{i.id}")
+                bl = style.hbox(box, sp=style.SP2)
+                lab = QLabel()
+                lab.setObjectName(f"run_ready_text_{i.id}")
+                lab.setWordWrap(True)
+                style.chip(lab, "warning" if i.blocking else "info")
+                bl.addWidget(lab, 1)
                 b = _big(QPushButton(), TOUCH_MIN, role="body")
                 b.setObjectName(f"run_ready_{i.id}")
                 b.setIcon(icon("alert-triangle" if i.blocking else "info-circle"))
-                b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
+                b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
                 b.clicked.connect(lambda _=False, rid=i.id: self._ready_fix(rid))
-                self.ready_flow.addWidget(b)
+                bl.addWidget(b, 0, Qt.AlignVCenter)
+                box.label = lab                                   # type: ignore[attr-defined]
+                self.ready_flow.addWidget(box)
                 self.ready_buttons[i.id] = b
+                self.ready_notices[i.id] = box
+            box = self.ready_notices[i.id]
             text = i.reason or i.label
-            if b.text() != text:
-                b.setText(text)
-                b.setAccessibleName(text)
+            if box.label.text() != text:
+                box.label.setText(text)
+                b.setAccessibleDescription(text)
+            key, default = self.READY_ACTIONS.get(i.action, ("run.ready.do", "Fix..."))
+            act = tr(self.ws.window, key, default)
+            if b.text() != act:
+                b.setText(act)
+                b.setAccessibleName(act)
             b.setProperty("action", i.action)
-            style.set_enabled(b, bool(i.action), "")
-            b.setVisible(True)
+            b.setVisible(bool(i.action))
+            box.setVisible(True)
         if bool(items) != self.ready_box.isVisibleTo(self):
             self.ready_box.setVisible(bool(items))
 
@@ -1115,6 +1449,13 @@ class RunWorkspace:
         self.ever_connected = False          # a lost link shows the last values as "last known"
         self._unsub: list = []
         self._attached: Any = None
+        # the last job's parts: done / not done, where it stopped (UX deep review 5)
+        self.parts = JobPartsTracker(self._job_context)
+        self._doc_rev = 0
+        self._key_cache: tuple = (None, "")
+        docs = getattr(self.window, "docs", None)
+        if docs is not None and hasattr(docs, "subscribe"):
+            docs.subscribe(self._doc_changed)
         self.screen = OperatorScreen(self)
         ctx.add_workspace("run", self.screen, tr(self.window, "ws.run", "Run"))
         self.queue.subscribe(self._queue_changed)
@@ -1184,6 +1525,7 @@ class RunWorkspace:
         bus = ctl.events
         self._unsub = [bus.subscribe(EV.JobStarted, self._job_started)]
         self.runner.attach(bus)
+        self.parts.attach(bus)
 
     def _job_started(self, ev: Any) -> None:
         if not ev.resume:
@@ -1194,6 +1536,99 @@ class RunWorkspace:
             plan = plan or getattr(self.window, "plan", None)
         if not ev.resume or self._run_plan is None:
             self._run_plan = plan
+
+    # ------------------------------------------------------------------ the last job (UX deep review 5)
+    def _job_context(self) -> tuple[Any, Any, str]:
+        """For the part tracker when a job starts: the plan being run, the document it was
+        started from, its name."""
+        run = getattr(getattr(self.window, "jobs", None), "last_run", None)
+        plan = getattr(run, "plan", None) if run is not None else None
+        return plan, self.window.document, self.job_name()
+
+    def _doc_changed(self, _kind: str = "") -> None:
+        self._doc_rev += 1
+
+    def document_key(self) -> str:
+        """:func:`mlaser.nc.resume.document_key` of the open document (the breakpoint's
+        "is it the same drawing" test), computed again only after an edit, another document or
+        a new plan (a layer's technology changed)."""
+        doc = self.window.document
+        k = (id(doc), id(getattr(self.window, "plan", None)), self._doc_rev)
+        if self._key_cache[0] != k:
+            from mlaser.nc.resume import document_key
+            try:
+                key = document_key(doc)
+            except Exception:  # noqa: BLE001 - unknown: the offer is withdrawn
+                key = ""
+            self._key_cache = (k, key)
+        return self._key_cache[1]
+
+    def rest_state(self) -> tuple[Optional[LastJob], str]:
+        """The last cutting job when it is over (None: none), and why "Cut remaining parts" /
+        "Start from part" are not offered for it ("" = offered)."""
+        w = self.window
+        held = w.ctl.breakpoint is not None or self.job_running()
+        self.parts.settle(held)
+        last = self.parts.last
+        if last is None or last.mode != "process" or not last.over:
+            return None, ""
+        if not last.mapped or not last.doc_key:
+            return last, tr(w, "run.why.rest_unknown", "The parts of the last job are not known")
+        if self.document_key() != last.doc_key:
+            return last, tr(w, "run.why.rest_changed", "The drawing changed since the last job: "
+                            "cutting its rest is no longer offered")
+        if held:
+            return last, tr(w, "run.why.rest_held", "A job is held at a breakpoint: resume it or stop it first")
+        return last, ""
+
+    def last_job_text(self, last: LastJob) -> str:
+        """"Last job stopped at 14:02 in part 5 of 6 (4 finished), after 2:15 · gear.dxf"."""
+        from PySide6.QtCore import QDateTime, QLocale
+        w = self.window
+        at = QLocale().toString(QDateTime.fromSecsSinceEpoch(int(last.ended or time.time())).time(),
+                                QLocale.ShortFormat)
+        args = dict(time=at, duration=fmt_duration(last.duration_s), name=last.name or self.job_name(),
+                    total=last.total)
+        dry = last.mode != "process"
+        if last.outcome == "finished":
+            if dry:
+                return tr(w, "run.last.dry_finished", "Last dry run finished at {time}, after {duration} · {name}",
+                          **args)
+            return trn(w, "run.last.finished", last.total, **args)
+        part = last.stopped_at or min(last.done + 1, last.total)
+        if dry:
+            return tr(w, "run.last.dry_stopped", "Last dry run stopped at {time} in part {part} of {total} · {name}",
+                      part=part, **args)
+        return tr(w, "run.last.stopped", "Last job stopped at {time} in part {part} of {total} ({done} finished), "
+                  "after {duration} · {name}", part=part, done=last.done, **args)
+
+    def cut_rest(self, from_part: Optional[int] = None) -> bool:
+        """A new job of the last job's parts it did not finish (``from_part`` None), or from its
+        cut-order number ``from_part`` to the end: those parts are selected (visibly, as a click
+        on them would) and the ordinary "Start selection only" starts them, with its pre-flight,
+        arming question and compile.  False when the offer is withdrawn (said in the status bar)."""
+        w = self.window
+        self._key_cache = (None, "")              # the exact test, not the cached one
+        last, why = self.rest_state()
+        parts = [] if last is None else (last.remaining() if from_part is None else last.from_part(from_part))
+        if last is None or why or not parts:
+            msg = why or tr(w, "run.why.rest_none", "The last job finished every part")
+            if hasattr(w, "statusBar"):
+                w.statusBar().showMessage(msg, 8000)
+            self.log(msg)
+            return False
+        canvas = getattr(w, "canvas", None)
+        if canvas is not None and getattr(canvas, "document", None) is w.document:
+            canvas.select_parts(parts)
+        else:
+            keep = set(parts)
+            for i, p in enumerate(w.document.parts):
+                p.selected = i in keep
+        ui = getattr(w, "safety_ui", None)
+        if ui is None:
+            return False
+        ui.start_selection()
+        return True
 
     def status(self) -> RunStatus:
         ctl = self.window.ctl
@@ -1214,6 +1649,10 @@ class RunWorkspace:
         # the safety UI's clock: the run bar and this screen show the same elapsed time and the
         # whole job's progress (it never goes backwards after Continue: UX audit W10)
         clock = getattr(getattr(self.window, "safety_ui", None), "clock", None)
+        if ms is not None and ms.mode in ("process", "dry_run") and int(getattr(ms, "job_index", -1)) >= 0:
+            # the marker the card executes, polled: the part tracker's events are published at
+            # most every 0.1 s (a part finished just before a Stop still counts)
+            self.parts.progress(ms.mode, int(ms.job_index))
         return run_status(ms, st, alarms, plan, elapsed, ctl.breakpoint, clock=clock)
 
     def reason_text(self, s: RunStatus) -> str:
@@ -1545,6 +1984,8 @@ def register(ctx: Any) -> RunWorkspace:
                          label="ws.run")
     ctx.register_command("queue.add_current", lambda: _queue_current(ws), label="queue.cmd.add_current")
     ctx.register_command("queue.confirm_sheet", ws.screen.confirm_sheet, label="run.btn.confirm_sheet")
+    # after a stopped job (UX deep review 5): found by the command search as well
+    ctx.register_command("run.cut_remaining", ws.screen.cut_remaining, label="run.cmd.cut_remaining")
     ctx.register_command("monitor.toggle", lambda on: ws.set_monitor(bool(on)), label="web.cmd.toggle",
                          checkable=True)
     return ws

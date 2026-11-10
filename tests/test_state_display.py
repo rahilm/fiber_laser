@@ -298,12 +298,16 @@ def test_run_bar_on_the_run_workspace_and_the_start_target(win, app, tmp_path):
     win.commands.run("workspace.design")
     su.refresh()
     assert rb.buttons["start"].isVisible() and rb.buttons["stop"].isVisible()
-    assert rb.progress.format() == win.tr_.format("run.start_target", name=su.start_target_name())
+    # what Start runs: plain text after the buttons, not a framed box (UI deep review 5)
+    assert rb.target.isVisible() and not rb.progress.isVisible()
+    assert rb.target.toolTip() == win.tr_.format("run.start_target", name=su.start_target_name())
     win.commands.run("workspace.run")
     su.refresh()
     pump(app)
     assert not rb.buttons["start"].isVisible() and not rb.buttons["stop"].isVisible()
-    assert rb.pill.isVisible() and rb.progress.isVisible()
+    # one calm row there: the state (and the progress line while a job runs); the target and
+    # the times are the Run header's (UI deep review 5)
+    assert rb.pill.isVisible() and not rb.target.isVisible() and not rb.eta.isVisible()
     scr = win.extension("run").screen
     order = [scr.buttons[k] for k in ("start", "hold", "stop", "frame", "dry_run", "arm")]
     ys = [(b.mapTo(scr, b.rect().topLeft()).y(), b.mapTo(scr, b.rect().topLeft()).x()) for b in order]

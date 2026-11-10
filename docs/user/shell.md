@@ -18,6 +18,11 @@ prefers it (see [Classic ribbon](#4-classic-ribbon)).
 └ status bar ──────────────────────────────────────────────────────────────────────────┘
 ```
 
+After the run bar's buttons: what Start will cut (*Start: gear.dxf*), and while a job runs a thin
+progress line with the percentage, the elapsed time and the ETA. On the Run workspace, whose
+own screen shows all of that in large type, the run bar is one row: the machine state and the
+progress line.
+
 ## 1. Top bar
 
 * **Mlaser ▾** — the application menu: File, Workspaces, Settings (theme, classic ribbon,
@@ -184,4 +189,6 @@ The first start shows a **welcome sheet**:
   Esc/F12 stop; a fault latches until it is reset ([docs/SAFETY.md](../SAFETY.md)).
 * **Help** — this page and the keyboard shortcuts.
 
-Untick *Show this sheet at the next start* to keep it closed; Help > Welcome opens it again.
+The sections sit in two columns when one would be taller than the screen, so the sheet fits a
+1280 × 800 screen without scrolling. Untick *Show this sheet at the next start* to keep it closed;
+Help > Welcome opens it again.
