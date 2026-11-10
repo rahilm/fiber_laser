@@ -756,6 +756,26 @@ class _Trail:
         return sum(it.path().elementCount() for it in self.items)
 
 
+class _StaticView(QGraphicsView):
+    """A hidden view of the canvas's scene that paints the canvas's static picture (see
+    :meth:`CanvasView._static_view`): no frame, no scroll bars, the canvas's background."""
+
+    def __init__(self, canvas: "CanvasView") -> None:
+        super().__init__(canvas.scene())
+        self._canvas = canvas
+        self.setObjectName("canvas_static_view")
+        self.setAttribute(Qt.WA_DontShowOnScreen, True)
+        self.setFrameShape(QFrame.NoFrame)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setViewportUpdateMode(QGraphicsView.NoViewportUpdate)
+        self.setTransformationAnchor(QGraphicsView.NoAnchor)
+        self.setResizeAnchor(QGraphicsView.NoAnchor)
+
+    def drawBackground(self, painter, rect) -> None:  # noqa: N802 - Qt
+        self._canvas.drawBackground(painter, rect)
+
+
 class _PrePaint(QObject):
     """Event filter on the canvas's window: before the window paints (its ``UpdateRequest``) the
     canvas brings its static picture up to date, outside of any paint event (a widget cannot
@@ -784,6 +804,7 @@ class CanvasView(QGraphicsView):
     layer_cache = True
     _painting_static = False      # class defaults: paint events can come before __init__ ends
     _static: Optional[tuple] = None
+    _sv: Optional["_StaticView"] = None
 
     def __init__(self, parent=None):
         self._scene = QGraphicsScene()
@@ -1049,15 +1070,19 @@ class CanvasView(QGraphicsView):
         vp = self.viewport()
         dpr = key[8]
         geo = self._window_geometry()
+        sv = self._static_view()
+        if sv is None:
+            self._static = None
+            return
         whole = QPixmap(geo[0], geo[1])
         whole.setDevicePixelRatio(dpr)
         off = vp.mapTo(self.window(), QPoint(0, 0))
         self._static_dirty = False
         self._painting_static = True
         try:
-            # the viewport's own paint (QGraphicsView.paintEvent, background and items), into
-            # the pixmap: the same pixels as a paint on the screen
-            vp.render(whole, off, QRegion(), QWidget.RenderFlag.DrawWindowBackground)
+            # QGraphicsView.paintEvent of the same scene in the same view geometry, into the
+            # pixmap: the same pixels as this view's paint on the screen
+            sv.viewport().render(whole, off, QRegion(), QWidget.RenderFlag.DrawWindowBackground)
         finally:
             self._painting_static = False
         pm = whole.copy(geo[2], geo[3], round(vp.width() * dpr), round(vp.height() * dpr))
@@ -1065,6 +1090,34 @@ class CanvasView(QGraphicsView):
         self._static = (key, pm, geo)
         self._under = None
         self.paint_stats["static"] += 1
+
+    def _static_view(self) -> Optional["_StaticView"]:
+        """The hidden view that paints the static picture, set to this view's size, transform
+        and scroll position (None: it cannot match them).  A view of its own: rendering this
+        canvas's viewport (``QWidget.render``) first delivered the pending move and resize
+        events of hidden widgets all over the window, and a page next to the canvas was laid
+        out differently (tests/test_half_screen.py)."""
+        sv = self._sv
+        try:
+            if sv is not None:
+                sv.isHidden()
+        except RuntimeError:                 # deleted with the other top-level widgets
+            sv = None
+        if sv is None:
+            sv = self._sv = _StaticView(self)
+        vp = self.viewport()
+        sv.setRenderHints(self.renderHints())
+        sv.setBackgroundBrush(self.backgroundBrush())
+        if sv.size() != vp.size():
+            sv.resize(vp.size())
+        if sv.viewport().size() != vp.size():
+            return None
+        sv.setTransform(self.transform())
+        sv.horizontalScrollBar().setValue(self.horizontalScrollBar().value())
+        sv.verticalScrollBar().setValue(self.verticalScrollBar().value())
+        if sv.viewportTransform() != self.viewportTransform():
+            return None
+        return sv
 
     def _live_items(self) -> list:
         return [it for it in self._live.items(Qt.AscendingOrder) if it.isVisible()]
