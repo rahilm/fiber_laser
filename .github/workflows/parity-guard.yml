@@ -6,17 +6,27 @@ name: Parity guard
 # rules"; the logic is tools/parity_guard.py, tested in tests/test_parity_guard.py).
 # Re-runs when a label is added or removed. Make it a required check in the branch protection
 # of main (docs/dev/RELEASE.md, "Branch protection").
+#
+# A direct push to main that touches the same paths is checked too (the pushed commits must carry
+# the trailer; a push has no labels).  It cannot block a push that has already landed, but a
+# missing declaration turns the commit red instead of going unnoticed (F3 of the 2026-11-09
+# review).
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled, edited]
+  push:
+    branches: [main]
+    paths:
+      - "tests/golden/**"
+      - "mlaser/parity_ports/**"
 
 permissions:
   contents: read
 
 concurrency:
-  group: parity-guard-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
+  group: parity-guard-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   parity-guard:
@@ -24,13 +34,26 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
-          fetch-depth: 0          # the PR's commits (trailers) and the merge base
+          fetch-depth: 0          # the commits (trailers) and the merge base
       - name: Check the goldens and the parity fence
         env:
           # labels and SHAs through the environment, never interpolated into the script
-          PARITY_GUARD_LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
-          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-        run: python3 tools/parity_guard.py --base "$BASE_SHA" --head "$HEAD_SHA"
+          PARITY_GUARD_LABELS: ${{ github.event_name == 'pull_request' && toJSON(github.event.pull_request.labels.*.name) || '[]' }}
+          EVENT: ${{ github.event_name }}
+          # pull request: its base and head; push: the commit main was at before the push and
+          # the pushed head
+          BASE_SHA: ${{ github.event_name == 'push' && github.event.before || github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event_name == 'push' && github.sha || github.event.pull_request.head.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          # a push that created the branch (before = 0000...) or replaced its history (a force
+          # push: the old head is not in this clone): check the last pushed commit alone
+          if [ "$EVENT" = "push" ] && \
+             { [ -z "${BASE_SHA//0/}" ] || ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; }; then
+            echo "push without a usable 'before' commit ($BASE_SHA): checking $HEAD_SHA against its parent"
+            BASE_SHA=$(git rev-parse "$HEAD_SHA^")
+          fi
+          python3 tools/parity_guard.py --base "$BASE_SHA" --head "$HEAD_SHA"

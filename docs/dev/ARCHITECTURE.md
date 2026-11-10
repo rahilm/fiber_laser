@@ -221,7 +221,7 @@ does not know makes that plan compile in the GUI process's worker thread instead
 
 ## 5. Python version
 
-Python 3.12 and 3.13 are supported and tested in CI. PySide6 6.12 aborts on 3.11 ("Fatal Python
+Python 3.12, 3.13 and 3.14 are supported and tested in CI (3.13 and 3.14 on Linux for every push). PySide6 6.12 aborts on 3.11 ("Fatal Python
 error: none_dealloc": it releases one reference to `None` too many, which 3.12's immortal `None`
 hides), so 3.11 is not supported.
 

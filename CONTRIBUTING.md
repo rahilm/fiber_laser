@@ -13,7 +13,8 @@ unexpectedly are **not** reported in public issues: see [SECURITY.md](SECURITY.m
 You need [uv](https://docs.astral.sh/uv/), git and, for the C emitter kernel, a C compiler
 (Linux: `build-essential`; macOS: the Xcode command line tools; Windows: Visual Studio Build
 Tools). CPython **3.12** is the reference interpreter (`.python-version`): the goldens are
-bit-exact on it. 3.13 is supported and tested in CI.
+bit-exact on it. 3.13 and 3.14 are supported and tested in CI (on Linux for every push; 3.13 on
+every OS nightly).
 
 ```bash
 git clone https://github.com/rahilm/fiber_laser.git && cd fiber_laser
@@ -148,11 +149,13 @@ The recommended rules (Settings > Branches > Branch protection rules, or a rules
 * **Require status checks to pass**, branches up to date before merging. Required checks:
   `ubuntu-latest / Python 3.12` (the reference platform: default suite and goldens),
   `import contracts, types, i18n, docs`, and `parity guard (goldens, parity fence)`. The
-  Windows, macOS and 3.13 jobs are recommended as required too once they have been stable.
+  `windows-latest / Python 3.12` and `macos-latest / Python 3.12` jobs are recommended as
+  required too once they have been stable.
 * **Require linear history**; **do not allow force pushes or deletions**.
 * **Include administrators** (or "Do not allow bypassing the above settings"), so the parity
-  guard and code-owner review also apply to the owner's own changes; a direct push to `main`
-  would bypass the parity guard, which runs on pull requests only.
+  guard and code-owner review also apply to the owner's own changes. The parity guard also
+  checks a direct push to `main` that touches the goldens or the parity fence, but only after
+  the push has landed (the commit turns red; it cannot be refused).
 * Enable **private vulnerability reporting** (Settings > Code security) for SECURITY.md.
 
 See also [docs/dev/RELEASE.md](docs/dev/RELEASE.md).

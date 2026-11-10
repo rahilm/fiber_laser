@@ -23,3 +23,10 @@ repos:
       - id: check-merge-conflict
       - id: check-toml
       - id: check-yaml
+  # the workflows and dependabot.yml against their published schemas (catches a misspelt key
+  # before a push; actionlint, which also checks expressions, is `uvx --from actionlint-py actionlint`)
+  - repo: https://github.com/python-jsonschema/check-jsonschema
+    rev: 0.39.0
+    hooks:
+      - id: check-github-workflows
+      - id: check-dependabot
