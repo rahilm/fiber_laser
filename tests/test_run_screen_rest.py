@@ -218,6 +218,7 @@ def test_cut_remaining_on_the_simulator(win, app):
     su.preflight_ok = lambda *a, **k: calls.append(k.get("selected_only")) or real(*a, **k)
     assert ctl.arm()
     su.start()
+    assert su.wait_preflight(30)                           # the pre-flight runs off the GUI thread
     if win.jobs.last_run is not None:
         win.jobs.settle(win.jobs.last_run, timeout=30)
     assert wait(app, lambda: ws.parts.last is not None and ws.parts.last.done >= 2, 60)
@@ -234,6 +235,7 @@ def test_cut_remaining_on_the_simulator(win, app):
         assert ctl.arm()
     calls.clear()
     scr.buttons["cut_remaining"].click()
+    assert su.wait_preflight(30)
     assert calls and calls[0] is True                      # Start's pre-flight, for the selection
     assert wait(app, lambda: win.jobs.last_run is not before, 20)
     win.jobs.settle(win.jobs.last_run, timeout=30)

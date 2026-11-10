@@ -497,7 +497,7 @@ class ControlPanel(QWidget):
         """The informative line naming the axes the homing moves (start-up homing: X/Y, with
         the focus axis for AF.AFType 5 / 6, as UiController.startup_homing)."""
         af = 0
-        m = getattr(self.ctl, "machine", None)
+        m = self.ctl.machine
         try:
             af = int(m.iparam("AF.AFType", 0)) if m is not None and hasattr(m, "iparam") else 0
         except (TypeError, ValueError):

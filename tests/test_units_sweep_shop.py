@@ -239,7 +239,8 @@ def test_cutting_strategy_bed_edited_in_inches_stores_mm(win, app):
     panel = pitch.parentWidget()
     while not isinstance(panel, SettingsPanel):
         panel = panel.parentWidget()
-    panel.apply()                                            # Machine › Setup applies on Apply
+    # Machine › Setup applies on Apply (the question itself: tests/test_param_import_review.py)
+    panel.apply(confirm=False)
     assert win.config.get("bed.slat_pitch") == pytest.approx(101.6)
     assert win.config.get("bed.slat_width") == pytest.approx(3.175)
     assert not win.config.is_set("bed.slat_offset")           # never touched: never written

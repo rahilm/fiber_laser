@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import logging
 import os
 import subprocess
 import sys
@@ -125,8 +124,7 @@ def test_log_header_names_version_and_commit(tmp_path, monkeypatch):
     d = tmp_path / "log"
     try:
         logsetup.setup_logging(d)
-        for h in logging.getLogger("mlaser").handlers:
-            h.flush()
+        assert logsetup.flush_logging(5.0)             # the files are written by a background thread
         main = (d / "mlaser.log").read_text("utf-8")
         audit = [json.loads(ln) for ln in (d / "audit.log").read_text("utf-8").splitlines() if ln.strip()]
     finally:

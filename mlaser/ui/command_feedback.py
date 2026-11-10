@@ -252,6 +252,17 @@ class CommandFeedback:
             sb().showMessage(text, self.MESSAGE_MS)
         return text
 
+    def say_disabled(self, cmd: str) -> str:
+        """A command whose action is disabled was asked for (the palette, a key, a plugin): the
+        status bar says why ("" when the action gives no reason)."""
+        reason = disabled_reason(self.w, cmd)
+        if reason:
+            self.last = reason
+            sb = getattr(self.w, "statusBar", None)
+            if callable(sb):
+                sb().showMessage(reason, self.MESSAGE_MS)
+        return reason
+
     def unmet(self, cmd: str) -> Optional[Need]:
         """The first precondition of ``cmd`` that is not met (None: it may run)."""
         if is_unguarded(cmd):

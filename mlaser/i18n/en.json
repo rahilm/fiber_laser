@@ -3600,6 +3600,7 @@
   "run.cap.y": "Y",
   "run.cap.z": "Z",
   "run.card_busy": "Waiting for the card to answer…",
+  "run.checking": "Checking the job…",
   "run.cmd.cut_remaining": "Cut remaining parts of the last job",
   "run.count.contour": "contour {n}/{total}",
   "run.count.part": "part {n}/{total}",

@@ -125,7 +125,10 @@ def _walk(app, events, with_doc: bool) -> list[str]:
             before = _snapshot(w, app)
             w.run(cmd)
             app.processEvents()
-            if not events and _snapshot(w, app) == before:
+            answered = bool(events) or _snapshot(w, app) != before      # the press is answered at once
+            # a Start / Dry run is checked off the GUI thread: its end belongs to this command
+            assert w.safety_ui.wait_preflight(60), cmd
+            if not answered:
                 check = IDEMPOTENT.get(cmd)
                 if check is None or not check(w):
                     silent.append(cmd)

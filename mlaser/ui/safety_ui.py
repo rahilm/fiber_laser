@@ -1840,11 +1840,13 @@ class SafetyUI(QObject):
         layer the check runs here, as before."""
         w, ctl = self.w, self.w.ctl
         jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
-        gen_fn = getattr(ctl, "start_generation", None)
-        if jobs is None or docs is None or not callable(gen_fn) or doc is None:
+        gen_fn = ctl.start_generation
+        if jobs is None or docs is None or doc is None:
             then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
             return
+        checking = _tr(w, "run.checking", "Checking the job…")
         if self.preflight_busy:
+            w.statusBar().showMessage(checking)
             return                          # the previous Start is still being checked
         try:
             from ..services.jobs import build_request
@@ -1878,6 +1880,8 @@ class SafetyUI(QObject):
             return rep, extra
 
         def done(res, err) -> None:
+            if w.statusBar().currentMessage() == checking:
+                w.statusBar().clearMessage()
             if err is not None:
                 log.error("pre-flight failed: %s", err)
                 then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
@@ -1888,6 +1892,8 @@ class SafetyUI(QObject):
                                    checked=res))
         if self._prep_call is None:
             self._prep_call = qtbridge.BackgroundCall(self, name="mlaser-preflight")
+        # the press is answered at once: the check of a large job takes seconds
+        w.statusBar().showMessage(checking)
         self._prep_call.start(work, done)
 
     def ask_arm_and_start(self) -> bool:

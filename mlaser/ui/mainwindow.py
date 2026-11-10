@@ -903,6 +903,9 @@ class MainWindow(QMainWindow):
     def run(self, cmd: str) -> None:
         act = self.ribbon.actions.get(cmd)
         if act is not None:
+            if not act.isEnabled() and self.command_feedback is not None:
+                self.command_feedback.say_disabled(cmd)     # a disabled action triggers nothing
+                return
             act.trigger()
         else:
             self._dispatch(cmd)

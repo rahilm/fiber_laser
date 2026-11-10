@@ -986,6 +986,10 @@ class MachineWorkspace(QWidget):
                 a.setProperty("tooltip_enabled", a.toolTip())
             allowed = shell is None or not hasattr(shell, "allows") or bool(shell.allows(cmd))
             a.setEnabled(ok and allowed)
+            # the reason command_feedback.disabled_reason reports (status bar, command palette)
+            a.setProperty("disabled_reason", "" if ok else why)
+            if allowed:                      # (a mode's reason is command_feedback.mode_reasons')
+                a.setStatusTip("" if ok else why)
             normal = str(a.property("tooltip_enabled") or "")
             a.setToolTip(normal if ok else (f"{normal}\n{why}" if normal and why not in normal else why))
 
