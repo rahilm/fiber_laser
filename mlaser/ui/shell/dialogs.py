@@ -8,7 +8,7 @@ from typing import Optional
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QRegularExpressionValidator
 from PySide6.QtCore import QRegularExpression
-from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
+from PySide6.QtWidgets import (QCheckBox, QDialog, QDialogButtonBox, QFormLayout, QFrame, QGridLayout, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
                                QMessageBox, QPushButton, QScrollArea, QSizePolicy, QTableWidget,
                                QTableWidgetItem, QVBoxLayout, QWidget)
 
@@ -129,9 +129,12 @@ class WelcomeSheet(Dialog):
     the safety model (disarmed by default) and where the user docs are.
 
     One dialog frame (style.Dialog), plain sections (a heading and wrapped text, no group-box
-    frames), and the text reflows with the width: the sections sit in one vertical scroll area
-    whose labels take the height they need (heightForWidth), so nothing is clipped at any width
-    or font size; the sheet's size comes from its content, capped by the screen."""
+    frames), and the text reflows with the width: the labels take the height they need
+    (heightForWidth), so nothing is clipped at any width or font size.  The sheet's size comes
+    from its content: one column of sections while that fits the screen's height, else two side
+    by side, wider and shorter, so it fits the smallest supported screen (1280 x 800) without
+    scrolling (UI deep review 13).  The sections sit in a vertical scroll area only as the last
+    resort of a screen smaller than that, or a very large font."""
 
     def __init__(self, shell, parent=None):
         tr = shell.tr
@@ -147,7 +150,15 @@ class WelcomeSheet(Dialog):
         self.actions: dict[str, QPushButton] = {}
         content = QWidget()
         content.setObjectName("welcome_sections")
-        cv = style.vbox(content, sp=style.SP3)
+        cv = QGridLayout(content)
+        cv.setContentsMargins(0, 0, 0, 0)
+        cv.setHorizontalSpacing(style.SP4)
+        cv.setVerticalSpacing(style.SP3)
+        self._sections: list[QWidget] = []
+        self._content = content
+        # its height is the one its text needs at the width it gets (heightForWidth), not the
+        # minimum of every label at its narrowest (that alone made the area scroll)
+        content.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Ignored)
 
         def section(title_key: str, text_keys: list[str], actions: list[tuple[str, str]]) -> QVBoxLayout:
             sec, bl = style.section(tr.tr(title_key))
@@ -166,7 +177,7 @@ class WelcomeSheet(Dialog):
                     self.actions[cmd] = b
                     btns.append(b)
                 bl.addWidget(flow(btns, justify=False))
-            cv.addWidget(sec)
+            self._sections.append(sec)
             return bl
 
         # one practice section (the simulator and the guided lessons are the same idea)
@@ -188,7 +199,8 @@ class WelcomeSheet(Dialog):
         section("shell.welcome.safety_title", ["shell.welcome.safety_text"], [])
         section("shell.welcome.docs_title", ["shell.welcome.docs_text"],
                 [("shell.welcome.docs_button", "shell.docs"), ("shell.welcome.keys_button", "shell.shortcuts")])
-        cv.addStretch(1)
+        self.columns = 0
+        self._place(1)
         self.scroll = QScrollArea()
         self.scroll.setObjectName("welcome_scroll")
         self.scroll.setFrameShape(QFrame.NoFrame)
@@ -204,21 +216,63 @@ class WelcomeSheet(Dialog):
         self._content = content
         self.fit()
 
-    def fit(self, width: int = 0) -> None:
-        """Size from the content at ``width`` (default: about 46 average characters a line),
-        capped by the available screen height."""
-        fm = self.fontMetrics()
-        w = width or max(fm.averageCharWidth() * 72, 420)
+    def _place(self, columns: int) -> None:
+        """The sections in ``columns`` columns, row by row (reading order: left, then right)."""
+        if columns == self.columns:
+            return
+        self.columns = columns
         lay = self._content.layout()
-        inner = w - 2 * style.SP3 - self.scroll.verticalScrollBar().sizeHint().width()
-        need = lay.totalHeightForWidth(inner) if lay.hasHeightForWidth() else self._content.sizeHint().height()
+        for sec in self._sections:
+            lay.removeWidget(sec)
+        for c in range(2):
+            lay.setColumnStretch(c, 1 if c < columns else 0)
+        for i, sec in enumerate(self._sections):
+            lay.addWidget(sec, i // columns, i % columns, Qt.AlignTop)
+        lay.setRowStretch(len(self._sections), 1)
+        lay.invalidate()
+
+    def _need(self, width: int, columns: int) -> int:
+        """The dialog's height at ``width`` with the sections in ``columns`` columns."""
+        self._place(columns)
+        lay = self._content.layout()
+        inner = width - 2 * style.SP3 - self.scroll.verticalScrollBar().sizeHint().width()
+        col_w = (inner - lay.horizontalSpacing() * (columns - 1)) // columns
+        rows = [max(s.layout().totalHeightForWidth(col_w) if s.layout().hasHeightForWidth()
+                    else s.sizeHint().height() for s in self._sections[r:r + columns])
+                for r in range(0, len(self._sections), columns)]
+        need = sum(rows) + lay.verticalSpacing() * (len(rows) - 1)
         chrome = self.sizeHint().height() - self.scroll.sizeHint().height()
-        h = need + chrome
+        return need + chrome
+
+    def fit(self, width: int = 0) -> None:
+        """Size from the content: at ``width`` when given (one column, or two when a column of
+        about 40 characters each fits), else about 72 characters a line in one column, or two
+        such columns when one is taller than the screen allows; capped by the screen."""
+        fm = self.fontMetrics()
+        one = max(fm.averageCharWidth() * 72, 420)
+        col_min = max(fm.averageCharWidth() * 40, 300)
         scr = self.screen().availableGeometry() if self.screen() is not None else None
-        if scr is not None:
-            h = min(h, int(scr.height() * 0.9))
-            w = min(w, scr.width())
+        max_h = int(scr.height() * 0.9) if scr is not None else 10 ** 6
+        max_w = int(scr.width() * 0.9) if scr is not None else 10 ** 6
+        if width:
+            w = width
+            cols = 2 if width >= 2 * col_min + style.SP4 + 2 * style.SP3 else 1
+        else:
+            w, cols = one, 1
+            if self._need(one, 1) > max_h:
+                w, cols = min(2 * one, max(max_w, one)), 2
+        w = min(w, scr.width()) if scr is not None else w
+        h = min(self._need(w, cols), max_h)
         self.resize(w, h)
+        # what the estimate missed (the scroll area's own share of the chrome): measured once
+        # laid out, so the sections fit without the scroll bar wherever the screen allows
+        self.layout().activate()
+        c = self._content
+        vw = self.scroll.width()
+        need = c.heightForWidth(vw) if c.hasHeightForWidth() else c.sizeHint().height()
+        over = need - self.scroll.height()
+        if over > 0 and h < max_h:
+            self.resize(w, min(h + over, max_h))
 
     def sections_clipped(self) -> list[str]:
         """Labels shorter than the height their text needs at their width (tests)."""
