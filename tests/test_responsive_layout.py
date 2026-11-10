@@ -464,8 +464,13 @@ def _fail_text(rows) -> str:
     return "\n".join(dict.fromkeys(out))
 
 
+def _size_id(size) -> str:
+    return f"{size[0]}x{size[1]}"
+
+
 # ----------------------------------------------------------------------------- tests
-def test_panels_with_a_selection(win, app):
+@pytest.mark.parametrize("theme", ["light", "dark"])
+def test_panels_with_a_selection(win, app, theme):
     """The panels that follow the selection, with one: the Properties dock in Design (Transform
     and Layer) and in Process (every CAM section; a multi-contour part's contour picked), the
     layer inspector with a layer chosen, the Library page; light and dark.  The window keeps
@@ -477,42 +482,41 @@ def test_panels_with_a_selection(win, app):
     host = win.shell.host
     grew = []
     try:
-        for theme in ("light", "dark"):
-            win.shell.set_theme(theme, persist=False)
-            _restyle(app)
-            for size in SAMPLES:
-                for ws in ("design", "process"):
-                    host.activate(ws)
-                    win.canvas.select_parts([0])
-                    _pump(app)
-                    s = _fit(win, app, size)
-                    if s.height() > size[1]:
-                        grew.append(f"{theme} {ws} {size}: window {s.width()}x{s.height()}")
-                    _pump(app, 0.02)
-                    rep.check("selection", s, f"{theme}_{ws}", win)
-                    rep.shot(win, s, f"selection_{theme}_{ws}")
-                    if ws != "process":
-                        continue
-                    pp = win.extension("ext_process").properties
-                    pp.pick_contour(1)                      # a hole of the plate: its own values
-                    _pump(app)
-                    rep.check("selection", s, f"{theme}_{ws}_contour", win)
-                    pp.pick_contour(None)
-                    pw = win.extension("ext_process").workspace
-                    pw.show_page(1)
-                    _pump(app)
-                    s = _fit(win, app, size)
-                    rep.check("selection", s, f"{theme}_{ws}_library", win)
-                    rep.shot(win, s, f"selection_{theme}_library")
-                    pw.show_page(0)
-                    _pump(app)
+        win.shell.set_theme(theme, persist=False)
+        _restyle(app)
+        for size in SAMPLES:
+            for ws in ("design", "process"):
+                host.activate(ws)
+                win.canvas.select_parts([0])
+                _pump(app)
+                s = _fit(win, app, size)
+                if s.height() > size[1]:
+                    grew.append(f"{theme} {ws} {size}: window {s.width()}x{s.height()}")
+                _pump(app, 0.02)
+                rep.check("selection", s, f"{theme}_{ws}", win)
+                rep.shot(win, s, f"selection_{theme}_{ws}")
+                if ws != "process":
+                    continue
+                pp = win.extension("ext_process").properties
+                pp.pick_contour(1)                      # a hole of the plate: its own values
+                _pump(app)
+                rep.check("selection", s, f"{theme}_{ws}_contour", win)
+                pp.pick_contour(None)
+                pw = win.extension("ext_process").workspace
+                pw.show_page(1)
+                _pump(app)
+                s = _fit(win, app, size)
+                rep.check("selection", s, f"{theme}_{ws}_library", win)
+                rep.shot(win, s, f"selection_{theme}_library")
+                pw.show_page(0)
+                _pump(app)
     finally:
         win.shell.set_theme("light", persist=False)
         _restyle(app)
         win.canvas.select_parts([])
         win.set_document(doc0)
         _pump(app)
-    rep.write("selection")
+    rep.write(f"selection_{theme}")
     text = _fail_text(rep.rows)
     assert not text and not grew, text + "\n" + "\n".join(grew)
 
@@ -525,15 +529,15 @@ def test_minimum_size_fits_the_smallest_sample(win, app):
     assert m.width() <= 1280 and m.height() <= 800, m
 
 
-def test_sample_sizes(win, app):
+@pytest.mark.parametrize("size", SAMPLES + HALF, ids=_size_id)
+def test_sample_sizes(win, app, size):
     rep = Report()
-    for size in SAMPLES + HALF:
-        s = _fit(win, app, size)
-        _pump(app, 0.05)
-        for label in views(win, app):
-            rep.check("sample", s, label, win)
-            rep.shot(win, s, label)
-    rep.write("sample_sizes")
+    s = _fit(win, app, size)
+    _pump(app, 0.05)
+    for label in views(win, app):
+        rep.check("sample", s, label, win)
+        rep.shot(win, s, label)
+    rep.write(f"sample_sizes_{_size_id(size)}")
     text = _fail_text(rep.rows)
     assert not text, text
 
@@ -586,23 +590,23 @@ def test_fits_this_screen(win, app):
     assert not text and not bad, text + "\n" + "\n".join(bad)
 
 
-def test_imperial_sample_sizes(win, app):
+@pytest.mark.parametrize("size", SAMPLES, ids=_size_id)
+def test_imperial_sample_sizes(win, app, size):
     """Imperial display units (longer texts: "0.3937 in", "393.70 in/min"): no scroll bar, no
     clipped widget either."""
     rep = Report()
     win.config.set("units.system", "imperial")
     try:
         _pump(app, 0.05)
-        for size in SAMPLES:
-            s = _fit(win, app, size)
-            for label in views(win, app):
-                rep.check("imperial", s, label, win)
-                if size == (1512, 875):
-                    rep.shot(win, s, f"imperial_{label}")
+        s = _fit(win, app, size)
+        for label in views(win, app):
+            rep.check("imperial", s, label, win)
+            if size == (1512, 875):
+                rep.shot(win, s, f"imperial_{label}")
     finally:
         win.config.set("units.system", "metric")
         _pump(app, 0.05)
-    rep.write("imperial")
+    rep.write(f"imperial_{_size_id(size)}")
     text = _fail_text(rep.rows)
     assert not text, text
 
@@ -650,26 +654,57 @@ def _sweep_sizes(win):
     return widths, heights
 
 
-def test_width_and_height_sweep(win, app):
+#: the sweep's cases: one per workspace and height row, which xdist spreads over its workers (as
+#: one test the sweep took 8 minutes on one worker).  A workspace not named here (a plugin's) is
+#: swept by the "other" case, at every height.
+SWEEP_WORKSPACES = ("design", "process", "nest", "run", "report", "machine")
+SWEEP_ROWS = ("min", *SWEEP_HEIGHTS)
+SWEEP_CASES = [*((ws, row) for ws in SWEEP_WORKSPACES for row in SWEEP_ROWS), ("other", "all")]
+
+
+def _sweep_heights(win, rows) -> list[int]:
+    """The heights of the sweep rows ``rows`` (``"min"``: the window's minimum; SWEEP_HEIGHTS),
+    as :func:`_sweep_sizes` has them: a row whose height an earlier row already has (a minimum
+    above it, a screen that holds less) is swept by that row, not again."""
+    m = win.minimumSize().height()
+
+    def height(row) -> int:
+        h = m if row == "min" else max(m, row)
+        if real_screen():         # within the screen, as in _sweep_sizes
+            frame = win.frameGeometry().size() - win.size()
+            h = min(h, max(_screen_size(win).height() - frame.height(), m))
+        return h
+    return [height(r) for i, r in enumerate(SWEEP_ROWS)
+            if r in rows and height(r) not in [height(e) for e in SWEEP_ROWS[:i]]]
+
+
+@pytest.mark.parametrize("ws,row", SWEEP_CASES, ids=[f"{w}-{r}" for w, r in SWEEP_CASES])
+def test_width_and_height_sweep(win, app, ws, row):
     """Every width from the window's minimum to 2560 (STEP px) at several heights, every
     workspace: no violation, the safety controls in the window."""
     rep = Report()
-    widths, heights = _sweep_sizes(win)
     host = win.shell.host
+    ids = host.visible_ids()
+    if ws == "other":
+        todo = [x for x in ids if x not in SWEEP_WORKSPACES]
+    else:
+        assert ws in ids, f"workspace {ws} is not shown ({ids}): update SWEEP_WORKSPACES"
+        todo = [ws]
     bad = []
-    for ws in host.visible_ids():
-        host.activate(ws)
+    for ws_id in todo:
+        host.activate(ws_id)
         _pump(app)
+        widths, _ = _sweep_sizes(win)
         seen: set[tuple[int, int]] = set()
-        for h in heights:
+        for h in _sweep_heights(win, SWEEP_ROWS if row == "all" else (row,)):
             for wd in widths:
                 s = _fit(win, app, (wd, h))
                 if (s.width(), s.height()) in seen:
                     continue          # the same size again (a screen that holds less)
                 seen.add((s.width(), s.height()))
-                rep.check("sweep", s, ws, win)
-                bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws}")
-    rep.write("sweep")
+                rep.check("sweep", s, ws_id, win)
+                bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws_id}")
+    rep.write(f"sweep_{ws}_{row}")
     text = _fail_text(rep.rows)
     assert not text and not bad, text + "\n" + "\n".join(bad)
 
@@ -697,43 +732,41 @@ def test_half_screen_window(win, app, pt):
         _fit(win, app, SAMPLES[2])
 
 
-def test_dock_width_sweep(win, app):
+@pytest.mark.parametrize("ws", ["design", "process"])
+@pytest.mark.parametrize("size", [HALF[0], (1280, 800), (1512, 875), (1920, 1080)], ids=_size_id)
+def test_dock_width_sweep(win, app, size, ws):
     """The side docks dragged from their minimum to wide: their panels reflow, nothing clips."""
     rep = Report()
     host = win.shell.host
-    for size in (HALF[0], (1280, 800), (1512, 875), (1920, 1080)):
-        s = _fit(win, app, size)
-        for ws in ("design", "process"):
-            if ws not in host.visible_ids():
+    s = _fit(win, app, size)
+    if ws in host.visible_ids():
+        host.activate(ws)
+        _pump(app)
+        for d in host.docks():
+            if not d.isVisible() or d.isFloating() or win.dockWidgetArea(d) not in (
+                    Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea):
                 continue
-            host.activate(ws)
-            _pump(app)
-            for d in host.docks():
-                if not d.isVisible() or d.isFloating() or win.dockWidgetArea(d) not in (
-                        Qt.LeftDockWidgetArea, Qt.RightDockWidgetArea):
-                    continue
-                lo = max(d.minimumSizeHint().width(), 1)
-                for wd in range(lo, min(lo + 700, s.width() // 2) + 1, STEP):
-                    win.resizeDocks([d], [wd], Qt.Horizontal)
-                    _pump(app)
-                    _pump(app)
-                    rep.check("docks", s, f"{ws}:{d.objectName()}={d.width()}", win)
-            win.shell.reset_layout()
-            _pump(app)
-    rep.write("dock_sweep")
+            lo = max(d.minimumSizeHint().width(), 1)
+            for wd in range(lo, min(lo + 700, s.width() // 2) + 1, STEP):
+                win.resizeDocks([d], [wd], Qt.Horizontal)
+                _pump(app)
+                _pump(app)
+                rep.check("docks", s, f"{ws}:{d.objectName()}={d.width()}", win)
+        win.shell.reset_layout()
+        _pump(app)
+    rep.write(f"dock_sweep_{_size_id(size)}_{ws}")
     text = _fail_text(rep.rows)
     assert not text, text
 
 
-def test_live_resize_recovers(win, app):
+@pytest.mark.parametrize("ws", ["design", "run", "machine"])
+def test_live_resize_recovers(win, app, ws):
     """Shrink from 2560 to the minimum and grow back (STEP px): no violation on the way and the
     same layout at the end as at the start (no state stuck from the narrow end)."""
     rep = Report()
     host = win.shell.host
     widths, _ = _sweep_sizes(win)
-    for ws in ("design", "run", "machine"):
-        if ws not in host.visible_ids():
-            continue
+    if ws in host.visible_ids():
         host.activate(ws)
         s0 = _fit(win, app, (1512, 875))
         _pump(app, 0.05)
@@ -748,7 +781,7 @@ def test_live_resize_recovers(win, app):
         diff = {k: (before.get(k), after.get(k)) for k in set(before) | set(after)
                 if not _same(before.get(k), after.get(k))}
         assert not diff, (ws, diff, "before:", report0, "after:", _dock_report(win))
-    rep.write("live_resize")
+    rep.write(f"live_resize_{ws}")
     text = _fail_text(rep.rows)
     assert not text, text
 
