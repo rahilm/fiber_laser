@@ -24,8 +24,8 @@ window over sizes, dock widths, a larger font and 2x scale: see [Responsive layo
 `tools/make_goldens.py` writes the frozen artefacts in `tests/golden/` (`.chf` round trips,
 random and sample jobs, motion, orders). `tools/make_goldens.py --check` must stay bit
 identical on CPython 3.12 after every change outside a declared new `ParityProfile`; regenerate
-only after a reviewed behaviour change. 3.13 is checked as information
-(`MLASER_GOLDEN_ANY_PYTHON=1`).
+only after a reviewed behaviour change. 3.13 and 3.14 are checked as information
+(`MLASER_GOLDEN_ANY_PYTHON=1`, ubuntu jobs of CI).
 
 The default profile runs the emitter loop on the C kernel when it is built
 ([NATIVE_KERNEL.md](NATIVE_KERNEL.md)); the goldens pin both implementations, so CI runs them
@@ -110,10 +110,30 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
 * after a change to the emitter loop or `mlaser/_native`: `tools/native_parity.py` 0 differences;
 * the default suite green;
 * `pytest -m "safety or parity"` green (a timing test may flake on a loaded host: rerun once);
-* `tools/command_coverage.py`: no unimplemented, raising or duplicate command;
+* `tools/command_coverage.py`: no unimplemented, raising or duplicate command (also run by
+  the `architecture` job of CI, about 30 s);
 * `lint-imports` (layer rules, [Architecture](ARCHITECTURE.md)) and `mypy` green;
 * `uvx ruff@0.17.1 check` on the changed files;
 * `tests/test_docs_links.py`: documentation links resolve.
+
+## Coverage
+
+Branch coverage of `mlaser` is measured on one CI job, `ubuntu-latest / Python 3.12` (the tracer
+slows the run; the job's time limit is 60 min instead of 40). Its summary has a table of the
+safety-critical modules (`machine/safety.py`, `machine/preflight.py`, `controller/supervisor.py`,
+`interlocks.py`, `cardlock.py`, `stream.py`, `parts/gate.py`, `parts/jobs.py`) and the total;
+the HTML report is the `coverage` artifact. There is no failing threshold yet: a floor on the
+safety core comes once the full-suite numbers are known. Settings: `[tool.coverage.*]` in
+pyproject.toml (branch coverage; the xdist workers, the streamer and plan processes, which are
+multiprocessing *spawn* children, and `python` subprocesses are measured too). Locally:
+
+```
+uv run pytest -n 4 --dist loadgroup --cov --cov-report=term-missing:skip-covered tests/safety
+uv run coverage html     # htmlcov/index.html
+```
+
+Code that runs on a `QThread` is not traced by the 3.12 tracer; the controller's own threads
+are Python threads and are.
 
 ## Writing tests
 
