@@ -100,7 +100,11 @@ MUST ship a manifest.
   pre-releases only when asked for (`--pre`) or named (`onshape==0.2.0rc1`).
 * A plugin MUST NOT import private (`_`-prefixed) mlaser names. Public API for plugins: the
   `PluginContext`; `mlaser.model`; `mlaser.services.orders`, `.parts`, `.nesting`,
-  `.config.Setting`; the `mlaser.io.*` loaders.
+  `.config.Setting`, `.units` (the display units: `current()`); the `mlaser.io.*` loaders;
+  `mlaser.ui.plugin_widgets` (`QuantitySpinBox`, `on_units_changed`, `WrapCheckBox`,
+  `FlowLayout`, `ColumnFitter`: the core's unit spin box and responsive widgets under stable
+  names).  Everything else under `mlaser.ui` is internal and may change without notice
+  (`tests/test_plugin_public_api.py` holds the project's own plugins to this list).
 
 ## 4. Plugin API 2
 
@@ -116,8 +120,8 @@ members exist on every context; a built-in plugin may use everything.
 | `ctx.http` | `get(url, *, params=None, headers=None, timeout=20, max_bytes=50_000_000, auth=None)`, `post(url, *, json=None, data=None, headers=None, timeout=20, max_bytes=..., auth=None)` → `Response` (`.status`, `.headers` case-insensitive, `.content`, `.text`, `.json()`, `.url`, `.ok`). Rules: section 5.1 |
 | `ctx.secrets` | `get(key) -> str | None`, `set(key, value)`, `delete(key)`; keys `[A-Za-z0-9_.-]{1,64}`; stored as `plugin.<id>.<key>` in the OS keyring when available, else a 0600 JSON file in the data dir; never logged. Needs `secrets` |
 | `ctx.run_in_background(fn, *, on_done=None, on_error=None, on_progress=None) -> handle` | runs `fn` on a worker thread; `on_done(result)`, `on_error(exc)` and `on_progress(value)` run on the GUI thread. If `fn` has a parameter named `progress` (or `**kwargs`) it is called as `fn(progress=report)`, else `fn()`; `report(value)` may be called often: deliveries are coalesced (the latest value; at most one pending). `handle.cancel()` sets `handle.cancelled` (cooperative); `handle.wait(timeout)` |
-| `ctx.controller` | API-1 rules (the Safety-core plugin view), plus: `PermissionError` unless `machine` is declared **and** the service engineer granted machine authority |
-| `ctx.services` | `orders` (the `OrderBook`; needs `orders`), `orders_load_group` (`fn(key, replace=None)`: one material x thickness group into Nest; needs `orders`), `technology` (the technology database), `queue` and `intake` (need `queue`), `config` (the ConfigService, read-mostly); None when that part of the application is absent |
+| `ctx.controller` | the Safety-core plugin view; `PermissionError` unless `machine` is declared **and** the service engineer granted machine authority (a legacy plugin needs the grant too) |
+| `ctx.services` | `orders` (the `OrderBook`; needs `orders`), `orders_load_group` (`fn(key, replace=None)`: one material x thickness group into Nest; needs `orders`), `technology` (the technology database), `queue` and `intake` (need `queue`), `config` (= `ctx.config`: a view of the ConfigService that reads every value, as copies, and writes only `plugin.<id>.*`; any other write raises `ProtectedSettingError` and is audited); None when that part of the application is absent |
 | `ctx.show_message(text, level="info")` | status-bar message, also in the log (`level`: `info`, `warning`, `error`) |
 | `ctx.register_command(..., icon="")` | `icon`: a Tabler icon name or an icon file; the manifest's `min_mode` is the default `min_mode` |
 
@@ -137,10 +141,13 @@ a well-meaning plugin cannot exceed them by accident:
 | `document` | `ctx.edit`, `ctx.replace_document` |
 | `orders` | `ctx.services.orders`, `ctx.services.orders_load_group` |
 | `queue` | `ctx.services.queue`, `ctx.services.intake` (the queue never starts a job by itself) |
-| `machine` | `ctx.controller` (and the machine-authority grant); the controller's plugin policy still refuses arm / reset / safety changes without the grant |
+| `machine` | `ctx.controller` (and the machine-authority grant); the controller's plugin policy still refuses arm / fault reset / halt-latch clearing / heartbeat hold / safety changes without the grant |
 | `secrets` | `ctx.secrets` |
 
-A plugin with a manifest that uses an API it did not declare gets `PermissionError`.
+A plugin with a manifest that uses an API it did not declare gets `PermissionError`.  The grants
+themselves (`plugins.allowlist`, `plugins.authority`, `plugins.accepted`, `plugins.network`)
+are written only by the Plugin manager (the operator); through its context a plugin writes only
+its own settings.
 
 ### 5.1 `ctx.http`
 
@@ -179,9 +186,12 @@ e.g. a company's Onshape Enterprise server. They are stored in `plugins.network`
 
 ### 5.4 Limits
 
-What the model does **not** do: it does not stop a hostile plugin. Plugin code can import any
-module (`urllib`, `socket`, `subprocess`), read `ctx.window`, change any configuration value,
-or open its own connection to the motion card; signatures are not checked (the sha256 proves
+What the model does **not** do: it does not stop a hostile plugin. The checks are a guard
+against mistakes and a record of what the operator consented to, not a security boundary: an
+in-process Python plugin is not sandboxed. Plugin code can import any module (`urllib`,
+`socket`, `subprocess`, `mlaser.services.plugin_manager`), use `ctx.window` (the main window,
+whose `config` and `ctl` are the real ones), edit `config.json`, or open its own connection to
+the motion card; signatures are not checked (the sha256 proves
 the download is the one the index lists, not who wrote it). The protections are against
 accidents and tampering in transit, and they make every change visible and audited. Install
 only plugins whose author you would let run a program on the machine's PC. The physical safety

@@ -14,7 +14,7 @@ from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDoubleS
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from mlaser.services import units as U
-from mlaser.ui.units_qt import QuantitySpinBox, on_units_changed
+from mlaser.ui.plugin_widgets import ColumnFitter, FlowLayout, QuantitySpinBox, WrapCheckBox, on_units_changed
 
 from . import pipeline as PL
 from .bom import MachineConfig
@@ -30,21 +30,12 @@ C_NAME, C_PN, C_MAT, C_SHEET, C_TP, C_TV, C_TL, C_QTY, C_MADE, C_CUT, C_PROC, C_
 
 
 def _check(text: str) -> Any:
-    """A check box whose text wraps in a narrow (half-screen) window: the host's
-    WrapCheckBox, or a plain QCheckBox (older host)."""
-    try:
-        from mlaser.ui.responsive import WrapCheckBox
-    except ImportError:
-        return QCheckBox(text)
+    """A check box whose text wraps in a narrow (half-screen) window."""
     return WrapCheckBox(text)
 
 
 def _flow_layout() -> Any:
-    """The host's wrapping button row (mlaser.ui.responsive.FlowLayout), or None (older host)."""
-    try:
-        from mlaser.ui.responsive import FlowLayout
-    except ImportError:
-        return None
+    """The host's wrapping button row."""
     return FlowLayout(justify=False)
 
 
@@ -71,11 +62,7 @@ class _StackingSplitter(QSplitter):
 
 def _fit_columns(table: Any, priorities: dict, key: int) -> None:
     """The host's responsive columns (no horizontal scroll bar: the less important columns hide
-    while the table is narrow), when the host offers them (mlaser 2026-10 and later)."""
-    try:
-        from mlaser.ui.responsive import ColumnFitter
-    except ImportError:          # an older host: the table scrolls as before
-        return
+    while the table is narrow)."""
     ColumnFitter(table, priorities, stretch=key)
 
 

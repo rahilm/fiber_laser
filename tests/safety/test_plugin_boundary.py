@@ -23,7 +23,7 @@ import pytest
 
 from mlaser.controller.supervisor import CommandRefused
 from mlaser.services.commands import CommandRegistry
-from mlaser.services.plugins import Hooks, PluginInfo, register_plugin
+from mlaser.services.plugins import AUTHORITY_KEY, Hooks, PluginInfo, register_plugin
 
 
 class StubHost:
@@ -31,7 +31,7 @@ class StubHost:
         self.commands = CommandRegistry()
         self.hooks = Hooks()
         self.docs = docs
-        self.config = None
+        self.config = {AUTHORITY_KEY: ["evil", "helper"]}   # machine authority granted (the view)
         self.jobs = None
         self.ctl = ctl
         self.tr_ = None

@@ -15,7 +15,7 @@ import ipaddress
 import re
 import tomllib
 from dataclasses import dataclass
-from typing import Any, Iterable, Optional
+from typing import Any, Optional
 
 from .pep440 import InvalidSpecifier, InvalidVersion, SpecifierSet, Version
 
@@ -326,15 +326,6 @@ def compatibility_errors(manifest_or_entry: dict, plugin_api: int, mlaser_versio
         except (InvalidSpecifier, InvalidVersion) as exc:
             errs.append(f"{key}: {exc}")
     return errs
-
-
-def summary_lines(manifest: dict) -> Iterable[str]:
-    p = manifest.get("plugin", {})
-    yield f"{p.get('name', p.get('id'))} {p.get('version', '')}"
-    for k in ("summary", "authors", "license", "homepage", "source", "api", "mlaser", "min_mode"):
-        if p.get(k):
-            v = p[k]
-            yield f"{k}: {', '.join(v) if isinstance(v, list) else v}"
 
 
 __all__ = ["MANIFEST_NAME", "ID_RE", "Permissions", "ManifestError", "validate_manifest", "parse_manifest",

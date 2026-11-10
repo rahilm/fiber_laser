@@ -69,6 +69,8 @@ from .plugin_http import HostNotAllowedError, HttpClient, InsecureURLError, chec
 from .plugin_manifest import (ID_RE, MANIFEST_NAME, ManifestError, Permissions, app_version, check_identity,
                               compatibility_errors, manifest_path_for, normalize_permissions, parse_manifest,
                               permission_errors, unknown_keys)
+# the directories and activate_site live in .plugins (a default start imports only that module)
+from .plugins import activate_site, cache_dir, installed_path, plugin_data_dir, plugins_root, site_dir  # noqa: F401
 
 log = logging.getLogger("mlaser.plugins.manager")
 
@@ -134,47 +136,6 @@ class FetchError(PluginError):
     """A repository or download could not be fetched (network, HTTP status)."""
 
     code = "fetch"
-
-
-# ----------------------------------------------------------------------------- paths
-def plugins_root() -> Path:
-    from .config import data_dir
-    return data_dir() / "plugins"
-
-
-def site_dir() -> Path:
-    return plugins_root() / "site"
-
-
-def installed_path() -> Path:
-    return plugins_root() / "installed.json"
-
-
-def cache_dir() -> Path:
-    return plugins_root() / "cache"
-
-
-def plugin_data_dir(plugin_id: str) -> Path:
-    if not ID_RE.match(plugin_id or "") and not re.match(r"^[A-Za-z0-9_]{1,64}$", plugin_id or ""):
-        raise ValueError(f"invalid plugin id {plugin_id!r}")
-    return plugins_root() / "data" / plugin_id
-
-
-def activate_site(path: Optional[os.PathLike | str] = None) -> Optional[str]:
-    """Append the plugin site directory to the END of ``sys.path`` (once; only when it exists),
-    so the entry-point discovery finds what the manager installed and core modules always win.
-    Works in the PyInstaller bundle too (its path finder and ``importlib.metadata`` scan
-    ``sys.path`` like a normal interpreter).  Returns the directory added or already present."""
-    d = Path(path) if path is not None else site_dir()
-    if not d.is_dir():
-        return None
-    s = str(d.resolve())
-    for stale in d.glob(".staging-*"):
-        shutil.rmtree(stale, ignore_errors=True)
-    if s not in sys.path:
-        sys.path.append(s)
-        importlib.invalidate_caches()
-    return s
 
 
 # ----------------------------------------------------------------------------- index model

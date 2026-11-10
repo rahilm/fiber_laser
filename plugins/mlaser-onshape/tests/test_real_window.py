@@ -38,8 +38,8 @@ def test_orders_and_load_into_nest_in_the_real_window(window, tmp_path, fake):
     orders = window.extension("orders")
     orders = orders[0] if isinstance(orders, tuple) else orders
     ctx = StubCtx(tmp_path)
-    ctx.window = window
     ctx.services.orders = orders.book
+    ctx.services.orders_load_group = window.hooks.provider("orders.load_group")   # as PluginServices does
     n0 = len(orders.book.lines)
     svc = OnshapeService(ctx)
     svc.set("server", fake.url)

@@ -71,7 +71,7 @@ name is already taken is ignored with a log line.
 | `ctx.show_workspace(id)`, `ctx.user_mode` | switch workspace (`"run"`, `"<plugin>.<name>"`); the current user mode |
 | `ctx.on_workspace_changed(fn)`, `ctx.on_user_mode_changed(fn)` | `fn(workspace_id)` / `fn(mode)` after the shell switched |
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
-| `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs |
+| `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs.  For a plugin that is not built in, `ctx.config` is a view of the ConfigService that reads every value (as copies) and writes only `plugin.<name>.*` (`ProtectedSettingError`, audited, otherwise), and `ctx.controller` needs machine authority (§6) |
 
 **Plugin API 2** (`PLUGIN_API = 2`; the contract is
 [PLUGIN_STANDARD.md §4](PLUGIN_STANDARD.md#4-plugin-api-2)):
@@ -108,9 +108,10 @@ Rules:
 **Trust.** A plugin is trusted code with machine authority: it runs in the application process
 and Python cannot sandbox it ([SAFETY.md §3a](../SAFETY.md#3a-plugin-trust-boundary)).
 `ctx.controller` is a read-only view of the controller (the `MachineAPI` members only): no
-supervisor, no transport, no writable safety setting. `ctx.controller.arm(reason)`, `reset_fault()`,
-`operator_action()` and `configure_safety()` are audited under `plugin:<name>` and are refused
-unless the operator's plugin policy allows them. `ctx.replace_document` is refused while a job is
+supervisor, no transport, no writable safety setting; a plugin that is not built in gets it only
+with the machine-authority grant. `ctx.controller.arm(reason)`, `reset_fault()`,
+`operator_action()`, `heartbeat_hold()` and `configure_safety()` are audited under
+`plugin:<name>` and are refused unless the operator's plugin policy allows them. `ctx.replace_document` is refused while a job is
 active (running, paused or kept at a breakpoint).
 
 ## 4. Testing
@@ -214,10 +215,11 @@ only when you would run its author's program on the machine's PC.
 | Opt-in loading | Entry-point plugins are discovered and listed (Options+ > Plugins, with their entry point, package, permissions and status) but imported only when the allowlist `plugins.allowlist` in `config.json` names them **with the same target** (`module:attr`) and, for a plugin with a manifest, with the permissions accepted then (`plugins.accepted`).  Enabling needs Service mode and a confirmation listing the permissions, is audited (`plugin_allowlist`), and applies at the next start.  A package that points its name at other code, or declares other permissions, shows as `changed` and is not loaded until it is enabled again. | The sha256 / RECORD checks of the Plugin manager prove a download is the one the index lists, not who wrote it (no signatures); anyone who can write to the plugin site directory, the Python environment or `config.json` can change what runs. |
 | Verified installs | The Plugin manager installs only pure wheels whose hash matches the index, whose `RECORD` hashes every file, whose manifest matches the index and the entry point, that are in the `api` / `mlaser` ranges, whose dependencies are present and whose modules collide with nothing; every install, update, removal and refusal is audited ([PLUGIN_STANDARD.md §7](PLUGIN_STANDARD.md#7-installation-what-the-manager-checks-and-does)). | Code is still code: verification is about integrity and compatibility, not intent. |
 | Declared permissions | The manifest's `[permissions]` are shown before install and enable and enforced on the application's own APIs (http hosts, secrets, the controller, the document, orders, queue). | Not a sandbox: plugin code can import `socket`, `subprocess` or reach `ctx.window`. |
+| Grants only from the operator | The grants (`plugins.allowlist`, `plugins.authority`, `plugins.accepted`, `plugins.network`) change only in the Plugin manager / Options+ > Plugins.  A plugin's `ctx.config`, `ctx.services.config` and settings write only `plugin.<name>.*`; a write to a grant, a `safety.*` value or another plugin's settings raises `ProtectedSettingError` and is audited (`plugin_refused`); values read through it are copies.  `on_controller_changed` hands the plugin what `ctx.controller` would (the view, or None). | `ctx.window` is the main window itself: its `config` and `ctl` attributes are the real ConfigService and controller, outside these checks (the rules below forbid using them).  Plugin code can also import `mlaser.services.plugin_manager` or edit `config.json`. |
 | Load order | Enabled plugins load after the safety UI (state banner, run bar, Stop / Hold keys, pre-flight dialog) exists; every load is audited (`plugin_loaded`). | A plugin can still change the window afterwards. |
 | Reserved commands | A plugin that is not built in cannot register `run.*`, `shell.*` or `workspace.*` command ids (`ReservedCommandError`): it can neither take over Stop / Hold / Arm nor make start-up fail by pre-claiming them.  A failing plugin is rolled back and logged. | Other commands are first come, first served (a duplicate raises). |
 | The safety guard | Every request to the card goes through the supervisor's command policy (docs/SAFETY.md §3): emission while disarmed is refused, halts always pass, the interlocks and the watchdog work as for the core. | It prevents **accidents** (a plugin that forgets to arm, a bug that writes a laser word while disarmed); it does not stop a **hostile** plugin, which can reach the transport or the guard's configuration through Python. |
-| Plugin view and policy | A third-party plugin's `ctx.controller` is `mlaser.controller.plugin_view.plugin_view(ctl, name)` (no guard internals; its `arm` is audited as `source="plugin:<name>"`).  The controller asks its plugin policy before a plugin arms, resets a fault, holds the heartbeat or changes the safety configuration; the application's policy (`services.plugins.plugin_policy`) refuses unless the plugin is enabled **and** the service engineer granted it **machine authority** in Options+ > Plugins (`plugins.authority`). | A view narrows the documented API; it is not a security boundary. |
+| Plugin view and policy | A third-party plugin's `ctx.controller` is `mlaser.controller.plugin_view.plugin_view(ctl, name)` (no guard internals; its `arm` is audited as `source="plugin:<name>"`).  Without the machine-authority grant a plugin that is not built in gets no view at all (`PermissionError`; a legacy plugin too), and a manifest plugin also needs `permissions.machine`.  The view asks the controller's plugin policy before a plugin arms, resets a fault, clears the halt latch (`operator_action`), holds or releases the heartbeat (`heartbeat_hold`) or changes the safety configuration (`machine.api.PLUGIN_PRIVILEGED`); the application's policy (`services.plugins.plugin_policy`) refuses unless the plugin is enabled **and** the service engineer granted it **machine authority** in Options+ > Plugins (`plugins.authority`).  Everything else the view offers (moves, the laser test, outputs) still passes the start gate, the pre-flight and the guard (no emission while disarmed). | A view narrows the documented API; it is not a security boundary. |
 | User modes | Commands declare a minimum mode (Operator / Engineer / Service). | A user mode is not a safety interlock and not an access control for code. |
 
 **Rules for plugin authors** (they keep a well-meaning plugin inside the safety design):
@@ -230,13 +232,18 @@ only when you would run its author's program on the machine's PC.
   raises `DocumentLockedError` and the operator sees why);
 * never register a command in `run.*`, `shell.*`, `workspace.*`; keep your settings under
   `ctx.settings_schema` (`plugin.<name>.*`);
+* never use `ctx.window.config` or `ctx.window.ctl` (the real store and controller, outside the
+  checks above); use `ctx.config` and `ctx.controller`;
 * treat files and network data as untrusted input (sizes, depth, expansion; see
   [project-format.md](project-format.md) for the limits the core applies).
 
-Known gaps (review 2): `ctx.config` is the whole ConfigService, so a plugin can change any value,
-including `safety.*` and the LAN monitor's settings; `ctx.window` is the main window itself; and
-a plugin can replace the `process` profile or providers such as `project.open` (all by design for
-trusted code).  Report a plugin or a path around the guard that a well-meaning plugin could hit
+**What this is and is not.**  The permission checks and the grants are a **guard against
+mistakes and a consent record**: they keep a well-meaning plugin on the documented, audited path
+and record what the operator agreed to.  They are **not a security boundary**: an in-process
+Python plugin is not sandboxed, and hostile code can get round every check (`ctx.window`,
+imports, `gc`, its own socket to the card).  Known gaps: `ctx.window` is the main window itself
+(its `config` and `ctl` are not filtered); a plugin can replace the `process` profile or
+providers such as `project.open` (by design for trusted code).  Report a plugin or a path around the guard that a well-meaning plugin could hit
 by accident privately, as [SECURITY.md](../../SECURITY.md) describes.
 
 ## 7. Publishing

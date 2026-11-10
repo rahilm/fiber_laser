@@ -186,7 +186,7 @@ def _done_event() -> threading.Event:
 
 
 # actions a plugin may only take when the plugin policy allows them (docs/SAFETY.md §3a)
-PLUGIN_PRIVILEGED = ("arm", "reset_fault", "operator_action", "configure_safety")
+PLUGIN_PRIVILEGED = ("arm", "reset_fault", "operator_action", "configure_safety", "heartbeat_hold")
 
 
 class ControllerFacade(ABC):
@@ -276,7 +276,7 @@ class ControllerFacade(ABC):
     def set_plugin_policy(self, fn: Optional[Callable[[str, str, str], Optional[str]]]) -> None:
         """``fn(source, action, reason) -> None (allowed) | refusal text`` decides what a plugin
         (``source`` "plugin:<name>") may do of :data:`PLUGIN_PRIVILEGED` (arm, fault reset, a
-        new operator action, safety configuration).  Without a policy those are refused for
+        new operator action, safety configuration, a heartbeat hold).  Without a policy those are refused for
         plugins.  The plugin allowlist UI installs it; every change is audited."""
         from .audit import audit
         self._plugin_policy = fn
@@ -346,7 +346,8 @@ class ControllerFacade(ABC):
 
     def heartbeat_hold(self, hold: bool) -> None:
         """Commissioning test of the watchdog relay: stop toggling (output off) while held.
-        Stopping the heartbeat only ever drops the relay, so it is always allowed."""
+        Stopping the heartbeat only ever drops the relay, so the operator may always do it; a
+        plugin goes through its view, which asks the plugin policy for both directions."""
 
     def arm(self, reason: str = "", source: str = "operator") -> bool:
         """Arming (laser emission allowed until a disarm, a fault, a disconnect).  ``source``:

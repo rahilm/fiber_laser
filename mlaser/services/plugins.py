@@ -19,7 +19,8 @@ detected instead of depending on load order (architecture.md §1.3, P1-5):
 * hooks of the shell: ``ctx.on_workspace_changed(fn)``, ``ctx.on_user_mode_changed(fn)``.
 * ``ctx.settings_schema([...Setting])``: typed, validated, persisted plugin settings under
   ``plugin.<name>.<key>`` (:class:`mlaser.services.config.ConfigService`).
-* services: ``ctx.docs``, ``ctx.config``, ``ctx.jobs``, ``ctx.commands``; ``ctx.controller``,
+* services: ``ctx.docs``, ``ctx.config`` (third-party: :class:`PluginConfigView`), ``ctx.jobs``,
+  ``ctx.commands``; ``ctx.controller``,
   ``ctx.document``, ``ctx.window`` (Qt parent for dialogs), ``ctx.tr``, ``ctx.log(msg)``.
 * plugin API 2 (docs/dev/PLUGIN_STANDARD.md §4): ``ctx.manifest``, ``ctx.permissions``,
   ``ctx.data_dir``, ``ctx.http`` (:mod:`.plugin_http`), ``ctx.secrets``,
@@ -50,11 +51,19 @@ module enforces:
   core's reserved namespaces (``run.*``, ``shell.*``, ``workspace.*``: :data:`RESERVED_PREFIXES`),
   so a plugin can neither pre-claim Stop / Hold / Arm nor make start-up fail;
 * ``ctx.controller`` of a third-party plugin is ``mlaser.controller.plugin_view.plugin_view(ctl,
-  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), and
-  :func:`plugin_policy` decides the safety actions a plugin asks for (arm, reset a fault, hold
-  the heartbeat, reconfigure safety): refused unless the service engineer granted that plugin
-  machine authority (``plugins.authority``).  Installed with ``ctl.set_plugin_policy``
-  (:func:`install_policy`).
+  name)`` (Safety core: no guard internals; its ``arm`` passes ``source="plugin:<name>"``), given
+  only with the service engineer's machine-authority grant (``plugins.authority``; default deny,
+  legacy plugins included), and :func:`plugin_policy` decides the safety actions a plugin asks
+  for (arm, reset a fault, clear the halt latch, hold or release the heartbeat, reconfigure
+  safety): refused unless the plugin is enabled and has that grant.  Installed with
+  ``ctl.set_plugin_policy`` (:func:`install_policy`);
+* ``ctx.config`` (and ``ctx.services.config``, ``ctx.settings``) of a third-party plugin is a
+  :class:`PluginConfigView`: it writes only ``plugin.<name>.*``, so a plugin cannot grant itself
+  authority or hosts, enable itself or another plugin, or change a ``safety.*`` value through
+  its context.  The grants change only in the Plugin manager (the operator).
+
+These checks are a guard against mistakes and a consent record, not a security boundary:
+``ctx.window`` is the main window itself, and Python code can reach anything.
 
 This module is Qt-free; the host (``mlaser.ui.mainwindow.MainWindow``) implements the UI calls.
 See docs/dev/PLUGINS.md.
@@ -66,6 +75,8 @@ import importlib
 import logging
 import os
 import re
+import shutil
+import sys
 import threading
 import traceback
 from dataclasses import dataclass, replace
@@ -74,7 +85,7 @@ from typing import Any, Callable, Iterable, Optional, Protocol
 
 from .commands import CommandRegistry, CommandSpec, DuplicateCommandError
 from .config import Setting
-from .plugin_manifest import (Permissions, check_identity, compatibility_errors, icon_for_dist, manifest_for_dist,
+from .plugin_manifest import (ID_RE, Permissions, check_identity, compatibility_errors, icon_for_dist, manifest_for_dist,
                               normalize_permissions)
 
 log = logging.getLogger("mlaser.plugins")
@@ -139,8 +150,7 @@ def plugin_policy(config: Any) -> Callable[[str, str, str], Optional[str]]:
             return None
         name = str(source).split(":", 1)[1]
         allow = config.get(ALLOWLIST_KEY, {}) or {}
-        granted = config.get(AUTHORITY_KEY, []) or []
-        if name in allow and name in granted:
+        if isinstance(allow, dict) and name in allow and has_machine_authority(config, name):
             return None
         return (f"plugin {name!r} may not {action}: it has no machine authority "
                 "(Plugin manager, Service mode)")
@@ -156,6 +166,107 @@ def install_policy(ctl: Any, config: Any) -> bool:
         return False
     fn(plugin_policy(config))
     return True
+
+
+class ProtectedSettingError(PermissionError):
+    """A plugin that is not built in tried to write a setting outside ``plugin.<name>.*``."""
+
+
+def _copy(value: Any) -> Any:
+    """A deep copy of a mutable value: the store's own lists and dicts never leave it."""
+    import copy
+    return copy.deepcopy(value) if isinstance(value, (dict, list, set, Setting)) else value
+
+
+class PluginConfigView:
+    """``ctx.config`` (and ``ctx.services.config``) of a plugin that is not built in.
+
+    Default deny: it reads every value (copies, so a stored list or dict cannot be changed in
+    place) and offers only the members named here; it **writes** only the plugin's own namespace
+    ``plugin.<name>.*``.  The plugin grants (``plugins.*``: the allowlist, machine authority, the
+    accepted permissions, the granted network hosts), the ``safety.*`` values and every other
+    setting, including another plugin's, are refused with :class:`ProtectedSettingError` and an
+    audit record (``plugin_refused``).  The grants change only in the Plugin manager (the
+    operator, Service mode).  Like the controller view this keeps a well-meaning plugin on its
+    side of the line; it is not a sandbox (docs/dev/PLUGINS.md §6)."""
+
+    __slots__ = ("_cfg", "_name", "_prefix")
+
+    #: members a plugin may read through the view (everything else: AttributeError)
+    READ = ("is_set", "sections", "subscribe", "batch")
+
+    def __init__(self, config: Any, name: str) -> None:
+        object.__setattr__(self, "_cfg", config)
+        object.__setattr__(self, "_name", name)
+        object.__setattr__(self, "_prefix", f"plugin.{name}.")
+
+    def _check(self, key: Any, action: str = "set") -> str:
+        key = str(key)
+        if key.startswith(self._prefix) and len(key) > len(self._prefix):
+            return key
+        msg = (f"plugin {self._name!r} may not change the setting {key!r}: a plugin writes only "
+               f"its own settings ({self._prefix}*); grants and safety settings change only in the "
+               "Plugin manager and Options (the operator)")
+        log.warning(msg)
+        try:
+            from mlaser.machine.audit import audit
+            audit("plugin_refused", logging.WARNING, source=f"plugin:{self._name}", action=f"config_{action}",
+                  key=key[:120])
+        except Exception:  # noqa: BLE001 - the refusal itself still stands
+            pass
+        raise ProtectedSettingError(msg)
+
+    # ------------------------------------------------------------------ reads
+    def get(self, key: str, *default: Any) -> Any:
+        return _copy(self._cfg.get(key, *default))
+
+    def setting(self, key: str) -> Optional[Setting]:
+        return _copy(self._cfg.setting(key))
+
+    def section(self, name: str) -> list:
+        return [_copy(s) for s in self._cfg.section(name)]
+
+    # ------------------------------------------------------------------ writes (own namespace)
+    def set(self, key: str, value: Any) -> Any:
+        return self._cfg.set(self._check(key), value)
+
+    def reset(self, key: str) -> None:
+        self._cfg.reset(self._check(key, "reset"))
+
+    def update(self, values: dict) -> None:
+        for k in values:
+            self._check(k)
+        self._cfg.update(values)
+
+    def register(self, settings: Iterable[Setting], replace_existing: bool = False) -> None:
+        items = list(settings)
+        for st in items:
+            self._check(st.key, "register")
+        if replace_existing:
+            self._check("", "register")              # replacing a definition is the core's
+        self._cfg.register(items)
+
+    # ------------------------------------------------------------------ the rest
+    def __getattr__(self, name: str) -> Any:
+        if name in PluginConfigView.READ:
+            return getattr(object.__getattribute__(self, "_cfg"), name)
+        raise AttributeError(f"config: {name!r} is not available to plugins")
+
+    def __setattr__(self, name: str, value: Any) -> None:
+        raise AttributeError("the configuration is read-only for plugins (except plugin.<name>.*)")
+
+    def __delattr__(self, name: str) -> None:
+        raise AttributeError("the configuration is read-only for plugins (except plugin.<name>.*)")
+
+    def __repr__(self) -> str:
+        return f"<configuration view for plugin:{self._name}>"
+
+
+def has_machine_authority(config: Any, name: str) -> bool:
+    """Did the service engineer grant ``name`` machine authority (``plugins.authority``)?
+    Read from the store itself (a plugin's view cannot write it)."""
+    granted = (config.get(AUTHORITY_KEY, []) or []) if config is not None else []
+    return isinstance(granted, (list, tuple)) and name in granted
 
 
 class Host(Protocol):
@@ -262,6 +373,7 @@ class PluginContext:
         self._http: Any = None
         self._secrets: Any = None
         self._services: Any = None
+        self._config_view: Optional[PluginConfigView] = None
         self._icon = ""
 
     # ------------------------------------------------------------------ services
@@ -271,7 +383,14 @@ class PluginContext:
 
     @property
     def config(self):
-        return self.host.config
+        """The ConfigService (built-in plugins), or the :class:`PluginConfigView` of it: reads
+        everything, writes only ``plugin.<name>.*``."""
+        cfg = getattr(self.host, "config", None)
+        if self.origin == "builtin" or cfg is None:
+            return cfg
+        if self._config_view is None or object.__getattribute__(self._config_view, "_cfg") is not cfg:
+            self._config_view = PluginConfigView(cfg, self.name)
+        return self._config_view
 
     @property
     def jobs(self):
@@ -288,16 +407,16 @@ class PluginContext:
     @property
     def controller(self):
         """The machine controller (built-in plugins), or the Safety-core plugin view of it
-        (:func:`controller_for`).  A plugin with a manifest needs ``permissions.machine`` **and**
-        the service engineer's machine-authority grant (``plugins.authority``), else
-        ``PermissionError``; a legacy plugin keeps the API-1 rule (the view, and the controller's
-        plugin policy for every safety action)."""
-        if self._manifest is not None and self.origin != "builtin":
-            if not self._permissions.machine:
+        (:func:`controller_for`).  A plugin that is not built in needs the service engineer's
+        machine-authority grant (``plugins.authority``), and one with a manifest also
+        ``permissions.machine``; else ``PermissionError``.  Default deny: a legacy plugin (no
+        manifest) needs the grant too.  The arm, fault reset, halt-latch clearing, heartbeat hold
+        and safety configuration of the view are judged once more by the controller's plugin
+        policy."""
+        if self.origin != "builtin":
+            if self._manifest is not None and not self._permissions.machine:
                 raise PermissionError(f"plugin {self.name!r} did not declare permissions.machine")
-            cfg = getattr(self.host, "config", None)
-            granted = (cfg.get(AUTHORITY_KEY, []) or []) if cfg is not None else []
-            if self.name not in granted:
+            if not has_machine_authority(getattr(self.host, "config", None), self.name):
                 raise PermissionError(f"plugin {self.name!r} has no machine authority "
                                       "(Plugin manager, Service mode)")
         return controller_for(self.host.ctl, self.name, self.origin)
@@ -379,10 +498,21 @@ class PluginContext:
 
     # ------------------------------------------------------------------ hooks
     def on(self, hook: str, fn: Callable[..., Any]) -> Callable[[], None]:
+        if hook == "controller_changed" and self.origin != "builtin":
+            user = fn
+
+            def fn(_ctl: Any) -> Any:          # never the controller itself: what ctx.controller gives
+                try:
+                    view = self.controller
+                except PermissionError:
+                    view = None
+                return user(view)
         return self.host.hooks.add(hook, fn, self.name)
 
     def on_controller_changed(self, fn: Callable[[Any], Any]) -> Callable[[], None]:
-        """``fn(controller)`` after the machine controller was replaced."""
+        """``fn(controller)`` after the machine controller was replaced; a plugin that is not
+        built in receives what ``ctx.controller`` gives it (the plugin view), or None without
+        machine authority."""
         return self.on("controller_changed", fn)
 
     def on_mode_changed(self, fn: Callable[[str], Any]) -> Callable[[], None]:
@@ -485,7 +615,6 @@ class PluginContext:
     def data_dir(self) -> Path:
         """``<data dir>/plugins/data/<id>/``, created on first access."""
         self._api2("ctx.data_dir")
-        from .plugin_manager import plugin_data_dir
         d = plugin_data_dir(self.name)
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -582,8 +711,8 @@ class PluginContext:
             )
             for s in settings
         ]
-        self.host.config.register(items)
-        self.settings = PluginSettings(self.host.config, prefix, [s.key[len(prefix) :] for s in items])
+        self.config.register(items)
+        self.settings = PluginSettings(self.config, prefix, [s.key[len(prefix) :] for s in items])
         return self.settings
 
 
@@ -591,7 +720,6 @@ _SECRET_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def _builtin_data_dir(name: str) -> Path:
-    from .plugin_manager import plugin_data_dir
     return plugin_data_dir(name)
 
 
@@ -634,7 +762,6 @@ class PluginSecrets:
 
 
 def _under_test() -> bool:
-    import sys
     return bool(os.environ.get("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
 
 
@@ -773,7 +900,51 @@ class PluginServices:
 
     @property
     def config(self) -> Any:
-        return getattr(self._ctx.host, "config", None)
+        """``ctx.config`` (for a plugin that is not built in: the :class:`PluginConfigView`)."""
+        return self._ctx.config
+
+
+# --------------------------------------------------------------------------- the plugin directories
+# (the Plugin manager's, mlaser.services.plugin_manager; here so that a default start, which only
+# activates the site directory, does not import the installer)
+def plugins_root() -> Path:
+    from .config import data_dir
+    return data_dir() / "plugins"
+
+
+def site_dir() -> Path:
+    return plugins_root() / "site"
+
+
+def installed_path() -> Path:
+    return plugins_root() / "installed.json"
+
+
+def cache_dir() -> Path:
+    return plugins_root() / "cache"
+
+
+def plugin_data_dir(plugin_id: str) -> Path:
+    if not ID_RE.match(plugin_id or "") and not re.match(r"^[A-Za-z0-9_]{1,64}$", plugin_id or ""):
+        raise ValueError(f"invalid plugin id {plugin_id!r}")
+    return plugins_root() / "data" / plugin_id
+
+
+def activate_site(path: Optional[os.PathLike | str] = None) -> Optional[str]:
+    """Append the plugin site directory to the END of ``sys.path`` (once; only when it exists),
+    so the entry-point discovery finds what the manager installed and core modules always win.
+    Works in the PyInstaller bundle too (its path finder and ``importlib.metadata`` scan
+    ``sys.path`` like a normal interpreter).  Returns the directory added or already present."""
+    d = Path(path) if path is not None else site_dir()
+    if not d.is_dir():
+        return None
+    s = str(d.resolve())
+    for stale in d.glob(".staging-*"):
+        shutil.rmtree(stale, ignore_errors=True)
+    if s not in sys.path:
+        sys.path.append(s)
+        importlib.invalidate_caches()
+    return s
 
 
 # --------------------------------------------------------------------------- loading
@@ -836,7 +1007,6 @@ def _location(dist: Any) -> str:
     if dist is None:
         return ""
     try:
-        from .plugin_manager import site_dir
         base = str(Path(dist.locate_file("")).resolve())
         return "site" if Path(base) == site_dir().resolve() else "environment"
     except Exception:  # noqa: BLE001

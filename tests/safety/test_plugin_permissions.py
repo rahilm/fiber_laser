@@ -166,7 +166,10 @@ def test_controller_needs_machine_and_the_authority_grant(host, monkeypatch):
     host.config.set(P.AUTHORITY_KEY, ["b"])
     assert declared.controller == ("view", "b")                       # still the plugin view
     assert P.PluginContext(host, "ext_card", "builtin").controller is host.ctl
-    assert P.PluginContext(host, "legacy", "entry-point").controller == ("view", "legacy")   # API 1 rule
+    with pytest.raises(PermissionError):                              # default deny: a legacy
+        P.PluginContext(host, "legacy", "entry-point").controller     # plugin needs the grant too
+    host.config.set(P.AUTHORITY_KEY, ["b", "legacy"])
+    assert P.PluginContext(host, "legacy", "entry-point").controller == ("view", "legacy")
 
 
 # ----------------------------------------------------------------------------- secrets
@@ -216,7 +219,7 @@ def test_document_orders_queue_need_their_permissions(host):
     host.hooks.provide("orders", lambda: "BOOK", "orders")
     ok = P.PluginContext(host, "b", "entry-point", manifest("b", document=True, orders=True))
     ok.edit(lambda d: None, "x", parts=())
-    assert ok.services.orders == "BOOK" and ok.services.config is host.config and ok.services.technology is None
+    assert ok.services.orders == "BOOK" and isinstance(ok.services.config, P.PluginConfigView) and ok.services.technology is None
     # min_mode default from the manifest
     m = manifest("c")
     m["plugin"]["min_mode"] = "service"

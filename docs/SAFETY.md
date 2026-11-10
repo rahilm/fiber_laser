@@ -148,8 +148,10 @@ protocol is unauthenticated, so a plugin (or any program on the PC or the machin
 open its own socket to the card. The command policy protects against *bugs* in trusted code, not
 against hostile code; the wiring, the e-stop chain and the watchdog relay (§11) do.
 
-What the software does guarantee is that **no public (non-underscore) route weakens the guard**,
-so a well-meaning plugin stays on the supported, audited path:
+What the software does guarantee is that **no route of the plugin context weakens the guard**,
+so a well-meaning plugin stays on the supported, audited path (`ctx.window`, the main window
+itself, is outside this: its `config` and `ctl` are the real ones, and the plugin rules forbid
+using them, docs/dev/PLUGINS.md §6):
 
 * `PluginContext.controller` is `controller.plugin_view`: the `MachineAPI` members only,
   read-only (every assignment refused), no `fsm`, no supervisor;
@@ -161,7 +163,8 @@ so a well-meaning plugin stays on the supported, audited path:
   the interlock configuration) change only through `configure_safety()` (bounded: a value
   outside the bounds is refused, never clamped; refused during a job; audited);
 * `arm(reason=, source=)` is audited with its source. A plugin's arm (`source="plugin:<name>"`),
-  fault reset, `operator_action` (it clears the halt latch) and `configure_safety` need the
+  fault reset, `operator_action` (it clears the halt latch), `heartbeat_hold` (either direction)
+  and `configure_safety` need the
   controller's **plugin policy** (`set_plugin_policy(fn(source, action, reason))`, installed by
   the plugin allowlist UI); without one, or when it fails, they are refused and audited.
   Everything that moves still passes the start gate (§5a), the pre-flight and the guard.
@@ -171,8 +174,10 @@ route it used is closed and nothing emits while disarmed.
 
 
 Plugin API 2 adds declared permissions (`mlaser-plugin.toml`, docs/dev/PLUGIN_STANDARD.md §5):
-`ctx.controller` of a plugin with a manifest needs `permissions.machine` **and** the service
-engineer's machine-authority grant, otherwise `PermissionError`; the controller's plugin policy
+`ctx.controller` of a plugin that is not built in needs the service engineer's machine-authority
+grant (and, with a manifest, `permissions.machine`), otherwise `PermissionError`; the plugin's
+`ctx.config` writes only `plugin.<name>.*`, so it cannot grant itself authority, network hosts or
+change a `safety.*` value through its context (`tests/safety/test_plugin_selfgrant.py`); the controller's plugin policy
 above is unchanged and still refuses arm / reset / safety changes without the grant. The other
 permissions (network hosts, secrets, the document, orders, queue) are enforced on the plugin
 API the same way. They narrow the supported path; like the plugin view, they are not a security
