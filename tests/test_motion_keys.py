@@ -17,7 +17,14 @@ from PySide6.QtTest import QTest  # noqa: E402
 from PySide6.QtWidgets import (QAbstractSpinBox, QApplication, QDialog, QLineEdit, QMessageBox,  # noqa: E402
                                QPushButton)
 
-from safety.safety_helpers import rect_doc  # noqa: E402
+from mlaser.model import Contour, Craft, Document, LayerParams, Line, Part  # noqa: E402
+
+
+def rect_doc(w=400.0, h=300.0, layer=1):
+    pts = [(0.0, 0.0), (w, 0.0), (w, h), (0.0, h)]
+    return Document(parts=[Part([Contour([Line(pts[i], pts[(i + 1) % 4]) for i in range(4)], True)],
+                                Craft(layer=layer))], layers={layer: LayerParams(layer, speed=100.0, power_pct=50)})
+
 
 STRAY = [(Qt.Key_F5, Qt.NoModifier), (Qt.Key_F6, Qt.NoModifier), (Qt.Key_F6, Qt.ShiftModifier),
          (Qt.Key_Space, Qt.NoModifier), (Qt.Key_Return, Qt.NoModifier), (Qt.Key_Enter, Qt.KeypadModifier)]
