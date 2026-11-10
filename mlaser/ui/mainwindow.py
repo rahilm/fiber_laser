@@ -407,7 +407,7 @@ class MainWindow(QMainWindow):
         / ``changed`` (enabled for another target: needs enabling again)."""
         # the plugin manager's site directory goes at the END of sys.path first (core modules
         # always win), so the plugins it installed appear as ordinary entry points
-        from mlaser.services.plugin_manager import activate_site
+        from mlaser.services.plugins import activate_site
         activate_site()
         allow = self.config.get(ALLOWLIST_KEY, {})
         accepted = self.config.get(ACCEPTED_KEY, {})

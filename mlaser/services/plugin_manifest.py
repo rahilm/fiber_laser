@@ -328,15 +328,6 @@ def compatibility_errors(manifest_or_entry: dict, plugin_api: int, mlaser_versio
     return errs
 
 
-def summary_lines(manifest: dict) -> Iterable[str]:
-    p = manifest.get("plugin", {})
-    yield f"{p.get('name', p.get('id'))} {p.get('version', '')}"
-    for k in ("summary", "authors", "license", "homepage", "source", "api", "mlaser", "min_mode"):
-        if p.get(k):
-            v = p[k]
-            yield f"{k}: {', '.join(v) if isinstance(v, list) else v}"
-
-
 __all__ = ["MANIFEST_NAME", "ID_RE", "Permissions", "ManifestError", "validate_manifest", "parse_manifest",
            "manifest_for_dist", "check_identity", "compatibility_errors", "normalize_permissions",
            "host_matches", "valid_host_pattern", "unknown_keys", "PERMISSION_KEYS", "BOOL_PERMISSIONS"]

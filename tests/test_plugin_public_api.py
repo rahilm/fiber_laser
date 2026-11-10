@@ -58,3 +58,21 @@ def test_onshape_never_uses_the_window():
     src = "\n".join(p.read_text(encoding="utf-8")
                     for p in (ROOT / "plugins" / "mlaser-onshape" / "mlaser_onshape").glob("*.py"))
     assert "ctx.window" not in src and ".extension(" not in src and "orders_load_group" in src
+
+
+def test_a_default_start_does_not_import_the_installer():
+    """The window activates the plugin site directory and discovers entry points through
+    ``mlaser.services.plugins`` alone; the installer (plugin_manager) loads only when the Plugin
+    manager or ``mlaser plugin`` is used (arch.md A13).  pep440 stays: the manifest's ``api`` /
+    ``mlaser`` ranges are checked at every start."""
+    import subprocess
+    import sys
+    code = ("import sys; from mlaser.services import plugins as P; P.activate_site(); P.discover(()); "
+            "bad = [m for m in ('mlaser.services.plugin_manager',) if m in sys.modules]; "
+            "print(bad); sys.exit(1 if bad else 0)")
+    r = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    from mlaser.services import plugin_manager as PM, plugins as P
+    assert PM.activate_site is P.activate_site and PM.site_dir is P.site_dir    # the old names stay
+    src = (ROOT / "mlaser" / "ui" / "mainwindow.py").read_text(encoding="utf-8")
+    assert "plugin_manager import activate_site" not in src

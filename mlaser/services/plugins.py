@@ -66,6 +66,8 @@ import importlib
 import logging
 import os
 import re
+import shutil
+import sys
 import threading
 import traceback
 from dataclasses import dataclass, replace
@@ -74,7 +76,7 @@ from typing import Any, Callable, Iterable, Optional, Protocol
 
 from .commands import CommandRegistry, CommandSpec, DuplicateCommandError
 from .config import Setting
-from .plugin_manifest import (Permissions, check_identity, compatibility_errors, icon_for_dist, manifest_for_dist,
+from .plugin_manifest import (ID_RE, Permissions, check_identity, compatibility_errors, icon_for_dist, manifest_for_dist,
                               normalize_permissions)
 
 log = logging.getLogger("mlaser.plugins")
@@ -604,7 +606,6 @@ class PluginContext:
     def data_dir(self) -> Path:
         """``<data dir>/plugins/data/<id>/``, created on first access."""
         self._api2("ctx.data_dir")
-        from .plugin_manager import plugin_data_dir
         d = plugin_data_dir(self.name)
         d.mkdir(parents=True, exist_ok=True)
         return d
@@ -710,7 +711,6 @@ _SECRET_KEY_RE = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 
 
 def _builtin_data_dir(name: str) -> Path:
-    from .plugin_manager import plugin_data_dir
     return plugin_data_dir(name)
 
 
@@ -753,7 +753,6 @@ class PluginSecrets:
 
 
 def _under_test() -> bool:
-    import sys
     return bool(os.environ.get("PYTEST_CURRENT_TEST")) or "pytest" in sys.modules
 
 
@@ -896,6 +895,49 @@ class PluginServices:
         return self._ctx.config
 
 
+# --------------------------------------------------------------------------- the plugin directories
+# (the Plugin manager's, mlaser.services.plugin_manager; here so that a default start, which only
+# activates the site directory, does not import the installer)
+def plugins_root() -> Path:
+    from .config import data_dir
+    return data_dir() / "plugins"
+
+
+def site_dir() -> Path:
+    return plugins_root() / "site"
+
+
+def installed_path() -> Path:
+    return plugins_root() / "installed.json"
+
+
+def cache_dir() -> Path:
+    return plugins_root() / "cache"
+
+
+def plugin_data_dir(plugin_id: str) -> Path:
+    if not ID_RE.match(plugin_id or "") and not re.match(r"^[A-Za-z0-9_]{1,64}$", plugin_id or ""):
+        raise ValueError(f"invalid plugin id {plugin_id!r}")
+    return plugins_root() / "data" / plugin_id
+
+
+def activate_site(path: Optional[os.PathLike | str] = None) -> Optional[str]:
+    """Append the plugin site directory to the END of ``sys.path`` (once; only when it exists),
+    so the entry-point discovery finds what the manager installed and core modules always win.
+    Works in the PyInstaller bundle too (its path finder and ``importlib.metadata`` scan
+    ``sys.path`` like a normal interpreter).  Returns the directory added or already present."""
+    d = Path(path) if path is not None else site_dir()
+    if not d.is_dir():
+        return None
+    s = str(d.resolve())
+    for stale in d.glob(".staging-*"):
+        shutil.rmtree(stale, ignore_errors=True)
+    if s not in sys.path:
+        sys.path.append(s)
+        importlib.invalidate_caches()
+    return s
+
+
 # --------------------------------------------------------------------------- loading
 @dataclass
 class PluginInfo:
@@ -956,7 +998,6 @@ def _location(dist: Any) -> str:
     if dist is None:
         return ""
     try:
-        from .plugin_manager import site_dir
         base = str(Path(dist.locate_file("")).resolve())
         return "site" if Path(base) == site_dir().resolve() else "environment"
     except Exception:  # noqa: BLE001
