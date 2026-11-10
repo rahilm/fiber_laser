@@ -327,6 +327,29 @@ the worker thread on a private copy, with the switch interval at 0.5 ms meanwhil
 GUI event-loop latency: a thread posts to the GUI thread every 20–50 ms (the path a Stop
 takes, `QtDispatcher`) and records post → run.
 
+### The document pipeline of a large drawing (perf review 2026-11)
+
+Measured with the review's GUI drivers (`gui_open2.py`, `gui_large.py`, `gui_leak.py`, a
+select-all nudge driver) on the review's `doc2700.chf` / `doc300.chf`, offscreen, this host:
+
+| scenario | before | after |
+|---|---|---|
+| select-all nudge of 2,700 parts, quiesced, GUI thread (cyclic GC excluded) | 773–879 ms | 232–288 ms (first of a run 518 ms: the extent is measured once) |
+| the same, cyclic GC included | 828–1,912 ms | 255–314 ms |
+| its undo / redo | 433 / 435 ms | 189 / 187 ms |
+| after opening 2,700 parts, the first event-loop pass (import review running) | 3.4–4.2 s | 1.0–1.05 s (plan ready +13.2–14.2 s before, +13.3 s after) |
+| five one-part nudges 4 s apart, plan process CPU until settled | 58.0 s | 28.0 s (toolpath stage 2.3–2.5 s, the compile 5.2 s once) |
+| ten / six nudges 0.5 / 1.5 s apart (faster than a toolpath stage) | 24.2 / 27.2 s | 24.7 / 29.4 s: no gain, one compile either way |
+| RSS after four select-all nudges, 2,700 parts | 2,780 MB (6 cached plans) | 1,206 MB (1 cached plan) |
+| RSS after ten open / close cycles of 300 parts (idle 150 MB) | 563 MB, rising | 245 MB, flat from the second cycle |
+
+The select-all nudge keeps no part copies (`SegmentsEdit`), does not measure the selection
+extent or the part list's boxes again, and what is left is the canvas's rebuild of the moved
+items and the properties panel.  An edit plans the toolpath only; the compile follows 2 s after
+the last edit (or at Start).  The import review of a drawing with more than 300 contours runs in
+a short-lived child process (`services/review_process.py`) and its messages are made in the GUI
+process (same language and units).
+
 | scenario | before | after | ratio |
 |---|---|---|---|
 | during a compile, 500 parts (before: 26 s compile in the worker thread) | p99 **12,175 ms**, max 12,425, median 45.6 | process: p99 **71.5 ms**, median 3.2 (0.85 s compile, n = 42) | 170× (p99) |

@@ -104,6 +104,8 @@ UI_MODULES = {
     "test_i18n_locale",
     # UI evaluation F2 / F12: large drawings, idle timers
     "test_large_drawing", "test_idle_timers",
+    # perf review 2026-11: the document pipeline of a large drawing
+    "test_pipeline_perf",
 }
 # modules that start the UDP card simulator or a device simulator (sockets, threads, timing)
 SIM_MODULES = {
@@ -117,6 +119,7 @@ SIM_MODULES = {
     "test_plan_process",      # the plan process; GUI event-loop latency during a compile
     "test_large_drawing",     # GUI-thread time budgets (relative; one worker, as in a serial run)
     "test_idle_timers",       # timers, a watched folder (real-time waits)
+    "test_pipeline_perf",     # GUI-thread budgets, the plan and review processes
 }
 _DIR_MARKS = {"parity": "parity", "golden": "golden", "safety": "safety"}
 #: markers whose tests share one xdist worker (real-time assertions, simulators, sockets)

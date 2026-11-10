@@ -11,6 +11,17 @@ placement applied, so the preview could differ from the cut, and a large compile
 * :class:`JobService` compiles in a worker thread (progress, cancel), debounces edits
   (:meth:`JobService.schedule_preview`) and caches plans by input hash.  The toolpath stage is
   published first (the canvas draws it), then the compiled job.
+* **Two-stage previews** (``compile_idle_s``, the application's setting; perf review finding 8):
+  an edit or a head move plans the toolpath only; the full compile of that preview starts once
+  no newer preview came for ``compile_idle_s`` seconds, when :meth:`JobService.settle` asks for
+  it, or when Start / Dry Cut / Frame needs a plan of the same inputs (the start path computes
+  the inputs hash itself and compiles whatever it does not find, so a stale plan is never
+  started).  In the plan process the toolpath of the first stage is kept and compiled as it is.
+* **Bounded by bytes** (``cache_bytes``, perf review finding 7): the cache drops its oldest
+  plans beyond about ``cache_bytes`` of compiled job (packed wire, toolpath, bookkeeping), and
+  beyond ``cache_size`` plans; the newest plan and the current preview plan always stay.
+  :meth:`JobService.release_document` empties it (and the plan codec) when the document is
+  closed (finding 12).
 * Start / Dry Cut / Frame go through :meth:`JobService.run`: the plan for the current inputs
   (normally the cached preview plan) is handed to a :class:`JobSubmitter`; nothing is compiled on
   the GUI thread.  The frames the controller streams are ``PlannedJob.frames()``, i.e.
@@ -43,6 +54,12 @@ log = logging.getLogger("mlaser.jobs")
 
 Point = tuple[float, float]
 MODES = ("process", "dry_run", "frame")
+
+#: default byte budget of the plan cache: at 300 parts (about 25 MB a plan) it holds the six
+#: plans the count limit allows, at 2,700 parts (about 230 MB) the newest one alone
+CACHE_BYTES = 256 * 2**20
+#: seconds without a newer preview before the application compiles the preview's toolpath
+COMPILE_IDLE_S = 2.0
 
 
 class Cancelled(Exception):
@@ -263,6 +280,11 @@ class JobTicket:
         self.cached = False
         self._delivered: set[str] = set()
         self._lock = threading.Lock()
+        # two-stage preview: what the compile stage needs (("child",) or ("thread", r, items,
+        # placed, start)), whether that compile was queued, and the idle timer's cancel
+        self._kept: Optional[tuple] = None
+        self._compile_queued = False
+        self._idle_cancel: Optional[Callable[[], None]] = None
 
     def cancel(self) -> None:
         self.cancel_event.set()
@@ -276,6 +298,11 @@ class JobTicket:
         """The toolpath went to the ``on_toolpath`` listeners (queued or by :meth:`JobService.settle`)."""
         with self._lock:
             return "toolpath" in self._delivered
+
+    @property
+    def deferred(self) -> bool:
+        """The toolpath is planned and the compile waits (a two-stage preview)."""
+        return self._kept is not None and not self.done_event.is_set()
 
     def wait(self, timeout: Optional[float] = None) -> Optional[PlannedJob]:
         self.done_event.wait(timeout)
@@ -320,6 +347,8 @@ class JobService:
         debounce_s: float = 0.15,
         cache_size: int = 6,
         process: Optional[bool] = None,
+        cache_bytes: Optional[int] = CACHE_BYTES,
+        compile_idle_s: Optional[float] = None,
     ) -> None:
         if process is None:
             # the plan process by default for the application's own worker; a caller that passes
@@ -331,6 +360,9 @@ class JobService:
         self.debounce_s = debounce_s
         self.cache: OrderedDict[str, PlannedJob] = OrderedDict()
         self.cache_size = cache_size
+        self.cache_bytes = cache_bytes          # None: no byte bound (count only)
+        # two-stage previews (module docstring); None: a preview compiles at once
+        self.compile_idle_s = compile_idle_s
         self.preview: Optional[JobTicket] = None
         self.last_run: Optional[JobTicket] = None  # the ticket of the last run() (Start/Frame)
         self.current: Optional[PlannedJob] = None  # the last completed preview plan
@@ -400,6 +432,7 @@ class JobService:
         t = self.plan(req, _preview=True)
         if old is not None and old is not t and not old.done_event.is_set():
             old.cancel()
+            self._drop_deferred(old)
         return t
 
     @property
@@ -419,7 +452,8 @@ class JobService:
             t.toolpath_event.set()
             t.done_event.set()
             return t
-        self.executor.submit(self._work, t)
+        two = _preview and self.compile_idle_s is not None and req.mode != "frame"
+        self.executor.submit(self._work, t, True, "toolpath" if two else "full")
         return t
 
     def plan_sync(self, req: JobRequest) -> PlannedJob:
@@ -431,38 +465,52 @@ class JobService:
         assert t.plan is not None
         return t.plan
 
-    def _work(self, t: JobTicket, deliver: bool = True) -> None:
+    def _work(self, t: JobTicket, deliver: bool = True, stage: str = "full") -> None:
+        """Plan ``t`` in this thread.  ``stage``: "full" (toolpath and job), "toolpath" (a
+        two-stage preview: the toolpath, then the compile waits, :meth:`_arm_compile`) or
+        "resume" (the compile of a ticket whose toolpath stage is done)."""
         try:
             if t.cancelled:
                 raise Cancelled()
-            t.key = key = inputs_hash(t.request, self.codec)
+            if stage != "resume":
+                t.key = inputs_hash(t.request, self.codec)
+            key = t.key or ""
             with self._lock:
                 hit = self.cache.get(key)
                 if hit is not None:
                     self.cache.move_to_end(key)
+            if hit is None and stage == "full":
+                hit = self._steal_preview(t, key, deliver)
             if hit is not None:
                 self.stats["cache_hits"] += 1
                 t.cached = True
-                t.toolpath, t.placed, t.plan = list(hit.toolpath), hit.document, hit
+                if stage != "resume":
+                    t.toolpath, t.placed = list(hit.toolpath), hit.document
+                t.plan = hit
                 t.toolpath_event.set()
-                if deliver:
+                if deliver and stage != "resume":
                     self._deliver_toolpath(t)
             else:
-                plan = self._compile(t, deliver)
+                plan = self._compile(t, deliver, stage)
+                if plan is None:                  # the toolpath stage of a two-stage preview
+                    self._arm_compile(t)
+                    return
                 with self._lock:
                     self.cache[key] = plan
-                    while len(self.cache) > self.cache_size:
-                        self.cache.popitem(last=False)
+                    self._trim_cache()
                 t.plan = plan
+            t._kept = None
             t.done_event.set()
             if deliver:
                 self.post(lambda: self._deliver_plan(t))
         except Cancelled:
             self.stats["cancelled"] += 1
+            t._kept = None
             t.toolpath_event.set()
             t.done_event.set()
         except BaseException as exc:  # noqa: BLE001 - reported to the listeners
             t.error = exc
+            t._kept = None
             log.error("planning failed: %s", exc, exc_info=True)
             t.toolpath_event.set()
             t.done_event.set()
@@ -470,17 +518,142 @@ class JobService:
                 err: BaseException = exc
                 self.post(lambda: self._deliver_error(t, err))
 
-    def _compile(self, t: JobTicket, deliver: bool) -> PlannedJob:
+    # ------------------------------------------------------------------ two-stage previews
+    def _arm_compile(self, t: JobTicket) -> None:
+        """After the toolpath stage of preview ``t``: its compile starts after
+        ``compile_idle_s`` without a newer preview (or earlier, :meth:`compile_now`)."""
+        delay = self.compile_idle_s or 0.0
+        with self._lock:
+            if t._compile_queued or t.cancelled or self._closed:
+                cancelled = True
+            else:
+                cancelled = False
+                t._idle_cancel = _timer_schedule(delay, lambda: self.compile_now(t)) if delay > 0 else None
+        if cancelled:
+            if t.cancelled or self._closed:
+                self._drop_deferred(t)
+            return
+        if delay <= 0:
+            self.compile_now(t)
+
+    def compile_now(self, t: Optional[JobTicket] = None) -> None:
+        """Queue the compile of a two-stage preview whose toolpath is done (default: the
+        current preview); nothing when it is queued already, finished or cancelled."""
+        t = t if t is not None else self.preview
+        if t is None:
+            return
+        with self._lock:
+            if t._compile_queued or t._kept is None or t.done_event.is_set():
+                return
+            t._compile_queued = True
+            cancel, t._idle_cancel = t._idle_cancel, None
+        if cancel is not None:
+            cancel()
+        if t.cancelled or self._closed:
+            self._drop_deferred(t)
+            return
+        try:
+            self.executor.submit(self._work, t, True, "resume")
+        except RuntimeError:                       # the executor was shut down
+            self._drop_deferred(t)
+
+    def _drop_deferred(self, t: JobTicket) -> None:
+        """A deferred preview that will not be compiled (superseded, closed): it is done."""
+        with self._lock:
+            if t._kept is None or t.done_event.is_set():
+                return
+            if t._compile_queued and not (t.cancelled or self._closed):
+                return
+            t._compile_queued = True
+            cancel, t._idle_cancel = t._idle_cancel, None
+            t._kept = None
+        if cancel is not None:
+            cancel()
+        t.cancel()
+        self.stats["cancelled"] += 1
+        t.toolpath_event.set()
+        t.done_event.set()
+
+    def _steal_preview(self, t: JobTicket, key: str, deliver: bool) -> Optional[PlannedJob]:
+        """A plan request (Start, Dry Cut, an export) whose inputs are those of a deferred
+        preview: that preview is compiled now, in this worker call, from its kept toolpath,
+        and its plan answers both (``None``: there is no such preview)."""
+        p = self.preview
+        if p is None or p is t or p.key != key or p.cancelled:
+            return None
+        with self._lock:
+            if p._compile_queued or p._kept is None or p.done_event.is_set():
+                return None
+            p._compile_queued = True
+            cancel, p._idle_cancel = p._idle_cancel, None
+        if cancel is not None:
+            cancel()
+        self._work(p, deliver, "resume")
+        with self._lock:
+            hit = self.cache.get(key)
+            if hit is not None:
+                self.cache.move_to_end(key)
+        return hit
+
+    # ------------------------------------------------------------------ the cache
+    def _trim_cache(self) -> None:
+        """Drop the oldest plans beyond ``cache_size`` plans and ``cache_bytes`` bytes; the
+        newest plan and the current preview plan stay (call with ``_lock`` held)."""
+        cache = self.cache
+        if not cache:
+            return
+        newest = next(reversed(cache))
+        cur = self.current.key if self.current is not None else None
+
+        def over() -> bool:
+            if len(cache) > self.cache_size:
+                return True
+            return self.cache_bytes is not None and sum(plan_nbytes(v) for v in cache.values()) > self.cache_bytes
+        while len(cache) > 1 and over():
+            victim = next((k for k in cache if k != newest and k != cur), None)
+            if victim is None:
+                break
+            del cache[victim]
+
+    @property
+    def cache_nbytes(self) -> int:
+        """Estimated bytes of the cached plans (:func:`plan_nbytes`)."""
+        with self._lock:
+            return sum(plan_nbytes(v) for v in self.cache.values())
+
+    def release_document(self) -> None:
+        """The open document was closed or replaced: forget its plans and the plan codec's
+        part encodings (they hold its part copies) here and in the plan process.  A preview
+        in flight is left alone (it plans the new document)."""
+        with self._lock:
+            self.cache.clear()
+            self.current = None
+        self.codec.forget()
+        if self.planproc is not None and not self._closed:
+            try:
+                self.executor.submit(self._forget_child)
+            except RuntimeError:                   # shut down
+                pass
+
+    def _forget_child(self) -> None:
+        pp = self.planproc
+        if pp is not None:
+            pp.forget()
+
+    def _compile(self, t: JobTicket, deliver: bool, stage: str = "full") -> Optional[PlannedJob]:
         """Compile ``t``: in the plan process when there is one (``planproc``), else in this
-        thread on a private copy of the request with the GIL switch interval lowered."""
+        thread on a private copy of the request with the GIL switch interval lowered.
+        ``stage`` as for :meth:`_work`; None after a "toolpath" stage (``t._kept`` is set)."""
         from .planproc import ChildLost, ChildSetupError
 
         t0 = time.perf_counter()
         pp = self.planproc
-        if pp is not None and not self._closed:
+        kept = t._kept
+        if pp is not None and not self._closed and not (stage == "resume" and kept is not None and kept[0] != "child"):
             try:
-                plan = self._compile_process(t, deliver, pp, t0)
-                self.stats["process_compiles"] += 1
+                plan = self._compile_process(t, deliver, pp, t0, stage)
+                if plan is not None:
+                    self.stats["process_compiles"] += 1
                 return plan
             except (ChildLost, ChildSetupError) as exc:
                 if t.cancelled:
@@ -492,8 +665,9 @@ class JobService:
                     pp.close()
                 else:
                     log.warning("plan process: %s; this plan is compiled in a thread", exc)
-        plan = self._compile_thread(t, deliver, t0)
-        self.stats["thread_compiles"] += 1
+        plan = self._compile_thread(t, deliver, t0, stage)
+        if plan is not None:
+            self.stats["thread_compiles"] += 1
         return plan
 
     def _progress_fn(self, t: JobTicket, deliver: bool) -> Callable[[float], None]:
@@ -540,12 +714,18 @@ class JobService:
             cut_bounds=cut_bounds if cut_bounds is not None else toolpath_bounds(job.toolpath, ("CutLine", "CutArc")),
         )
 
-    def _compile_thread(self, t: JobTicket, deliver: bool, t0: float) -> PlannedJob:
+    def _compile_thread(self, t: JobTicket, deliver: bool, t0: float, stage: str = "full") -> Optional[PlannedJob]:
         from mlaser._sched import responsive_gil
 
-        from .planproc import run_compile
+        from .planproc import run_compile, run_job, run_toolpath
 
         req = t.request
+        kept = t._kept
+        if stage == "resume" and kept is not None and kept[0] == "thread":
+            _k, r0, items0, placed0, start0 = kept
+            with responsive_gil():
+                job = run_job(r0, items0, placed0, start0, self._progress_fn(t, deliver))
+            return self._finish(t, job, start0, t.placed if t.placed is not None else placed0, t0)
         try:
             # a private copy: the planner snapshot's parts are shared between plans
             # (DocumentService.plan_snapshot) and the compile may cache derived data in them
@@ -563,26 +743,49 @@ class JobService:
             box.append(placed)
             self._set_toolpath(t, list(items) if req.mode == "frame" else items, placed, deliver)
 
+        if stage == "toolpath":
+            with responsive_gil():
+                items, placed_r, start = run_toolpath(r)
+            on_toolpath(items, placed_r)
+            t._kept = ("thread", r, items, placed_r, start)
+            return None
         with responsive_gil():
             items, _placed, start, job = run_compile(r, self._progress_fn(t, deliver), on_toolpath)
         return self._finish(t, job, start, box[0], t0)
 
-    def _compile_process(self, t: JobTicket, deliver: bool, pp, t0: float) -> PlannedJob:
-        from .planproc import placed_from_info
+    def _compile_process(self, t: JobTicket, deliver: bool, pp, t0: float, stage: str = "full") -> Optional[PlannedJob]:
+        from .planproc import ChildSetupError, placed_from_info
 
         req = t.request
         pp.ensure_ready()
-        msg = self.codec.encode(req, have=pp.have)
-        if t.cancelled:
-            raise Cancelled()
         placed_box: list = []
 
         def on_toolpath(items: list, info: dict) -> None:
             placed = placed_from_info(req.document, info)
             placed_box.append(placed)
+            if t.toolpath is not None:            # a resume that had to plan again: same inputs
+                return
             self._set_toolpath(t, items, placed, deliver)
 
-        info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath)
+        info: Any = None
+        job: Any = None
+        if stage == "resume" and t._kept is not None:
+            try:                                  # the toolpath the child kept for this key
+                info, job = pp.compile(None, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath,
+                                       kept=t.key)
+                placed_box.append(t.placed)
+            except ChildSetupError:               # it planned something else since: from the start
+                info = job = None
+        if job is None:
+            msg = self.codec.encode(req, have=pp.have)
+            if stage == "toolpath":
+                msg["stage"], msg["key"] = "toolpath", t.key
+            if t.cancelled:
+                raise Cancelled()
+            info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath)
+            if stage == "toolpath":
+                t._kept = ("child",)
+                return None
         self.stats["child_parallel"] = info.get("parallel", {})   # nc.parallel.STATS of the child
         if info.get("toolpath") is None:
             job.toolpath = list(t.toolpath or [])
@@ -608,6 +811,8 @@ class JobService:
             return
         if t is self.preview:
             self.current = t.plan
+            with self._lock:
+                self._trim_cache()                # the plan before it may go now
         for fn in list(self.on_planned):
             fn(t.plan, t)
 
@@ -625,6 +830,13 @@ class JobService:
             t = self.flush() if self.pending else self.preview
         if t is None:
             return None
+        if not toolpath_only and t is self.preview and self.compile_idle_s is not None:
+            # a two-stage preview: its compile now, once its toolpath stage has ended
+            end = time.monotonic() + timeout
+            while (not t.done_event.is_set() and t._kept is None and not t.cancelled
+                   and time.monotonic() < end):
+                t.done_event.wait(0.005)
+            self.compile_now(t)
         if toolpath_only:
             t.wait_toolpath(timeout)
             if t.toolpath is not None and not t.cancelled and t._once("toolpath"):
@@ -743,6 +955,7 @@ class JobService:
     def cancel(self) -> None:
         if self.preview is not None:
             self.preview.cancel()
+            self._drop_deferred(self.preview)
 
     def shutdown(self) -> None:
         self._closed = True
@@ -759,6 +972,20 @@ class JobService:
         pp, self.planproc = self.planproc, None
         if pp is not None:
             pp.close()
+
+
+def plan_nbytes(plan: PlannedJob) -> int:
+    """Estimated bytes a cached plan keeps alive: the wire (a PackedWire's arrays, else about
+    120 bytes an item), the toolpath's MotionItems and the job's bookkeeping lists.  The
+    placed document is shared with the planner snapshot and not counted."""
+    job = plan.job
+    w = getattr(job, "wire", None)
+    nb = getattr(w, "nbytes", None)
+    n = int(nb) if isinstance(nb, int) else 120 * len(w or ())
+    n += 240 * len(plan.toolpath)
+    for name in ("manu", "markers", "cut_blocks"):
+        n += 100 * len(getattr(job, name, None) or ())
+    return n
 
 
 def _placed_in_request(req_doc: Document, copy_doc: Document, placed: Document) -> Document:

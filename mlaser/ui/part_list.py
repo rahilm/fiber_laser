@@ -27,8 +27,10 @@ filter field and one row of buttons that wraps.
 """
 from __future__ import annotations
 
+import operator
 import time
 from dataclasses import dataclass, field
+from itertools import chain
 from typing import Any, Callable, Iterable, Optional
 
 from PySide6.QtCore import (QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF,
@@ -73,26 +75,49 @@ def _swatch(color: QColor, size: int = 12) -> QIcon:
 
 # --------------------------------------------------------------------------- bounding boxes
 class PartBoxes:
-    """``part.bbox()`` cached by uid while the part's segment objects are the same."""
+    """``part.bbox()`` cached by uid while the part's segment objects are the same.  A part that
+    was moved since (:meth:`shifted`, from a :class:`~mlaser.services.document.ChangedParts`
+    with a ``shift``) gets its cached box moved along instead of measured again: two
+    bounding-box passes over every part made a select-all nudge slow (perf review finding 6).
+    The moved box equals a new measurement up to rounding in the last bits."""
 
     def __init__(self) -> None:
         self.cache: dict[int, tuple[tuple, tuple]] = {}   # uid -> (segments, bbox)
-        self.hits = self.misses = 0
+        self.moved: dict[int, tuple[float, float]] = {}   # uid -> how far it moved since its box
+        self.hits = self.misses = self.shifts = 0
 
     def get(self, p) -> tuple:
-        segs = tuple(s for c in p.contours for s in c.segments)
+        cs = p.contours
+        segs = tuple(cs[0].segments) if len(cs) == 1 else tuple(chain.from_iterable(c.segments for c in cs))
         hit = self.cache.get(p.uid)
-        if hit is not None and len(hit[0]) == len(segs) and all(a is b for a, b in zip(hit[0], segs)):
+        if hit is not None and len(hit[0]) == len(segs) and all(map(operator.is_, hit[0], segs)):
             self.hits += 1
             return hit[1]
+        moved = self.moved.pop(p.uid, None)
+        if moved is not None and hit is not None and len(hit[0]) == len(segs):
+            self.shifts += 1
+            x0, y0, x1, y1 = hit[1]
+            dx, dy = moved
+            bb = (x0 + dx, y0 + dy, x1 + dx, y1 + dy)
+            self.cache[p.uid] = (segs, bb)
+            return bb
         self.misses += 1
         bb = p.bbox()
         self.cache[p.uid] = (segs, bb)
         return bb
 
+    def shifted(self, uid: int, shift: tuple[float, float]) -> bool:
+        """The part ``uid`` was moved by ``shift``: True when its cached box can move along."""
+        if uid not in self.cache:
+            return False
+        m = self.moved.get(uid)
+        self.moved[uid] = shift if m is None else (m[0] + shift[0], m[1] + shift[1])
+        return True
+
     def prune(self, live: set) -> None:
         if len(self.cache) > 2 * max(len(live), 64):
             self.cache = {u: v for u, v in self.cache.items() if u in live}
+            self.moved = {u: v for u, v in self.moved.items() if u in live}
 
 
 # --------------------------------------------------------------------------- filter
@@ -405,9 +430,20 @@ class PartListModel(QAbstractTableModel):
         new_rows: list[tuple] = []
         dirty: list[int] = []
         live = set()
+        shift = getattr(changed, "shift", None)      # a move (DocumentService.ChangedParts)
+        if changed is None:
+            self.boxes.moved.clear()                 # not known what changed: measure again
         for i, p in enumerate(parts):
             live.add(p.uid)
-            if (changed is not None and i < len(old_parts) and old_parts[i] is p and p.uid not in changed):
+            same = i < len(old_parts) and old_parts[i] is p
+            if changed is not None and p.uid in changed:
+                if shift is not None and self.boxes.shifted(p.uid, shift):
+                    if same:                 # moved: name, layer, contours and size stay
+                        new_rows.append(old_rows[i])
+                        continue
+                else:
+                    self.boxes.moved.pop(p.uid, None)
+            if changed is not None and same and p.uid not in changed:
                 new_rows.append(old_rows[i])
                 continue
             row = self._row_of(p, i)
@@ -712,6 +748,10 @@ class PartListPanel(QWidget):
     @property
     def bbox_misses(self) -> int:
         return self.boxes.misses
+
+    @property
+    def bbox_moved(self) -> int:
+        return self.boxes.shifts
 
     @property
     def mime_for_selection(self):

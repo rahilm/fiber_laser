@@ -43,7 +43,8 @@ the **Common** tab. Trim and extend, explode, group and ungroup, arrays (rectang
 fill) and common-edge joining are on the **Common** and **Process** tabs. Every edit can be
 undone (**Ctrl+Z**, ⌘Z on a Mac); **Edit → Undo** names the step it undoes ("Undo Move"). The
 arrow keys nudge the selection; a run of nudges is one undo step. The history is limited by
-memory (256 MB of copies), not by a number of steps.
+memory (256 MB of copies), not by a number of steps. Opening another drawing (or **File → New**)
+can itself be undone, but the history of the drawing that was closed is let go.
 
 **Cut**, **Copy** and **Paste** (**Ctrl+X / C / V**, ⌘X / C / V) use the system clipboard: parts
 copied in one mlaser window paste into another, or into another mlaser, with all their process

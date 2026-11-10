@@ -252,7 +252,7 @@ Qt-specific pieces (a "post to the GUI thread" callable and a timer).
 | `PluginContext` (`plugins.py`) | the plugin API, hooks, providers, entry-point discovery | `register(window)` and monkeypatching (docs/dev/PLUGINS.md) |
 | `PluginManager` (`plugin_manager.py`, `plugin_manifest.py`, `plugin_http.py`, `pep440.py`, `plugin_index.py`) | plugin repositories, verified wheel installs into `<data dir>/plugins/site`, the manifest and permissions, `ctx.http`, the index builder | pip into the application's environment (docs/dev/PLUGIN_STANDARD.md) |
 | `ConfigService` (`config.py`) | the typed parameter store generated from the registry, platformdirs persistence, XML import/export, the machine profile | `window.settings`, `Machine()` defaults, `diag_state.json`, `machine_ops` dict, data-dir schemes |
-| `JobService` (`jobs.py`, `planproc.py`) | `PlannedJob`s: compiled in a separate plan process (spawn; in the worker thread when no process can run), debounced, cached by input hash; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
+| `JobService` (`jobs.py`, `planproc.py`) | `PlannedJob`s: compiled in a separate plan process (spawn; in the worker thread when no process can run), debounced, cached by input hash (bounded by bytes); a preview plans the toolpath first and compiles once the edits stopped; the preview and Start / Dry Cut / Frame use the same plan | the canvas' own `build_toolpath`, compiles on the GUI thread in the controller |
 | `ProductionService` (`production.py`) | job statistics, counters, planned-quantity interlock (also a start guard), maintenance | the logic in `ui/ext_diag.py` |
 | procedures (`procedures/`) | guided procedures as step machines over the MachineAPI (edge seek, follower calibration, focus homing, laser test, commissioning); abort = `safe_halt`; simulator dry-run rigs | the edge-seek forms, the FTC dialog buttons |
 | `settings_import.py` | preview / apply of an original install's settings (never writes the install) | – |
@@ -279,6 +279,15 @@ registered in the `RoundTripTable` side table and shared by every copy (a deepco
 copied per edit; the codec copies before it writes, so they are immutable.  The stack is bounded
 by count (100) and estimated retained bytes (256 MiB).
 
+A move (arrow-key nudges: `DocumentService.edit_geometry`) is a `SegmentsEdit`: the edit only
+*replaces* contours' segment lists, so the command keeps the replaced lists themselves (by part
+and contour uid) and undo / redo swap them back: no part copies, and the restored coordinates are
+the original objects, bit for bit.  Listeners get the moved uids as a `ChangedParts` with the
+`shift`, so the part list moves its cached boxes instead of measuring every part again.  Opening
+another drawing (File > Open / New after `checkpoint`) keeps the open's own undo step and drops
+the closed drawing's history; the window also empties the plan cache and the plan codec
+(`JobService.release_document`).
+
 ### Planned jobs
 
 `build_request(mode, docs, ctl, machine, cam_params)` captures on the GUI thread: a private
@@ -287,7 +296,18 @@ sort origin), the layers, the laser-enabled state and the ParityProfile.  The wo
 `nc.compiler.plan_toolpath` (the first half of `compile_job`, published to the canvas at once)
 and `compile_items` (with a `progress` hook that cancels).  `PlannedJob.frames()` is
 `Job.frames()`, and `controller.stream.WireJob` now carries the ManuItem grouping so the streamer
-sends exactly these frames.  `ControllerSubmitter` implements the `JobSubmitter` protocol
+sends exactly these frames.
+
+The window's previews are two-stage (`JobService(compile_idle_s=2.0)`): an edit or a head move
+plans the toolpath (the canvas draws it), and the compile of that toolpath starts when no newer
+preview came for 2 s, when `settle()` asks for it, or when Start / Dry Cut / Frame needs a plan
+with the same inputs hash (the run's worker call compiles the waiting preview's toolpath then;
+any other inputs are compiled for the run itself, so a plan from a stale document or head
+position is never started).  The plan process keeps the first stage's toolpath under the
+request's key and compiles it on `("compile", rid, key)`; when it has planned something else
+meanwhile, the request is sent again.  The plan cache is bounded by about 256 MB of compiled job
+(`plan_nbytes`: packed wire, toolpath, bookkeeping) and six plans; the newest and the current
+preview plan always stay.  `ControllerSubmitter` implements the `JobSubmitter` protocol
 (`start_job(plan)`) for today's controllers; the Safety track's MachineAPI takes it over.
 
 ### Configuration

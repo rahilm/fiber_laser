@@ -18,6 +18,8 @@ records; architecture.md §1.6, P1-7).  Here:
   (a deepcopy memo seeded with the table), so they are never deep-copied per edit.
 * **Bounded by memory.**  :class:`UndoStack` drops the oldest commands beyond ``max_cost``
   estimated bytes (and beyond ``limit`` commands when a limit is given).
+* **Moves.**  An edit that only replaces contours' segment lists (a nudge) is a :class:`SegmentsEdit`:
+  it keeps the replaced lists themselves, so its undo is exact and copies nothing.
 * **Coalesced.**  Edits pushed with the same ``merge_key`` in quick succession (arrow-key
   nudges of one selection) merge into one command (:meth:`UndoStack.push`).
 
@@ -361,6 +363,68 @@ class PartsEdit:
 
 
 @dataclass
+class SegmentsEdit:
+    """Swap command for an edit that only *replaced* the ``segments`` lists of some contours
+    (a move: arrow-key nudges, ``DocumentService.edit_geometry``; perf review finding 6).
+
+    ``segs[part uid][contour uid]`` is the segment list of the *other* state: before the first
+    undo, the very list the edit replaced.  Undo and redo exchange it with the live contour's
+    list, so the restored coordinates are the original objects, bit for bit (no ``x + d - d``),
+    and nothing is copied: a select-all nudge of 2,700 parts kept 2,700 part copies before.
+    Parts and contours are found by uid in the live document (an undo of a later
+    :class:`PartsEdit` may have put other part objects with the same uids in place).
+    ``shift``: the net (dx, dy) of a pure translation (a hint for views; None otherwise)."""
+
+    label: str
+    segs: dict[int, dict[int, list]]
+    cost: int = 0
+    stamp: float = field(default_factory=time.time)
+    merge_key: Any = None
+    shift: Optional[tuple[float, float]] = None
+
+    def can_absorb(self, newer: Any) -> bool:
+        return (isinstance(newer, SegmentsEdit) and self.merge_key is not None
+                and newer.merge_key == self.merge_key)
+
+    def absorb(self, newer: "SegmentsEdit") -> None:
+        """Take ``newer`` (applied right after this one) into this command: the lists from
+        before this one stay; contours only ``newer`` replaced add theirs."""
+        for pu, cs in newer.segs.items():
+            mine = self.segs.setdefault(pu, {})
+            for cu, lst in cs.items():
+                mine.setdefault(cu, lst)
+        if self.shift is not None and newer.shift is not None:
+            self.shift = (self.shift[0] + newer.shift[0], self.shift[1] + newer.shift[1])
+        else:
+            self.shift = None
+        self.cost = segments_cost(self.segs)
+        self.stamp = newer.stamp
+
+    def _apply(self, t: UndoTarget) -> None:
+        live = {p.uid: p for p in t.document.parts}
+        for pu, cs in self.segs.items():
+            p = live.get(pu)
+            if p is None:
+                continue
+            by_uid = {c.uid: c for c in p.contours}
+            for cu, lst in cs.items():
+                c = by_uid.get(cu)
+                if c is not None:
+                    cs[cu], c.segments = c.segments, lst
+
+    def undo(self, t: UndoTarget) -> None:
+        self._apply(t)
+
+    def redo(self, t: UndoTarget) -> None:
+        self._apply(t)
+
+
+def segments_cost(segs: dict[int, dict[int, list]]) -> int:
+    """Rough retained bytes of a :class:`SegmentsEdit`'s lists (as :func:`part_cost` counts)."""
+    return sum(200 + 160 * len(lst) for cs in segs.values() for lst in cs.values())
+
+
+@dataclass
 class ReplaceDocument:
     """The document object itself was replaced (open, new, nest to main view, ...)."""
 
@@ -474,6 +538,12 @@ class UndoStack:
 
     def clear(self) -> None:
         self._undo.clear()
+        self._redo.clear()
+
+    def keep_last(self) -> None:
+        """Drop every command but the newest (the open of another drawing: the history of the
+        closed one goes, its undo stays; perf review finding 12)."""
+        del self._undo[:-1]
         self._redo.clear()
 
 

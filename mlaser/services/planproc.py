@@ -23,6 +23,10 @@ same; the parent only moves data:
 * **Progress and cancel**: the child reports progress about 10 times a second; a cancel is a
   shared counter (no lock) the child checks at every progress call (``compile_items`` calls it
   after each chain).
+* **Two stages** (perf review finding 8): a preview asks for the toolpath stage alone
+  (``stage="toolpath"``); the child keeps that toolpath, keyed by the request's inputs hash, and
+  compiles it when the JobService asks for the job of the same key (``("compile", rid, key)``),
+  so an edit costs the toolpath and the compile runs once the edits stopped (or at Start).
 
 When the child cannot be started or dies, or cannot reproduce the parent's state (a ParityProfile
 registered at run time), the JobService compiles in its thread as before, with the GIL switch
@@ -71,7 +75,7 @@ class ProtocolMismatch(ChildLost):
 #: it at spawn, the child answers ``("ready", {"proto": ..., "pid": ...})`` and ends at once
 #: when they differ; the parent refuses a child that answers another version (or the old
 #: ``("ready", pid)``).  Raise it on any change of the request / event tuples below.
-PLAN_PROTO = 1
+PLAN_PROTO = 2
 
 
 # =============================================================================== codec
@@ -219,6 +223,44 @@ class PlanCodec:
             for k in [k for k, e in d.items() if e.used < old]:
                 del d[k]
 
+    def encode_document(self, doc: Document) -> dict:
+        """A self-contained picklable message of ``doc`` alone (every part and record
+        included), from the same per-part cache as :meth:`encode` (a planner snapshot's part
+        copies are encoded once for both); :func:`decode_document` reads it in another process.
+        Each part is pickled on its own, so a thread doing this releases the GIL often."""
+        datas, blobs = [], {}
+        for p in doc.parts:
+            with self._lock:              # one part per hold: the plan thread gets its turns
+                e = self._part(p)
+                tokens = {}
+                for b in _part_blobs(p):
+                    be = self._blob(b)
+                    tokens[id(b)] = be.token
+                    blobs[be.token] = be.data
+                if e.data is None:
+                    buf = io.BytesIO()
+                    _BlobPickler(buf, tokens).dump(p)
+                    e.data = buf.getvalue()
+                    self.encoded += 1
+                datas.append(e.data)
+        with self._lock:
+            ex = doc.extra if isinstance(doc.extra, dict) else {}
+            head_blobs = {}
+            if ex.get("chf") is not None:
+                be = self._blob(ex["chf"])
+                head_blobs[id(ex["chf"])] = be.token
+                blobs[be.token] = be.data
+            buf = io.BytesIO()
+            _BlobPickler(buf, head_blobs).dump((doc.layers, doc.version, doc.extra))
+        return {"part_data": datas, "blob_data": blobs, "head": buf.getvalue()}
+
+    def forget(self) -> None:
+        """Drop every cached part encoding and digest (the document was closed: they hold its
+        part copies, perf review finding 12)."""
+        with self._lock:
+            self._parts.clear()
+            self._blobs.clear()
+
     def decode_local(self, msg: dict) -> dict:
         """The request of ``msg`` decoded in this process: a private copy of the document that
         shares the round-trip records with the original (what ``DocumentService.lean_copy``
@@ -228,6 +270,14 @@ class PlanCodec:
             blobs = {e.token: e.obj for e in self._blobs.values()}
             datas = [msg["part_data"].get(t) or by_token[t].data for t in msg["parts"]]
         return _decode(msg, datas, blobs)
+
+
+def decode_document(msg: dict) -> Document:
+    """The document of a :meth:`PlanCodec.encode_document` message (in any process)."""
+    blobs = {t: pickle.loads(b) for t, b in msg["blob_data"].items()}
+    parts = [_loads(d, blobs) for d in msg["part_data"]]
+    layers, version, extra = _loads(msg["head"], blobs)
+    return Document(parts=parts, layers=layers, version=version, extra=extra)
 
 
 def _decode(msg: dict, part_datas: list, blobs: dict) -> dict:
@@ -244,27 +294,46 @@ def _chunks(seq: list, n: int) -> list[bytes]:
     return [pickle.dumps(seq[i:i + n], protocol=5) for i in range(0, len(seq), n)] or [pickle.dumps([], protocol=5)]
 
 
-def run_compile(r: dict, progress: Callable[[float], None],
-                on_toolpath: Callable[[list, Document], None]) -> tuple:
-    """``JobService._compile``'s computation for a decoded request ``r`` (in the child, or in a
-    thread for the fallback): returns ``(items, placed, start, job)``."""
-    from mlaser.nc.compiler import compile_items, frame_items, placed_document, plan_toolpath
-    from mlaser.parity_ports import active_profile, use_profile
-
+def _profile_ctx(r: dict):
     import contextlib
-    ctx = use_profile(r["profile"]) if active_profile().name != r["profile"] else contextlib.nullcontext()
-    with ctx:
+
+    from mlaser.parity_ports import active_profile, use_profile
+    return use_profile(r["profile"]) if active_profile().name != r["profile"] else contextlib.nullcontext()
+
+
+def run_toolpath(r: dict) -> tuple:
+    """The toolpath stage of a decoded request ``r``: ``(items, placed, start)``."""
+    from mlaser.nc.compiler import frame_items, placed_document, plan_toolpath
+
+    with _profile_ctx(r):
         if r["mode"] == "frame":
             placed = placed_document(r["document"])
             items = list(frame_items(placed.bbox()))
             start = (float(r["start"][0]), float(r["start"][1]))
-            on_toolpath(items, placed)
-            job = compile_items(items, r["machine"].frame_machine(), start, dry_run=True, progress=progress)
         else:
             placed, prm, items = plan_toolpath(r["document"], r["cam_params"], r["start"], r["layers"])
             start = prm.origin
-            on_toolpath(items, placed)
-            job = compile_items(items, r["machine"], start, placed, r["dry_run"], progress=progress)
+    return items, placed, start
+
+
+def run_job(r: dict, items: list, placed: Document, start, progress: Callable[[float], None]):
+    """The compile stage: the job of the toolpath :func:`run_toolpath` gave for ``r``."""
+    from mlaser.nc.compiler import compile_items
+
+    with _profile_ctx(r):
+        if r["mode"] == "frame":
+            return compile_items(items, r["machine"].frame_machine(), start, dry_run=True, progress=progress)
+        return compile_items(items, r["machine"], start, placed, r["dry_run"], progress=progress)
+
+
+def run_compile(r: dict, progress: Callable[[float], None],
+                on_toolpath: Callable[[list, Document], None]) -> tuple:
+    """``JobService._compile``'s computation for a decoded request ``r`` (in the child, or in a
+    thread for the fallback): returns ``(items, placed, start, job)``.  The same calls as one
+    pass always made: :func:`run_toolpath`, then :func:`run_job` on its result."""
+    items, placed, start = run_toolpath(r)
+    on_toolpath(items, placed)
+    job = run_job(r, items, placed, start, progress)
     return items, placed, start, job
 
 
@@ -339,6 +408,7 @@ def _child_loop(conn, cancel) -> None:
     part_cache: dict[int, bytes] = {}
     blob_cache: dict[int, Any] = {}
     held: list = []                       # SharedJob blocks until the parent has copied them
+    kept: dict = {}                       # a preview's toolpath stage: key -> (r, items, placed, start)
     try:
         conn.send(("ready", {"proto": PLAN_PROTO, "pid": os.getpid()}))
     except OSError:                       # the parent went away while this process started
@@ -356,40 +426,54 @@ def _child_loop(conn, cancel) -> None:
                 sj.release()
             held.clear()
             continue
-        if kind != "plan":
+        if kind == "forget":              # the document was closed: drop what was sent for it
+            part_cache.clear()
+            blob_cache.clear()
+            kept.clear()
             continue
-        rid, payload = msg[1], msg[2]
+        if kind not in ("plan", "compile"):
+            continue
+        rid = msg[1]
         for sj in held:                   # an unacknowledged block: the parent moved on
             sj.release()
         held.clear()
+        last = [0.0]
+
+        def progress(frac: float) -> None:
+            if cancel.value >= rid:
+                raise Cancelled()
+            now = time.monotonic()
+            if now - last[0] >= 0.1:
+                last[0] = now
+                conn.send(("progress", rid, float(frac)))
+
         try:
-            for t, b in payload["blob_data"].items():
-                blob_cache[t] = pickle.loads(b)
-            part_cache.update(payload["part_data"])
-            keep = set(payload["keep"])
-            for d in (part_cache, blob_cache):
-                for k in [k for k in d if k not in keep]:
-                    del d[k]
-            try:
-                r = _decode(payload, [part_cache[t] for t in payload["parts"]], blob_cache)
-            except KeyError as e:
-                raise ChildSetupError(f"plan process cache out of step: {e}") from e
-            from mlaser.parity_ports.profile import get_profile
-            try:
-                get_profile(r["profile"])
-            except KeyError as e:
-                raise ChildSetupError(str(e)) from e
-            last = [0.0]
-
-            def progress(frac: float) -> None:
-                if cancel.value >= rid:
-                    raise Cancelled()
-                now = time.monotonic()
-                if now - last[0] >= 0.1:
-                    last[0] = now
-                    conn.send(("progress", rid, float(frac)))
-
-            def on_toolpath(items: list, placed: Document) -> None:
+            if kind == "compile":         # the job of the toolpath an earlier "toolpath" stage kept
+                got = kept.pop(msg[2], None)
+                kept.clear()
+                if got is None:
+                    raise ChildSetupError("no toolpath kept for this request")
+                r, items, placed, start = got
+            else:
+                payload = msg[2]
+                kept.clear()
+                for t, b in payload["blob_data"].items():
+                    blob_cache[t] = pickle.loads(b)
+                part_cache.update(payload["part_data"])
+                keep = set(payload["keep"])
+                for d in (part_cache, blob_cache):
+                    for k in [k for k in d if k not in keep]:
+                        del d[k]
+                try:
+                    r = _decode(payload, [part_cache[t] for t in payload["parts"]], blob_cache)
+                except KeyError as e:
+                    raise ChildSetupError(f"plan process cache out of step: {e}") from e
+                from mlaser.parity_ports.profile import get_profile
+                try:
+                    get_profile(r["profile"])
+                except KeyError as e:
+                    raise ChildSetupError(str(e)) from e
+                items, placed, start = run_toolpath(r)
                 if cancel.value >= rid:
                     raise Cancelled()
                 doc = r["document"]
@@ -401,8 +485,12 @@ def _child_loop(conn, cancel) -> None:
                     "layers": pickle.dumps(placed.layers, protocol=5),
                     "extra": None if placed.extra is doc.extra else pickle.dumps(placed.extra, protocol=5),
                     "version": placed.version}))
-
-            items, placed, start, job = run_compile(r, progress, on_toolpath)
+                if payload.get("stage") == "toolpath":
+                    # the compile waits for the JobService's "compile" of this key (or a new request)
+                    kept[payload.get("key")] = (r, items, placed, start)
+                    conn.send(("tpdone", rid))
+                    continue
+            job = run_job(r, items, placed, start, progress)
             meta, big = _job_meta(job)
             tp_same = job.toolpath is items or job.toolpath == items
             info = {"start": (float(start[0]), float(start[1])),
@@ -601,11 +689,24 @@ class PlanProcess:
         return ChildLost(why)
 
     # ------------------------------------------------------------------ one compile
-    def compile(self, msg: dict, cancelled: Callable[[], bool], progress: Callable[[float], None],
-                on_toolpath: Callable[[list, dict], None]) -> tuple[dict, Any]:
+    def forget(self) -> None:
+        """The document was closed: the child drops the parts and records it holds (call it on
+        the thread that runs :meth:`compile`)."""
+        self.have = set()
+        if self.alive() and self._ready:
+            try:
+                self.conn.send(("forget",))
+            except (OSError, EOFError, BrokenPipeError):
+                pass
+
+    def compile(self, msg: Optional[dict], cancelled: Callable[[], bool], progress: Callable[[float], None],
+                on_toolpath: Callable[[list, dict], None], kept: Optional[str] = None) -> tuple[Any, Any]:
         """Run one encoded request.  Calls ``on_toolpath(items, placed_info)`` when the toolpath
         stage is done and ``progress(frac)`` while compiling (both on this thread; they may
-        raise ``Cancelled``).  Returns ``(info, job)``."""
+        raise ``Cancelled``).  Returns ``(info, job)``; ``(None, None)`` when ``msg`` asked for
+        the toolpath stage only (``msg["stage"] == "toolpath"``: the child keeps that toolpath
+        under ``msg["key"]``).  ``msg`` None and ``kept`` a key: compile the toolpath the child
+        kept for that key (``ChildSetupError`` when it has none: send the request again)."""
         from mlaser.nc.compiler import Job, SharedJob
         from mlaser.nc.packed import PackedWire
 
@@ -617,10 +718,11 @@ class PlanProcess:
         rid = self.rid
         conn = self.conn
         try:
-            conn.send(("plan", rid, msg))
+            conn.send(("plan", rid, msg) if msg is not None else ("compile", rid, kept))
         except (OSError, EOFError, BrokenPipeError) as e:
             raise self._lost(f"plan process gone: {e}") from e
-        self.have = set(msg["keep"]) & (self.have | set(msg["part_data"]) | set(msg["blob_data"]))
+        if msg is not None:
+            self.have = set(msg["keep"]) & (self.have | set(msg["part_data"]) | set(msg["blob_data"]))
         cancel_sent: Optional[float] = None
         while True:
             if cancel_sent is None and cancelled():
@@ -660,6 +762,10 @@ class PlanProcess:
                     except Cancelled:
                         self.cancel.value = rid
                         cancel_sent = time.monotonic()
+            elif kind == "tpdone":
+                if cancel_sent is not None:
+                    raise Cancelled()
+                return None, None
             elif kind == "cancelled":
                 raise Cancelled()
             elif kind == "setup":

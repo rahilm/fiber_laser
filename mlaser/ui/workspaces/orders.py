@@ -621,22 +621,28 @@ class OrdersPlugin:
                 or sum(len(p.contours) for p in doc.parts) <= REVIEW_SYNC_CONTOURS):
             self._reviewed(R.analyze(doc, opts), doc)
             return
-        # a large drawing: analysed on a worker thread, on a private copy made there from the
-        # planner snapshot (its part copies are never changed, so reading them off the GUI
-        # thread is safe; the replan that follows the open reuses them)
-        from mlaser.services.undo import fast_deepcopy
+        # a large drawing: analysed in a child process (services/review_process.py), so no
+        # CPU-bound Python thread shares the GIL with the first paint of the drawing (a 3-4 s
+        # freeze before, perf review finding 4).  The worker thread only pickles the planner
+        # snapshot's parts (never changed: safe off the GUI thread; the plan codec's per-part
+        # encodings, which the replan after the open reuses) and waits; without a child process
+        # it analyses a private copy itself, as before
+        from mlaser.services import review_process
         snap = docs.plan_snapshot()
+        codec = getattr(getattr(self.window, "jobs", None), "codec", None)
+        box: list = []
 
         def work() -> Any:
-            return R.analyze(fast_deepcopy(snap), opts)
+            return review_process.analyze(snap, opts, codec=codec, cancelled=lambda: bool(box) and box[0].cancelled)
 
         def done(rep: Any) -> None:
-            if task.cancelled or self._review_task is not task:
+            if task.cancelled or self._review_task is not task or rep is None:
                 return
             self._review_task = None
             self._reviewed(rep, doc)
 
         task = self.ctx.run_in_background(work, on_done=done)
+        box.append(task)
         self._review_task = task
 
     def _reviewed(self, rep: Any, doc: Any) -> None:

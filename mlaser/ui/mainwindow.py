@@ -18,7 +18,7 @@ from mlaser.services.commands import CommandRegistry, UnknownCommandError
 from mlaser.services import units as _units
 from mlaser.services.config import ConfigService
 from mlaser.services.document import DocumentService
-from mlaser.services.jobs import ControllerSubmitter, JobService, build_request
+from mlaser.services.jobs import COMPILE_IDLE_S, ControllerSubmitter, JobService, build_request
 from mlaser.services.plugins import ACCEPTED_KEY, ALLOWLIST_KEY, Hooks, discover, plugin_status, register_plugin
 
 from . import dialogs, homes, settings_apply, style
@@ -259,7 +259,9 @@ class MainWindow(QMainWindow):
         self._plan_timer.setSingleShot(True)
         self._plan_timer_fn: Optional[Callable] = None
         self._plan_timer.timeout.connect(lambda: self._plan_timer_fn() if self._plan_timer_fn else None)
-        self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule)
+        # two-stage previews: an edit plans the toolpath, the compile follows once the edits
+        # stopped (or at Start: services/jobs.py)
+        self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule, compile_idle_s=COMPILE_IDLE_S)
         self.jobs.on_toolpath.append(self._plan_toolpath_ready)
         self.jobs.on_planned.append(self._plan_ready)
         self.jobs.on_failed.append(self._plan_failed)
@@ -1005,6 +1007,10 @@ class MainWindow(QMainWindow):
         # called outside a DocumentService notification, e.g. refresh_views)
         changed = self.docs.changed if kind != "replace" else None
         if kind == "replace":
+            # the plans, the plan codec's part copies and the plan of the drawing that was
+            # closed are given back (perf review finding 12)
+            self.plan = None
+            self.jobs.release_document()
             self._load_order(doc)                # the drawing's own cutting order
             self.canvas.set_document(doc)
         else:
