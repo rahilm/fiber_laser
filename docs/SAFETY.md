@@ -30,7 +30,8 @@ OFFLINE --connect--> DISARMED --arm--> ARMED --start--> RUNNING <--> PAUSED
    ^                    ^  ^  <-disarm-+                   |            |
    |                    |  |<- e-stop / servo alarm -+     |            |
    |                    |  |   (idle or held: disarm, run state E-STOP / ALARM until reset)
-   |                    |  +------ job end (disarmed) -----+            |
+   |                    |  +--- job end, stop, failure ----+            |
+   |                    |       (a job that fired: always disarmed)    |
    |                    +--reset (operator; link up, no alarm, no interlock)-- FAULT <-- any
    +------------------- disconnect / close --------------------------------  (latched)
 ```
@@ -81,8 +82,27 @@ the card reports an alarm.
   "Stopped: resume point kept at X…, Y… mm" with *Resume from here* (the breakpoint comes back;
   Start / Continue resumes with the pre-flight and the start gate) and *Discard*. A new
   breakpoint or a new tracked job replaces it.
+* **Arming lasts for one cut** (UX review finding 1): when a job that fires the laser ends,
+  is stopped or fails, the machine is disarmed in the same FSM step as the job end
+  (`SafetyFSM.job_ended(disarm=True)`, `JobRunnerPart._end_job`; audited `disarm` with reason
+  "job end: ...", an `EV.Disarmed` for the UI). There is no moment of ARMED-and-idle after a
+  cut, so the next Start (also F5 from any workspace) asks *Arm and start* again. A FAULT
+  disarms as before. What keeps the arming: a **hold at a breakpoint** (PAUSED keeps the
+  arming for Continue / Resume; after a fault reset the machine is disarmed and Resume asks
+  once), a job that does not fire (Frame, Dry run, Backward/Forward leave the arming as it
+  was), and **the queue between its sheets**: `QueueRunner` calls
+  `ctl.keep_armed_after_next_job()` right before each sheet's start (withdrawn when the start is
+  refused, and by any refused start, Stop, halt, fault or disarm); a sheet that ends normally
+  then leaves the machine armed for the next sheet. A sheet that is stopped or fails disarms.
+  The laser-test procedure does the same between its pulses (armed once at its *Arm* step; the
+  last pulse disarms). A single laser test from the panel disarms after its pulse.
+  `keep_armed_after_next_job` is not part of the plugin API.
 * The queue disarms the machine when its last sheet is done (`QueueRunner(disarm=)`): the
   machine never stays armed unattended after a queue.
+* `SafetyFSM` decides and transitions under one lock, and FAULT is left only by `reset()` (the
+  operator) and `offline()` (the fault text stays latched and FAULT comes back on the next
+  connect): a fault raised by the poll or monitor thread while a job ends or is held can no
+  longer be overwritten by PAUSED / DISARMED (`tests/safety/test_fsm_fault_latch.py`).
 
 Faults are raised by: link loss, a card alarm during a job, a stream fault (unexpected idle,
 underrun, child died/stalled/lost its parent), a refused command inside a job, an interlock, an
@@ -201,7 +221,27 @@ Called from: the job worker's `finally` (every exit except a verified complete r
 `disconnect()`, `closeEvent`, `atexit`, SIGINT/SIGTERM, `sys.excepthook` / `threading.excepthook`,
 every FAULT, Stop, Pause (without the FIFO part), the jog dead-man fallback.
 
-### 4a. Card loss: no command waits on the GUI thread (issue #5)
+### 4a. Audit records never delay a halt (review fw F2)
+
+The halt channel's guard writes an audit record (`command`, `channel="halt"`) for each halt
+command before it is sent, and `safe_halt` writes the `halt` summary after the sequence. None of
+this touches a file on the calling thread: `machine/logsetup.py` puts `mlaser.log` and
+`audit.log` behind a `logging.handlers.QueueHandler`; the caller formats the record (its time
+stamp is the time of the call) and enqueues it, and one writer thread (`mlaser-log`) writes the
+files in order. A stalled disk (an antivirus-held write, a rollover on a slow disk) therefore
+never delays a halt command or the GUI thread (`tests/safety/test_halt_not_behind_log_io.py`:
+with every `audit.log` write stalled 250 ms, `safe_halt` takes ~1 ms instead of ~1.75 s, and the
+first halt command reaches the card before the first audit write is done).
+
+The trail stays complete and ordered in normal operation. The queue is drained at normal exit
+(`atexit`; afterwards the exit hooks' own halts and records are written directly), in
+`sys.excepthook` / `threading.excepthook` and after a signal's halt (`machine.lifecycle`,
+bounded to 1 s each, after the halt). Records are written continuously, so at fault time the
+writer is at most the stalled write behind. **The trade:** a hard kill (SIGKILL, power loss,
+`os._exit`) can lose the records still queued; before, a record was on disk when `audit()`
+returned. `crash.log` (`faulthandler`) is written directly and is not affected.
+
+### 4b. Card loss: no command waits on the GUI thread (issue #5)
 
 With the card switched off (an e-stop that cuts its power) one request waits out the retry
 policy, ~3.5 s. The GUI thread never waits for it:
@@ -422,6 +462,13 @@ machine (architecture review P0-3 risk: underrun tuning).
   MachineAPI users) compiles on the caller's thread.
 * Plugins are trusted code (§3a); the guard cannot stop hostile code in the process.
 * Follower status bit layout is unknown: any non-zero alarm word trips.
+* The audit and log files are written by a writer thread (§4a): a hard kill can lose the last
+  queued records.
+* Start interlocks installed by built-in plugins (the planned-quantity guard of `ext_diag`, the
+  material guard of `orders`) fail closed: when such a plugin fails to load, a cut is refused
+  with "Start is blocked: the <check> could not be installed" and the operator is told at
+  start-up (`safety_ui.require_start_guards`). A script calling `ctl.start()` directly does not
+  go through the JobService guards (as before).
 
 ## 14. Guided procedures (Wave 3)
 
