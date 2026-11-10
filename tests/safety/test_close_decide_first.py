@@ -125,6 +125,7 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     while not plans and time.monotonic() < t_end:
         _pump(0.02)
     assert plans, "no toolpath after the declined close (the job service was shut down)"
+    assert ctl.arm()          # the Stop above disarmed (a stopped cut, UX review finding 1)
     w.run_job("process")
     t_end = time.monotonic() + 30
     while not (ctl.sim.state.fifo_running and ctl.sim.state.laser) and time.monotonic() < t_end:

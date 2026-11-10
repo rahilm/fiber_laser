@@ -41,7 +41,10 @@ All targets are at least 56 px high (44 px for the secondary ones), for gloves a
 * **STOP** (Esc, F12): stops at once; the halt goes out first.
 * **HOLD / START (CONTINUE)** (Space / F5): hold and continue; START runs the pre-flight check.
 * **Frame**, **Dry run**: laser off.
-* **Arm laser / Disarm laser**: asks for confirmation before arming.
+* **Arm laser / Disarm laser**: asks for confirmation before arming. Arming lasts for one cut:
+  the machine is disarmed again when a job that fires the laser ends, is stopped or fails, and
+  the next Start asks "Arm and start" again. A hold keeps the arming for Continue, and the queue
+  keeps it between its sheets ([safety](safety.md#arming)).
 * **Resume from the breakpoint: Here / Contour start**: after a pause or a fault reset, continue
   exactly where the job stopped or from the start of that contour (a laser-off rapid back and a
   re-pierce). Arming is asked first when the job fires the laser; the controller checks the
@@ -71,7 +74,9 @@ program ended is shown as *interrupted*.
 
 **Run queue** puts the screen in queue mode. Before every sheet the operator loads the sheet and
 presses **Sheet loaded: start**: the next job is opened and started through the normal Start
-(pre-flight, arming). The queue never starts a sheet by itself.
+(pre-flight, arming). The queue never starts a sheet by itself. Arming is asked before the first
+sheet only: the machine stays armed between the queue's sheets, is disarmed when a sheet is
+stopped or fails, and when the last sheet is done.
 
 While the queue waits, the **Load this sheet** card shows, in large type, the material and
 thickness, the sheet size, the remnant id and the sheet number (n/N), with a picture of the

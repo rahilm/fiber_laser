@@ -265,11 +265,16 @@ class QueueRunner:
                  start_allowed: Callable[[], tuple[bool, str]] = lambda: (True, ""),
                  clock: Callable[[], float] = time.time,
                  start_timeout_s: float = 30.0,
-                 disarm: Optional[Callable[[str], None]] = None) -> None:
+                 disarm: Optional[Callable[[str], None]] = None,
+                 keep_armed: Optional[Callable[[bool], None]] = None) -> None:
         self.queue = queue
         # called when the last sheet of the queue is done: the machine does not stay armed
         # unattended after the queue (docs/SAFETY.md §5; review 2 features #8)
         self.disarm = disarm
+        # ``keep_armed(True)`` right before a sheet's start: a sheet that ends normally leaves
+        # the machine armed for the next one (every other job that fires the laser disarms at
+        # its end, docs/SAFETY.md §2); ``keep_armed(False)`` withdraws it when nothing started
+        self.keep_armed = keep_armed
         self.load = load
         self.start = start
         self.start_allowed = start_allowed
@@ -368,11 +373,14 @@ class QueueRunner:
             return False
         self.state = "starting"
         self._t_request = self.clock()
+        self._keep(True)
         try:
             started = bool(self.start())
         except Exception as exc:  # noqa: BLE001
             started = False
             e.note = f"start failed: {exc}"
+        if not started:
+            self._keep(False)
         if not started and self.state == "starting":
             # refused (pre-flight, arming declined, interlock): back to the confirmation
             self.state = "confirm"
@@ -383,9 +391,17 @@ class QueueRunner:
         self._notify()
         return True
 
+    def _keep(self, on: bool) -> None:
+        if self.keep_armed is not None:
+            try:
+                self.keep_armed(on)
+            except Exception:  # noqa: BLE001 - without it the machine disarms (the safe side)
+                pass
+
     def tick(self) -> None:
         """Periodic check: a start request that never produced a job goes back to confirm."""
         if self.state == "starting" and self.clock() - self._t_request > self.start_timeout_s:
+            self._keep(False)
             self.state = "confirm"
             self._say("queue.msg.start_refused")
             self._notify()

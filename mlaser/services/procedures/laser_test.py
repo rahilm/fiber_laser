@@ -119,6 +119,12 @@ def _fire(p: LaserTestProcedure) -> list:
         if not p.machine.safety().armed:
             raise StepFailed("wizard.laser.error.not_armed")
         p.operator_action(f"pulse {i + 1}")
+        if i + 1 < len(pr.levels):
+            # a pulse is a job that fires: it disarms at its end (docs/SAFETY.md §2) except
+            # inside this armed series; after the last pulse the machine is disarmed
+            keep = getattr(p.machine, "keep_armed_after_next_job", None)
+            if callable(keep):
+                keep()
         p.machine.laser_test(pr.duration_ms / 1000.0, float(duty))
         p.sleep(0.05)
         p.wait(lambda: not p.machine.job_active(), 10.0 + pr.duration_ms / 1000.0, "laser pulse")

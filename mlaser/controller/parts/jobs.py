@@ -11,7 +11,10 @@ Safety behaviour (docs/SAFETY.md §3, §6):
 * :meth:`stop` never blocks the caller: it flags the cancel, then a background thread sends the
   halt first (halt channel) and only then waits for the worker;
 * :meth:`pause` sets the hold (shared with the streaming child) **before** the program stop goes
-  out, so the streamer never mistakes the pause for an unexpected idle.
+  out, so the streamer never mistakes the pause for an unexpected idle;
+* a job that fires the laser disarms the machine when it ends, is stopped or fails
+  (:meth:`_end_job`, docs/SAFETY.md §2); a hold at a breakpoint keeps the arming for the resume,
+  and the queue keeps it between its sheets (``keep_armed_after_next_job``).
 """
 from __future__ import annotations
 
@@ -280,6 +283,7 @@ class JobRunnerPart:
         self._stop_reason = ""
         self._job_mode = mode
         self._job_emits = bool(emits)
+        keep_armed = self._take_keep_armed()     # the queue's sheet / the laser-test series
         # the poller shows the job's mode from here until the worker's end writes "ready"
         # (_job_live), also before the worker thread runs (_job_starting): it showed the card's
         # idle status as "ready" in between (a resume clears the breakpoint before this;
@@ -406,7 +410,7 @@ class JobRunnerPart:
                         if self.breakpoint is not None:
                             self.fsm.job_paused()
                         else:
-                            self.fsm.job_ended(reason)
+                            self._end_job(reason, bool(emits), keep_armed=ok and keep_armed)
                     self.events.publish(EV.JobFinished(mode, ok, reason, resume=resume, tracked=track,
                                                        duration_s=time.monotonic() - t0))
 
@@ -415,6 +419,18 @@ class JobRunnerPart:
             return True
         finally:
             self._job_starting = False
+
+    def _end_job(self, reason: str, emits: bool, keep_armed: bool = False) -> None:
+        """The FSM's job end.  A job that fired the laser disarms with it (done, stopped or
+        failed: the machine never stays armed idle after a cut, UX review finding 1), in the same
+        step as the end, unless the queue keeps the arming for its next sheet (``keep_armed``,
+        a sheet that ended normally; the queue disarms after its last sheet)."""
+        disarm = bool(emits) and not keep_armed
+        was = self.fsm.armed
+        self.fsm.job_ended(reason, disarm=disarm)
+        if disarm and was and not self.fsm.armed:
+            audit("disarm", reason=f"job end: {reason}"[:160])
+            self._log("disarmed: laser emission disabled (the job ended)")
 
     def _process_signal(self, on: bool) -> None:
         """The "process signal" output (DO.ManuSignal: a tower light, a dust extractor...): on
@@ -561,7 +577,8 @@ class JobRunnerPart:
         if self.pause_mode == "fifo":
             hc = self._sup._halt_channel()
             self._try("pause", hc.fifo_stop) if hc is not None else None
-            self._s.mode = "pause"
+            with self._slock:
+                self._s.mode = "pause"
             self.fsm.job_paused()
             self._log("paused (FIFO stop)")
             return
@@ -607,7 +624,7 @@ class JobRunnerPart:
                 with self._slock:
                     self._s.mode = "ready"
                 if not self.fsm.faulted:
-                    self.fsm.job_ended("stopped")
+                    self._end_job("stopped", self._job_emits)
                 self._log("stopped")
                 return
             idx = max(0, min(len(bp_job.wire), self._exec_index + offset))
@@ -799,7 +816,7 @@ class JobRunnerPart:
                     self._s.outputs["laser"] = False
                     self._s.mode = "ready" if self._s.connected else "offline"
                 if self.fsm.state in (SafetyState.RUNNING, SafetyState.PAUSED):
-                    self.fsm.job_ended("stopped")
+                    self._end_job("stopped", self._job_emits)
                 self._log("stopped")
             except Exception:  # noqa: BLE001 - a stop must always complete
                 logging.getLogger("mlaser.controller").exception("stop")

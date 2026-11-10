@@ -41,6 +41,8 @@ class DemoController(_api.ControllerFacade):
         self._path_speed = 0.0
         self._resume_mode = "process"
         self._job_t0 = 0.0
+        self._demo_emits = False         # the running job fires the laser (disarm at its end)
+        self._demo_keep_armed = False    # a queue sheet: armed stays after a normal end
         self.halts: list[str] = []       # safe_halt reasons (tests)
         self._laser_until = 0.0
 
@@ -89,7 +91,11 @@ class DemoController(_api.ControllerFacade):
             s.outputs["laser"] = False
 
     def _finish(self, mode: str, ok: bool, reason: str) -> None:
-        self.fsm.job_ended(reason)
+        # a job that fired the laser disarms with its end (docs/SAFETY.md §2), except a queue
+        # sheet that ended normally (keep_armed_after_next_job)
+        keep = ok and self._demo_keep_armed
+        self._demo_keep_armed = False
+        self.fsm.job_ended(reason, disarm=self._demo_emits and not keep)
         self.events.publish(EV.JobFinished(mode, ok, reason, duration_s=self._clock() - self._job_t0))
 
     def _point_at(self, d: float) -> tuple[float, float]:
@@ -109,6 +115,8 @@ class DemoController(_api.ControllerFacade):
             if why:
                 self._log(why)
                 return False
+            self._demo_emits = bool(emits)
+            self._demo_keep_armed = self._take_keep_armed() if mode != "frame" else False
         self._path = [(s.x, s.y)] + list(pts)
         self._path_len = sum(math.dist(a, b) for a, b in zip(self._path, self._path[1:]))
         self._path_pos = 0.0

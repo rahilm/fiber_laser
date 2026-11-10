@@ -420,7 +420,7 @@ class SafetyFSM:
                 return
             if disarm and self._armed:
                 self._armed = False
-                reason = f"{reason}; disarmed"
+                reason = f"disarmed: {reason}"     # an EV.Disarmed for the UI as well
             new = SafetyState.ARMED if self._armed else SafetyState.DISARMED
             note = self._transition(new, reason)
         self._notify(note)

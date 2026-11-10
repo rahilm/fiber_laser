@@ -234,6 +234,8 @@ def test_hold_never_latches_a_fault(make_ctl, process):
     cancelling the stream, so a request in flight was refused and taken for a fault (Wave 3)."""
     ctl = make_ctl(process=process)
     for _ in range(4):
+        # the Stop below disarms (a stopped cut, UX review finding 1): arm for the next round
+        assert ctl.fsm.armed or ctl.arm()
         start_and_run(ctl, run_s=0.25)
         ctl.pause()
         assert wait_until(lambda: ctl.breakpoint is not None, 5) is not None

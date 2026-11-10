@@ -28,6 +28,19 @@ A connection always starts **disarmed**: the laser cannot fire. Arming is a deli
 mode, while a fault is latched, while an interlock holds and while a job runs. Frame, dry runs
 and Backward/Forward always run disarmed.
 
+Arming lasts for **one cut**. When a job that fires the laser ends, is stopped or fails, the
+machine is disarmed again, so the next **Start** asks "Arm and start" again (Cancel is the
+default). Two exceptions keep the arming:
+
+* **Hold**: a job held at a breakpoint stays armed, so **Continue** / **Resume** goes on
+  without a new question. (After a fault reset the machine is disarmed and Resume asks once.)
+* **Job queue**: between the sheets of a queue the machine stays armed, so each **Sheet loaded:
+  start** goes straight to the pre-flight check. A sheet that is stopped or fails disarms, and
+  the queue disarms when its last sheet is done.
+
+Frame and dry run leave the arming as it was. The laser-test procedure stays armed between its
+pulses and is disarmed after the last one; a single laser test from the panel disarms after it.
+
 The state banner at the top of the window always shows the state:
 
 | Banner | Meaning |

@@ -152,7 +152,7 @@ def test_job_ended_disarm_is_one_step():
     f.on_change = lambda o, n, st, r: seen.append((o, n, st.armed, r))
     f.job_ended("done", disarm=True)
     assert f.state == SafetyState.DISARMED and not f.armed
-    assert seen == [(SafetyState.RUNNING, SafetyState.DISARMED, False, "done; disarmed")]
+    assert seen == [(SafetyState.RUNNING, SafetyState.DISARMED, False, "disarmed: done")]
     g = _running()
     g.job_ended("done")                 # without disarm: armed stays (the queue's sheets)
     assert g.state == SafetyState.ARMED and g.armed
