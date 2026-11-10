@@ -181,22 +181,23 @@ def test_laser_button_only_when_armed(win, app):
     assert win.control.buttons["out_laser"].isEnabled()
 
 
-def test_startup_prompts_are_dialogs_with_dont_ask(win, app, monkeypatch):
+def test_startup_prompts_are_dialogs_never_dont_ask(win, app, monkeypatch):
+    """The start-up homing question is a real dialog, asked on every connect: no "don't ask
+    again" (UX review 2026-11 finding 2; it used to store the answer and home silently)."""
     from mlaser.ui import safety_ui
+    from mlaser.ui.verb_question import answer_with
     asked = []
 
     def fake_exec(self):
         asked.append(self.text())
-        if self.checkBox() is not None:
-            self.checkBox().setChecked(True)
-        return QMessageBox.Ok
+        assert self.checkBox() is None
+        return answer_with(self, True)               # "Home now"
     monkeypatch.setattr(QMessageBox, "exec", fake_exec)
     panel = win.control
-    panel.settings = {}
+    panel.settings = {"dont_ask.mp119": True}        # an answer stored by an earlier version
     assert panel.confirm("mp119") and panel.confirm("mf156")       # one dialog for the pair
     assert len(asked) == 1
-    assert panel.confirm("mp119") and len(asked) == 1              # "don't ask again" stored
-    assert panel.settings.get("dont_ask.mp119") is True
+    assert panel.confirm("mp119") and len(asked) == 2              # asked again: nothing stored
     called = []
     safety_ui.recovery_prompt(win, lambda: called.append(1))
     assert called == [] or called == [1]                         # a real dialog (stubbed here)
