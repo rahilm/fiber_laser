@@ -252,33 +252,49 @@ def test_selection_sync_is_fast_at_2700_parts(win, app):
     from test_large_drawing import big_document
     win.set_document(big_document(2700))
     pump(app)
-    # the list's own share: measured once the new drawing's plan (toolpath, then the estimate,
-    # seconds of work in the suite's plan thread) is done, not against it
-    end = time.monotonic() + 120
-    while time.monotonic() < end:
-        tk = win.jobs.preview
-        if not win.jobs.pending and (tk is None or tk.done_event.is_set()):
-            break
-        app.processEvents()
-        time.sleep(0.01)
-    pump(app)
     pl = win.part_list
     m = pl.model
-    for p in win.document.parts:
-        p.selected = True
-    t = time.perf_counter()
-    pl.sync_selection()
-    t_sync = time.perf_counter() - t
+    parts = win.document.parts
+
+    def idle() -> None:
+        # the list's own share: measured once the drawing's plan is over, not against it.  The
+        # preview has two stages (toolpath, then the estimate's compile after an idle pause):
+        # a wait for "no plan pending, the preview done" ended between them, and the measured
+        # sync shared the interpreter with the compile in the plan thread (CI: 1.69 s for the
+        # alternate selection on Windows, 1.43 s for select-all under coverage; 0.006 s alone)
+        end = time.monotonic() + 120
+        while time.monotonic() < end:
+            win.jobs.settle(timeout=60.0)
+            pump(app)
+            tk = win.jobs.preview
+            if not win.jobs.pending and (tk is None or tk.done_event.is_set()):
+                return
+
+    def timed(sel) -> float:
+        """Best of three syncs to ``sel`` (each from no selection, synced first)."""
+        best = None
+        for _ in range(3):
+            for p in parts:
+                p.selected = False
+            pl.sync_selection()
+            for i, p in enumerate(parts):
+                p.selected = sel(i)
+            idle()
+            t = time.perf_counter()
+            pl.sync_selection()
+            dt = time.perf_counter() - t
+            best = dt if best is None else min(best, dt)
+        return best
+
+    t_sync = timed(lambda i: True)
     assert len(selected_rows(pl)) == 2700
-    for i, p in enumerate(win.document.parts):
-        p.selected = i % 2 == 0
-    t = time.perf_counter()
-    pl.sync_selection()
-    t_alt = time.perf_counter() - t
+    t_alt = timed(lambda i: i % 2 == 0)
     assert len(selected_rows(pl)) == 1350
+    idle()
     t = time.perf_counter()
-    m.update(win.document, {win.document.parts[10].uid})
+    m.update(win.document, {parts[10].uid})
     t_update = time.perf_counter() - t
+    idle()
     t = time.perf_counter()
     m.set_filter(text="p12")
     t_filter = time.perf_counter() - t

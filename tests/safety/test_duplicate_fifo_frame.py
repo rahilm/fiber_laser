@@ -30,6 +30,10 @@ deadline (500 ms) latches a FAULT and halts the card first, under every model.  
 link deadline (150 ms) both streamers latch "link lost" first.  In both cases the re-send does
 not go out: the halt came first, so ``transact`` refuses to send the frame again (until wave 2
 of the 2026-11 review it went out and reached the stopped, cleared FIFO; it must never run).
+What is asserted is the card's order: nothing is sent again once the halt has reached the card.
+A watchdog that notices the silence late (a loaded host, at or after the 600 ms FIFO timeout)
+lets the retry out BEFORE the halt, as the in-thread streamer always does; the card then holds
+what that streamer's row above says for the model.
 
 """
 from __future__ import annotations
@@ -76,14 +80,33 @@ class _Recorder:
         return [(t, r) for t, r in self.log if r is not None and r.func == F.FUNC_WRITE and r.addr == reg]
 
 
-def _start_and_lose_one_reply(ctl, doc):
+class _HaltSpy:
+    """What the card had seen when the halt's stop command reached it: the duplicate count
+    (``fifo_duplicates``) and the length of the request log.  The halt's arrival is spied like
+    ``safety_helpers.Watch(sim, from_halt=True)`` does, in the simulator's own thread, so "before"
+    and "after" are the card's order of the requests, not the test thread's view of it."""
+
+    def __init__(self, sim, rec: _Recorder):
+        self.dups: int | None = None
+        self.at: int | None = None
+        real = sim._mailbox
+
+        def spy(words, real=real):
+            if self.dups is None and list(words[:2]) == [1, 0x1F]:     # stop motion
+                self.dups, self.at = sim.state.fifo_duplicates, len(rec.log)
+            return real(words)
+        sim._mailbox = spy
+
+
+def _start_and_lose_one_reply(ctl, doc, rec: _Recorder | None = None) -> _HaltSpy | None:
     sim = ctl.sim
     wait_until(lambda: stopped(sim), 5)
     ctl.start(doc)
     assert wait_until(lambda: sim.state.fifo_running, 20) is not None, "job did not start"
+    spy = _HaltSpy(sim, rec) if rec is not None else None
     # the card is running the prefill: the reply of the next FIFO frame is lost
     sim.inject(fifo_reply_loss=1)
-
+    return spy
 
 def test_the_duplicate_model_is_explicit_and_the_default_is_unchanged():
     assert CardSimulator().duplicate_fifo == DUP_FIFO_ACCEPT_TWICE
@@ -125,20 +148,49 @@ def test_one_frame_sent_twice_on_the_wire(model):
         sim.stop()
 
 
-def _assert_no_resend_after_the_halt(sim, rec) -> None:
-    """The halt came while the frame waited for its reply: the frame is not sent again (the
-    client's retry would have sent it within the FIFO timeout, 600 ms), the card is safe and
-    nothing runs any more."""
+def _watchdog_age_ms(fault: str) -> int:
+    """The silence the host's watchdog measured when it latched the fault ("... for 656 ms")."""
+    import re
+    ages = [int(a) for a in re.findall(r"for (\d+) ms", fault or "")]
+    assert ages, f"no measured age in the fault text: {fault!r}"
+    return max(ages)
+
+
+def _assert_no_resend_after_the_halt(ctl, rec: _Recorder, spy: _HaltSpy, model: str) -> None:
+    """The halt came while the frame waited for its reply: from the moment the halt reaches the
+    card the frame is not sent again (the client's retry would have sent it within the FIFO
+    timeout, 600 ms), the card is safe and nothing runs any more.
+
+    The fault normally comes first (the host's deadline is shorter than the FIFO timeout).  A
+    duplicate that reached the card BEFORE the halt is only allowed when the host's watchdog
+    noticed the silence late, at or after the FIFO timeout (CI, Windows, 15.6 ms timer ticks:
+    "no reply from the card for 656 ms (streaming, deadline 500 ms)"), and the card then holds
+    what the in-thread streamer's branch below demands for that model."""
     import time
+    sim = ctl.sim
     assert wait_until(lambda: safe(sim), 2.0) is not None
-    assert wait_until(lambda: sim.state.fifo_duplicates > 0, 1.5) is None, \
+    assert spy.dups is not None, "the halt did not reach the card"
+    assert wait_until(lambda: sim.state.fifo_duplicates > spy.dups, 1.5) is None, \
         "the client re-sent the frame after the halt"
     seqs = [r.values[0] for _t, r in rec.writes(F.REG_FIFO_DATA)]
-    assert not any(i and seqs[i - 1] == s for i, s in enumerate(seqs)), "a frame went out twice"
+    before = {r.values[0] for _t, r in rec.log[:spy.at]
+              if r is not None and r.func == F.FUNC_WRITE and r.addr == F.REG_FIFO_DATA}
+    after = [r.values[0] for _t, r in rec.log[spy.at:]
+             if r is not None and r.func == F.FUNC_WRITE and r.addr == F.REG_FIFO_DATA]
+    assert not set(after) & before, f"a frame went out again after the halt: {after}"
+    if spy.dups:
+        # re-sent before the halt: only when the halt came after the FIFO timeout
+        fifo_timeout_ms = ctl._mc.cfg.fifo_timeout_ms
+        assert _watchdog_age_ms(ctl.fsm.fault) >= fifo_timeout_ms, \
+            f"a duplicate before a timely halt ({spy.dups}; {ctl.fsm.fault})"
+        assert sim.state.fifo_duplicates_queued == (1 if model == DUP_FIFO_ACCEPT_TWICE else 0)
+        if model == DUP_FIFO_REJECT:
+            assert _executed_steps(sim) < _steps(ctl.job.wire)
+    else:
+        assert not any(i and seqs[i - 1] == s for i, s in enumerate(seqs)), "a frame went out twice"
     x = sim.position(0), sim.position(1)
     time.sleep(0.3)
     assert (sim.position(0), sim.position(1)) == x and not sim.state.fifo_running
-
 
 @pytest.mark.parametrize("model", DUP_FIFO_MODELS)
 @pytest.mark.parametrize("process", STREAMERS)
@@ -149,7 +201,7 @@ def test_lost_fifo_reply_during_a_job(make_ctl, process, model):
     sim = ctl.sim
     sim.duplicate_fifo = model
     rec = _Recorder(sim)
-    _start_and_lose_one_reply(ctl, rect_doc(w=100.0, h=60.0))
+    spy = _start_and_lose_one_reply(ctl, rect_doc(w=100.0, h=60.0), rec)
     assert ctl.wait_job(40)
     st = sim.state
     planned = _steps(ctl.job.wire)
@@ -160,7 +212,7 @@ def test_lost_fifo_reply_during_a_job(make_ctl, process, model):
         assert ctl.fsm.state == SafetyState.FAULT, ctl.fsm.state
         assert "link lost" in ctl.fsm.fault or "child_stalled" in ctl.fsm.fault, ctl.fsm.fault
         assert ctl.breakpoint is not None
-        _assert_no_resend_after_the_halt(sim, rec)
+        _assert_no_resend_after_the_halt(ctl, rec, spy, model)
         return
     assert st.fifo_duplicates == 1, "the lost reply did not make the client send the frame again"
     assert wait_until(lambda: safe(sim), 2.0) is not None
@@ -193,8 +245,8 @@ def test_lost_fifo_reply_with_the_real_deadline_is_a_link_loss(make_ctl, process
     sim = ctl.sim
     sim.duplicate_fifo = DUP_FIFO_ACCEPT_TWICE           # the worst case: queued again
     rec = _Recorder(sim)
-    _start_and_lose_one_reply(ctl, rect_doc(w=100.0, h=60.0))
+    spy = _start_and_lose_one_reply(ctl, rect_doc(w=100.0, h=60.0), rec)
     assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 3.0) is not None
     assert "link lost" in ctl.fsm.fault, ctl.fsm.fault
     assert ctl.wait_job(10) and ctl.breakpoint is not None
-    _assert_no_resend_after_the_halt(sim, rec)
+    _assert_no_resend_after_the_halt(ctl, rec, spy, DUP_FIFO_ACCEPT_TWICE)
