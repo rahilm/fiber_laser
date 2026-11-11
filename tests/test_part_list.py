@@ -117,12 +117,15 @@ def test_model_updates_incrementally(win, app):
     m = win.part_list.model
     resets, changed = [], []
     m.modelReset.connect(lambda: resets.append(1))
-    m.dataChanged.connect(lambda a, b, *_: changed.append((a.row(), b.row())))
+    m.dataChanged.connect(lambda a, b, *_: changed.append((a.row(), b.row(), a.column(), b.column())))
     win.canvas.select_parts([7])
     win.run("xform.scale_200")                               # part 7's size changes
     pump(app)
     assert resets == []
-    assert changed and all(a == b == 7 for a, b in changed), changed
+    # (the cut-order column alone is refreshed whole when a plan is delivered, whenever that is:
+    # the plan comes from another process)
+    edits = [(a, b) for a, b, c0, c1 in changed if not c0 == c1 == PL.ORDER]
+    assert edits and all(a == b == 7 for a, b in edits), changed
     assert m.index(7, PL.SIZE).data() == "20.00×20.00"
     assert m.rowCount() == 400
     # a paste adds rows at the end (inserted, not a reset)
