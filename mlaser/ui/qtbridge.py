@@ -5,13 +5,23 @@ worker, safety monitor).  :class:`QtDispatcher` is installed as the bus dispatch
 (``ctl.events.set_dispatcher``): a delivery published on the GUI thread runs at once, one from
 any other thread is queued to the GUI thread through a queued signal.  This replaces the
 ``_Bridge`` QObject the UI adapter used to carry.
+
+Once the GUI is torn down (:func:`close_children`, run on the GUI thread after the main loop and
+before the window is deleted), a delivery from another thread is dropped: it is never run on
+the publishing thread instead.  A handler of the window run there touched widgets from a worker
+thread while the GUI thread deleted them (the queued disconnect's events at exit: "Could not
+parse stylesheet" on the safety banner, then heap corruption, exit codes -6 and -11).  A lock
+makes the close wait for an emit in progress, so no emit reaches an object being deleted.
 """
 from __future__ import annotations
 
+import logging
 import threading
 from typing import Callable
 
 from PySide6.QtCore import QObject, Qt, Signal
+
+log = logging.getLogger(__name__)
 
 
 class QtDispatcher(QObject):
@@ -20,8 +30,15 @@ class QtDispatcher(QObject):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._gui = threading.current_thread()
+        self._emit_lock = threading.Lock()
         self.call.connect(self._run, Qt.QueuedConnection)
         self.alive = True
+
+    def close(self) -> None:
+        """The GUI is going away (GUI thread, before the window is deleted): deliveries from
+        other threads are dropped from now on; an emit in progress has ended when this returns."""
+        with self._emit_lock:
+            self.alive = False
 
     def _run(self, thunk) -> None:
         thunk()
@@ -41,16 +58,20 @@ class QtDispatcher(QObject):
             QCoreApplication.processEvents()
 
     def __call__(self, thunk: Callable[[], None]) -> None:
+        """Run ``thunk`` on the GUI thread: at once there, queued from any other thread, dropped
+        from another thread once the GUI is gone (never run on the caller's thread: the window's
+        handlers must not touch widgets off the GUI thread)."""
         if threading.current_thread() is self._gui:
             thunk()
-        elif self.alive:
-            try:
-                self.call.emit(thunk)
-            except RuntimeError:            # the window (and this object) was deleted
-                self.alive = False
-                raise
-        else:
-            raise RuntimeError("GUI gone")
+            return
+        with self._emit_lock:
+            if self.alive:
+                try:
+                    self.call.emit(thunk)
+                    return
+                except RuntimeError:            # the window (and this object) was deleted
+                    self.alive = False
+        log.debug("GUI gone: a delivery from %s dropped", threading.current_thread().name)
 
 
 def _valid(obj) -> bool:
@@ -79,7 +100,14 @@ class BackgroundCall(QObject):
         self._thread: threading.Thread | None = None
         self._pending: tuple | None = None
         self._lock = threading.Lock()
+        self._closed = False
         self._ready.connect(self._deliver, Qt.QueuedConnection)
+
+    def close(self) -> None:
+        """The GUI is going away (GUI thread, before this object is deleted): a call still
+        running delivers nothing; an emit in progress has ended when this returns."""
+        with self._lock:
+            self._closed = True
 
     @property
     def busy(self) -> bool:
@@ -95,11 +123,13 @@ class BackgroundCall(QObject):
             except Exception as e:  # noqa: BLE001 - handed to on_done
                 res = (None, e)
             with self._lock:
+                if self._closed:
+                    return
                 self._pending = (on_done, *res)
-            try:
-                self._ready.emit()
-            except RuntimeError:            # the owner (and this object) was deleted
-                pass
+                try:
+                    self._ready.emit()
+                except RuntimeError:            # the owner (and this object) was deleted
+                    pass
 
         self._thread = threading.Thread(target=work, name=self._name, daemon=True)
         self._thread.start()
@@ -135,9 +165,21 @@ def when_done(value, fn: Callable[[object], None]) -> None:
         fn(value)
 
 
+def close_children(obj: QObject) -> None:
+    """Close every :class:`QtDispatcher` and :class:`BackgroundCall` in ``obj`` and below it
+    (GUI thread, before ``obj`` is deleted): no worker thread emits into them or runs a GUI
+    handler on its own thread while the GUI thread deletes them."""
+    for kind in (QtDispatcher, BackgroundCall):
+        found = list(obj.findChildren(kind))
+        if isinstance(obj, kind):
+            found.append(obj)
+        for o in found:
+            o.close()
+
+
 def install(ctl, dispatcher: QtDispatcher) -> None:
     """Route ``ctl``'s events (``MachineAPI.events``) through ``dispatcher``."""
     ctl.events.set_dispatcher(dispatcher)
 
 
-__all__ = ["BackgroundCall", "QtDispatcher", "install", "when_done"]
+__all__ = ["BackgroundCall", "QtDispatcher", "close_children", "install", "when_done"]

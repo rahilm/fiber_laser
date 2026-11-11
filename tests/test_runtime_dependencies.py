@@ -18,6 +18,7 @@ from importlib import metadata
 from pathlib import Path
 
 import pytest
+from crash_tail import crash_tail
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -67,8 +68,9 @@ def _probe(args: list[str], tmp_path: Path, env: dict, tag: str) -> tuple[int, s
             p.wait()
             pytest.fail(f"the start did not end in 200 s\n--- stdout:\n"
                         f"{o.read_text('utf-8', 'replace')[-3000:]}\n--- stderr:\n"
-                        f"{e.read_text('utf-8', 'replace')[-12000:]}")
-    return rc, e.read_text("utf-8", "replace")
+                        f"{e.read_text('utf-8', 'replace')[-12000:]}" + crash_tail(tmp_path / "log"))
+    # a child that died (a negative exit code: a signal) reports its stacks from crash.log
+    return rc, e.read_text("utf-8", "replace") + (crash_tail(tmp_path / "log") if rc else "")
 
 
 def _norm(name: str) -> str:
@@ -117,10 +119,10 @@ def test_start_imports_only_declared_dependencies(tmp_path):
                    ("MLASER_APP_DIR", "app"), ("MLASER_RUNTIME_DIR", "run")):
         env[k] = str(tmp_path / sub)
     env.update(QT_QPA_PLATFORM="offscreen", MLASER_NO_FIRSTRUN="1", MLASER_SINGLE_INSTANCE="0",
-               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT))
+               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT), PYTHONFAULTHANDLER="1")
     out = tmp_path / "modules.json"
     rc, err = _probe([PROBE, str(out)], tmp_path, env, "start")
-    assert rc == 0, err[-3000:]
+    assert rc == 0, err[-12000:]
     mods = json.loads(out.read_text())
     stdlib = set(sys.stdlib_module_names) | set(sys.builtin_module_names)
     dists = metadata.packages_distributions()
@@ -141,4 +143,4 @@ def test_start_imports_only_declared_dependencies(tmp_path):
     for m in required_from_extra:
         grc, gerr = _probe([f"import sys; sys.modules[{m!r}] = None\n" + PROBE, str(out)], tmp_path, env,
                            f"guard-{m}")
-        assert grc == 0, f"the start needs the optional {m}: {gerr[-2000:]}"
+        assert grc == 0, f"the start needs the optional {m} (exit code {grc}): {gerr[-12000:]}"
