@@ -493,14 +493,9 @@ def build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     thousands of small objects, and in a large session each collection walks every live
     object (about 20% of the build at 2,000 parts).  Nothing here creates reference cycles
     that must be collected before the build ends."""
-    import gc
-    was = gc.isenabled()
-    gc.disable()
-    try:
+    from mlaser._gcsafe import no_collections
+    with no_collections():
         return _build_toolpath(doc, machine_params)
-    finally:
-        if was:
-            gc.enable()
 
 
 def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:

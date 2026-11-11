@@ -8,3 +8,9 @@ __version__ = "0.1.0rc1"
 # library logging: nothing is printed unless the application configures handlers
 # (mlaser.machine.logsetup.setup_logging, called by the GUI entry point)
 _logging.getLogger("mlaser").addHandler(_logging.NullHandler())
+
+# CPython 3.14.0-3.14.4: cyclic collections without the incremental collector's stack scan,
+# which crashes while a PySide6 deallocator has released the GIL (mlaser._gcsafe)
+from . import _gcsafe as _gcsafe  # noqa: E402
+
+_gcsafe.install()
