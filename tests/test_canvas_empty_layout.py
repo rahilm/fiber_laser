@@ -108,15 +108,20 @@ def test_buttons_with_layout_item_margins_do_not_overlap(win, app):
     try:
         win.set_document(Document())
         win.show_workspace("design")
+        checked = 0
         for size in ((1280, 649), (683, 649)):
             _settle(win, app, size)
             shown = [b for b in e.buttons.values() if b.isVisible()]
+            if not e.isVisible():
+                continue                 # a view too short for the buttons shows none (Windows' metrics)
             assert len(shown) >= 2, size
+            checked += 1
             for b in shown:
                 assert b.height() >= b.minimumHeight(), (size, b.objectName(), b.height())
                 assert e.rect().contains(b.geometry()), (size, b.objectName())
             for a, b in zip(shown, shown[1:]):
                 assert not a.geometry().intersects(b.geometry()), (size, a.geometry(), b.geometry())
+        assert checked, "the panel was shown at neither size"
     finally:
         for b in e.buttons.values():
             b.setStyle(None)
