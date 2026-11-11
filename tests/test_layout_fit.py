@@ -145,16 +145,7 @@ def test_every_workspace_fits_the_screen_from_the_start_path(tmp_path, screen):
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert res["avail"][3] == sh - inset, res["avail"]
     assert {s[0] for s in res["seen"]} >= {"design", "process", "nest", "nest/1", "run", "report", "machine"}, res
-    known = NOT_YET.get(screen, ())
-    left = [v for v in res["violations"] if v.split(":", 1)[0].split("/", 1)[0] not in known]
-    assert not left, "\n".join(left)
-
-
-#: workspaces that do not fit a screen yet, by screen: the Run workspace at 12 pt lacks 41 px
-#: (its state header repeats the top banner, the run bar keeps a row for the simulator chip
-#: alone; UI review 2026-11-09 findings 3 and 5, the Run workspace's own change).  Every other
-#: workspace and tab of that screen is checked.
-NOT_YET = {(1280, 800, 48, 1, 12): ("run",)}
+    assert not res["violations"], "\n".join(res["violations"])
 
 
 # ----------------------------------------------------------------------------- TabsWhenNarrow
