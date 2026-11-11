@@ -191,8 +191,8 @@ Four things look past that:
   loses the replies of the next n FIFO frames. `tests/safety/test_duplicate_fifo_frame.py` pins
   what the host does under each model on both streamers. Under `accept-twice` the host cannot
   see the duplicate and ends the job as "done" with one segment run twice; on the process
-  streamer (and at 150 ms on either) a lost FIFO reply is a FAULT before the re-send, which then
-  reaches a stopped, cleared FIFO. The bench procedure that settles it is in
+  streamer (and at 150 ms on either) a lost FIFO reply is a FAULT before the re-send, and the
+  frame is then not sent again (`tests/safety/test_resend_after_halt.py`). The bench procedure that settles it is in
   [Bench checks](BENCH_CHECKS.md).
 * **Replaying your own captures**, below.
 
@@ -263,7 +263,8 @@ wall-clock measurement or bound, no sleep that orders events, no card link (`con
 a connected `UiController`, `make_ctl`) and no streaming, and no `flaky` rerun:
 `tests/safety/test_policy.py`, `test_remedy_texts.py`, `test_plugin_trust.py`,
 `test_touch_targets_mode_switch.py`, `tests/test_ui.py` (the demo controller on an injected
-clock). Each was read; `tests/test_timing_groups.py` checks their source for those signs, so a
+clock), and since 2026-11-11 `tests/safety/test_job_lifecycle.py`, `test_disarm_after_job.py`
+(the unit seam below) and `test_resend_after_halt.py` (no card). Each was read; `tests/test_timing_groups.py` checks their source for those signs, so a
 timing test added to one of them fails there until it is marked `@pytest.mark.timing` (or the
 module leaves the set). `tests/test_close_save.py` is a `ui` module with two GUI-latency tests
 marked `timing`. A module that uses a simulator over a raw transport with sub-second reply
@@ -320,15 +321,38 @@ serial 320 s, `-n auto` 163 s, the timing group alone 155 s.
   look at those two commands before the walk can be split.
 * `tests/ui/test_one_home.py`'s module fixture (30 s set-up) and `tests/test_close_save.py`'s two
   2,700-part GUI-latency tests (13 s each, each builds its own large window) are unchanged.
-* **A seam under the job runner** (architecture review A11). `mlaser/controller/parts/jobs.py`
-  reads `time.monotonic()` directly and starts its worker threads itself, and the streamer talks
-  UDP to the simulator in real time, so a job test costs the job's real duration. No small
-  additive parameter fixes that: the clock would have to reach the streamer, the supervisor's
-  deadlines and the simulator together. The seam to add with the job-lifecycle refactor (A1): a
-  `clock` (monotonic, sleep) passed to `UiController` and on to the job runner, streamer and
-  supervisor (default `time`); an in-memory transport that calls `CardSimulator.handle(bytes)`
-  directly; and stepping the simulator with `CardSimulator.advance(dt)` instead of its thread.
-  The threaded tests stay as the acceptance set; the phase logic gets fast unit tests.
+* More job-runner tests onto the seam below: the first set is the arming tests and the job
+  lifecycle; the resume, the breakpoint store and the start gate are candidates. The threaded
+  tests stay as the acceptance set.
+
+### A seam under the job runner (2026-11, architecture review A11)
+
+`UiController(clock=ManualClock())` and `connect_simulator(link="memory")` run a job without a
+socket and without wall-clock time:
+
+* `mlaser.controller.clock`: `SYSTEM` (`time.monotonic` / `time.sleep`, the default) or
+  `ManualClock` (virtual time). The controller passes its clock to the job runner, the streamer
+  (`JobStreamer(clock=...)`), the card client (`last_ok`, `last_sent`, retry pauses) and the
+  supervisor's link watch and heartbeat. `ManualClock.sleep(dt)` and `advance(dt)` move the time
+  and step the attached simulator (`CardSimulator.advance`, 2 ms slices, no simulator thread).
+* `mlaser.controller.memlink.MemoryLink`: the client's request bytes go to
+  `CardSimulator.handle()` and the reply bytes come back (the same frames, tids and CRCs as on
+  UDP); a dropped request is a receive timeout that passes on the clock.
+* On a virtual clock the controller starts no poll and no monitor thread: the monitor's link and
+  heartbeat ticks are a clock listener (they run in the thread that moved the time), and the test
+  reads the status with `ctl._poll_once()` when it needs one.
+* The test acts "in the middle of a job" with the clock's gate: `clock.hold_after(s)` /
+  `run_to_gate(s)` park the worker at a known card time, `clock.release()` lets it go on; it
+  waits for threads with `ctl.wait_job()`, the Event of `ctl.stop()` and
+  `ctl._lc.wait_for(...)` (the job phase), never with a sleep.
+
+`tests/safety/seam_helpers.py` has the fixture (`seam_ctl`) and `mid_job`. A 3 s job runs in
+about 0.2 s. On the seam: `tests/safety/test_job_lifecycle.py` (the phase object and the
+controller's phases, the mode after a link fault, the fault reset) and
+`tests/safety/test_disarm_after_job.py` (moved from the UDP simulator); both are in
+`UNTIMED_MODULES`. What the seam does not test: real-time deadlines (the 150 ms link deadline,
+halt latency, the heartbeat rate), the process streamer, GIL and scheduling effects. Those stay
+on the UDP simulator in the timing groups.
 
 With xdist, `MLASER_FAULT_LOG=<file>` writes one file per worker (`<file>.gw0`, ...); CI's
 macOS crash step prints them all.
