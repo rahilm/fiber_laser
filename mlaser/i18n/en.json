@@ -235,6 +235,7 @@
   "camx.log.contours_before_after": "{title}: {before} -> {after} contours",
   "camx.log.copies.one": "{title}: {n} copy",
   "camx.log.copies.other": "{title}: {n} copies",
+  "camx.log.array_cancelled": "Array cancelled: nothing was added.",
   "camx.log.cut_length": "{title}: cut length {before} -> {after}",
   "camx.log.instances.one": "{title}: {n} instance",
   "camx.log.instances.other": "{title}: {n} instances",
@@ -976,6 +977,9 @@
   "jog.centre": "Origin",
   "jog.centre_tip": "Go to origin: move to the program zero",
   "jog.stopped": "Jog stopped",
+  "jog.speed": "Speed",
+  "jog.speed_name": "Jog speed",
+  "jog.speed_tip": "The jog speed: the slow one, or the fast one while Fast is on. The same values as Machine › Setup (MC.JogSlowSpeed, MC.JogFastSpeed).",
   "labels.cmd.etch_part_ids": "Etch part IDs",
   "labels.cmd.job_tickets": "Job tickets (PDF)...",
   "labels.cmd.part_labels": "Part labels (PDF)...",
@@ -1107,6 +1111,13 @@
   "machine.mode_switch": "Switch to {mode} mode",
   "machine.params.restore_info": "The current parameters are saved first as {path}.",
   "machine.params.restore_yes": "Restore parameters",
+  "machine.params.c_restored": "Restored",
+  "machine.params.restore_review": "What restoring from {source} changes: every value now and restored, the values that change how the machine moves marked and first. Restore asks once more and saves the current parameters first.",
+  "machine.params.restore_count.one": "Restore {n} changed value?",
+  "machine.params.restore_count.other": "Restore {n} changed values?",
+  "machine.params.restored": "Restored. The parameters before the restore are in {path}.",
+  "machine.params.restore_failed": "Nothing was restored: {error}",
+  "machine.params.source_card": "the motion card",
   "machine.restart.confirm": "Restart the motion card now?",
   "machine.upgrade.explanation": "File: {file} ({size} bytes). A wrong file or an interrupted transfer can make the board unusable. Do not switch off the machine or disconnect the network until it has finished.",
   "machine.upgrade.first": "Type {word} first",
@@ -5228,6 +5239,8 @@
   "undo.import": "Import",
   "ws.machine.kind_network": "Card at {address}: not identified (a real card or mlaser-cardsim)",
   "ws.machine.kind_sim": "Built-in simulator (not a machine)",
+  "ws.machine.log.connected": "Connected to the card at {address} (not identified: a real card or mlaser-cardsim)",
+  "ws.machine.log.connect_failed": "Could not connect to {address}",
   "ws.machine.network_addr": "Network address",
   "ws.machine.network_addr.tip": "A motion card at an IP address, or the network simulator (mlaser-cardsim): the card does not say which",
   "ws.machine.sim_builtin": "Built-in simulator",
@@ -5240,6 +5253,27 @@
   "update.open_page": "Open release page"
  },
  "args": {
+  "machine.params.restore_review": [
+   "source"
+  ],
+  "machine.params.restore_count.one": [
+   "n"
+  ],
+  "machine.params.restore_count.other": [
+   "n"
+  ],
+  "machine.params.restored": [
+   "path"
+  ],
+  "machine.params.restore_failed": [
+   "error"
+  ],
+  "ws.machine.log.connected": [
+   "address"
+  ],
+  "ws.machine.log.connect_failed": [
+   "address"
+  ],
   "machine.log.history_damaged": [
    "error",
    "path"

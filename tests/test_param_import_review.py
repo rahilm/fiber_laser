@@ -162,19 +162,26 @@ def test_restore_from_file_asks_and_backs_up_first(app, service_win, monkeypatch
 
     from mlaser.formats import backup as B
     w = service_win
+    from mlaser.formats.params import ParamStore
     ext = w.extension("ext_machine")
     src = tmp_path / "saved.xml"
     ext._backup().export_to_file(src)
+    st = ParamStore.load(src)                     # one value differs: there is something to restore
+    d_dbl = next(d for d in B.hard_table() if d.type == 2)
+    st.set(d_dbl, (st.get(d_dbl) or 0.0) + 1.5)
+    st.save(src)
     monkeypatch.setattr(QFileDialog, "getOpenFileName", staticmethod(lambda *a, **k: (str(src), "")))
     monkeypatch.setattr(QMessageBox, "question", staticmethod(lambda *a, **k: QMessageBox.No))
     called = []
     monkeypatch.setattr(B.ParamBackup, "import_from_file", lambda self, path, layers=False: called.append(path) or {})
     seen = _press(monkeypatch, yes=False)
-    ext.restore_file()
+    d = ext.restore_file()                        # the review first (tests/test_param_restore_review.py)
+    assert d.plan is not None and d.plan.changes
+    assert d.apply() is None
     assert not called, "Enter restored the parameters"
     assert seen[-1]["default"] == "Cancel" and "Restore parameters" in seen[-1]["buttons"]
     assert "params-before-restore-" in seen[-1]["info"]
     _press(monkeypatch, yes=True)
-    ext.restore_file()
+    assert ext.restore_file().apply() is not None
     assert called == [str(src)]
     assert list(Path(ext.ops.file_dir).glob("params-before-restore-*.xml"))

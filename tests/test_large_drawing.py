@@ -433,6 +433,7 @@ def test_select_all_refresh_of_the_properties_panel_is_cheap(win, app):
     value once per layer, not once per part (54,000 inheritance calls, about 1 s, before)."""
     from mlaser.services import inheritance as I
     win.set_document(big_document(1500))
+    win.shell.show_workspace("process")         # Design shows no inherited (CAM) values
     win.run("select.all")
     app.processEvents()
     ext = win.extension("ext_process")

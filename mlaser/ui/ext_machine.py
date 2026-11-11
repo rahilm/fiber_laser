@@ -19,7 +19,7 @@ import inspect
 from pathlib import Path
 from typing import Callable, Optional
 
-from PySide6.QtCore import QObject, Signal
+from PySide6.QtCore import QObject, Qt, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QInputDialog, QLineEdit,
                                QMessageBox, QWidget)
 
@@ -59,6 +59,122 @@ def _plural(window, base: str, n: int, **values) -> str:
         return tr.plural(base, n, **values)
     from mlaser import i18n
     return i18n.plural(base, n, **values)
+
+
+def param_restore_plan(current, restored, config=None):
+    """What a parameter restore changes, as the parameter import's plan (a "backup" plan: one
+    area, every value current -> restored): each parameter of the hardware and manual tables by
+    its setting key (labels, units and the motion-related marks come from it), any other value
+    (the layer tables) by its XML path."""
+    from mlaser.formats.params import ParamStore, param_defs
+    from mlaser.services import settings_import as SI
+    from mlaser.services.config import _XML_KEYS, registry_settings
+
+    registry_settings()                                   # fills _XML_KEYS
+    plan = SI.ImportPlan(None, kind="backup")
+    seen: set = set()
+    for d in param_defs():
+        if d.file not in ("HardPara.xml", "ManuPara.xml") or "." not in d.key:
+            continue
+        old_st, new_st = (current.hard, restored.hard) if d.file == "HardPara.xml" else (current.manu, restored.manu)
+        full = ParamStore.full_key(d.category, d.key)
+        seen.add(full)
+        a, b = old_st.values.get(full), new_st.values.get(full)
+        if a == b or b is None:
+            continue
+        key = _XML_KEYS.get((d.category, d.key), f"{d.category}.{d.key}")
+        try:
+            old, new = (d.parse(a) if a is not None else None), d.parse(b)
+        except (TypeError, ValueError):
+            old, new = a, b
+        if old == new:
+            continue
+        s = config.setting(key) if config is not None and hasattr(config, "setting") else None
+        plan.changes.append(SI.Change("params", key, s.label if s else "", old, new, s.unit if s else ""))
+    for old_st, new_st in ((current.hard, restored.hard), (current.manu, restored.manu),
+                           (current.layer, restored.layer)):
+        for full in sorted(set(new_st.values) - seen):
+            a, b = old_st.values.get(full), new_st.values[full]
+            if a != b:
+                plan.changes.append(SI.Change("params", full.lstrip("/"), "", a, b))
+    return plan
+
+
+_RESTORE_DIALOG: list = []
+
+
+def ParamRestoreDialog(ext, config, plan, title_key: str, source: str, do_restore):  # noqa: N802 - a class
+    """The parameter import's review for "Restore parameters from the motion card / a file"
+    (the class is made on first use: the import dialog's module loads only then)."""
+    if not _RESTORE_DIALOG:
+        _RESTORE_DIALOG.append(_restore_dialog_class())
+    return _RESTORE_DIALOG[0](ext, config, plan, title_key, source, do_restore)
+
+
+def _restore_dialog_class():
+    from .wizards.settings_import import SettingsImportDialog, _value
+
+    class _ParamRestoreDialog(SettingsImportDialog):
+        """The list of changes (no folder to choose: the source is given); Restore asks once
+        more with the motion-related values listed, backs up first and restores."""
+
+        def __init__(self, ext, config, plan, title_key: str, source: str, do_restore) -> None:
+            super().__init__(ext.w, config)
+            w = ext.w
+            self.ext, self.title_key, self.source, self.do_restore = ext, title_key, source, do_restore
+            self.setWindowTitle(_tr(w, title_key, ""))
+            lay = self.layout()
+            intro = lay.itemAt(0).widget()
+            intro.setTextFormat(Qt.PlainText)
+            intro.setText(_tr(w, "machine.params.restore_review", "", source=source))
+            _hide_layout(lay.itemAt(1).layout())          # the installation / parameter folders
+            for b in (self.b_compare, self.b_preview):
+                b.setVisible(False)
+            self.tree.setHeaderLabels([_tr(w, "wizard.import.c_setting", ""), _tr(w, "wizard.import.c_label", ""),
+                                       _tr(w, "wizard.import.c_current", ""), _tr(w, "machine.params.c_restored", ""),
+                                       _tr(w, "wizard.import.c_safety", "")])
+            self._fill(plan)
+            self.status.setText("" if plan.changes else _tr(w, "wizard.import.no_difference", ""))
+
+        def confirm(self, areas: list) -> bool:
+            plan = self.plan
+            safe = plan.safety_changes(areas) if plan is not None else []
+            detail = "\n".join(f"{c.key}  {self._label(c)}: {_value(c.old, c.unit, c.key)} → "
+                               f"{_value(c.new, c.unit, c.key)}" for c in safe)
+            text = _plural(self.w, "machine.params.restore_count", len(plan.changes) if plan is not None else 0)
+            if safe:
+                text = "\n\n".join((text, _plural(self.w, "wizard.import.confirm_safety", len(safe))))
+            return self.ext._confirm_restore(self.title_key, text, detail=detail)
+
+        def apply(self, confirm: bool = True):
+            if self.plan is None or not self.plan.changes:
+                return None
+            if confirm and not self.confirm(["params"]):
+                self.status.setText(_tr(self.w, "wizard.import.cancelled", ""))
+                return None
+            try:
+                self.result = self.do_restore()
+            except Exception as e:  # noqa: BLE001 - said in the dialog and the log
+                self.status.setText(_tr(self.w, "machine.params.restore_failed", "", error=e))
+                self.ext.log(self.status.text())
+                return None
+            self.status.setText(_tr(self.w, "machine.params.restored", "",
+                                    path=str(getattr(self.ext, "restore_backup", "") or "")))
+            self.b_apply.setEnabled(False)
+            return self.result
+
+    return _ParamRestoreDialog
+
+
+def _hide_layout(lay) -> None:
+    if lay is None:
+        return
+    for i in range(lay.count()):
+        it = lay.itemAt(i)
+        if it.widget() is not None:
+            it.widget().setVisible(False)
+        elif it.layout() is not None:
+            _hide_layout(it.layout())
 
 
 class _Bridge(QObject):
@@ -536,10 +652,11 @@ class MachineExtension:
             self.log(_tr(self.w, "machine.log.hw_export_failed",
                          "Writing the parameters to the hardware failed: {error}", error=e))
 
-    def _confirm_restore(self, title_key: str, text: str) -> bool:
+    def _confirm_restore(self, title_key: str, text: str, detail: str = "") -> bool:
         """Before parameters on this PC are replaced (UX review 2026-11-09 finding 11): a
         question with verb buttons, Cancel the default, after a timestamped copy of the current
-        parameters (named in the question)."""
+        parameters (named in the question).  ``detail``: the values that change how the
+        machine moves (behind "Show details")."""
         import time
 
         from .verb_question import verb_question
@@ -551,21 +668,55 @@ class MachineExtension:
             self.log(_tr(self.w, "machine.log.params_import_failed", "Importing the parameters failed: {error}",
                          error=e))
             return False
+        self.restore_backup = bk
         return verb_question(self.w, _tr(self.w, title_key, ""), text,
                              _tr(self.w, "machine.params.restore_yes", ""), _tr(self.w, "wizard.import.cancel", ""),
-                             informative=_tr(self.w, "machine.params.restore_info", "", path=str(bk)), warning=True)
+                             informative=_tr(self.w, "machine.params.restore_info", "", path=str(bk)), warning=True,
+                             detail=detail)
 
-    def restore_hw(self) -> None:
+    def _candidate(self):
+        """A copy of the parameters on this PC (a restore is reviewed on it first)."""
+        from mlaser.formats.params import MachineParams, ParamStore
+        cur = self.params()
+        return MachineParams(ParamStore(cur.hard.values), ParamStore(cur.manu.values), ParamStore(cur.layer.values))
+
+    def _review_restore(self, title_key: str, source: str, cand, do_restore: Callable[[], str]):
+        """The restore's review (the parameter import's dialog: every value now and restored,
+        the motion-related ones marked and first); Restore asks once more (Cancel the default),
+        backs up first and calls ``do_restore`` (it logs and returns its line, or raises)."""
+        plan = param_restore_plan(self.params(), cand, self.ctx.config)
+        d = ParamRestoreDialog(self, self.ctx.config, plan, title_key, source, do_restore)
+        self.last_restore = d
+        d.exec()
+        return d
+
+    def restore_hw(self):
         if not self.ops.require_card("mf481") or not self._password():
-            return
-        if not self._confirm_restore("machine.hw.restore_title", _tr(self.w, "machine.hw.restore_text", "")):
-            return
+            return None
+        from mlaser.formats import backup as B
         try:
-            n = self._backup().import_from_hardware(self.ops.mc)
-            self.log(_plural(self.w, "machine.log.hw_read", n))
+            cand = self._candidate()
+            n = B.read_hard_from_card(self.ops.mc, cand.hard)
+            if B.is_default_hard(cand.hard):
+                raise ValueError("OnParamRestore Hardware save param is wrong")
+            B.restore_from_backups(cand, self._backup().backup_dir)
         except Exception as e:  # noqa: BLE001
             self.log(_tr(self.w, "machine.log.hw_import_failed",
                          "Reading the parameters from the hardware failed: {error}", error=e))
+            return None
+
+        def restore() -> str:
+            # what was reviewed is what is stored (the card is not read a second time); the
+            # same end state as ParamBackup.import_from_hardware
+            cur, bk = self.params(), self._backup()
+            for mine, theirs in ((cur.hard, cand.hard), (cur.manu, cand.manu), (cur.layer, cand.layer)):
+                mine.values = dict(theirs.values)
+            B.save_with_backup(cur, bk.param_dir, bk.backup_dir, ("HardPara.xml",))
+            text = _plural(self.w, "machine.log.hw_read", n)
+            self.log(text)
+            return text
+        return self._review_restore("machine.hw.restore_title", _tr(self.w, "machine.params.source_card", ""),
+                                    cand, restore)
 
     def backup_file(self) -> None:
         path, _ = QFileDialog.getSaveFileName(self.w, _tr(self.w, "lp12", "Export"), "", "xml file(*.xml)")
@@ -573,20 +724,26 @@ class MachineExtension:
             out = self._backup().export_to_file(path)
             self.log(_tr(self.w, "machine.log.params_exported", "Parameters exported to {path}", path=out))
 
-    def restore_file(self) -> None:
+    def restore_file(self):
         path, _ = QFileDialog.getOpenFileName(self.w, _tr(self.w, "lp9", "Import"), "", "xml file(*.xml)")
         if not path:
-            return
-        if not self._confirm_restore("machine.file.restore_title",
-                                     _tr(self.w, "machine.file.restore_text", "", name=Path(path).name)):
-            return
+            return None
         layers = self._ask(_tr(self.w, "mf235", "Import"), _tr(self.w, "A250107_0", "Also restore layer parameters?"))
+        from mlaser.formats import backup as B
         try:
-            counts = self._backup().import_from_file(path, layers)
-            self.log(_tr(self.w, "machine.log.params_imported", "Parameters imported {counts}", counts=counts))
+            cand = self._candidate()
+            B.import_params_file(path, cand, layers)
         except Exception as e:  # noqa: BLE001
             self.log(_tr(self.w, "machine.log.params_import_failed", "Importing the parameters failed: {error}",
                          error=e))
+            return None
+
+        def restore() -> str:
+            counts = self._backup().import_from_file(path, layers)
+            text = _tr(self.w, "machine.log.params_imported", "Parameters imported {counts}", counts=counts)
+            self.log(text)
+            return text
+        return self._review_restore("machine.file.restore_title", Path(path).name, cand, restore)
 
     def task_save(self) -> None:
         from mlaser.formats.backup import save_task

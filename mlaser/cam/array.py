@@ -39,11 +39,11 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass
-from typing import Iterable, Optional, Sequence
+from typing import Callable, Iterable, Optional, Sequence
 
 from ..model import Arc, Contour, Document, Line, Part, Point
 
-__all__ = ["ArrayParams", "rect_array", "apply_rect_array", "circular_array",
+__all__ = ["ArrayParams", "ArrayCancelled", "rect_array", "apply_rect_array", "circular_array",
            "fill_sheet_array", "FillParams", "fill_circles", "linear_fill",
            "transform_part", "parts_bbox"]
 
@@ -102,10 +102,19 @@ def array_steps(parts: Sequence[Part], prm: ArrayParams) -> tuple[float, float]:
     return step_x, step_y
 
 
-def rect_array(parts: Sequence[Part], prm: ArrayParams) -> list[Part]:
+class ArrayCancelled(Exception):
+    """The ``progress`` callback of an array asked to stop (nothing is returned)."""
+
+
+#: (copies made, copies in all) -> False to stop; called once per copy
+Progress = Callable[[int, int], bool]
+
+
+def rect_array(parts: Sequence[Part], prm: ArrayParams, progress: Optional[Progress] = None) -> list[Part]:
     """Copies of ``parts`` on a rows x cols grid, in the original's serpentine order.
 
-    The originals stay where they are (cell 0,0) and are not returned.
+    The originals stay where they are (cell 0,0) and are not returned.  ``progress`` (made,
+    total) is called after each copy; :class:`ArrayCancelled` when it returns False.
     """
     parts = [p for p in parts if p.contours]
     if not parts or prm.rows < 1 or prm.cols < 1:
@@ -114,6 +123,7 @@ def rect_array(parts: Sequence[Part], prm: ArrayParams) -> list[Part]:
         raise MemoryError("array too large (mf505)")
     step_x, step_y = array_steps(parts, prm)
     out: list[Part] = []
+    total = (prm.rows * prm.cols - 1) * len(parts)
     for r in range(prm.rows):
         for k in range(prm.cols):
             col = k if r % 2 == 0 else prm.cols - 1 - k
@@ -124,6 +134,8 @@ def rect_array(parts: Sequence[Part], prm: ArrayParams) -> list[Part]:
                 q.extra = dict(q.extra)
                 q.extra["array_cell"] = (r, col)
                 out.append(q)
+                if progress is not None and not progress(len(out), total):
+                    raise ArrayCancelled("array cancelled")
     return out
 
 
@@ -142,12 +154,14 @@ def apply_rect_array(doc: Document, prm: ArrayParams) -> int:
 
 # --------------------------------------------------------------------------- circular (rebuild)
 def circular_array(parts: Sequence[Part], count: int, center: Point,
-                   total_angle_deg: float = 360.0, rotate_items: bool = True) -> list[Part]:
+                   total_angle_deg: float = 360.0, rotate_items: bool = True,
+                   progress: Optional[Progress] = None) -> list[Part]:
     """``count`` instances around ``center`` (the original is instance 0, not returned).
 
     Rebuild addition (no counterpart found in CADModule/MainApp). With a full 360 deg the
     angular pitch is 360/count, otherwise total/(count-1) so the last copy lands on the end
-    angle. ``rotate_items=False`` translates copies without turning them.
+    angle. ``rotate_items=False`` translates copies without turning them.  ``progress`` as in
+    :func:`rect_array`.
     """
     parts = [p for p in parts if p.contours]
     if count < 2 or not parts:
@@ -173,6 +187,8 @@ def circular_array(parts: Sequence[Part], count: int, center: Point,
             q.extra = dict(q.extra)
             q.extra["array_index"] = i
             out.append(q)
+            if progress is not None and not progress(len(out), (count - 1) * len(parts)):
+                raise ArrayCancelled("array cancelled")
     return out
 
 

@@ -12,6 +12,7 @@ GraphParam block.
 """
 from __future__ import annotations
 
+import copy
 from typing import Any, Callable, Optional
 
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialogButtonBox, QDoubleSpinBox, QSpinBox, QWidget)
@@ -201,9 +202,35 @@ class CamExtension:
              ("row_dir", "pd337", "enum", ["pd303", "pd304"]),
              ("col_dir", "pd338", "enum", ["pd305", "pd306"])]
         if self.ask("mf79", self.array, f):
-            with self._busy():
-                n = self.edit(lambda doc: OC.rect_array(doc, self.array), "array", parts=())
+            from mlaser.cam import array as A
+            parts, prm = list(A._targets(self.ctx.document)), copy.copy(self.array)
+            n = self._copies("mf79", "array", lambda progress: A.rect_array(parts, prm, progress), pop_order=True)
             self._count("camx.log.copies", "mf79", n)
+
+    def _copies(self, title_key: str, label: str, make: Callable[[Any], list], pop_order: bool = False) -> Any:
+        """The copies of an array made in a worker with progress and Cancel (the window keeps
+        repainting; UX review 2026-11), then added in one undo step.  Cancel adds nothing and
+        says so.  The copies read the selection only; the document changes on this thread."""
+        from .progress_task import TaskCancelled, run_with_progress
+        tr = self.w.tr_
+        try:
+            new = run_with_progress(self.w, make, tr.tr("busy.array"), tr.tr(title_key),
+                                    tr.tr("import.progress.cancel"))
+        except TaskCancelled:
+            msg = tr.tr("camx.log.array_cancelled")
+            self.log(msg)
+            sb = getattr(self.w, "statusBar", None)
+            if callable(sb):
+                sb().showMessage(msg, 5000)
+            return None
+
+        def add(doc: Document) -> int:
+            doc.parts.extend(new)
+            if pop_order:
+                doc.extra.pop("order", None)
+            return len(new)
+        with self._busy():
+            return self.edit(add, label, parts=())
 
     def circular_array_dialog(self) -> None:
         f = [("count", "camx.circ.count", "int", (2, 10000)), ("center_x", "camx.circ.center_x", "len", (-1e5, 1e5)),
@@ -212,8 +239,15 @@ class CamExtension:
              ("rotate_items", "camx.circ.rotate", "bool", None),
              ("use_bbox_center", "camx.circ.use_bbox_center", "bool", None)]
         if self.ask("camx.cmd.array_circular", self.circ, f):
-            with self._busy():
-                n = self.edit(lambda doc: OC.circular_array(doc, self.circ), "circular array", parts=())
+            from mlaser.cam.array import circular_array, parts_bbox
+            prm = copy.copy(self.circ)
+            parts = list(OC.targets(self.ctx.document))
+            cx, cy = prm.center_x, prm.center_y          # as ops.cam.circular_array
+            if prm.use_bbox_center:
+                x0, y0, x1, y1 = parts_bbox(parts)
+                cx, cy = cx + (x0 + x1) / 2, cy + (y0 + y1) / 2
+            n = self._copies("camx.cmd.array_circular", "circular array", lambda progress: circular_array(
+                parts, prm.count, (cx, cy), prm.total_angle_deg, prm.rotate_items, progress=progress))
             self._count("camx.log.copies", "camx.cmd.array_circular", n)
 
     def sheet_array_dialog(self) -> None:
