@@ -1,6 +1,8 @@
 """The run rules, without Qt (review 2026-11-09, arch A15): which run controls are enabled and
 why (:func:`run_enabled`), the machine's run state (:func:`run_state`), the alarm source of both
-(:func:`active_alarms`) and whether a job runs (:func:`job_running`).  The run bar, the Run
+(:func:`active_alarms`) and what the job is doing (:class:`JobView` from ``ctl.job_phase()``,
+review 2026-11-09 arch A1: :func:`job_running`, :func:`job_owns_card`, :func:`job_held`,
+:func:`machine_moving`, :func:`machine_idle`).  The run bar, the Run
 screen, the state display and the panels all decide from here; :mod:`mlaser.ui.safety_ui`
 re-exports every name, so ``from mlaser.ui.safety_ui import run_enabled`` keeps working.
 
@@ -11,6 +13,9 @@ without a widget.
 from __future__ import annotations
 
 import logging
+from typing import NamedTuple, Optional
+
+from ..machine.jobphase import JobPhase
 
 log = logging.getLogger("mlaser.ui.safety")
 
@@ -38,13 +43,115 @@ def _safety(ctl):
     return ctl.safety() if ctl is not None else None
 
 
-def job_running(window) -> bool:
-    ctl = _ctl(window)
+# ---------------------------------------------------------------------------- the job's phase
+#: a job owns the card: it is being started, streams, or is being stopped
+OWNS_CARD = frozenset({JobPhase.STARTING, JobPhase.RUNNING, JobPhase.STOPPING})
+#: a job is held: the FIFO hold, the breakpoint being taken, or held at a breakpoint
+HELD = frozenset({JobPhase.HOLDING, JobPhase.PAUSING, JobPhase.AT_BREAKPOINT})
+#: the modes in which the card itself streams a job
+_CARD_JOB_MODES = frozenset({"process", "dry_run", "frame"})
+#: the modes in which the card moves the axes (a job, homing, a jog or a go-to move)
+_MOVING_MODES = _CARD_JOB_MODES | {"origin", "jog"}
+
+
+class JobView(NamedTuple):
+    """One reading of "what is the job doing" (review 2026-11-09, arch A1): THE answer for the
+    run controls, the document lock, the run keys, the queue and the panels.  Built from
+    ``ctl.job_phase()`` (:mod:`mlaser.machine.jobphase`), ``ctl.job_active()`` (the safety FSM
+    still counts a job: the end-of-job steps after the worker's end) and the machine state's
+    mode (the card itself reports motion).
+
+    ``phase`` None: the phase cannot be read.  The view is then restrictive, as
+    :func:`active_alarms` is for alarms: the run controls are held as for a running job (Start,
+    Frame and Dry run off; Hold and Stop on), never the permissive "idle"."""
+    phase: Optional[JobPhase]
+    active: bool = False
+    mode: str = ""
+    connected: bool = False
+
+    @property
+    def owns_card(self) -> bool:
+        """A job owns the card: starting, running or stopping (also: the phase cannot be read,
+        or the safety FSM or the card still report a job after the phase went idle)."""
+        p = self.phase
+        if p is None or p in OWNS_CARD:
+            return True
+        return p is JobPhase.IDLE and (self.active or self.mode in _CARD_JOB_MODES)
+
+    @property
+    def held(self) -> bool:
+        """A job is held: Hold (FIFO), the breakpoint being taken, or at a breakpoint."""
+        return self.phase in HELD
+
+    @property
+    def running(self) -> bool:
+        """A job is in progress (it owns the card or is held): the document is locked, the
+        queue loads nothing, the run keys are the job's."""
+        return self.owns_card or self.held
+
+    @property
+    def moving(self) -> bool:
+        """The machine moves on its own: a job owns the card, it homes, or it jogs / makes a
+        go-to move."""
+        return self.owns_card or self.mode in _MOVING_MODES
+
+    @property
+    def idle(self) -> bool:
+        """Connected, no job (not even a held one) and nothing moving: ready."""
+        return self.connected and not self.running and self.mode == "ready"
+
+
+def job_view(ctl, ms=None) -> JobView:
+    """The :class:`JobView` of the controller ``ctl`` (``ms``: its machine state when already
+    read).  No controller: no job.  A read that fails is restrictive: phase None (as for a
+    running job), ``job_active`` True."""
     if ctl is None:
-        return False
-    if ctl.job_active():
-        return True
-    return ctl.state().mode in ("process", "dry_run", "frame")
+        return JobView(JobPhase.IDLE, False, "offline", False)
+    phase: Optional[JobPhase]
+    try:
+        phase = ctl.job_phase()
+    except Exception:  # noqa: BLE001 - cannot tell: held as for a running job (restrictive)
+        log.warning("the controller's job phase cannot be read: run controls held as for a running job",
+                    exc_info=True)
+        phase = None
+    try:
+        active = bool(ctl.job_active())
+    except Exception:  # noqa: BLE001 - cannot tell: a job counts (restrictive)
+        active = True
+    if ms is None:
+        try:
+            ms = ctl.state()
+        except Exception:  # noqa: BLE001 - no state: not connected
+            ms = None
+    mode = str(getattr(ms, "mode", "") or "") if ms is not None else ""
+    connected = bool(getattr(ms, "connected", False)) if ms is not None else False
+    return JobView(phase, active, mode, connected)
+
+
+def job_running(window) -> bool:
+    """A job is in progress (starting, running, held or being stopped): the one answer
+    (:attr:`JobView.running`)."""
+    return job_view(_ctl(window)).running
+
+
+def job_owns_card(window) -> bool:
+    """A job starts, streams or is being stopped, not held (:attr:`JobView.owns_card`)."""
+    return job_view(_ctl(window)).owns_card
+
+
+def job_held(window) -> bool:
+    """A job is held: Hold, the breakpoint being taken, at a breakpoint (:attr:`JobView.held`)."""
+    return job_view(_ctl(window)).held
+
+
+def machine_moving(window) -> bool:
+    """The machine moves on its own: a job, homing, a jog (:attr:`JobView.moving`)."""
+    return job_view(_ctl(window)).moving
+
+
+def machine_idle(window) -> bool:
+    """Connected, no job, nothing moving (:attr:`JobView.idle`)."""
+    return job_view(_ctl(window)).idle
 
 
 def active_alarms(window) -> list:
@@ -101,16 +208,21 @@ def run_state(st, ms, alarms=(), need_home: bool = False) -> str:
     return "ready"
 
 
-def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, bool, str]]:
+def run_enabled(window, st, ms, running: "bool | JobView", alarms=None) -> list[tuple[str, bool, str]]:
     """(run control, enabled, why not) for the run bar and the Run screen: one rule set.
-    STOP is always enabled.  ``alarms``: the card's active alarms (None: read from the
+    STOP is always enabled.  ``running``: the :class:`JobView` (a job in progress, held or
+    not: :attr:`JobView.running`, :attr:`JobView.held`); a plain bool (a caller with only the
+    machine state) takes "held" from the mode.  ``alarms``: the card's active alarms (None: read from the
     controller, :func:`active_alarms`): while one is active Start, Frame and Dry run are
     disabled with "Reset the alarm first: <alarm>" (UX audit C4), and so is Arm while an
     e-stop or servo alarm is active (C3); while the machine homes or makes a go-to move they are
     disabled with "Homing in progress" / "The machine is moving" (UX review 2026-11 #3)."""
     connected = bool(ms is not None and ms.connected)
     fault = st is not None and st.banner == "FAULT"
-    paused = ms is not None and ms.mode == "pause"
+    if isinstance(running, JobView):
+        paused, running = running.held, running.running
+    else:
+        paused = ms is not None and ms.mode == "pause"
     dry = bool(getattr(st, "dry_run", False))
     if alarms is None:
         alarms = active_alarms(window)
