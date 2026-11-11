@@ -234,7 +234,7 @@ class PreflightDialog(QDialog):
     rows (cutting-only issues of a laser-off run) need no acknowledgement.  Buttons: Close when
     something blocks, else "<Action> anyway" / Cancel (Cancel the default)."""
 
-    def __init__(self, report, parent=None, title: str = "", actions=()):
+    def __init__(self, report, parent=None, title: str = "", actions=(), scope: str = ""):
         super().__init__(parent)
         from PySide6.QtWidgets import QListWidget, QListWidgetItem
         self.report = report
@@ -246,6 +246,12 @@ class PreflightDialog(QDialog):
             "safety.preflight.title", "Pre-flight check: {action}", "safety.preflight.continue", "Continue"))
         self.setWindowTitle(title or _tr(win, tid, tdef, action=report.action))
         lay = style.vbox(self, "dialog")
+        if scope:                       # what this start cuts, when it is not the whole job
+            self.scope = QLabel(_tr(win, "safety.preflight.scope", "This start cuts: {scope}", scope=scope))
+            self.scope.setObjectName("preflight_scope")
+            self.scope.setTextFormat(Qt.PlainText)
+            self.scope.setWordWrap(True)
+            lay.addWidget(self.scope)
         head = QLabel()
         head.setTextFormat(Qt.PlainText)
         head.setWordWrap(True)
@@ -1585,13 +1591,15 @@ class SafetyUI(QObject):
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
     def preflight_ok(self, action: str, doc=None, emits: Optional[bool] = None, selected_only: bool = False,
-                     assume_armed: bool = False, checked: Optional[tuple] = None) -> bool:
+                     assume_armed: bool = False, checked: Optional[tuple] = None, scope: str = "") -> bool:
         """Run the controller's pre-flight check; show the dialog when it finds anything.
         ``assume_armed``: check as if the machine were armed (Start while disarmed checks
         everything else first and only then asks to arm, UX audit C1); every other issue is
         checked as usual.  Cutting-only warnings of a laser-off run are information (W6): with
         nothing else to report no dialog is shown.  ``checked``: (the controller's report, the
-        cutting-strategy issues), computed off the GUI thread (:meth:`_preflight_async`)."""
+        cutting-strategy issues), computed off the GUI thread (:meth:`_preflight_async`).
+        ``scope``: what the start cuts when it is not the whole job ("1 contour of part 5"),
+        named in the dialog."""
         from dataclasses import replace
 
         from ..machine.preflight import demote_cutting_only
@@ -1633,7 +1641,7 @@ class SafetyUI(QObject):
         if not rep.errors and not rep.warnings:
             return True
         actions = [a for c in _contributors(self.w) for a in (c.actions(rep) if hasattr(c, "actions") else ())]
-        d = PreflightDialog(rep, self.w, actions=actions)
+        d = PreflightDialog(rep, self.w, actions=actions, scope=scope)
         ok = bool(d.exec()) and rep.ok
         if ok:                       # the operator went ahead past these warnings (UX 13)
             for c in _contributors(self.w):
@@ -1662,7 +1670,8 @@ class SafetyUI(QObject):
         return getattr(self.w, "run_controls", None) or self.w.ctl
 
     def start(self, selected_only: bool = False, then: Optional[Callable[[], None]] = None,
-              proceed: Optional[Callable[[], bool]] = None) -> None:
+              proceed: Optional[Callable[[], bool]] = None, contours: Optional[tuple] = None,
+              scope: str = "") -> None:
         """Start (or resume) the job; ``selected_only``: only the selected parts, asked for
         explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch.
 
@@ -1670,10 +1679,24 @@ class SafetyUI(QObject):
         once when this start was handled: handed to the job runner, refused, declined at the
         arming question, or dropped by a Stop meanwhile (the job queue reads the result from
         there, perf review 2026-11-09 finding 10).  ``proceed()``, asked once the check is
-        done and before the arming question: False drops the start (the queue was left)."""
+        done and before the arming question: False drops the start (the queue was left).
+
+        ``contours``: only these (part, contour) pairs of the document, planned as in the whole
+        job ("Cut this contour again", the Run screen); ``scope`` names them ("1 contour of part
+        5") in the pre-flight dialog and the arming question.  Every start, these too, takes the
+        same steps: the pre-flight, the arming question, the controller's start gate."""
         ctl, doc = self.w.ctl, self.w.document
         finish = then if then is not None else (lambda: None)
-        if job_held(self.w) or ctl.breakpoint is not None:      # held: Start is Continue
+        held = job_held(self.w) or ctl.breakpoint is not None      # held: Start is Continue
+        if contours is not None and (held or not getattr(self._runner(), "reports_start_result", False)):
+            # never a resume of the held job in place of the contour asked for; without the
+            # planned-job runner a contour job cannot be built
+            text = _tr(self.w, "run.why.recut_unavailable", "Cut this contour again: not available now")
+            self._log(text)
+            self.w.statusBar().showMessage(text, 8000)
+            finish()
+            return
+        if held:
             from .resume import resume
             try:
                 resume(ctl, "exact", doc)           # a breakpoint of another document is refused
@@ -1699,13 +1722,14 @@ class SafetyUI(QObject):
                 # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
                 # technology or an axis out of travel refuses here, before anything is armed); only
                 # then one question with the arming safety text, Cancel the default
-                if not self.ask_arm_and_start():
+                if not (self.ask_arm_and_start(scope) if scope else self.ask_arm_and_start()):
                     return
                 if not self.arm(confirm=False):
                     return
             self._shown = self.w.ctl.last_preflight     # only a refusal of this start is shown
-            self._run_start(doc, bool(selected_only), arm_first)
-        self._preflight_async(action, doc, emits, bool(selected_only), arm_first, "process", checked)
+            self._run_start(doc, bool(selected_only), arm_first, contours)
+        self._preflight_async(action, doc, emits, bool(selected_only), arm_first, "process", checked,
+                              contours=contours, scope=scope)
 
     _prep_call = None               # BackgroundCall of the pre-flight in progress (Start, Dry run)
 
@@ -1765,7 +1789,8 @@ class SafetyUI(QObject):
             time.sleep(0.02)
 
     def _preflight_async(self, action: str, doc, emits: bool, selected_only: bool, assume_armed: bool,
-                         mode: str, then: Callable[[bool], None], _attempt: int = 0) -> None:
+                         mode: str, then: Callable[[bool], None], _attempt: int = 0,
+                         contours: Optional[tuple] = None, scope: str = "") -> None:
         """:meth:`preflight_ok` with its heavy part off the GUI thread (perf review 2026-11-09,
         finding 10: 2.8 s at 2,700 parts with the window and its Stop button frozen), on the
         job the controller will check (UX review 2026-11-09, finding 10: the extent with leads
@@ -1787,11 +1812,17 @@ class SafetyUI(QObject):
         travel" on a job that fits), or the controller refused the start ("it moved since the
         job was planned").  The worker sees it (:meth:`_head_moved`), waits for the head to
         rest and the check begins again from there (at most ``PREFLIGHT_HEAD_RETRIES`` times;
-        after that the report stands)."""
+        after that the report stands).
+
+        ``contours`` / ``scope``: see :meth:`start` (the check is made on that job; it is
+        refused when it cannot be planned)."""
         w, ctl = self.w, self.w.ctl
         jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
         gen_fn = ctl.start_generation
         if jobs is None or docs is None or doc is None:
+            if contours is not None:
+                then(False)
+                return
             then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
             return
         checking = _tr(w, "run.checking", "Checking the job…")
@@ -1801,9 +1832,12 @@ class SafetyUI(QObject):
             return
         try:
             from ..services.jobs import build_request
-            req = build_request(mode, docs, ctl, w.machine, w.cam_params, selected_only)
+            req = build_request(mode, docs, ctl, w.machine, w.cam_params, selected_only, contours=contours)
         except Exception:  # noqa: BLE001 - the start reports it (run_job builds it again)
             log.debug("pre-flight: no job request", exc_info=True)
+            if contours is not None:
+                then(False)
+                return
             then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
             return
         gen = gen_fn()
@@ -1836,7 +1870,7 @@ class SafetyUI(QObject):
         def decide(checked=None) -> None:
             try:
                 ok = self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
-                                       checked=checked)
+                                       checked=checked, scope=scope)
             except Exception:  # noqa: BLE001 - a check that fails refuses (and then() still runs)
                 log.exception("pre-flight check failed: the start is refused")
                 ok = False
@@ -1847,6 +1881,9 @@ class SafetyUI(QObject):
                 w.statusBar().clearMessage()
             if err is not None:
                 log.error("pre-flight failed: %s", err)
+                if contours is not None:
+                    then(False)
+                    return
                 decide()
                 return
             if res is None or gen_fn() != gen:
@@ -1855,7 +1892,7 @@ class SafetyUI(QObject):
             if res is _HEAD_MOVED:          # planned from a head that moved on: again, from its rest
                 log.info("pre-flight: the head moved since the press; checking again from where it rests")
                 self._preflight_async(action, doc, emits, selected_only, assume_armed, mode, then,
-                                      _attempt + 1)
+                                      _attempt + 1, contours=contours, scope=scope)
                 return
             decide(res)
         if self._prep_call is None:
@@ -1864,11 +1901,15 @@ class SafetyUI(QObject):
         w.statusBar().showMessage(checking)
         self._prep_call.start(work, done)
 
-    def ask_arm_and_start(self) -> bool:
+    def ask_arm_and_start(self, scope: str = "") -> bool:
         """The one question of a Start while disarmed: the arming safety text, "Arm and start" /
-        "Cancel" (Cancel the default), the warning icon (UX audit C1, O13)."""
-        return ask(self.w, "start_disarmed", _tr(self.w, "safety.ask.start_disarmed",
-                                                 "The machine is not armed: the laser cannot fire."),
+        "Cancel" (Cancel the default), the warning icon (UX audit C1, O13).  ``scope``: what this
+        start cuts when it is not the whole job, said in the question."""
+        text = _tr(self.w, "safety.ask.start_disarmed", "The machine is not armed: the laser cannot fire.")
+        if scope:
+            text = _tr(self.w, "safety.ask.start_disarmed_scope", "{text}\nThis start cuts: {scope}",
+                       text=text, scope=scope)
+        return ask(self.w, "start_disarmed", text,
                    _tr(self.w, "safety.ask.start_title", "Arm and start"),
                    yes_text=_tr(self.w, "safety.ask.arm_and_start", "Arm and start"), warning=True,
                    informative=_tr(self.w, "safety.ask.arm_info", "Laser emission will be enabled: the beam "
@@ -1877,7 +1918,7 @@ class SafetyUI(QObject):
 
     _arm_token: object = None       # the Start that armed the machine itself (C1)
 
-    def _run_start(self, doc, selected_only: bool, armed_here: bool) -> None:
+    def _run_start(self, doc, selected_only: bool, armed_here: bool, contours: Optional[tuple] = None) -> None:
         """Hand the start to the planned-job runner; when this Start armed the machine and the
         start is refused for any reason (compile error, start gate, the controller's own
         pre-flight, a Stop meanwhile) the machine is disarmed again and the operator told
@@ -1885,15 +1926,16 @@ class SafetyUI(QObject):
         runner = self._runner()
         token = object() if armed_here else None
         self._arm_token = token
+        scoped = {} if contours is None else {"contours": contours}     # only the runner that takes it
         if token is None:
-            runner.start(doc, selected_only=selected_only)
+            runner.start(doc, selected_only=selected_only, **scoped)
             self._after(_tr(self.w, "safety.refused.start", "Start refused"))
             return
 
         def result(ok: bool, msg: str = "") -> None:
             self._start_result.emit(token, bool(ok), str(msg or ""))
         if getattr(runner, "reports_start_result", False):
-            runner.start(doc, selected_only=selected_only, on_result=result)
+            runner.start(doc, selected_only=selected_only, on_result=result, **scoped)
         else:
             ret = runner.start(doc, selected_only=selected_only)
             ctl = self.w.ctl

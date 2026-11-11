@@ -145,6 +145,8 @@ FIXED_KEYS: list[tuple[str, str, str]] = [
     ("Wheel", "shell.key.zoom", "shell.key.ctx_canvas"),
     ("Middle button drag", "shell.key.pan", "shell.key.ctx_canvas"),
     ("Tab / Shift+Tab", "shell.key.focus", "shell.key.ctx_any"),
+    ("← / →", "shell.key.pick_contour", "shell.key.ctx_run_view"),
+    ("Menu / Shift+F10", "shell.key.contour_menu", "shell.key.ctx_run_view"),
 ]
 
 

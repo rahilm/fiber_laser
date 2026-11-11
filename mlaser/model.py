@@ -851,6 +851,8 @@ EXTRA_KEYS: dict[str, tuple[str, str]] = {
     "Document.chf": ("opaque", ".chf trailer: vision graphs, rotation block, skipped lines"),
     "Document.order": ("cache", "cutting order (part, contour) set by the CAM sorts"),
     "Document.job_offset": ("transient", "placement offset of a job copy (controller.coords)"),
+    "Document.only_contours": ("transient", "(part, contour) keys a job copy is limited to: \"Cut this contour again\" "
+                                            "(services.jobs.build_request, cam.toolpath)"),
     "Document.rotated / rotate_angle / rotate_center / rotate_offset": ("state", "edge-seek rotation"),
     "Document.texts / points / regions / faces / source / placement_offset": ("import", "DXF import notes"),
     "Document.dock_point": ("state", "dock point (ext_craft)"),
