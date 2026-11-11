@@ -246,24 +246,21 @@ class Profile:
 
         Phase-by-phase loop of FUN_101094e0 (planner block sampler) and FUN_1000f730 (segInterp):
         phases 1..6 are sampled while t < phase end, phase 7 while t <= T.  Returns the positions
-        and the last sampled time (or ``None`` when nothing was sampled).
+        and the next sample time (the first time not sampled).
         """
         e, base = self._ends()
         T = self.duration
         out: list[float] = []
         tt = t0
-        last = None
         for k in range(7):
             end = e[k]
             if k < 6:
                 while tt < end:
                     out.append(self._pos(k, tt, e, base))
-                    last = tt
                     tt = tt + dt
             else:
                 while tt <= T:
                     out.append(self._pos(k, tt, e, base))
-                    last = tt
                     tt = tt + dt
         return out, tt
 

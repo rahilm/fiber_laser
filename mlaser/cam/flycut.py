@@ -61,10 +61,10 @@ from __future__ import annotations
 import copy
 import math
 from dataclasses import dataclass, field
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
-from ..model import Arc, Contour, Craft, Document, LayerParams, Line, Part, Point, Segment
-from ..geom.contour import contour_bbox, point_in_contour, sub_seg
+from ..model import Arc, Contour, Craft, Document, Line, Part, Point, Segment
+from ..geom.contour import point_in_contour, sub_seg
 from ..toolpath.items import (CutArc, CutLine, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)
 

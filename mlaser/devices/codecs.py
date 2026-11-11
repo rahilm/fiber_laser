@@ -37,7 +37,7 @@ pushes ``v & 0xffff`` then ``v >> 16``; syncReadAFReg rebuilds ``w1 << 16 + w0``
 from __future__ import annotations
 
 import struct
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Optional, Sequence
 
 from mlaser.protocol.frames import crc16_modbus

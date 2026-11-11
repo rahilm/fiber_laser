@@ -28,7 +28,7 @@ Record layout (CAD, 0xa8 bytes), as used here (``_Rec``):
 from __future__ import annotations
 
 import math
-from typing import Optional, Sequence
+from typing import Sequence
 
 from .. import crtmath as _crt
 from .._registry import port

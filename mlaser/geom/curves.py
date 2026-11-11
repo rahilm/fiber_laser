@@ -385,7 +385,6 @@ def flatten_bspline(ctrl, knots, tol: Optional[float] = None) -> list[Point]:
 def _end(ctrl, knots, u):
     # u == last knot: de Boor with the half-open span rule would step past the end
     n = len(ctrl)
-    p = len(knots) - n - 1
     if all(abs(k - knots[-1]) < 1e-12 for k in knots[n:]):
         return tuple(ctrl[-1])
     return bspline_point(ctrl, knots, u - 1e-12 * max(1.0, abs(u)))

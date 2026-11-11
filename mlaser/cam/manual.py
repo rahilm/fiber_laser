@@ -26,8 +26,8 @@ from typing import Iterable, Optional, Sequence
 
 from ..geom.curves import reverse_contour, signed_area
 from ..model import Arc, Contour, Craft, Document, LeadParams, Line, Part, Point, Segment
-from ..geom.contour import (contour_bbox, is_ccw, point_at, polyline, rotate_start, seg_point,
-                       seg_tangent, sub_path, tangent_at)
+from ..geom.contour import (contour_bbox, is_ccw, point_at, polyline, seg_point,
+                       sub_path, tangent_at)
 from .microjoint import joint_intervals
 
 __all__ = [

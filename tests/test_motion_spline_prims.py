@@ -5,8 +5,6 @@ the analyser table of a spline piece and the smoother's nodes vt[5] for the spli
 sample with the dialog lead and start 0.125)."""
 from __future__ import annotations
 
-import math
-
 import pytest
 
 from mlaser.toolpath.items import CutLine

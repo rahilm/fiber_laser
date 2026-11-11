@@ -20,10 +20,10 @@ import bisect
 import math
 from dataclasses import dataclass, field
 
-from ..toolpath.items import (CutArc, CutLine, Delay, Pierce, Rapid, MOVE_TYPES)
+from ..toolpath.items import (CutArc, CutLine, Delay, Pierce, Rapid)
 from ..model import Arc
 from ..parity_ports import active_profile, export_ports
-from .planner import PathPoint, PlannerParams, Plan, R_STRAIGHT, plan_velocity
+from .planner import PathPoint, PlannerParams, R_STRAIGHT, plan_velocity
 from .profile import make_profile, Profile
 
 

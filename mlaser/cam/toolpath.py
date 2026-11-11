@@ -24,7 +24,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Optional
 
-from ..model import Arc, Contour, Craft, Document, LayerParams, LeadParams, Line, Point, Segment
+from ..model import Arc, Contour, Craft, Document, LayerParams, Line, Point, Segment
 from ..geom.contour import is_ccw, point_at, reverse_contour, rotate_start, stored_length, sub_seg, tangent_at
 from ..toolpath.items import (CutArc, CutLine, Delay, Follow, LaserOff, LaserOn, LayerChange, Marker,
                     MotionItem, Pierce, Rapid)

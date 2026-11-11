@@ -33,7 +33,7 @@ from pathlib import Path
 from typing import Union
 
 from .._atomic import atomic_write
-from .scio import ScReader, ScWriter, split_lines, _strip_ws
+from .scio import ScReader, ScWriter
 
 PathLike = Union[str, Path]
 

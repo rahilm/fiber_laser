@@ -209,7 +209,6 @@ def _zoom(win, s=10):
 
 
 def test_trim_extend_split_commands_and_undo(win):
-    ext = win.extension("ext_draw")
     win.set_document(Document(parts=[Part([Contour([Line((0, 0), (100, 0))], False)], name="h"),
                                      Part([Contour([Line((50, -10), (50, 10))], False)], name="v")]))
     _zoom(win)

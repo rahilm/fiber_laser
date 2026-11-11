@@ -39,7 +39,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QLabel, QLayout, 
 STATE_PROP = "responsive_state"
 LIST_PROP = "responsive_scroll"
 #: touch targets (px, logical): the primary run / safety controls, every other touch control
-from .style import SP1, SP2, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
+from .style import SP1, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
 
 
 class _KeepMin(QObject):

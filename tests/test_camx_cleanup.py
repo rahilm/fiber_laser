@@ -1,7 +1,7 @@
 """Import cleanup (mlaser.cam.cleanup), see docs/re/cam.md §15."""
 import math
 
-from mlaser.cam.cleanup import (CleanupParams, FitParams, cleanup_contours, cleanup_document,
+from mlaser.cam.cleanup import (CleanupParams, FitParams, cleanup_document,
                                 close_gaps, fit_arcs, merge_connected, remove_duplicate_contours,
                                 remove_overlaps, remove_small, smooth_contour)
 from mlaser.model import Arc, Contour, Document, Line, Part
@@ -99,7 +99,6 @@ def test_fit_arcs_full_circle():
 
 def test_fit_arcs_arc_and_corner():
     arc_pts = _poly_circle(0, 0, 20, 30, 0, math.pi / 2)   # quarter circle polyline
-    line_pts = [(0, 20 + k) for k in range(1, 11)]          # then a straight tail (corner? no: tangent)
     pts = arc_pts + [(-k, 20) for k in range(1, 11)]
     segs = fit_arcs(pts, FitParams(err=0.05))
     assert len(segs) < 8
