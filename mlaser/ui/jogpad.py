@@ -12,6 +12,9 @@ the wizards all use :class:`JogPad`, with one look and one rule.
   imperial), and Fast next to it.  One step and one Fast for every pad, persisted
   (``MC.IsStepMove``, ``MC.StepLength``, ``MC.IsFastMode``; WORK_ITEMS R-3): the Machine
   workspace's pad is their home, the others are quick switches on the same keys.
+* The jog speed next to Fast: the slow jog speed, or the fast one while Fast is on
+  (``MC.JogSlowSpeed`` / ``MC.JogFastSpeed``, in the display units; UX review 2026-11 #14).  Its
+  home stays Machine › Setup; every pad has it as a quick switch on the same keys.
 * Hold-to-jog with the dead-man (docs/SAFETY.md §8): a keep-alive every 100 ms while a button is
   held; release, focus loss, hiding the pad and Stop stop the jog at once.  With a step size, a
   click moves one step.
@@ -21,8 +24,8 @@ from __future__ import annotations
 from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QSize, Qt, QTimer, Signal
-from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QGridLayout, QPushButton, QSizePolicy,
-                               QToolButton, QWidget)
+from PySide6.QtWidgets import (QApplication, QButtonGroup, QCheckBox, QGridLayout, QLabel, QPushButton,
+                               QSizePolicy, QToolButton, QWidget)
 
 from mlaser.services import units as U
 
@@ -67,6 +70,8 @@ class JogPad(QWidget):
     #: the persisted jog values every jog pad shows (WORK_ITEMS R-3): continuous or step, the
     #: step length (mm), fast
     STEP_KEY, LENGTH_KEY, FAST_KEY = "MC.IsStepMove", "MC.StepLength", "MC.IsFastMode"
+    #: the jog speeds (mm/s): slow, fast (the speed field shows the one Fast chooses)
+    SLOW_KEY, FAST_SPEED_KEY = "MC.JogSlowSpeed", "MC.JogFastSpeed"
 
     #: (axis, direction, row, column, icon, tooltip id)
     CROSS = (("Y", 1, 0, 1, "arrow-up", "ws.machine.jog_y_plus"),
@@ -154,7 +159,25 @@ class JogPad(QWidget):
         self.step_row = flow(steps_row, uniform=True)
         self.step_row.setObjectName("jog_steps")
         v.addWidget(self.step_row)
-        v.addWidget(self.fast)
+        # Fast and the jog speed in one row (wrapped under each other when the pad is narrow)
+        from .units_qt import QuantitySpinBox
+        self.speed = QuantitySpinBox("speed", minimum=0.01, maximum=100.0, decimals=1, step=5.0)
+        self.speed.setObjectName("jog_speed")
+        self.speed.setToolTip(_text(self.tr_, "jog.speed_tip"))
+        self.speed.setAccessibleName(_text(self.tr_, "jog.speed_name", "Jog speed"))
+        self.speed.setKeyboardTracking(False)
+        speed_box = QWidget()
+        speed_box.setObjectName("jog_speed_box")
+        sh = style.hbox(speed_box)
+        self.speed_label = QLabel(_text(self.tr_, "jog.speed", "Speed"))
+        self.speed_label.setBuddy(self.speed)
+        sh.addWidget(self.speed_label)
+        sh.addWidget(self.speed)
+        self.speed_box = speed_box
+        speed_box.setVisible(False)                 # shown once a configuration is bound
+        self.fast_row = flow([self.fast, speed_box], justify=False)
+        self.fast_row.setObjectName("jog_fast_row")
+        v.addWidget(self.fast_row)
         # the Home row (reference switches): text buttons of equal width
         self.home_buttons: dict[str, QPushButton] = {}
         if home_actions:
@@ -179,8 +202,13 @@ class JogPad(QWidget):
             b.setProperty(homes.PROP_ROLE, role)
         self.fast.setProperty(homes.PROP_VALUE, f"cfg:{self.FAST_KEY}")
         self.fast.setProperty(homes.PROP_ROLE, role)
+        # the speeds' home is Machine › Setup: on every pad a quick switch on the same keys
+        self.speed.setProperty(homes.PROP_VALUE, f"cfg:{self.SLOW_KEY}")
+        self.speed.setProperty(homes.PROP_ROLE, homes.SHORTCUT)
         self.steps.buttonClicked.connect(lambda _b: self._store())
         self.fast.toggled.connect(lambda _on: self._store())
+        self.fast.toggled.connect(lambda _on: self._sync_speed())
+        self.speed.valueChanged.connect(self._store_speed)
         cfg = getattr(window, "config", None)
         if cfg is not None and hasattr(cfg, "subscribe"):
             self.bind_config(cfg)
@@ -213,7 +241,7 @@ class JogPad(QWidget):
             self.destroyed.connect(lambda *_a, u=unsub: u())
 
     def _config_changed(self, key: str) -> None:
-        if key in (self.STEP_KEY, self.LENGTH_KEY, self.FAST_KEY):
+        if key in (self.STEP_KEY, self.LENGTH_KEY, self.FAST_KEY, self.SLOW_KEY, self.FAST_SPEED_KEY, "*"):
             try:
                 self._sync()
             except RuntimeError:          # the pad is being deleted
@@ -236,6 +264,44 @@ class JogPad(QWidget):
             self.fast.setChecked(bool(cfg.get(self.FAST_KEY, False)))
         finally:
             self._syncing = False
+        self._sync_speed()
+
+    def speed_key(self) -> str:
+        """The configuration key of the speed shown: the fast jog speed while Fast is on."""
+        return self.FAST_SPEED_KEY if self.fast.isChecked() else self.SLOW_KEY
+
+    def _sync_speed(self) -> None:
+        """The speed field shows the speed Fast chooses, within that setting's range."""
+        cfg = self.config
+        if cfg is None:
+            return
+        key = self.speed_key()
+        s = cfg.setting(key) if hasattr(cfg, "setting") else None
+        try:
+            value = float(cfg.get(key))
+        except (TypeError, ValueError):
+            self.speed_box.setVisible(False)
+            return
+        self._syncing = True
+        try:
+            from . import homes
+            self.speed.setProperty(homes.PROP_VALUE, f"cfg:{key}")
+            if s is not None and s.max:
+                self.speed.setRange(float(s.min), float(s.max))
+            self.speed.setValue(value)
+        finally:
+            self._syncing = False
+        self.speed_box.setVisible(True)
+
+    def _store_speed(self, value: float) -> None:
+        if self._syncing or self.config is None:
+            return
+        key = self.speed_key()
+        try:
+            if self.config.get(key) != value:
+                self.config.set(key, float(value))
+        except ValueError:
+            self._sync_speed()                  # refused: show the stored value again
 
     def _store(self) -> None:
         if self._syncing or self.config is None:
