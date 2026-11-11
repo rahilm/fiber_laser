@@ -85,7 +85,8 @@ def test_enter_on_the_homing_question_does_not_move(app, win):
     w = win
     _connect(app, w)
     q = w.boxes.seen[-1]
-    assert q["title"] == "Home the machine"
+    # macOS shows no window title on an alert (Qt drops it there): the bold question stands alone
+    assert q["title"] == ("" if sys.platform == "darwin" else "Home the machine")
     assert q["buttons"] and set(q["buttons"]) == {"Home now", "Not now"}
     assert q["default"] == "Not now" and q["escape"] == "Not now"
     assert not q["checkbox"], "no \"don't ask again\" on a question that moves the axes"
@@ -137,7 +138,8 @@ def test_go_to_origin_question_defaults_to_not_now(app, win):
     w.control._return_zero()                      # the jog pad's centre cell
     _pump(app, timeout=0.6)
     q = w.boxes.seen[-1]
-    assert q["title"] == "Go to origin" and q["default"] == "Not now" and not q["checkbox"]
+    assert q["title"] == ("" if sys.platform == "darwin" else "Go to origin")       # as above
+    assert q["default"] == "Not now" and not q["checkbox"]
     assert set(q["buttons"]) == {"Go to origin", "Not now"}
     assert abs(w.ctl.state().x - x0) < 1e-6
     assert w.control.DONT_ASK_KEYS == ()

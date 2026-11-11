@@ -89,7 +89,9 @@ def test_clear_alarm_history_asks_and_enter_keeps_it(app, win, monkeypatch):
     assert ws._clear_history() is False
     assert len(ws.history.entries()) == 3, "Enter cleared the alarm history"
     q = seen[-1]
-    assert q["default"] == "Cancel" and q["title"] == "Clear alarm history" and "3" in q["text"]
+    # macOS shows no window title on an alert (Qt drops it there): the bold question stands alone
+    assert q["default"] == "Cancel" and "3" in q["text"]
+    assert q["title"] == ("" if sys.platform == "darwin" else "Clear alarm history")
     assert q["roles"]["Clear history"] == QMessageBox.DestructiveRole
     monkeypatch.setattr(QMessageBox, "exec", lambda box, *a: answer_with(box, True))
     assert ws._clear_history() is True
