@@ -279,7 +279,11 @@ policy, ~3.5 s. The GUI thread never waits for it:
 * the window closes at once; the disconnect (halt first, then the worker and poller joins) ends
   on the command worker, and the exit hooks halt again synchronously. Every halt sent from its
   own thread is waited for (bounded) before the channels close, so a disconnect never ends
-  before the halts given ahead of it went out.
+  before the halts given ahead of it went out. The disconnect's events and command callbacks
+  after the main loop are dropped, never run on the worker: the window's dispatcher and
+  background calls are closed before its widgets are deleted (`ui/qtbridge.py`,
+  `release_widgets`; a window handler run there corrupted the heap, exit codes -6 / -11,
+  `tests/test_gui_teardown_threads.py`). The halts do not go through the dispatcher.
 
 ## 5. Pre-flight check
 
