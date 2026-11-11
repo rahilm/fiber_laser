@@ -292,6 +292,54 @@ OVERLAY_SYNC_CONTOURS = 300
 LOD_TINY_PX = 3.0
 
 
+class _ShiftedPoints:
+    """A contour's display points moved by (dx, dy), made when first needed (a select-all nudge
+    moves the points of every contour; most are never read before the next nudge).  Reads as
+    the list of (x, y) tuples it stands for."""
+
+    __slots__ = ("_base", "_dx", "_dy", "_list")
+
+    def __init__(self, base, dx: float, dy: float) -> None:
+        self._base, self._dx, self._dy = base, dx, dy
+        self._list: Optional[list] = None
+
+    @classmethod
+    def of(cls, pts, dx: float, dy: float) -> "_ShiftedPoints":
+        if isinstance(pts, _ShiftedPoints) and pts._list is None:   # one shift, not a chain
+            return cls(pts._base, pts._dx + dx, pts._dy + dy)
+        return cls(pts, dx, dy)
+
+    def _points(self) -> list:
+        if self._list is None:
+            dx, dy = self._dx, self._dy
+            self._list = [(x + dx, y + dy) for x, y in self._base]
+            self._base = None
+        return self._list
+
+    def __len__(self) -> int:
+        return len(self._base) if self._list is None else len(self._list)
+
+    def __bool__(self) -> bool:
+        return len(self) > 0
+
+    def __getitem__(self, k):
+        if self._list is None and isinstance(k, int):
+            x, y = self._base[k]
+            return (x + self._dx, y + self._dy)
+        return self._points()[k]
+
+    def __iter__(self):
+        return iter(self._points())
+
+    def __add__(self, other) -> list:
+        return self._points() + list(other)
+
+    def __eq__(self, other) -> bool:
+        return list(self) == list(other)
+
+    __hash__ = None   # type: ignore[assignment]
+
+
 class _LodPathItem(QGraphicsPathItem):
     """Contour item that degrades to a point when it is tiny at the current zoom."""
 
@@ -860,7 +908,9 @@ class CanvasView(QGraphicsView):
         self._built: Optional[tuple] = None   # (document, its parts, item class) of that rebuild
         self._tp_paths: Optional[tuple] = None
         self._overlay_gen = 0
-        self._overlay_job: Optional[tuple] = None        # (generation, steps) still to build   # (toolpath item ids, (cut, gap, rapid) paths)
+        self._overlay_job: Optional[tuple] = None        # (generation, steps) still to build
+        # the moves of the whole drawing since the overlay job began (_overlay_after_shift)
+        self._overlay_shift = (0.0, 0.0)   # (toolpath item ids, (cut, gap, rapid) paths)
         self._bbox_cache: dict[int, tuple[tuple, tuple]] = {}   # part uid -> (segments, bbox)
         self._order: list[tuple[int, int]] = []
         self._pan_start: Optional[QPointF] = None
@@ -1446,18 +1496,24 @@ class CanvasView(QGraphicsView):
                     or getattr(part, "raster", None) is not None):
                 return False
             updates.append((pi, part, ent))
-        if len(updates) > max(64, len(doc.parts) // 8):
+        shift = getattr(changed, "shift", None)
+        if shift is None and len(updates) > max(64, len(doc.parts) // 8):
             # many parts changed (a select-all edit): new items are cheaper than re-pathing the
             # old ones (setPath re-indexes each item: 330 ms against 125 ms at 2,700 parts)
             return False
-        self._drop_stale_overlay()
-        for it in self._overlay:
-            self._scene.removeItem(it)
-        self._overlay.clear()
         items, keys, styles = self._items, self._item_keys, self._item_styles
+        all_moved = shift is not None and len(updates) == len(doc.parts)
         for pi, part, ent in updates:
             contours = part.contours
-            paths = [_contour_path(c) for c in contours]
+            paths = None
+            if shift is not None:
+                paths = self._shifted_paths(contours, ent[2], shift)
+                if paths is not None:
+                    self._shift_bbox(part, shift)
+            moved = paths is not None
+            all_moved = all_moved and moved
+            if paths is None:
+                paths = [_contour_path(c) for c in contours]
             start = ent[3]
             for ci, (path, pts) in enumerate(paths):
                 k = start + ci
@@ -1466,12 +1522,70 @@ class CanvasView(QGraphicsView):
                     it.setPath(path)
                     keys[k] = (path, keys[k][1])
                 items[k] = (pi, ci, it, pts)
-                styles[k] = None             # contour colours depend on ``closed``: restyle
+                if not moved:
+                    styles[k] = None         # contour colours depend on ``closed``: restyle
             part_paths[part.uid] = (part, tuple(contours), paths, start)
-        self._order = self.contour_order()
         self.refresh_styles()
+        if shift is not None and self._overlay_after_shift(all_moved, shift):
+            return True
+        self._drop_stale_overlay()
+        for it in self._overlay:
+            self._scene.removeItem(it)
+        self._overlay.clear()
+        self._order = self.contour_order()
         self._build_overlay()
         return True
+
+    def _overlay_after_shift(self, all_moved: bool, shift) -> bool:
+        """The overlay after a rigid move (True: done, nothing to build).  With a toolpath shown
+        it is the plan, which a move does not change until the new plan arrives: it stays as it
+        is (but for the parts' boxes, which follow the parts).  Without one, the contour markers
+        follow the drawing: when every part moved by the same shift, its items move along (an
+        overlay still being built places its remaining items with the shift too)."""
+        o = self.options
+        if self.toolpath:
+            return not o.show_bbox and (o.show_toolpath or len(self._items) > LOD_CONTOURS)
+        if not all_moved or self._overlay_stale:
+            return False
+        dx, dy = float(shift[0]), float(shift[1])
+        for it in self._overlay:
+            it.moveBy(dx, dy)
+        if self._overlay_job is not None:
+            sx, sy = self._overlay_shift
+            self._overlay_shift = (sx + dx, sy + dy)
+        return True
+
+    #: how far a moved contour's start may be from the shifted display path's (mm): further
+    #: means the move was not the rigid shift it was announced as, and the path is made anew
+    SHIFT_TOL = 1e-6
+
+    def _shifted_paths(self, contours, old_paths, shift) -> Optional[list]:
+        """The display paths of ``contours`` after a rigid move by ``shift`` = (dx, dy): the
+        previous paths translated (perf review 2026-11 finding 6: a select-all nudge of 2,700
+        parts flattened every contour again, 70 of the canvas's 100-140 ms).  None when a
+        contour's start is not where the shift puts it (then every path is made anew)."""
+        dx, dy = float(shift[0]), float(shift[1])
+        tol = self.SHIFT_TOL
+        out = []
+        for c, (path, pts) in zip(contours, old_paths):
+            segs = c.segments
+            if not segs or not pts:
+                return None
+            sx, sy = segs[0].start
+            if abs(pts[0][0] + dx - sx) > tol or abs(pts[0][1] + dy - sy) > tol:
+                return None
+            out.append((path.translated(dx, dy), _ShiftedPoints.of(pts, dx, dy)))
+        return out
+
+    def _shift_bbox(self, part, shift) -> None:
+        """Carry the part's cached box (:meth:`part_bbox`) along a rigid move."""
+        hit = self._bbox_cache.get(part.uid)
+        if hit is None:
+            return
+        dx, dy = float(shift[0]), float(shift[1])
+        x0, y0, x1, y1 = hit[1]
+        segs = tuple(sg for c in part.contours for sg in c.segments)
+        self._bbox_cache[part.uid] = (segs, (x0 + dx, y0 + dy, x1 + dx, y1 + dy))
 
     def set_toolpath(self, items) -> None:
         """Show the real CAM toolpath (mlaser.cam.build_toolpath): cut moves including leads and
@@ -1768,8 +1882,12 @@ class CanvasView(QGraphicsView):
             color = display_layer_color(part.craft.layer)
             rit.set_color(color.lighter(160) if part.selected else color)
 
-    def _add_overlay(self, item: QGraphicsItem) -> None:
+    def _add_overlay(self, item: QGraphicsItem, follow: bool = True) -> None:
+        """``follow``: the item was placed from the points the overlay job began with; a move of
+        the whole drawing since (:attr:`_overlay_shift`) moves it along."""
         self._scene.addItem(item) if item.scene() is None else None
+        if follow and self._overlay_shift != (0.0, 0.0):
+            item.moveBy(*self._overlay_shift)
         self._overlay.append(item)
 
     def _build_overlay(self) -> None:
@@ -1780,6 +1898,7 @@ class CanvasView(QGraphicsView):
         ``toolpath_marks`` are built in slices too (:meth:`_toolpath_overlay`);
         :meth:`finish_overlay` completes the rest now."""
         self._overlay_gen += 1
+        self._overlay_shift = (0.0, 0.0)
         self._overlay_job = (self._overlay_gen, self._overlay_steps())
         if len(self._items) <= OVERLAY_SYNC_CONTOURS:
             self.finish_overlay()        # a small drawing: complete at once (deterministic)
@@ -1857,7 +1976,7 @@ class CanvasView(QGraphicsView):
                     pen = QPen(_cc("bbox"), 0, Qt.DotLine)
                     pen.setCosmetic(True)
                     r.setPen(pen)
-                    self._add_overlay(r)
+                    self._add_overlay(r, follow=False)      # (the part as it is now)
 
     def _toolpath_markers(self):
         """Per-contour markers of the plan: pierce ring, contour start, cut order number,

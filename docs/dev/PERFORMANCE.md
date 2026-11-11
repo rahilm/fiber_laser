@@ -367,8 +367,13 @@ select-all nudge driver) on the review's `doc2700.chf` / `doc300.chf`, offscreen
 | RSS after ten open / close cycles of 300 parts (idle 150 MB) | 563 MB, rising | 245 MB, flat from the second cycle |
 
 The select-all nudge keeps no part copies (`SegmentsEdit`), does not measure the selection
-extent or the part list's boxes again, and what is left is the canvas's rebuild of the moved
-items and the properties panel.  An edit plans the toolpath only; the compile follows 2 s after
+extent or the part list's boxes again.  The canvas moves its items instead of rebuilding them
+(`DocumentService.changed.shift`: the contours' display paths translated, their points shifted
+when first read, the markers moved along when every part moved, the toolpath overlay kept until
+the new plan arrives; `tests/test_canvas_nudge.py` checks the geometry and the pixels against a
+full rebuild): 34–42 ms instead of 95–145 ms plus the markers' rebuild (about 260–310 ms in
+all at 2,700 parts without a toolpath).  What is left is the properties panel and the one
+whole repaint.  An edit plans the toolpath only; the compile follows 2 s after
 the last edit (or at Start).  The import review of a drawing with more than 300 contours runs in
 a short-lived child process (`services/review_process.py`) and its messages are made in the GUI
 process (same language and units).
