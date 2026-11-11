@@ -121,14 +121,14 @@ def test_live_interlock_follows_the_input_and_the_guard(app, sim_win):
         r = _row(d, "ilk.door")
         assert r.status == CL.PENDING and r.prompt == "wizard.comm.live.door_prompt"
         row = d.panel.rows["ilk.door"]
-        assert row.status_text().startswith("…") and row.prompt.isVisible() is not None
+        assert row.chip.icon_name() == "circle-dashed" and row.status_text() == "to do" and row.prompt.isVisible() is not None
         assert row.prompt.text() == "Open the door now."
         # the operator opens the door: the card input changes, the poll publishes it
         ctl.sim.set_input(3, True)
         assert wait(app, lambda: _row(d, "ilk.door").status == CL.PASS)
         r = _row(d, "ilk.door")
         assert "cut" in r.values["refused"] and "arm" in r.values["refused"]
-        assert row.status_text().startswith("✓") and "door open seen" in row.detail.text()
+        assert row.chip.icon_name() == "circle-check" and row.status_text() == "pass" and "door open seen" in row.detail.text()
         assert "cutting jobs" in row.detail.text() and row.prompt.text() == "Close the door again."
         # the guard really refuses while the door is open (arming is refused by the interlock)
         assert not ctl.arm(reason="test") and not ctl.state().armed
@@ -227,7 +227,7 @@ def test_scaling_mismatch_adopt_the_cards_values(app, mismatch_win):
         assert r.status == CL.FAIL and r.fixes == ("import_params", "adopt_scaling")
         assert r.values["which"] == "X, Y" and r.values["card_x"] == 200.0 and r.values["par_x"] == 100.0
         row = d.panel.rows["scaling"]
-        assert row.status_text().startswith("✗") and "Card and parameters differ" in row.detail.text()
+        assert row.chip.icon_name() == "circle-x" and row.status_text() == "fail" and "Card and parameters differ" in row.detail.text()
         assert row.buttons["adopt_scaling"].text() == "Adopt the card's values"
         assert row.buttons["import_params"].isEnabled() and row.buttons["adopt_scaling"].isEnabled()
         row.buttons["adopt_scaling"].click()

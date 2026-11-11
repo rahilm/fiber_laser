@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayo
 
 from mlaser.services import settings_import as SI
 
-from .. import style
+from .. import icons, style
 from .common import T
 
 AREA_KEYS = {"params": "wizard.import.area_params", "layers": "wizard.import.area_layers",
@@ -90,7 +90,7 @@ class SettingsImportDialog(QDialog):
                                    T(window, "wizard.import.c_safety")])
         self.tree.setAccessibleName(T(window, "wizard.import.preview"))
         lay.addWidget(self.tree, 1)
-        self.status = QLabel()
+        self.status = style.IconLabel()               # a warning: after its icon, never a glyph
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(self.status)
@@ -127,7 +127,7 @@ class SettingsImportDialog(QDialog):
         inst = self.install.text().strip() or None
         pd = self.params.text().strip() or None
         if inst is None and pd is None:
-            self.status.setText("⚠ " + T(self.w, "wizard.import.choose"))
+            style.set_status(self.status, style.warning_text(T(self.w, "wizard.import.choose")))
             return None
         return self._fill(SI.preview(inst, self.config, pd))
 
@@ -152,7 +152,7 @@ class SettingsImportDialog(QDialog):
         self.tree.clear()
         self.b_apply.setText(T(self.w, "wizard.import.restore" if plan.kind == "backup" else "wizard.import.apply"))
         if plan.errors:
-            self.status.setText("⚠ " + "; ".join(plan.errors))
+            style.set_status(self.status, style.warning_text("; ".join(plan.errors)))
             self.b_apply.setEnabled(False)
             return plan
         by = plan.by_area()
@@ -169,6 +169,8 @@ class SettingsImportDialog(QDialog):
             top = QTreeWidgetItem([T(self.w, AREA_KEYS[area]), T(self.w, "wizard.import.count", n=n), "", "",
                                    T(self.w, "wizard.import.safety_count", n=nsafe) if nsafe else ""])
             top.setData(0, Qt.UserRole, area)
+            if nsafe:
+                top.setIcon(4, icons.icon("alert-triangle", "warning"))
             top.setFlags(top.flags() | Qt.ItemIsUserCheckable)
             top.setCheckState(0, Qt.Checked if area in avail else Qt.Unchecked)
             if area not in avail:
@@ -179,8 +181,9 @@ class SettingsImportDialog(QDialog):
                 label = self._label(c)
                 cat = SI.safety_category(c.key) if area == "params" else ""
                 it = QTreeWidgetItem([c.key, label, _value(c.old, c.unit, c.key), _value(c.new, c.unit, c.key),
-                                      ("⚠ " + T(self.w, f"wizard.import.safety_{cat}")) if cat else ""])
+                                      T(self.w, f"wizard.import.safety_{cat}") if cat else ""])
                 if cat:
+                    it.setIcon(4, icons.icon("alert-triangle", "warning"))
                     it.setData(0, Qt.UserRole, "safety")
                     f = it.font(0)
                     f.setBold(True)
@@ -201,12 +204,12 @@ class SettingsImportDialog(QDialog):
             head = T(self.w, "wizard.import.comparing", path=str(plan.files.get("config", "")))
             if not plan.changes:
                 head += "\n" + T(self.w, "wizard.import.no_difference")
-            self.status.setText(head)
+            style.set_status(self.status, head)
         else:
             warn = [T(self.w, f"wizard.import.warn_{w}") if w == "no_params" else w for w in plan.warnings]
             src = [f"{k}: {v}" for k, v in plan.files.items()]
-            self.status.setText(T(self.w, "wizard.import.found", n=len(plan.files)) + "  " + "; ".join(src)
-                                + (("\n⚠ " + "; ".join(warn)) if warn else ""))
+            found = T(self.w, "wizard.import.found", n=len(plan.files)) + "  " + "; ".join(src)
+            style.set_status(self.status, style.warning_text(found + "\n" + "; ".join(warn)) if warn else found)
         self.b_apply.setEnabled(bool(avail))
         return plan
 
@@ -258,19 +261,19 @@ class SettingsImportDialog(QDialog):
         if not areas:
             return None
         if confirm and not self.confirm(areas):
-            self.status.setText(T(self.w, "wizard.import.cancelled"))
+            style.set_status(self.status, T(self.w, "wizard.import.cancelled"))
             return None
         try:
             self.result = res = SI.apply(self.plan, self.config, areas)
         except SI.WriteBackError as e:
-            self.status.setText("⚠ " + str(e))
+            style.set_status(self.status, style.warning_text(str(e)))
             return None
         txt = T(self.w, "wizard.import.done", areas=", ".join(f"{T(self.w, AREA_KEYS[a])} ({n})"
                                                                  for a, n in res.applied.items()) or "–")
         if res.config_backup is not None:
             txt += "\n" + T(self.w, "wizard.import.backup", path=str(res.config_backup))
         if res.errors:
-            txt += "\n⚠ " + "; ".join(res.errors)
+            txt += "\n" + "; ".join(res.errors)
         if "lang" in res.applied:
             tr = getattr(self.w, "tr_", None)
             if tr is not None:
@@ -278,7 +281,7 @@ class SettingsImportDialog(QDialog):
         if "params" in res.applied and self._connected():
             txt += "\n" + T(self.w, "wizard.import.reconnect_needed")
             self.b_reconnect.setVisible(True)
-        self.status.setText(txt)
+        style.set_status(self.status, style.warning_text(txt) if res.errors else txt)
         self.b_apply.setEnabled(False)
         return res
 
