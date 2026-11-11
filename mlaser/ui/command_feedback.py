@@ -152,13 +152,8 @@ def _copied(w: Any, cmd: str, result: Any) -> Optional[tuple[str, str, dict]]:
 
 
 def _hold(w: Any, cmd: str, result: Any) -> Optional[tuple[str, str, dict]]:
-    ctl = getattr(w, "ctl", None)
-    try:
-        mode = ctl.state().mode if ctl is not None else ""
-        active = bool(ctl.job_active()) if ctl is not None else False
-    except Exception:  # noqa: BLE001
-        return None
-    if active or mode in ("process", "dry_run", "frame", "pause"):
+    from .run_rules import job_running
+    if job_running(w):                  # the job's phase (arch A1); unreadable: no message
         return None
     return "feedback.hold_idle", "No job is running: nothing to hold", {}
 

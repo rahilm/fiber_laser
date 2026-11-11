@@ -2,9 +2,10 @@
 
 * :func:`resume` passes the open document to ``ctl.resume(mode, document=...)``, so a
   breakpoint left by another document is refused by the controller (MachineAPI).
-* :func:`moving` is "a job is actually streaming": ``job_active()`` also counts a pending
-  breakpoint (the document lock holds until it is resolved), so it cannot tell a paused or
-  stopped job from a running one.
+* :func:`moving` is "a job owns the card" (starting, streaming or being stopped), from the
+  job's phase (:attr:`mlaser.ui.run_rules.JobView.owns_card`, review 2026-11-09 arch A1):
+  ``job_active()`` also counts a held job and a pending breakpoint, so it cannot tell a held
+  job from a running one.  A phase that cannot be read counts as moving (nothing resumes).
 """
 from __future__ import annotations
 
@@ -18,10 +19,8 @@ def resume(ctl: Any, mode: str = "exact", document: Any = None) -> Any:
 
 
 def moving(ctl: Any) -> bool:
-    try:
-        return ctl.state().mode in RUNNING_MODES
-    except Exception:  # noqa: BLE001 - a controller that cannot say counts as moving
-        return True
+    from .run_rules import job_view
+    return job_view(ctl).owns_card
 
 
 __all__ = ["resume", "moving", "RUNNING_MODES"]
