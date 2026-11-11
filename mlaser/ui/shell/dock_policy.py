@@ -374,12 +374,14 @@ class DockPolicy(QObject):
         does not get the height it needs although that minimum says it does (a page's minimum
         is capped by the screen: a window as tall as the screen, 1280 x 800 on an 800 px screen
         with a larger font), the window's height plus what the page lacks, so the docks under
-        the page make room for it instead of the page scrolling (side docks unfolded only)."""
+        the page make room for it instead of the page scrolling.  Also with the side docks
+        folded (683 x 875 on Windows: the Library short by 25 px with two docks under it), unless
+        the folded side group, holding the bottom docks' minimum widths, would leave the page
+        less than its width (:meth:`_squeezes_page`): there only the window's own minimum
+        decides."""
         need = self.w.minimumSizeHint().height()
         central = self.w.centralWidget()
-        if central is None or self.folded is not None:
-            # a narrow window's folded side group would take the bottom docks' minimum widths
-            # from the page: there only the window's own minimum decides
+        if central is None:
             return need
         bottom = [d for d in self.docks() if d.isVisible() and not d.isFloating()
                   and self.w.dockWidgetArea(d) == Qt.BottomDockWidgetArea]
@@ -398,19 +400,38 @@ class DockPolicy(QObject):
             room = a.contentsRect().size()
             page = a.need(room.width())
             if a._cap(page).height() < page.height():          # the cap hides the page's need
-                if grow > 0:
-                    # the room left in the middle for the page (and the canvas beside it, at
-                    # its minimum, when they are side by side)
-                    want = page.width() + a.verticalScrollBar().sizeHint().width()
-                    sp = a.parentWidget()
-                    while sp is not None and not hasattr(sp, "fit_orientation"):
-                        sp = sp.parentWidget()
-                    if sp is not None and getattr(sp, "mode", "") == "side" and sp.isAncestorOf(a):
-                        want += CANVAS_MIN + sp.handleWidth()
-                    if central.width() - grow < want:
-                        return need
+                if grow > 0 and central.width() - grow < self._page_width_want(a, page):
+                    return need
                 short = max(short, page.height() - room.height())
         return max(need, self.w.height() + short) if short > 0 else need
+
+    def _page_width_want(self, a, page) -> int:
+        """The room the FitArea ``a`` needs across the middle for its page (``page``: its
+        minimum size), and the canvas beside it at its minimum when they are side by side and
+        the canvas is shown (the Library hides it)."""
+        want = page.width() + a.verticalScrollBar().sizeHint().width()
+        sp = a.parentWidget()
+        while sp is not None and not hasattr(sp, "fit_orientation"):
+            sp = sp.parentWidget()
+        canvas = getattr(self.w, "canvas", None)
+        if (sp is not None and getattr(sp, "mode", "") == "side" and sp.isAncestorOf(a)
+                and canvas is not None and canvas.isVisible()):
+            want += CANVAS_MIN + sp.handleWidth()
+        return want
+
+    def _squeezes_page(self) -> bool:
+        """The docks folded under the page for what the screen cap hid (vfold ``deficit``) now
+        take, in the side group, width the page needs (the side docks folded too: a narrow
+        window, the group holds the bottom docks' minimum widths)."""
+        from ..responsive import FitArea
+        central = self.w.centralWidget()
+        if central is None:
+            return False
+        for a in central.findChildren(FitArea):
+            if a.isVisible() and a.widget() is not None:
+                if central.width() < self._page_width_want(a, a.need(a.contentsRect().width())):
+                    return True
+        return False
 
     @staticmethod
     def _page_short(central) -> int:
@@ -452,8 +473,8 @@ class DockPolicy(QObject):
         finally:
             self._moving = False
         # ``deficit``: folded for what the screen cap hid (not the window's own minimum): undone
-        # as soon as the side docks fold too (a narrow window: the side group would hold the
-        # bottom docks' minimum widths against the page)
+        # when the side docks fold too and the side group then holds the bottom docks' minimum
+        # widths against the page (a narrow window, :meth:`_squeezes_page`)
         self.vfolded = {"arrangement": bottom, "need": need, "shown": shown, "head": head,
                         "docks": [d for _a, gs, _o in bottom for g in gs for d in g],
                         "deficit": need > own}
@@ -500,7 +521,7 @@ class DockPolicy(QObject):
             new = [d for _a, gs, _o in self.arrangement() if _a == Qt.BottomDockWidgetArea
                    for g in gs for d in g]
             if (height >= rec["need"] or len(shown) < len(rec["docks"]) or new or not rec["head"].isVisible()
-                    or (rec.get("deficit") and self.folded is not None)):
+                    or (rec.get("deficit") and self.folded is not None and self._squeezes_page())):
                 self.vunfold()
                 if height < self._height_need():
                     self.vfold()                            # again, with the docks shown now

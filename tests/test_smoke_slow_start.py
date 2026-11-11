@@ -53,4 +53,4 @@ def test_smoke_test_ends_after_a_start_slower_than_its_time(tmp_path):
             p.kill()
             p.wait()
             pytest.fail("the smoke test did not end: " + err.read_text("utf-8", "replace")[-3000:])
-    assert rc == 0, err.read_text("utf-8", "replace")[-3000:]
+    assert rc == 0, f"exit code {rc}: " + err.read_text("utf-8", "replace")[-3000:]
