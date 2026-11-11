@@ -13,18 +13,22 @@ rule:
   ``armed``...: :func:`color`, :func:`css`, and :func:`styled` for a domain widget's style sheet
   that follows a theme switch;
 * **sizes**: :data:`ICON_S` / :data:`ICON_M` / :data:`ICON_L`, :data:`TARGET` (mouse),
-  :data:`TARGET_TOUCH`, :data:`TARGET_RUN` (run bar, Run screen);
+  :data:`TARGET_TOUCH`, :data:`TARGET_RUN` (run bar, Run screen); the control sizes by name
+  (:data:`SIZES`: ``mouse`` / ``touch`` / ``run``) set by :func:`control_size` and
+  :func:`size_buttons`;
 * **buttons**: :func:`button`, :func:`primary_button`, :func:`danger_button`,
   :func:`tool_button` (icon only: tooltip and accessible name required), :func:`run_button`
   (Start, Hold/Continue, STOP, Frame, Dry run, Arm laser: one source of truth for the run bar,
-  the Run screen and the wizards), :func:`button_row`;
+  the Run screen and the wizards), :func:`button_row`; every one with its control size;
+* **tabs**: :func:`tabs` (two looks: ``workspace`` touch tabs, ``dock`` native ones);
 * **forms**: :func:`form` (the platform's label alignment, rows wrap when the form is narrower
   than its widest label plus field) and :func:`form_row` (units in the field's suffix only, a
   caption hint, the reason of a disabled field);
 * :func:`section` (a heading and an inset body, no group-box frame), :class:`Dialog` /
   :func:`dialog` (the one dialog frame: title, explanation, :class:`QDialogButtonBox` in the
   platform's order, SP3 margins, size from content), :func:`table` (a stretched key column,
-  column priorities instead of a horizontal scroll bar);
+  column priorities instead of a horizontal scroll bar) and :func:`table_look` (the one table
+  recipe: header alignment, numeric columns, row height, zebra, empty-state line);
 * :func:`set_enabled`: a disabled control says why (its tooltip).
 
 ``tests/test_style_lint.py`` keeps the code on these: no colour literals outside
@@ -35,13 +39,13 @@ from __future__ import annotations
 
 import sys
 from dataclasses import dataclass
-from typing import Any, Callable, Iterable, Optional, Sequence, Union
+from typing import Any, Callable, Iterable, Optional, Sequence, TypeVar, Union
 
 from PySide6.QtCore import QEvent, QObject, QSize, Qt
 from PySide6.QtGui import QColor, QFont, QGuiApplication, QKeySequence
 from PySide6.QtWidgets import (QAbstractButton, QApplication, QDialog, QDialogButtonBox, QFormLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLayout, QPushButton, QSizePolicy,
-                               QTableWidget, QToolButton, QVBoxLayout, QWidget)
+                               QStyledItemDelegate, QTableWidget, QToolButton, QVBoxLayout, QWidget)
 
 
 # --------------------------------------------------------------------------- tokens
@@ -54,6 +58,10 @@ ICON_S, ICON_M, ICON_L = 16, 20, 28
 #: control in Operator density) / the run bar and the Run screen (STOP wider still)
 TARGET, TARGET_TOUCH, TARGET_RUN = 32, 44, 56
 STOP_EXTRA = 24            # STOP is this much wider than the other run buttons
+#: the control sizes by name (docs/dev/STYLE.md "Two control heights"): ``mouse`` at the PC,
+#: ``touch`` at the machine (Run, Nest, Orders, Report, Machine, the Control dock, the jog pad,
+#: outputs, the wizards), ``run`` for the run controls only
+SIZES = {"mouse": TARGET, "touch": TARGET_TOUCH, "run": TARGET_RUN}
 
 MARGINS = {"panel": SP3, "dialog": SP3, "dense": SP2, "dock": SP2, "tight": SP1, "none": SP0}
 
@@ -265,14 +273,56 @@ def _icon(name: Optional[str], tint: Optional[str] = None):
     return icon(name, tint)
 
 
+_W = TypeVar("_W", bound=QWidget)
+
+
+def control_size(widget: _W, size: str = "mouse") -> _W:
+    """Give a clickable control the minimum height of the named ``size`` (:data:`SIZES`:
+    ``mouse`` 32 px, ``touch`` 44 px, ``run`` 56 px): the one place a control's height is set.
+    The size is kept as the ``control_size`` property (tests: one size per row and panel)."""
+    widget.setMinimumHeight(SIZES[size])
+    widget.setProperty("control_size", size)
+    return widget
+
+
+class _SizeChildren(QObject):
+    """Keeps every push button added to a container (a :class:`QDialogButtonBox`) at one size."""
+
+    def __init__(self, box: QWidget, size: str):
+        super().__init__(box)
+        self.setObjectName("style_size_children")
+        self.size = size
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if ev.type() in (QEvent.ChildAdded, QEvent.ChildPolished) and isinstance(ev.child(), QPushButton):
+            control_size(ev.child(), self.size)
+        return False
+
+
+def size_buttons(box: _W, size: str = "mouse") -> _W:
+    """Give the push buttons of ``box`` (a :class:`QDialogButtonBox`), also the ones added later,
+    the control size ``size``; returns ``box`` (wraps the constructor in one line)."""
+    for b in box.findChildren(QPushButton):
+        control_size(b, size)
+    if box.findChild(_SizeChildren, "style_size_children", Qt.FindDirectChildrenOnly) is None:
+        box.installEventFilter(_SizeChildren(box, size))
+    return box
+
+
 def button(text: str = "", *, icon: Optional[str] = None, kind: str = "secondary",
            on_click: Optional[Callable[[], Any]] = None, tooltip: str = "",
-           parent: Optional[QWidget] = None) -> QPushButton:
+           parent: Optional[QWidget] = None, size: str = "mouse", name: str = "",
+           checkable: bool = False) -> QPushButton:
     """A push button.  ``kind``: ``secondary`` (native), ``primary`` (the default button: the one
     action a dialog or card exists for), ``danger`` (text in the danger colour; never filled:
     STOP is the only filled red button).  An icon only when every button of its group has one
-    (DESIGN.md §2)."""
+    (DESIGN.md §2).  ``size``: ``mouse`` or ``touch`` (:func:`control_size`); ``name``: the
+    object name."""
     b = QPushButton(text, parent)
+    control_size(b, size)
+    if name:
+        b.setObjectName(name)
+    b.setCheckable(checkable)
     if icon:
         b.setIcon(_icon(icon))
         b.setIconSize(QSize(ICON_M, ICON_M))
@@ -391,6 +441,7 @@ def run_button(kind: str, tr=None, on_click: Optional[Callable[[], Any]] = None,
     else:
         paint()
     keep_min_size(b, QSize(height + (STOP_EXTRA if kind == "stop" else 0), height))
+    b.setProperty("control_size", next((k for k, v in SIZES.items() if v == height), "run"))
     b.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Fixed)
     if on_click is not None:
         b.clicked.connect(lambda _=False: on_click())
@@ -577,6 +628,7 @@ class Dialog(QDialog):
         outer.addWidget(holder, 1)
         self.buttons = QDialogButtonBox(buttons)
         self.buttons.setObjectName("dialog_buttons")
+        size_buttons(self.buttons)
         if tr is not None:
             for std, key in ((QDialogButtonBox.Ok, "dialog.ok"), (QDialogButtonBox.Cancel, "dialog.cancel")):
                 b = self.buttons.button(std)
@@ -611,6 +663,41 @@ def dialog(parent: Optional[QWidget], title: str, *, explanation: str = "",
     return Dialog(parent, title, explanation=explanation, buttons=buttons, heading_text=heading_text, tr=tr)
 
 
+# --------------------------------------------------------------------------- tabs
+def touch_tab_qss() -> str:
+    """The workspace tab bar's scoped style sheet: touch-sized tabs, and a selected tab that reads
+    as selected in every theme (UX audit O11): bold text on the field colour with a 3 px bar in
+    the highlight colour along its bottom, the others on the button colour.  Palette roles only:
+    light, dark and high contrast alike."""
+    # a tab is TARGET_TOUCH tall: the content, SP1 padding above and below, 1 + 3 px borders
+    return (f"QTabBar::tab{{min-height:{TARGET_TOUCH - 2 * SP1 - 4}px;min-width:{SP5 * 4}px;"
+            f"padding:{SP1}px {SP3}px;"
+            "background:palette(button);color:palette(button-text);"
+            "border:1px solid palette(mid);border-bottom:3px solid palette(button);"
+            f"border-top-left-radius:{SP1}px;border-top-right-radius:{SP1}px;}}"
+            "QTabBar::tab:selected{background:palette(base);color:palette(text);font-weight:bold;"
+            "border-bottom:3px solid palette(highlight);}"
+            "QTabBar::tab:!selected:hover{background:palette(midlight);}")
+
+
+#: the two tab looks (docs/dev/STYLE.md "Tabs"): ``workspace`` (touch tabs for a workspace's main
+#: views: Run, Report, Nest / Orders, Process) and ``dock`` (the platform's own small tabs in
+#: document mode: docks, monitors, dialogs)
+TAB_KINDS = ("workspace", "dock")
+
+
+def tabs(widget, kind: str = "dock"):
+    """Give a :class:`QTabWidget` or :class:`QTabBar` one of the two tab looks
+    (:data:`TAB_KINDS`) and return it, so that it wraps the constructor in one line."""
+    if kind not in TAB_KINDS:
+        raise ValueError(f"unknown tab kind {kind!r}")
+    widget.setDocumentMode(True)
+    if kind == "workspace":
+        widget.setStyleSheet(touch_tab_qss())
+    widget.setProperty("tab_kind", kind)
+    return widget
+
+
 # --------------------------------------------------------------------------- tables
 @dataclass
 class Col:
@@ -619,17 +706,139 @@ class Col:
     title: str
     stretch: bool = False
     priority: int = 0
+    numeric: bool = False
 
 
-def table(columns: Sequence[Union[Col, str]], parent: Optional[QWidget] = None) -> QTableWidget:
+#: a table row is this many font heights tall (the table recipe, docs/dev/STYLE.md "Tables")
+ROW_RATIO = 1.8
+#: tables with more columns than this get alternating row colours
+ZEBRA_COLUMNS = 6
+
+
+def row_height(view: QWidget) -> int:
+    """The table recipe's row height for ``view``'s font."""
+    return round(view.fontMetrics().height() * ROW_RATIO)
+
+
+class _TableLook(QStyledItemDelegate):
+    """The table recipe's delegate: one row height, numeric columns right-aligned."""
+
+    def __init__(self, view, numeric: frozenset[int]):
+        super().__init__(view)
+        self.view = view
+        self.numeric = numeric
+
+    def initStyleOption(self, option, index) -> None:  # noqa: N802 - Qt API
+        super().initStyleOption(option, index)
+        if index.column() in self.numeric:
+            option.displayAlignment = Qt.AlignRight | Qt.AlignVCenter
+
+    def sizeHint(self, option, index) -> QSize:  # noqa: N802 - Qt API
+        sz = super().sizeHint(option, index)
+        return QSize(sz.width(), max(sz.height(), row_height(self.view)))
+
+
+class _EmptyState(QObject):
+    """The table's empty-state line: a muted caption centred in the viewport while the model has
+    no rows."""
+
+    def __init__(self, view, text: str):
+        super().__init__(view)
+        self.setObjectName("table_empty_state")
+        self.view = view
+        self.label = caption(text)
+        self.label.setObjectName("table_empty")
+        self.label.setParent(view.viewport())
+        self.label.setAlignment(Qt.AlignCenter)
+        self.label.setAttribute(Qt.WA_TransparentForMouseEvents)
+        view.viewport().installEventFilter(self)
+        self._model = None
+        self.watch()
+
+    def watch(self) -> None:
+        m = self.view.model()
+        if m is self._model:
+            return
+        self._model = m
+        if m is not None:
+            for sig in (m.rowsInserted, m.rowsRemoved, m.modelReset, m.layoutChanged):
+                sig.connect(self.refresh)
+        self.refresh()
+
+    def set_text(self, text: str) -> None:
+        self.label.setText(text)
+        self.refresh()
+
+    def refresh(self, *_a) -> None:
+        try:
+            self.watch()
+        except RuntimeError:          # the view is being destroyed (its model empties itself)
+            return
+        m = self.view.model()
+        empty = m is None or m.rowCount() == 0
+        self.label.setVisible(empty and bool(self.label.text()))
+        vp = self.view.viewport()
+        self.label.setGeometry(SP2, SP2, max(0, vp.width() - 2 * SP2), max(0, vp.height() - 2 * SP2))
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if ev.type() in (QEvent.Resize, QEvent.Show):
+            self.refresh()
+        return False
+
+
+def table_look(view, *, numeric: Iterable[int] = (), empty: str = ""):
+    """The one table recipe for every table and tree, returned so that it wraps the constructor
+    in one line: headers left-aligned (sentence case from the catalogue; a ``numeric`` column's
+    header and cells right-aligned, the unit in its header), one row height of :data:`ROW_RATIO`
+    font heights, zebra rows only when wider than :data:`ZEBRA_COLUMNS` columns, and ``empty``:
+    a muted line shown while there are no rows.  A view with its own delegate keeps it."""
+    from PySide6.QtWidgets import QTableView, QTreeView
+    num = frozenset(numeric)
+    hh = view.horizontalHeader() if isinstance(view, QTableView) else (
+        view.header() if isinstance(view, QTreeView) else None)
+    if hh is not None:
+        hh.setDefaultAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        hh.setHighlightSections(False)
+    if type(view.itemDelegate()) is QStyledItemDelegate:
+        view.setItemDelegate(_TableLook(view, num))
+    if isinstance(view, QTableView):
+        view.verticalHeader().setMinimumSectionSize(row_height(view))
+        view.verticalHeader().setDefaultSectionSize(row_height(view))
+    m = view.model()
+    view.setAlternatingRowColors(m is not None and m.columnCount() > ZEBRA_COLUMNS)
+    if num and isinstance(view, QTableWidget):
+        from PySide6.QtWidgets import QTableWidgetItem
+        for c in num:
+            if c >= view.columnCount():
+                continue
+            if view.horizontalHeaderItem(c) is None:    # setHorizontalHeaderLabels keeps the item
+                view.setHorizontalHeaderItem(c, QTableWidgetItem())
+            view.horizontalHeaderItem(c).setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+    set_empty_text(view, empty)
+    view.setProperty("table_look", True)
+    return view
+
+
+def set_empty_text(view, text: str) -> None:
+    """Set (or change, on a language switch) a :func:`table_look` view's empty-state line."""
+    st = view.findChild(_EmptyState, "table_empty_state", Qt.FindDirectChildrenOnly)
+    if st is not None:
+        st.set_text(text)
+    elif text:
+        _EmptyState(view, text)
+
+
+def table(columns: Sequence[Union[Col, str]], parent: Optional[QWidget] = None, *,
+          empty: str = "") -> QTableWidget:
     """A read-only table that never scrolls sideways for its key column (rule R2): the key
     column stretches and elides, the others hide by priority when the view is narrow
-    (:class:`mlaser.ui.responsive.ColumnFitter`), rows are selected whole."""
+    (:class:`mlaser.ui.responsive.ColumnFitter`), rows are selected whole; the rest is the
+    :func:`table_look` recipe (``empty``: the empty-state line)."""
     from PySide6.QtWidgets import QAbstractItemView
     from .responsive import ColumnFitter
     cols = [c if isinstance(c, Col) else Col(c) for c in columns]
     if not any(c.stretch for c in cols) and cols:
-        cols[0] = Col(cols[0].title, True, cols[0].priority)
+        cols[0] = Col(cols[0].title, True, cols[0].priority, cols[0].numeric)
     t = QTableWidget(0, len(cols), parent)
     t.setHorizontalHeaderLabels([c.title for c in cols])
     t.verticalHeader().hide()
@@ -643,7 +852,7 @@ def table(columns: Sequence[Union[Col, str]], parent: Optional[QWidget] = None) 
     key = next(i for i, c in enumerate(cols) if c.stretch)
     t.column_fitter = ColumnFitter(t, {i: (None if i == key else c.priority) for i, c in enumerate(cols)},
                                    stretch=key)
-    return t
+    return table_look(t, numeric=[i for i, c in enumerate(cols) if c.numeric], empty=empty)
 
 
 def walk_disabled_without_reason(root: QWidget, types: Iterable[type] = (QAbstractButton,)) -> list[QWidget]:
@@ -660,7 +869,8 @@ def walk_disabled_without_reason(root: QWidget, types: Iterable[type] = (QAbstra
 
 
 __all__ = ["SP0", "SP1", "SP2", "SP3", "SP4", "SP5", "ICON_S", "ICON_M", "ICON_L", "TARGET", "TARGET_TOUCH",
-           "TARGET_RUN", "STOP_EXTRA", "MARGINS", "TYPE_SCALE", "ROLES", "ICON_TINTS", "margins", "spacing", "vbox", "hbox",
+           "TARGET_RUN", "STOP_EXTRA", "SIZES", "control_size", "size_buttons","tabs", "touch_tab_qss", "TAB_KINDS",
+           "table_look", "set_empty_text", "row_height", "ROW_RATIO", "MARGINS", "TYPE_SCALE", "ROLES", "ICON_TINTS", "margins", "spacing", "vbox", "hbox",
            "font", "set_font", "caption", "heading", "menu_text", "shortcut_text", "color", "css",
            "state_colors", "styled", "chip", "button", "primary_button", "danger_button", "tool_button",
            "RUN_KINDS", "run_text", "run_button", "button_row", "set_enabled", "set_tooltip", "form",

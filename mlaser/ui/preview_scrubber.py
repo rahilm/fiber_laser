@@ -23,7 +23,7 @@ import numpy as np
 from PySide6.QtCore import QElapsedTimer, QEvent, QPointF, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QBrush, QColor, QFont, QPainterPath, QPen
 from PySide6.QtWidgets import (QComboBox, QFormLayout, QGraphicsEllipseItem, QGraphicsItem,
-                               QGraphicsPathItem, QHBoxLayout, QLabel, QPushButton, QSlider, QSpinBox,
+                               QGraphicsPathItem, QHBoxLayout, QLabel, QSlider, QSpinBox,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import units
@@ -263,10 +263,10 @@ class ScrubberWidget(QWidget):
         from mlaser.ui.icons import icon
 
         self._icons = (icon("player-play"), icon("player-pause"))
-        self.prev_btn = QPushButton("|◀")
-        self.play_btn = QPushButton()
+        self.prev_btn = style.button("|◀")
+        self.play_btn = style.button()
         self.play_btn.setIcon(self._icons[0])
-        self.next_btn = QPushButton("▶|")
+        self.next_btn = style.button("▶|")
         for b, key in ((self.prev_btn, "preview.prev_contour"), (self.play_btn, "preview.play"),
                        (self.next_btn, "preview.next_contour")):
             b.setToolTip(t(key))
@@ -308,7 +308,7 @@ class ScrubberWidget(QWidget):
         lab.setBuddy(self.contour)
         row2.addWidget(lab)
         row2.addWidget(self.contour)
-        self.clear_btn = QPushButton(t("preview.clear"))
+        self.clear_btn = style.button(t("preview.clear"))
         row2.addWidget(self.clear_btn)
         lay.addLayout(row2)
         self._timer = QTimer(self)
@@ -479,7 +479,7 @@ class CostCardWidget(QWidget):
         self.form = QFormLayout()
         self.form.setLabelAlignment(Qt.AlignLeft)
         lay.addLayout(self.form)
-        self.rates_btn = QPushButton(tr.tr("cost.rates"))
+        self.rates_btn = style.button(tr.tr("cost.rates"))
         lay.addWidget(self.rates_btn)
         self.labels: dict[str, QLabel] = {}
         self.card = None

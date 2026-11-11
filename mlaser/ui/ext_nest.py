@@ -21,7 +21,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QApplication, QDoubleSpinBox, QFileDialog,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMenu,
                                QMessageBox,
-                               QProgressDialog, QPushButton, QSpinBox, QTableWidget,
+                               QProgressDialog, QSpinBox, QTableWidget,
                                QTableWidgetItem, QToolButton, QVBoxLayout, QWidget)
 
 from ..model import Document
@@ -113,7 +113,7 @@ class NestPanel(QWidget):
         w = ext.window
         v = QVBoxLayout(self)
         v.addWidget(QLabel(_tr(w, "np_Part", "Part")))
-        self.parts = QTableWidget(0, 5)
+        self.parts = S.table_look(QTableWidget(0, 5))
         self.parts.setHorizontalHeaderLabels([_tr(w, "np_PartName", "Part Name"), _tr(w, "np_PartNum", "Part Num"),
                                               _trf(w, "nest.col.max"), _trf(w, "nest.col.priority"),
                                               _trf(w, "nest.col.mirror")])
@@ -122,7 +122,7 @@ class NestPanel(QWidget):
         self.parts.itemChanged.connect(self._part_edited)
         v.addWidget(self.parts)
         v.addWidget(QLabel(_tr(w, "np_Sheet", "Sheet")))
-        self.sheets = QTableWidget(0, 4)
+        self.sheets = S.table_look(QTableWidget(0, 4))
         on_units_changed(self.sheets, lambda u: (self.sheets.setHorizontalHeaderLabels(
             [_tr(w, "np_SheetName", "Sheet Name"), u.header("W", "length"), u.header("H", "length"),
              _tr(w, "np_SheetNum", "Sheet Num")]), self.refresh() if hasattr(self, "_sync") else None))
@@ -131,7 +131,7 @@ class NestPanel(QWidget):
         self.sheets.itemChanged.connect(self._sheet_edited)
         v.addWidget(self.sheets)
         v.addWidget(QLabel(_tr(w, "np_Result", "Nest Result")))
-        self.results = QTableWidget(0, 3)
+        self.results = S.table_look(QTableWidget(0, 3))
         self.results.setHorizontalHeaderLabels([_tr(w, "np_Sheet", "Sheet"), _tr(w, "np_NestPartCount", "Nested Part Num"), "%"])
         self.results.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
@@ -142,7 +142,7 @@ class NestPanel(QWidget):
                               ("mf412", "Nest Parameters", ext.params_dialog),
                               ("mf464", "Advanced Nest", ext.run),
                               ("nset_UI_Result2MainView", "Copy to main", ext.to_main)):
-            b = QPushButton(_tr(w, key, dflt))
+            b = S.button(_tr(w, key, dflt))
             b.clicked.connect(fn)
             row.addWidget(b)
         v.addLayout(row)

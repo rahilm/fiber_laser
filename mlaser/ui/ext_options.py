@@ -146,7 +146,7 @@ class PluginsDialog(Dialog):
         self.catalog = [(info, st) for info, st in catalog]
         self.allow = dict(allowlist or {})
         self.authority0 = set(authority or ())
-        self.table = QTableWidget(len(self.catalog), len(self.COLUMNS))
+        self.table = S.table_look(QTableWidget(len(self.catalog), len(self.COLUMNS)))
         self.table.setObjectName("plugins_table")
         self.table.setHorizontalHeaderLabels([_t(window, f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)

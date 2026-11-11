@@ -61,6 +61,7 @@ from mlaser.services import usermodes as um
 from mlaser.services.config import Setting
 
 from mlaser.services.units import kind_for_unit
+from mlaser.ui import style
 from mlaser.ui.units_qt import spin_for_setting
 
 
@@ -609,17 +610,17 @@ class SettingsDialog(QDialog):
         root.addLayout(body, 1)
         bottom = QHBoxLayout()
         bottom.setSpacing(GRID)
-        self.reset_page_btn = QPushButton(_t(self.tr, "settings.reset_page", "Reset page"))
+        self.reset_page_btn = style.button(_t(self.tr, "settings.reset_page", "Reset page"))
         self.reset_page_btn.setObjectName("settings_reset_page")
         self.reset_page_btn.clicked.connect(self.reset_page)
         self.reset_page_btn.setAutoDefault(False)
         bottom.addWidget(self.reset_page_btn)
         bottom.addStretch(1)
         if self.instant:
-            self.buttons = QDialogButtonBox(QDialogButtonBox.Close)
+            self.buttons = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Close))
             self.buttons.rejected.connect(self.close)
         else:
-            self.buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply)
+            self.buttons = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel | QDialogButtonBox.Apply))
             self.buttons.accepted.connect(self.accept)
             self.buttons.rejected.connect(self.reject)
             self.buttons.button(QDialogButtonBox.Apply).clicked.connect(self.apply)
@@ -667,7 +668,7 @@ class SettingsDialog(QDialog):
         for p, cmd, key in C.LINKS:
             if p != page or (self.w.commands.get(cmd) is None and cmd not in self.w.ribbon.actions):
                 continue
-            b = QPushButton(_t(self.tr, key, cmd))
+            b = style.button(_t(self.tr, key, cmd))
             b.setObjectName(f"settings_link_{cmd}")
             b.setAutoDefault(False)
             b.clicked.connect(lambda _=False, c=cmd: self._run(c))
@@ -678,7 +679,7 @@ class SettingsDialog(QDialog):
     def _home_button(self, cmd: str, label_key: str) -> Optional[QPushButton]:
         if self.w.commands.get(cmd) is None and cmd not in self.w.ribbon.actions:
             return None
-        b = QPushButton(_t(self.tr, label_key, cmd))
+        b = style.button(_t(self.tr, label_key, cmd))
         b.setObjectName(f"settings_home_{cmd}")
         b.setAutoDefault(False)
         b.setProperty("command", cmd)
@@ -1015,7 +1016,7 @@ class SettingsDialog(QDialog):
         found = self.elsewhere_matches(text)
         for s, label in found[: self.MAX_ELSEWHERE]:
             where = _t(self.tr, self.HOME_LABELS[s.home], s.home)
-            b = QPushButton(f"{label} — {where}")
+            b = style.button(f"{label} — {where}")
             b.setObjectName("settings_elsewhere_item")
             b.setFlat(True)
             b.setAutoDefault(False)

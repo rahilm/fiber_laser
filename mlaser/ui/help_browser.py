@@ -116,7 +116,7 @@ class HelpBrowser(QDialog):
 
         sp = QSplitter()
         self.side = QStackedWidget()
-        self.tree = QTreeWidget()
+        self.tree = style.table_look(QTreeWidget())
         self.tree.setHeaderHidden(True)
         self.tree.setAccessibleName(self.t("help.topics", "Topics"))
         self.tree.currentItemChanged.connect(self._tree_changed)

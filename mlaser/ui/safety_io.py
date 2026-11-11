@@ -18,7 +18,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QDoubleSpinBox,
-                               QFormLayout, QGroupBox, QLabel, QSpinBox, QVBoxLayout)
+                               QFormLayout, QLabel, QSpinBox, QVBoxLayout)
 
 from mlaser.services import safety_io as S
 from mlaser.services.config import MAX_INPUT, MAX_OUTPUT
@@ -165,9 +165,10 @@ class SafetyIODialog(QDialog):
         self.not_fitted: dict[str, QCheckBox] = {}
         self.states: dict[str, QLabel] = {}
         for src, (inp, act) in S.INTERLOCKS.items():
-            box = QGroupBox(tr(window, TITLE_KEYS[src], S.NAMES[src]))
+            box, body = style.section(tr(window, TITLE_KEYS[src], S.NAMES[src]))
             box.setObjectName(f"safety_io_{src}")
-            f = QFormLayout(box)
+            f = QFormLayout()
+            body.addLayout(f)
             sp = QSpinBox()
             sp.setObjectName(f"safety_io_{src}_input")
             sp.setRange(0, MAX_INPUT)
@@ -196,9 +197,10 @@ class SafetyIODialog(QDialog):
         self.follower.setObjectName("safety_io_follower")
         self.follower.setChecked(bool(self.cfg.get("safety.follower")))
         lay.addWidget(self.follower)
-        hb = QGroupBox(tr(window, "safety.io.heartbeat", S.NAMES["heartbeat"]))
+        hb, body = style.section(tr(window, "safety.io.heartbeat", S.NAMES["heartbeat"]))
         hb.setObjectName("safety_io_heartbeat")
-        f = QFormLayout(hb)
+        f = QFormLayout()
+        body.addLayout(f)
         self.hb_output = QSpinBox()
         self.hb_output.setObjectName("safety_io_heartbeat_output")
         self.hb_output.setRange(0, MAX_OUTPUT)
@@ -218,7 +220,7 @@ class SafetyIODialog(QDialog):
         self.message.setWordWrap(True)
         style.styled(self.message, lambda: f"color:{style.css('danger')};")
         lay.addWidget(self.message)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)

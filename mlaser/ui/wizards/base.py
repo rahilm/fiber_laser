@@ -130,7 +130,7 @@ class WizardDialog(QDialog):
 
     # ------------------------------------------------------------------ building
     def _button(self, key: str, fn, icon: str = "", color: Optional[str] = None) -> QPushButton:
-        b = QPushButton(T(self.w, key))
+        b = style.button(T(self.w, key), size="touch")
         if icon:
             b.setIcon(icons.icon(icon, color))
         b.setMinimumHeight(MIN_TARGET)

@@ -275,7 +275,7 @@ class NestWorkspace(QWidget):
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
         lv.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
-        self.parts = QTableWidget(0, len(self.PART_COLS))
+        self.parts = style.table_look(QTableWidget(0, len(self.PART_COLS)), numeric=(1, 2, 3), empty=tr(w, "nestws.parts.empty", "No parts yet"))
         self.parts.setObjectName("nestws_parts")
         self.parts.setAccessibleName(tr(w, "a11y.nest.parts", "Parts to nest"))
         self.parts.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.PART_COLS])
@@ -436,7 +436,7 @@ class NestWorkspace(QWidget):
         self.total.setWordWrap(True)
         rv.addWidget(self.total)
         rv.addWidget(self._heading(tr(w, "nestws.compare", "COMPARE RUNS")))
-        self.compare = QTableWidget(0, len(self.COMPARE_COLS))
+        self.compare = style.table_look(QTableWidget(0, len(self.COMPARE_COLS)), numeric=(1, 2, 3, 4, 5))
         self.compare.setObjectName("nestws_compare")
         self.compare.setAccessibleName(tr(w, "a11y.nest.compare", "Compare nest runs"))
         self._set_compare_headers()
@@ -521,7 +521,7 @@ class NestWorkspace(QWidget):
     def _options_panel(self) -> QWidget:
         """Nesting options (engine) and cutting strategy (sheets as cut): two compact tabs."""
         w = self.window_
-        box = QTabWidget()
+        box = style.tabs(QTabWidget())
         box.setObjectName("nestws_options")
         box.setDocumentMode(True)
         nb = QWidget()
@@ -687,7 +687,7 @@ class NestWorkspace(QWidget):
         return box
 
     def _button(self, key: str, text: str, fn, h: int = TOUCH_MIN) -> QPushButton:
-        b = QPushButton(tr(self.window_, key, text))
+        b = style.button(tr(self.window_, key, text), size="touch")
         b.setMinimumHeight(h)
         b.clicked.connect(lambda _=False: fn())
         return b
