@@ -9,10 +9,10 @@ are separate steps after it, and every repair is one undo step.
 
 ## Import review (repair)
 
-After **File → Open** or **Import** of a drawing, mlaser checks it. When it finds something, the
+After **File › Open** or **File › Import** of a drawing, mlaser checks it. When it finds something, the
 **Import review** window opens (switch this off with *Review every drawing after import*, setting
-`plugin.orders.review_after_import`; open it any time with the command **Import review**,
-`import.review`, from the command palette Ctrl+K). The pre-flight check before Start also offers
+`plugin.orders.review_after_import`; open it any time with **File › Import and export ›
+Import review**, or from the command palette, Ctrl+K). The pre-flight check before Start also offers
 it: a drawing with open contours shows one line such as *44 open contours in 22 parts* with a
 **Repair...** button.
 
@@ -60,7 +60,7 @@ with a quantity (6 gears drawn in one file are *gear ×6*). Mirror images are di
 left and a right bracket stay apart), unless the part is symmetric. Open contours that lie in no
 part are not parts; they are left out of the nest with a message (repair them first).
 
-**Nest → + From drawing** (or **Nest ▶** with no parts listed yet) opens the **Recognised parts** window: each part with a picture, its
+On the Nest workspace, **+ From drawing** (or **Nest ▶** with no parts listed yet) opens the **Recognised parts** window: each part with a picture, its
 count, its size and its holes. Choose the rule at the top, select parts and press **Merge**
 (they are one part) or **Split** (undo a grouping: identical copies become separate parts, a
 part becomes one part per object), then **Nest these**. With a selection on the canvas only the
@@ -70,7 +70,7 @@ selected objects are used.
 
 ### Several files
 
-**Nest → Import file...** accepts several files at once (and a folder in the Orders tab). Each
+On the Nest workspace, **Import file...** accepts several files at once (and a folder in the Orders tab). Each
 file's parts are recognised: a single-part file becomes one part named after the file, a file
 with several parts gives `<file>-1`, `<file>-2` ... You can also drop files on the Nest
 workspace or the Orders tab.

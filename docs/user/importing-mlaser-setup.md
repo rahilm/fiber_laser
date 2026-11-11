@@ -9,8 +9,9 @@ The original keeps the machine description in `<Mlaser>/dat/HardPara.xml`, `Manu
 the older `SystemPara.xml`): axis scale (pulses per revolution and lead), travel, speeds, IO
 wiring, the follower and the gas.
 
-In the app there is one import, the same in every user mode: **File › Import parameters from an
-Mlaser installation…** (or Machine › Import from my Mlaser installation, or the welcome sheet).
+In the app there is one import, the same in every user mode: **File › Parameters › Import
+parameters from an Mlaser installation…** (or **Machine › Import from my Mlaser installation**,
+or *Import parameters…* on the welcome sheet).
 Choose the `dat` folder (or the install folder and `%LOCALAPPDATA%\NexCut`); then:
 
 1. **Preview.** Every value that would change is listed with its current and its new value,
@@ -26,16 +27,16 @@ Choose the `dat` folder (or the install folder and `%LOCALAPPDATA%\NexCut`); the
 
 **Compare with backup or file…** in the same window lists the differences between the current
 values and a backup (or another mlaser `config.json`); **Restore these values** takes them back
-the same way. Machine › Setup › Apply asks, backs up and offers the reconnect the same way.
+the same way. **Apply** on the Machine workspace's *Setup* page asks, backs up and offers the
+reconnect the same way.
 
-For scripts: `ConfigService.import_dat("<Mlaser>/dat")` (`mlaser.services.config`) takes the
-values without a preview, and `Machine.from_dat_dir("<Mlaser>/dat")` (`mlaser.nc`) builds a
-machine for compiling jobs from the same files; `export_dat` writes the three XML files back in
-the original's format.
+For developers' scripts (no preview, no backup): `ConfigService.import_dat` and
+`Machine.from_dat_dir` in the [developer docs](../dev/ARCHITECTURE.md). Use the menu entry above
+on a machine you cut with.
 
 After the import, check the step scale with a short jog in dry-run mode (see [Safety](safety.md)).
 
-**Back up / restore parameters** (Machine menu) are separate: *Back up parameters to the motion
+**Back up / restore parameters** (**File › Parameters**) are separate: *Back up parameters to the motion
 card…* / *to a file…* store this PC's parameters there; *Restore parameters from the motion
 card…* / *from a file…* replace this PC's parameters with that copy. A restore asks first (Cancel
 the default) and saves the current parameters as `File/params-before-restore-<date>-<time>.xml`.
@@ -43,8 +44,8 @@ the default) and saves the current parameters as `File/params-before-restore-<da
 ## Card address
 
 The original stores the card's IP address in `ipAdd.ini`, with its port (`CardPort`), the link
-(`AccessType`: UDP or TCP) and the reply timeouts.  **Machine > Import Mlaser settings** stores all
-of them in the configuration (`ip` in `config.json`), together with the follower and pierce
+(`AccessType`: UDP or TCP) and the reply timeouts.  The import above (**Machine › Import from my
+Mlaser installation**) stores all of them in the configuration (`ip` in `config.json`), together with the follower and pierce
 timeouts and `DAMinVal` of the same file (as machine-profile values).  From then on `mlaser --real`,
 Reconnect, the Machine workspace's connection page and the network self-test all use that one
 address; `--host`/`--port` on the command line override it for one start, and
@@ -56,10 +57,12 @@ address; `--host`/`--port` on the command line override it for one start, and
 mlaser ships English. To use the original's translations (Simplified Chinese, Russian, German,
 Spanish, Portuguese, French, Italian, Polish, Vietnamese, Turkish):
 
-* in the app: **File → Import Language Files…**, then pick the language at the top right;
+* in the app: **File › Parameters › Import language files…** (or *Import languages…* on the
+  welcome sheet), then pick the language at the top right;
 * on the command line: `mlaser --import-lang "C:/Program Files/Mlaser" --lang zh`.
 
-The texts are copied once into the data folder; afterwards the install is no longer needed.
+The texts are copied once into `~/.mlaser/lang/` (or `lang/` in `$MLASER_DATA_DIR`); afterwards
+the install is no longer needed.
 
 ## Drawings and nest projects
 

@@ -8,7 +8,7 @@ of them off mlaser cuts exactly as before (the frozen test jobs are bit-identica
 You find them in two places:
 
 * the **Process** workspace, tab **Cutting strategy**: works on the open drawing;
-* the **Nest** workspace, **Options → Cutting strategy**: applied to every sheet that goes to
+* the **Nest** workspace, **Options**, tab *Cutting strategy*: applied to every sheet that goes to
   the queue (and to *Open sheet in Run*).
 
 **Where the settings live** (one place for each, [settings.md](settings.md)):

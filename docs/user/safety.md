@@ -64,8 +64,10 @@ limits are warnings you acknowledge.
 ## Faults
 
 A fault (lost link, card alarm, interlock, streaming problem, program error) halts the machine
-and **latches**: Start, Resume, jog and moves stay refused until you press **Reset**. Reset
-clears the card alarms, checks the interlocks and leaves the machine disarmed. A breakpoint
+and **latches**: Start, Resume, jog and moves stay refused until you press **Reset alarm** (in
+the state banner, on the Run screen or **Machine › Reset alarm**). It reads the card again and
+clears only what the card no longer reports; with the cause still there (the e-stop still
+pressed) it is refused and says why. It checks the interlocks and leaves the machine disarmed. A breakpoint
 taken at the fault is kept, so after arming you can **Resume**.
 
 ## Keys while a job runs

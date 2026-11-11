@@ -1,11 +1,12 @@
 # Design
 
-Preparing the drawing: import, draw, edit, text. *This guide is a starter; the Design workspace
-of the Wave 3 interface extends it.*
+Preparing the drawing on the **Design** workspace (`Ctrl+1`): import, draw, edit, text. Its
+toolbar holds the most used tools; every tool is also in the **Draw** and **Edit** menus and in
+the command search (`Ctrl+K`).
 
 ## Import
 
-**File → Open** or **Import** reads:
+**File › Open** or **File › Import** (`Ctrl+I`) reads:
 
 | Format | Notes |
 |---|---|
@@ -13,10 +14,10 @@ of the Wave 3 interface extends it.*
 | `.svg` | paths, shapes, `<use>`, CSS and transforms |
 | G-code | the original's G-code dialect, also scan (engraving) G-code |
 | `.chf` | Mlaser drawings, saved back byte for byte |
-| bitmap | raster engraving (**File → Bitmap**), see [Process](process.md) |
+| bitmap | raster engraving (**File › Import and export › Bitmap**), see [Process](process.md) |
 
 The import can clean up the drawing: remove duplicates, join open ends, drop tiny objects and fit
-arcs (**Process → Optimize**). After a drawing is opened, the **Import review** lists open
+arcs (**Process › Optimize**). After a drawing is opened, the **Import review** lists open
 contours (with the gap), duplicates, tiny and zero-length geometry, self-intersections and text
 that was not converted, and fixes them as one undo step: see [Import](import.md).
 
@@ -31,19 +32,20 @@ exhaust the computer; explode or simplify the blocks in the CAD program and expo
 
 ## Draw
 
-The **Draw** tab has point, line, circle (centre or 3 points), arc, ellipse, rectangle, rounded
+The **Draw** menu has point, line, circle (centre or 3 points), arc, ellipse, rectangle, rounded
 rectangle, polygon, star, polyline (with arcs), curve, text and QR code. Clicks snap to end,
 middle and centre points and circle quadrants; hold **Shift** to place a point without snapping.
 **Esc** or a right click ends the tool.
 
 ## Edit
 
-Select with a click or a window drag; move, rotate, mirror, scale, align and set the size from
-the **Common** tab. Trim and extend, explode, group and ungroup, arrays (rectangular, circular,
-fill) and common-edge joining are on the **Common** and **Process** tabs. Every edit can be
-undone (**Ctrl+Z**, ⌘Z on a Mac); **Edit → Undo** names the step it undoes ("Undo Move"). The
+Select with a click or a window drag; rotate, mirror, scale, align and set the size from the
+**Edit** menu (*Size*, *Rotate*, *Mirror*, *Align*, *Group*, *Merge*, *Explode*, *Split*), or
+type the values in the **Properties** panel. Trim and extend are in the **Draw** menu; arrays
+(rectangular, circular, fill sheet) and common-edge joining (*Share edge*) in the **Process**
+menu. Every edit can be undone (**Ctrl+Z**, ⌘Z on a Mac); **Edit › Undo** names the step it undoes ("Undo Move"). The
 arrow keys nudge the selection; a run of nudges is one undo step. The history is limited by
-memory (256 MB of copies), not by a number of steps. Opening another drawing (or **File → New**)
+memory (256 MB of copies), not by a number of steps. Opening another drawing (or **File › New**)
 can itself be undone, but the history of the drawing that was closed is let go.
 
 **Cut**, **Copy** and **Paste** (**Ctrl+X / C / V**, ⌘X / C / V) use the system clipboard: parts
@@ -67,11 +69,11 @@ The **Parts** dock lists every part of the drawing, one row each: number, name, 
 technology, size, contours, cut order and warnings (an open contour, or a layer with no cut
 settings: the warning sign beside the name, and the text in the *Warnings* column and its
 tooltip). It is a tab next to *Layer parameters* and *Properties* in Design, and next to
-*Properties* in Process; **Edit → Part list** brings it to the front. In a narrow window the
+*Properties* in Process; **Edit › Part list** brings it to the front. In a narrow window the
 least important columns hide first (contours, cut order, size, warnings text); widen the dock to
 see them again. Click a column header to sort by it.
 
-**Find a part:** **Ctrl+F** (⌘F on a Mac, also **Edit → Find part…**) puts the cursor in the
+**Find a part:** **Ctrl+F** (⌘F on a Mac, also **Edit › Find part…**) puts the cursor in the
 filter field. Type words that must all match the part number, name, layer, technology or warning
 text; `#12` is part 12 exactly; `>50` and `<50` compare the larger side of the part with 50 (in
 the display units). **All layers** picks one layer, **Warnings only** shows the parts with a
@@ -89,7 +91,7 @@ through the rows (they do not nudge the parts there); **Esc** goes back to the f
 
 ## Text
 
-**Draw → Text** writes text as cuttable outlines. The font is bundled with mlaser (Noto Sans SC,
+**Draw › Text** writes text as cuttable outlines. The font is bundled with mlaser (Noto Sans SC,
 which covers Latin and Chinese), so the same text gives the same geometry on every computer.
 DXF TEXT and MTEXT use the same bundled font unless the drawing names a font file that is
 installed. To use an installed font, pick it explicitly in the Text dialog. The original's

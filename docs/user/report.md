@@ -1,6 +1,6 @@
 # Report workspace: production, time, cost, alarms
 
-Open it with `workspace.report`.
+Open it with **Report** in the rail, **Workspace › Report** or `Ctrl+5`.
 
 Every finished cutting job and dry run (completed or stopped) is recorded from the controller's job events:
 start and end time, actual and estimated time, cut and rapid length, pierces, sheet size,
