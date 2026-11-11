@@ -14,6 +14,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from crash_tail import crash_tail
 
 pytest.importorskip("PySide6")
 
@@ -42,7 +43,7 @@ def test_smoke_test_ends_after_a_start_slower_than_its_time(tmp_path):
                    ("MLASER_APP_DIR", "app"), ("MLASER_RUNTIME_DIR", "run")):
         env[k] = str(tmp_path / sub)
     env.update(QT_QPA_PLATFORM="offscreen", MLASER_NO_FIRSTRUN="1", MLASER_SINGLE_INSTANCE="0",
-               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT))
+               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT), PYTHONFAULTHANDLER="1")
     err = tmp_path / "err.txt"
     with open(err, "wb") as fe:
         p = subprocess.Popen([sys.executable, "-c", SCRIPT], cwd=str(tmp_path), env=env,
@@ -52,5 +53,7 @@ def test_smoke_test_ends_after_a_start_slower_than_its_time(tmp_path):
         except subprocess.TimeoutExpired:
             p.kill()
             p.wait()
-            pytest.fail("the smoke test did not end: " + err.read_text("utf-8", "replace")[-3000:])
-    assert rc == 0, f"exit code {rc}: " + err.read_text("utf-8", "replace")[-3000:]
+            pytest.fail("the smoke test did not end: " + err.read_text("utf-8", "replace")[-3000:]
+                        + crash_tail(tmp_path / "log"))
+    assert rc == 0, (f"exit code {rc}: " + err.read_text("utf-8", "replace")[-3000:]
+                     + crash_tail(tmp_path / "log"))
