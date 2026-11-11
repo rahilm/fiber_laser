@@ -92,8 +92,8 @@ class _RunRouter:
     #: machine disarms it again when the start is refused, UX audit C1)
     reports_start_result = True
 
-    def start(self, document=None, selected_only: bool = False, on_result=None) -> None:
-        self._w.run_job("process", selected_only, on_result=on_result)
+    def start(self, document=None, selected_only: bool = False, on_result=None, contours=None) -> None:
+        self._w.run_job("process", selected_only, on_result=on_result, contours=contours)
 
     def dry_run(self, document=None) -> None:
         self._w.run_job("dry_run")
@@ -1116,16 +1116,22 @@ class MainWindow(QMainWindow):
     def toolpath(self, items) -> None:
         self._set_toolpath(items or [])
 
-    def run_job(self, mode: str = "process", selected_only: bool = False, on_result=None) -> None:
+    def run_job(self, mode: str = "process", selected_only: bool = False, on_result=None,
+                contours=None) -> None:
         """Start (``process``), Dry Cut (``dry_run``) or Frame (``frame``) with the planned job:
         the plan for the current inputs (normally the cached preview plan) goes to the
-        controller; a compile, when one is needed, runs in the worker, never here."""
+        controller; a compile, when one is needed, runs in the worker, never here.
+        ``contours``: only these (part, contour) pairs ("Cut this contour again",
+        :func:`mlaser.services.jobs.build_request`)."""
         ctl = self.ctl
         doc = self.document
         from .resume import moving, resume
         # job_active() also counts a pending breakpoint (Safety core): "not streaming" is the test
         report = on_result if callable(on_result) else (lambda ok, msg: None)
         if mode == "process" and ctl.breakpoint is not None and not moving(ctl):
+            if contours is not None:            # never a resume in place of the contour asked for
+                report(False, "a job is held at a breakpoint")
+                return
             resume(ctl, "exact", doc)
             report(True, "resume")
             return
@@ -1136,7 +1142,8 @@ class MainWindow(QMainWindow):
             report(False, msg)
             return
         try:
-            req = build_request(mode, self.docs, ctl, self.machine, self.cam_params, selected_only)
+            req = build_request(mode, self.docs, ctl, self.machine, self.cam_params, selected_only,
+                                contours=contours)
         except Exception as exc:
             report(False, str(exc))
             raise

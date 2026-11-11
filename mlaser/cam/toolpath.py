@@ -546,6 +546,15 @@ def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
     else:
         order = order_nodes([n for n in nodes], prm.sort_mode, prm.small_first, prm.origin)
     order = [n for n in order if id(n) in prepared]
+    # "Cut this contour again" (Run screen, UX deep review 5): the job keeps only the listed
+    # (part, contour) keys, chosen after the whole drawing's containment tree, leads and sort,
+    # so each kept contour is cut exactly as in the full job; fly-cut and raster parts are not
+    # contours and are left out.  Absent (every other job): no change.
+    only = doc.extra.get("only_contours") if isinstance(doc.extra, dict) else None
+    if only is not None:
+        keep = {(int(k[0]), int(k[1])) for k in only}
+        order = [n for n in order if n.key in keep]
+        raster_parts = set()
     rapid_paths = None
     order, tip_risk = _strategy_order(doc, order)
     if (prm.avoid_cut or tip_risk) and order:
@@ -594,7 +603,7 @@ def _build_toolpath(doc: Document, machine_params=None) -> list[MotionItem]:
             items.append(Follow(False))
         pos = pc.exit
     pos, layer = emit_raster_parts(doc, raster_parts, prm, items, pos, layer)
-    for pi in sorted(scan_parts - raster_parts):
+    for pi in sorted(scan_parts - raster_parts) if only is None else ():
         part = doc.parts[pi]
         lp = doc.layers.get(part.craft.layer, LayerParams(index=part.craft.layer, speed=prm.default_feed))
         for k, path in enumerate(scan_paths_of_part(part)):

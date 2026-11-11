@@ -58,6 +58,7 @@ press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) work
 | - | Nest | `Ctrl+3` | `⌘3` | main window |
 | - | Next / previous control | `Tab / Shift+Tab` | `Tab / ⇧⇥` | anywhere |
 | - | Pan the view | `Middle button drag` | `Middle button drag` | canvas focused |
+| - | Pick the next / previous contour (after a job) | `← / →` | `← / →` | Run live view |
 | - | Preferences… | `Ctrl+,` | `⌘,` | main window |
 | - | Report | `Ctrl+5` | `⌘5` | main window |
 | - | Reset layout | `Ctrl+Shift+F12` | `⌥⌘0` | main window |
@@ -65,6 +66,7 @@ press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) work
 | - | Select the next / previous / first / last part | `PgDn / PgUp / Home / End` | `PgDn / PgUp / Home / End` | canvas focused |
 | - | Stop the job | `Esc` | `Esc` | while a job runs |
 | - | Stop the job | `F12` | `F12` | anywhere |
+| - | The picked contour's menu: Cut this contour again | `Menu / Shift+F10` | `Menu / ⇧F10` | Run live view |
 | - | User mode... | `Ctrl+Shift+M` | `⇧⌘M` | main window |
 | - | Zoom about the cursor | `Wheel` | `Wheel` | canvas focused |
 | - | Minimize | - | `⌘M` | main window |
