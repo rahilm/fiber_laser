@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from crash_tail import crash_tail
 
 pytest.importorskip("PySide6")
 
@@ -35,8 +36,9 @@ def test_main_deletes_its_top_level_widgets_before_the_exit(tmp_path):
                    ("MLASER_APP_DIR", "app"), ("MLASER_RUNTIME_DIR", "run")):
         env[k] = str(tmp_path / sub)
     env.update(QT_QPA_PLATFORM="offscreen", MLASER_NO_FIRSTRUN="1", MLASER_SINGLE_INSTANCE="0",
-               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT))
+               MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT), PYTHONFAULTHANDLER="1")
     p = subprocess.run([sys.executable, "-c", SCRIPT], cwd=str(tmp_path), env=env,
                        stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, timeout=150)
     err = p.stderr.decode("utf-8", "replace")
-    assert "LEFT 0 " in err and p.returncode == 0, f"exit code {p.returncode}: {err[-3000:]}"
+    assert "LEFT 0 " in err and p.returncode == 0, (f"exit code {p.returncode}: {err[-3000:]}"
+                                                    + crash_tail(tmp_path / "log"))
