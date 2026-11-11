@@ -727,11 +727,22 @@ class LogPanel(QTabWidget):
         return QSize(800, 140)
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
-        # the tab bar and two lines of the log (a list scrolls; Qt's 70 px for a scroll area
-        # took the room a page needs on a 1280 x 800 screen with a taskbar)
+        # the tab bar alone: the log gives way to a page that lacks the room (a list scrolls;
+        # Qt's 70 px for a scroll area, and then two lines of the log at a 12 pt font, took
+        # the room the Nest and Report pages need on a 1280 x 800 screen with a taskbar).  The
+        # dock keeps its preferred height wherever the page does not need it (DockPolicy)
         s = super().minimumSizeHint()
-        lines = self.text.fontMetrics().lineSpacing() * 2 + 2 * self.text.frameWidth() + 8
-        return QSize(s.width(), min(s.height(), self.tabBar().sizeHint().height() + lines))
+        return QSize(s.width(), min(s.height(), self.tabBar().sizeHint().height() + 2 * self.text.frameWidth() + 4))
+
+    def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().resizeEvent(ev)
+        # given way to a page (minimumSizeHint): no scroll bar squeezed into a line or two
+        # (the wheel and the keys still scroll; Help's log viewer shows it all)
+        room = self.height() - self.tabBar().sizeHint().height() - 2 * self.text.frameWidth()
+        short = room < 3 * self.text.fontMetrics().lineSpacing()
+        want = Qt.ScrollBarAlwaysOff if short else Qt.ScrollBarAsNeeded
+        if self.text.verticalScrollBarPolicy() != want:
+            self.text.setVerticalScrollBarPolicy(want)
 
     def log(self, msg: str) -> None:
         # "<key>" -> its text; "<key>: detail" -> "<text>: detail"; an opaque key of the
