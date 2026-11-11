@@ -203,7 +203,7 @@ def test_commissioning_wizard_checklist(app, win):
     texts = {rid: r.status_text() for rid, r in d.panel.rows.items()}
     assert all(texts.values()), texts
     for rid in ("connection", "alarms", "scaling", "homing", "jog_x", "jog_y"):
-        assert rows[rid].status == "pass" and texts[rid].startswith("✓"), (rid, rows[rid])
+        assert rows[rid].status == "pass" and d.panel.rows[rid].chip.icon_name() == "circle-check", (rid, rows[rid])
     assert rows["soft_limits"].status == "warn"
     for src in ("door", "gas", "laser"):                       # not configured: flagged, with the fix
         assert rows[f"ilk.{src}"].status == "warn" and rows[f"ilk.{src}"].fixes == (f"safety_io:{src}",)

@@ -132,6 +132,8 @@ COMMAND_ICONS: dict[str, str] = {
     "jog_Y+": "arrow-up", "jog_Y-": "arrow-down", "jog_X-": "arrow-left", "jog_X+": "arrow-right",
     "jog_Z+": "arrow-bar-to-up", "jog_Z-": "arrow-bar-to-down",
     "jog_zero": "focus-centered", "jog_home_z": "home",
+    # the preview scrubber's contour steps (preview_scrubber.py)
+    "preview_prev_contour": "player-skip-back", "preview_next_contour": "player-skip-forward",
     "run.start": "player-play", "run.pause": "player-pause", "run.stop": "player-stop",
 }
 

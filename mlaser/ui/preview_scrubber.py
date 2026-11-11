@@ -260,13 +260,14 @@ class ScrubberWidget(QWidget):
         lay = QVBoxLayout(self)
         style.margins(lay, "tight")
         row = QHBoxLayout()
-        from mlaser.ui.icons import icon
+        from mlaser.ui.icons import COMMAND_ICONS, icon
 
         self._icons = (icon("player-play"), icon("player-pause"))
-        self.prev_btn = style.button("|◀")
+        # three icon buttons, the words in the tooltip and the accessible name (never a glyph)
+        self.prev_btn = style.button(icon=COMMAND_ICONS["preview_prev_contour"], name="preview_prev_contour")
         self.play_btn = style.button()
         self.play_btn.setIcon(self._icons[0])
-        self.next_btn = style.button("▶|")
+        self.next_btn = style.button(icon=COMMAND_ICONS["preview_next_contour"], name="preview_next_contour")
         for b, key in ((self.prev_btn, "preview.prev_contour"), (self.play_btn, "preview.play"),
                        (self.next_btn, "preview.next_contour")):
             b.setToolTip(t(key))
@@ -508,7 +509,7 @@ class CostCardWidget(QWidget):
                 if ln.kind == "estimate":
                     txt = "≈ " + txt
             if ln.kind == "missing":
-                txt += f" <span style='color:{style.css('warning')}'>⚠ {note}</span>" if note else ""
+                txt += f" <span style='color:{style.css('warning')}'>{note}</span>" if note else ""
             elif note:
                 txt += f" <small>({note})</small>"
             lab.setText(txt)

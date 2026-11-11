@@ -284,13 +284,26 @@ def views(win, app, deep: bool = True):
 
 def _sub_views(page, app, label: str):
     """Views behind a navigation list or a section combo (``responsive_views``: the Machine
-    sections, the Setup sections) and panels behind a toggle (``responsive_views`` on a
+    sections, the Setup sections), pages behind a tab bar (``responsive_views`` on a QTabBar:
+    Process › Drawing | Library) and panels behind a toggle (``responsive_views`` on a
     checkable button: the Nest options)."""
-    from PySide6.QtWidgets import QAbstractButton, QComboBox, QListWidget
+    from PySide6.QtWidgets import QAbstractButton, QComboBox, QListWidget, QTabBar
+    for bar in page.findChildren(QTabBar):
+        if not bar.property("responsive_views") or not bar.isVisible():
+            continue
+        cur = bar.currentIndex()
+        for i in range(bar.count()):
+            if i == cur:
+                continue
+            bar.setCurrentIndex(i)
+            _pump(app)
+            yield f"{label}/{bar.objectName()}/{i}"
+        bar.setCurrentIndex(cur)
+        _pump(app)
     for b in page.findChildren(QAbstractButton):
         if b.property("responsive_views") and b.isVisible() and b.isCheckable() and not b.isChecked():
-            # a page switch (an exclusive group: Process › Drawing | Library) goes back to the
-            # button that was checked; a toggle (the Nest options) is unchecked again
+            # a page switch (an exclusive group) goes back to the button that was checked; a
+            # toggle (the Nest options) is unchecked again
             grp = b.group()
             prev = grp.checkedButton() if grp is not None and grp.exclusive() else None
             b.setChecked(True)

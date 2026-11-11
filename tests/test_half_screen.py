@@ -288,7 +288,7 @@ def test_process_pages_fit_half_screen(win, app, size):
     page are tabs), and the Library keeps the window's height (its record list and editor are
     tabs, the "Used by" line elided; the docks under the page join the side docks' tab group
     when the window is short for them).  The window never grows."""
-    from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea
+    from PySide6.QtWidgets import QAbstractScrollArea
     from mlaser.ops import demo_document
     from mlaser.ui.shell.workspace_host import CANVAS_MIN_H
     from PySide6.QtCore import QEvent, QObject
@@ -314,14 +314,12 @@ def test_process_pages_fit_half_screen(win, app, size):
     win.resize(*size)
     settle(app)
     page = win.shell.host.pages["process"]
-    pages = sorted((b for b in win.findChildren(QAbstractButton) if b.objectName().startswith("process_page_")),
-                   key=lambda b: b.objectName())
-    assert pages
-    for b in pages:
+    bar = next(b for b in win.findChildren(QTabBar) if b.objectName() == "process_pages")
+    for i in range(bar.count()):
         if page.view_tabs.isVisible():
-            page.view_tabs.setCurrentIndex(1)             # the page's tab, to reach its buttons
+            page.view_tabs.setCurrentIndex(1)             # the page's tab, to reach its tabs
             settle(app, 0.2)
-        b.setChecked(True)
+        bar.setCurrentIndex(i)
         settle(app)
         scrolling = [a.objectName() for a in win.findChildren(QAbstractScrollArea)
                      if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
@@ -336,12 +334,12 @@ def test_process_pages_fit_half_screen(win, app, size):
             pol = win.shell.dock_policy
             under = [(d.objectName(), d.height()) for d in win.shell.host.docks()
                      if d.isVisible() and not d.isFloating() and win.dockWidgetArea(d) == Qt.BottomDockWidgetArea]
-            print("SCROLLING", b.objectName(), "splitter", sp.mode if sp is not None else None,
+            print("SCROLLING", bar.tabText(i), "splitter", sp.mode if sp is not None else None,
                   sp.sizes() if sp is not None else None, sp.height() if sp is not None else None,
                   sp.page_height() if sp is not None else None, "min", win.minimumSize().toTuple(),
                   win.minimumSizeHint().toTuple(), "folded", pol.folded is not None,
                   "vfolded", pol.vfolded is not None, "under", under)
-        assert not scrolling, (size, b.objectName(), scrolling, [
+        assert not scrolling, (size, bar.tabText(i), scrolling, [
             (a.objectName(), a.viewport().height(), a.widget().minimumSizeHint().height(),
              a.widget().sizeHint().height(),
              a.need(a.viewport().width()).height() if isinstance(a, FitArea) else None,
@@ -351,7 +349,7 @@ def test_process_pages_fit_half_screen(win, app, size):
             and getattr(a, "widget", lambda: None)() is not None])
         if win.size().toTuple() != size:
             # the details in full in the captured output (the assertion's repr is cut)
-            print("HEIGHTS", b.objectName(), win.size().toTuple(), win.minimumSize().toTuple(),
+            print("HEIGHTS", bar.tabText(i), win.size().toTuple(), win.minimumSize().toTuple(),
                   win.minimumSizeHint().toTuple())
             for row in heights(win):
                 print("HEIGHTS", *row)
@@ -360,13 +358,13 @@ def test_process_pages_fit_half_screen(win, app, size):
                   "vfolded", pol.vfolded is not None, "user size", win.shell.host.user_size.size)
             for row in log.rows:
                 print("LOG", *row)
-        assert win.size().toTuple() == size, (b.objectName(), win.size(), win.minimumSize())
+        assert win.size().toTuple() == size, (bar.tabText(i), win.size(), win.minimumSize())
         if page.view_tabs.isVisible():
             page.view_tabs.setCurrentIndex(0)             # the canvas's tab: the whole height
             settle(app, 0.2)
         if win.canvas.isVisible():
-            assert win.canvas.height() >= CANVAS_MIN_H, (size, b.objectName(), win.canvas.height())
-    pages[0].setChecked(True)
+            assert win.canvas.height() >= CANVAS_MIN_H, (size, bar.tabText(i), win.canvas.height())
+    bar.setCurrentIndex(0)
     settle(app, 0.2)
 
 
