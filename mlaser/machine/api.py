@@ -172,6 +172,7 @@ class MachineAPI(Protocol):
     def wait_job(self, timeout: float = 60.0) -> bool: ...
     def job_active(self) -> bool: ...
     def job_phase(self) -> JobPhase: ...
+    def head_position(self, fresh: bool = False) -> tuple[float, float]: ...
     def clear_alarms(self) -> None: ...
 
     # -- queued operator commands (card I/O off the GUI thread, issue #5) --
@@ -499,6 +500,13 @@ class ControllerFacade(ABC):
 
     def homed_xy(self) -> Optional[bool]:
         return bool(self.state().homed)
+
+    def head_position(self, fresh: bool = False) -> tuple[float, float]:
+        """The head's X/Y in mm: the position of the last status poll, or with ``fresh`` (a
+        card read: never on the GUI thread) the position read from the card now, when no job
+        owns the link.  This default has only the state's."""
+        s = self.state()
+        return float(s.x), float(s.y)
 
     def layer_table(self):
         return getattr(self, "layers", None)

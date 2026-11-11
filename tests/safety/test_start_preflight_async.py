@@ -248,3 +248,39 @@ def test_a_head_that_never_rests_ends_in_a_report_not_in_a_loop(sim_win, app, di
     assert len(built) == SafetyUI.PREFLIGHT_HEAD_RETRIES + 1, built
     assert not _armed(ctl) and not ctl.job_active(), "a job planned from another place was started"
     assert [d["kind"] for d in dialogs] == ["PreflightDialog"]      # refused once, before any arming
+
+
+def test_the_check_reads_the_head_from_the_card_not_from_the_last_poll(sim_win, app, dialogs, monkeypatch):
+    """The other face of the same press (macOS CI): the poll's position was behind at the press
+    and still behind when the check ran, so the check passed, the operator armed, and the
+    controller's start gate (which reads the card) refused: "the head is at (150.00, 67.52) mm
+    but the job starts at (150.00, 69.94) mm".  The check's worker reads the card itself."""
+    from mlaser.services import jobs as J
+    w, ctl = sim_win, sim_win.ctl
+    w.set_document(_edge_doc(kerf=False))
+    w._test_no_dialogs = False
+    assert ctl.wait_commands(10)
+    card = ctl.head_position(fresh=True)
+    assert card == pytest.approx((ctl.state().x, ctl.state().y), abs=1e-6)
+    real_state, real_fresh = ctl.state, ctl._fresh_head
+    behind, built = [True], []
+
+    def state():                                    # the last poll: 2.42 mm behind the card
+        s = real_state()
+        if behind[0]:
+            s.y += 2.42
+        return s
+
+    def fresh():                                    # a card read stores the state's position
+        behind[0] = False
+        return real_fresh()
+    real_build = J.build_request
+    monkeypatch.setattr(J, "build_request", lambda *a, **k: built.append(1) or real_build(*a, **k))
+    monkeypatch.setattr(ctl, "state", state)
+    monkeypatch.setattr(ctl, "_fresh_head", fresh)
+    w.safety_ui.start()
+    assert w.safety_ui.wait_preflight(30)
+    assert _until(app, lambda: ctl.job_active() or real_state().mode == "process", 20), ctl.last_preflight
+    assert [d["kind"] for d in dialogs] == ["box"]          # armed once, and the job started
+    assert len(built) == 2                                  # planned again, from the card's position
+    ctl.stop(wait=True)
