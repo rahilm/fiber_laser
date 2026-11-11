@@ -39,7 +39,13 @@ def _stack(frame, depth: int = 10) -> str:
 
 
 class StallProbe:
-    def __init__(self, late_s: float = 0.05, period_s: float = 0.005, top: int = 3) -> None:
+    def __init__(self, late_s: float = 0.05, period_s: float = 0.005, top: int = 3,
+                 always: bool = False) -> None:
+        #: sample every tick, late or not (many short hand-overs, none of them late)
+        self.always = always
+        self.beats = 0
+        self._t0 = self._cpu0 = 0.0
+        self.wall = self.cpu = 0.0
         self.late_s = late_s
         self.period_s = period_s
         self.top = top
@@ -58,6 +64,7 @@ class StallProbe:
     # the measured loop's heartbeat
     def beat(self) -> None:
         self._last = time.perf_counter()
+        self.beats += 1
 
     def _gc_cb(self, phase: str, info: dict) -> None:
         tid = threading.get_ident()
@@ -80,7 +87,7 @@ class StallProbe:
                 self.worst_wake = (wake, cpu - prev_cpu)
             prev, prev_cpu = now, cpu
             late = now - self._last
-            if late < self.late_s:
+            if late < self.late_s and not self.always:
                 continue
             self.worst_late = max(self.worst_late, late)
             self.samples += 1
@@ -96,13 +103,16 @@ class StallProbe:
             del frames, frame                             # no thread's frames kept alive here
 
     def __enter__(self) -> StallProbe:
-        self._last = time.perf_counter()
+        self._last = self._t0 = time.perf_counter()
+        self._cpu0 = time.process_time()
         gc.callbacks.append(self._gc_cb)
         self._thread = threading.Thread(target=self._watch, name="stall-probe", daemon=True)
         self._thread.start()
         return self
 
     def __exit__(self, *exc) -> None:
+        self.wall = time.perf_counter() - self._t0
+        self.cpu = time.process_time() - self._cpu0
         self._stop.set()
         if self._thread is not None:
             self._thread.join(5)
@@ -112,8 +122,11 @@ class StallProbe:
             pass
 
     def report(self) -> str:
-        lines = [f"stall probe: {self.samples} samples while the heartbeat was >= "
-                 f"{self.late_s * 1000:.0f} ms late (worst {self.worst_late * 1000:.0f} ms); the "
+        lines = [f"stall probe: {self.beats} beats in {self.wall * 1000:.0f} ms (mean "
+                 f"{self.wall * 1000 / max(self.beats, 1):.2f} ms) with {self.cpu * 1000:.0f} ms "
+                 f"process CPU; {len(threading.enumerate())} threads; "
+                 f"{self.samples} samples {'every tick' if self.always else 'while the heartbeat was >= '}"
+                 f"{'' if self.always else f'{self.late_s * 1000:.0f} ms late'} (worst {self.worst_late * 1000:.0f} ms); the "
                  f"watcher's latest wake-up {self.worst_wake[0] * 1000:.0f} ms late with "
                  f"{self.worst_wake[1] * 1000:.0f} ms process CPU in it; switch interval "
                  f"{sys.getswitchinterval() * 1000:g} ms"]

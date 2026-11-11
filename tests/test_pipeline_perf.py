@@ -549,7 +549,7 @@ def test_import_review_runs_in_a_child_and_the_gui_keeps_the_interpreter(win, ap
     # hand-overs of the interpreter while the child analyses: 100 x sleep(0) per batch
     worst = 0.0
     batches = 0
-    with StallProbe() as probe:               # diagnostics for the failure message only
+    with StallProbe(always=True, top=6) as probe:   # diagnostics for the failure message only
         while not task.done.is_set() and batches < 400:
             t0 = time.perf_counter()
             for _ in range(100):
