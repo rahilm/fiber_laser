@@ -1089,11 +1089,20 @@ class _null:
 
 
 # --------------------------------------------------------------------------- requests
-def build_request(mode: str, docs, ctl, machine, cam_params, selected_only: bool = False) -> JobRequest:
+def build_request(mode: str, docs, ctl, machine, cam_params, selected_only: bool = False,
+                  contours: Optional[tuple] = None) -> JobRequest:
     """The JobRequest for the open document and the current controller, on the GUI thread: the
     head position is the start (and the sort origin, as the controller compiled before), the
     controller's placement (``place``) is applied, the selection is taken when
-    ``selected_only``, and a disabled laser makes any cut a dry run."""
+    ``selected_only``, and a disabled laser makes any cut a dry run.
+
+    ``contours``: ``(part index, contour index)`` pairs of the whole document ("Cut this contour
+    again", Run screen): the job is planned on the whole drawing (its containment, leads, sort
+    and placement as for the full job) and keeps only those contours
+    (``Document.extra["only_contours"]``, :func:`mlaser.cam.toolpath.build_toolpath`).  Not
+    with ``selected_only``."""
+    if contours is not None and (selected_only or not contours):
+        raise ValueError("contours: a non-empty set, not with selected_only")
     from mlaser.parity_ports import active_profile
 
     doc = docs.document
@@ -1117,6 +1126,10 @@ def build_request(mode: str, docs, ctl, machine, cam_params, selected_only: bool
         placed = Document(
             parts=placed.parts, layers=placed.layers, version=placed.version, extra=copy.copy(placed.extra)
         )
+    if contours is not None:
+        only = tuple(sorted({(int(p), int(c)) for p, c in contours}))
+        placed = Document(parts=placed.parts, layers=placed.layers, version=placed.version,
+                          extra={**placed.extra, "only_contours": only})
     laser_on = bool(getattr(ctl, "laser_enabled", True))
     from mlaser.cam.toolpath import CamParams
 

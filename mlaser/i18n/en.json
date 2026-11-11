@@ -3611,6 +3611,8 @@
   "run.btn.hold": "Hold",
   "run.btn.queue_leave": "Leave queue",
   "run.btn.queue_run": "Run queue",
+  "run.btn.recut": "Cut contour {contour} of part {part} again",
+  "run.btn.recut_none": "Cut this contour again",
   "run.btn.reset": "Reset alarm",
   "run.btn.resume_contour": "Contour start",
   "run.btn.resume_here": "Here",
@@ -3636,6 +3638,9 @@
   "run.last.dry_stopped": "Last dry run stopped at {time} in part {part} of {total} · {name}",
   "run.last.finished.one": "Last job finished at {time}: its {n} part, in {duration} · {name}",
   "run.last.finished.other": "Last job finished at {time}: all {n} parts, in {duration} · {name}",
+  "run.last.recut_finished": "Contour {contour} of part {part} was cut again",
+  "run.last.recut_running": "Contour {contour} of part {part} is being cut again",
+  "run.last.recut_stopped": "Cutting contour {contour} of part {part} again was stopped",
   "run.last.stopped": "Last job stopped at {time} in part {part} of {total} ({done} finished), after {duration} · {name}",
   "run.last.with_reason": "{summary}\n{reason}",
   "run.legend.current": "Cutting now",
@@ -3676,6 +3681,7 @@
   "run.reason.laser_off": "Ready: laser output disabled (dry-run mode)",
   "run.reason.not_homed": "Not homed: home X and Y before you start",
   "run.reason.offline": "No machine connected",
+  "run.recut.scope": "1 contour of part {part} (contour {contour})",
   "run.rest.from_name": "First part to cut (cut-order number)",
   "run.rest.from_tip": "The number of the first part to cut, as numbered in the live view: type it, or click the part there",
   "run.rest.hint": "A new job: each part from its beginning, with Start's checks. Resume continues inside the stopped contour.",
@@ -3741,6 +3747,10 @@
   "run.why.no_sheet_wait": "The queue is not waiting for a sheet",
   "run.why.offline": "Connect the machine or the simulator first",
   "run.why.queue_empty": "The queue has no job left to run",
+  "run.why.recut_nothing": "Nothing was cut yet",
+  "run.why.recut_pick": "Pick a contour in the live view first (click it, or Left / Right)",
+  "run.why.recut_scan": "A fly-cut or engraved part is cut as a whole: use Start from part",
+  "run.why.recut_unavailable": "Cut this contour again: not available now",
   "run.why.rest_changed": "The drawing changed since the last job: cutting its rest is no longer offered",
   "run.why.rest_held": "A job is held at a breakpoint: resume it or stop it first",
   "run.why.rest_none": "The last job finished every part",
@@ -3759,6 +3769,7 @@
   "safety.ask.arm_question": "Arm the laser?",
   "safety.ask.arm_title": "Arm laser",
   "safety.ask.start_disarmed": "The machine is not armed: the laser cannot fire. Arm it now and start?",
+  "safety.ask.start_disarmed_scope": "{text}\nThis start cuts: {scope}",
   "safety.ask.start_title": "Arm and start",
   "safety.banner.arm": "Arm laser",
   "safety.banner.armed": "Emission enabled: the beam fires on Start",
@@ -3841,6 +3852,7 @@
   "safety.preflight.more": "{message} (+{n} more)",
   "safety.preflight.overridden": "overridden: {message}",
   "safety.preflight.row": "{severity}: {message}",
+  "safety.preflight.scope": "This start cuts: {scope}",
   "safety.preflight.sev_error": "Error",
   "safety.preflight.sev_info": "Info",
   "safety.preflight.sev_warning": "Warning",
@@ -4222,12 +4234,14 @@
   "shell.import_params.done": "{count} parameters imported from {path}",
   "shell.import_params.failed": "Parameter import failed: {error}",
   "shell.key.continue": "Continue a held job (Start)",
+  "shell.key.contour_menu": "The picked contour's menu: Cut this contour again",
   "shell.key.ctx_any": "anywhere",
   "shell.key.ctx_canvas": "canvas focused",
   "shell.key.ctx_held": "Run workspace, job held",
   "shell.key.ctx_idle": "no job running",
   "shell.key.ctx_job": "while a job runs",
   "shell.key.ctx_run": "Run workspace, not while typing",
+  "shell.key.ctx_run_view": "Run live view",
   "shell.key.ctx_window": "main window",
   "shell.key.deselect": "Deselect, back to the select tool",
   "shell.key.focus": "Next / previous control",
@@ -4236,6 +4250,7 @@
   "shell.key.next_part": "Select the next / previous / first / last part",
   "shell.key.nudge": "Move the selection by the keyboard step",
   "shell.key.pan": "Pan the view",
+  "shell.key.pick_contour": "Pick the next / previous contour (after a job)",
   "shell.key.stop": "Stop the job",
   "shell.key.zoom": "Zoom about the cursor",
   "shell.language": "Language",
@@ -6541,6 +6556,18 @@
    "duration",
    "name"
   ],
+  "run.last.recut_finished": [
+   "contour",
+   "part"
+  ],
+  "run.last.recut_running": [
+   "contour",
+   "part"
+  ],
+  "run.last.recut_stopped": [
+   "contour",
+   "part"
+  ],
   "run.last.stopped": [
    "time",
    "part",
@@ -6691,6 +6718,10 @@
    "text",
    "time"
   ],
+  "safety.ask.start_disarmed_scope": [
+   "text",
+   "scope"
+  ],
   "safety.guard.missing": [
    "check",
    "plugin"
@@ -6757,6 +6788,9 @@
   "safety.preflight.row": [
    "severity",
    "message"
+  ],
+  "safety.preflight.scope": [
+   "scope"
   ],
   "safety.preflight.title": [
    "action"
@@ -7249,6 +7283,10 @@
   "run.reason.fault": [
    "fault"
   ],
+  "run.recut.scope": [
+   "part",
+   "contour"
+  ],
   "run.times": [
    "elapsed",
    "eta"
@@ -7549,6 +7587,10 @@
   ],
   "run.btn.cut_remaining.other": [
    "n"
+  ],
+  "run.btn.recut": [
+   "contour",
+   "part"
   ],
   "run.btn.start_from": [
    "n"
