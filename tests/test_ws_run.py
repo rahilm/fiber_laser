@@ -142,6 +142,10 @@ def test_run_screen_on_the_simulator(win, app):
         shot(host, "run_running_sim_1280x800.png")
         scr.buttons["hold"].click()
         assert wait(app, lambda: ctl.state().mode == "pause" or ctl.breakpoint is not None, 10)
+        pump(app, 0.05)
+        scr.refresh()
+        assert scr.status.kind == "hold"             # at once, also while the breakpoint is taken
+        assert wait(app, lambda: ctl.breakpoint is not None, 10)     # the resume point is stored
         pump(app, 0.3)
         scr.refresh()
         assert scr.status.kind == "hold"

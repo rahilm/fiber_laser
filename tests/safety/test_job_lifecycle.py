@@ -106,6 +106,10 @@ def test_the_worker_end_of_a_running_or_held_job_is_idle():
     (PhaseState(P.STOPPING, "process", False, True), dict(connected=True, worker_alive=True), "pause"),
     (PhaseState(P.STOPPING, "", False, False), dict(connected=True, worker_alive=True), "ready"),
     (PhaseState(P.PAUSING, "", False, False), dict(connected=True, breakpoint=True), "pause"),
+    # the worker has ended, the breakpoint is not stored yet: still the Hold, never "ready"
+    (PhaseState(P.PAUSING, "", False, False), dict(connected=True), "pause"),
+    (PhaseState(P.PAUSING, "process", False, False), dict(connected=True, card_state=4), "pause"),
+    (PhaseState(P.PAUSING, "", False, False), dict(connected=False), "offline"),
 ])
 def test_the_mode_is_derived_from_the_phase_and_the_card(st, kw, mode):
     kw = dict(dict(worker_alive=False, breakpoint=False), **kw)
@@ -226,3 +230,40 @@ def test_a_held_follower_alarm_still_blocks_the_reset_when_the_read_fails(seam_c
     monkeypatch.setattr(ctl._mc, "read_regs", read_regs)
     assert ctl.reset_fault() is False
     assert ctl.fsm.state == SafetyState.FAULT
+
+
+def test_a_hold_never_shows_ready_while_the_breakpoint_is_taken(make_ctl):
+    """Between the worker's end and the stored breakpoint (the FIFO is cleared, the resume point
+    written) the mode stays "pause": it fell back to "ready" for that moment, and the Run screen
+    showed READY in the middle of a Hold (CI, a slow runner: for more than 0.3 s)."""
+    import threading
+    import time
+
+    from safety_helpers import start_and_run, wait_until
+    ctl = make_ctl(process=False)
+    start_and_run(ctl, run_s=0.25)
+    worker = ctl._worker
+    gate, entered = threading.Event(), threading.Event()
+    real = ctl._set_breakpoint
+
+    def slow(job, idx, why):
+        entered.set()
+        gate.wait(10)
+        real(job, idx, why)
+    ctl._set_breakpoint = slow
+    hold = threading.Thread(target=ctl.pause, daemon=True)      # (the Hold may finish inline)
+    try:
+        hold.start()
+        assert entered.wait(10), "the Hold did not get to its breakpoint"
+        assert not worker.is_alive() and ctl.breakpoint is None and ctl.job_phase() is P.PAUSING
+        seen = set()
+        t_end = time.monotonic() + 0.3              # several status polls (20 ms)
+        while time.monotonic() < t_end:
+            seen.add(ctl.state().mode)
+            time.sleep(0.005)
+        assert seen == {"pause"}, seen
+    finally:
+        gate.set()
+        hold.join(10)
+    assert wait_until(lambda: ctl.breakpoint is not None and ctl.job_phase() is P.AT_BREAKPOINT, 10) is not None
+    assert ctl.state().mode == "pause" and not ctl.fsm.faulted, ctl.safety().fault
