@@ -238,9 +238,8 @@ class WorkspacePage(QWidget):
         self.body_lay.setContentsMargins(0, 0, 0, 0)
         self.body_lay.setSpacing(0)
         # the canvas and the page as tabs when stacked they do not both fit (CanvasSplitter)
-        self.view_tabs = QTabBar()
+        self.view_tabs = style.tabs(QTabBar())
         self.view_tabs.setObjectName("shell_view_tabs")
-        self.view_tabs.setDocumentMode(True)
         self.view_tabs.setExpanding(False)
         self.view_tabs.setVisible(False)
         self.view_tabs.currentChanged.connect(self._view_tab_chosen)
@@ -324,8 +323,7 @@ class WorkspacePage(QWidget):
             return None
         if len(ws) == 1:
             return self._fit(ws[0])
-        self.tabs = QTabWidget()
-        self.tabs.setDocumentMode(True)
+        self.tabs = style.tabs(QTabWidget(), "workspace")      # a workspace's main views
         for c in self.contributions:
             if c.widget is not None:
                 i = self.tabs.addTab(self._fit(c.widget), "")

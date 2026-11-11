@@ -25,7 +25,7 @@ from .. import icons, style
 from ..units_qt import spin_for_unit
 from . import commissioning_live as CLV
 from .base import WizardDialog
-from .common import MIN_TARGET, JogPad, OutlineView, T
+from .common import JogPad, OutlineView, T
 
 
 def _spin(lo: float, hi: float, val: float, unit: str = "", dec: int = 3) -> QAbstractSpinBox:
@@ -38,7 +38,7 @@ def _spin(lo: float, hi: float, val: float, unit: str = "", dec: int = 3) -> QAb
 
 
 def _table(headers: list[str]) -> QTableWidget:
-    t = QTableWidget(0, len(headers))
+    t = style.table_look(QTableWidget(0, len(headers)))
     t.setHorizontalHeaderLabels(headers)
     t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
     t.horizontalHeader().setStretchLastSection(True)
@@ -493,28 +493,23 @@ class CommissioningWizard(WizardDialog):
         lay = QHBoxLayout(w)
         lay.setContentsMargins(0, 0, 0, 0)
         if step.id in ("interlocks", "interlock_test"):
-            b = QPushButton(T(self.w, "wizard.comm.fix_safety_io"))
+            b = style.button(T(self.w, "wizard.comm.fix_safety_io"), size="touch")
             b.setObjectName("configure_safety_io")
-            b.setMinimumHeight(MIN_TARGET)
             b.clicked.connect(lambda: self.configure_safety_io())
             lay.addWidget(b)
         elif step.id == "soft_limits":
-            b = QPushButton(T(self.w, "wizard.comm.fix_limits"))
+            b = style.button(T(self.w, "wizard.comm.fix_limits"), size="touch")
             b.setObjectName("fix")
-            b.setMinimumHeight(MIN_TARGET)
             b.clicked.connect(lambda: (self.proc.fix_soft_limits(), self.refresh()))
             lay.addWidget(b)
         elif step.id == "heartbeat_relay":
-            b = QPushButton(T(self.w, "wizard.comm.hold_heartbeat"))
-            b.setCheckable(True)
-            b.setMinimumHeight(MIN_TARGET)
+            b = style.button(T(self.w, "wizard.comm.hold_heartbeat"), size="touch", checkable=True)
             b.toggled.connect(lambda on: self.proc.heartbeat_hold(on))
             lay.addWidget(b)
         elif step.id in ("jog_x_dir", "jog_y_dir"):
             axis = "X" if step.id == "jog_x_dir" else "Y"
-            b = QPushButton(T(self.w, "wizard.comm.fix_reverse_axis", axis=axis))
+            b = style.button(T(self.w, "wizard.comm.fix_reverse_axis", axis=axis), size="touch")
             b.setObjectName("fix")
-            b.setMinimumHeight(MIN_TARGET)
             b.clicked.connect(lambda _=False, a=axis: (self.proc.fix_axis_direction(a), self.refresh()))
             lay.addWidget(b)
         lay.addStretch(1)

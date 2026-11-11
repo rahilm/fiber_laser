@@ -115,7 +115,7 @@ class LayerInspector(QWidget):
         bv.setContentsMargins(0, 0, 0, 0)
         self.picker = RecipePicker(self.tr_, store)
         bv.addWidget(self.picker)
-        self.assign_btn = QPushButton(t("layer.assign"))
+        self.assign_btn = style.button(t("layer.assign"))
         self.assign_btn.setToolTip(t("layer.assign_tip"))
         self.assign_btn.clicked.connect(self.assign_picked)
         acts = QWidget()
@@ -124,7 +124,7 @@ class LayerInspector(QWidget):
         self.action_buttons: dict[str, QPushButton] = {}
         for key, fn in (("layer.save_new", self.save_as_recipe), ("layer.push", self.push_into_recipe),
                         ("layer.reset_all", self.reset_all)):
-            b = QPushButton(t(key))
+            b = style.button(t(key))
             b.clicked.connect(lambda _c=False, f=fn: f())
             fl.addWidget(b)
             self.action_buttons[key] = b

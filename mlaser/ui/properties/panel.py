@@ -241,7 +241,7 @@ class PropertiesPanel(QScrollArea):
         self.start = _spin(0.0, 100.0, 1, "%", 5.0)
         self._row(f, "props.start_pos", self.start)
         self.start.editingFinished.connect(self._commit_start)
-        b = QPushButton(t("props.start_auto"))
+        b = style.button(t("props.start_auto"))
         b.clicked.connect(self._start_auto)
         f.addRow(_buttons(b))
 
@@ -257,9 +257,9 @@ class PropertiesPanel(QScrollArea):
         self.mj_len.setValue(0.5)
         self._row(f, "props.joint_count", self.mj_count)
         self._row(f, "props.joint_length", self.mj_len)
-        b1 = QPushButton(t("props.apply"))
+        b1 = style.button(t("props.apply"))
         b1.clicked.connect(self._commit_joints)
-        b2 = QPushButton(t("props.clear"))
+        b2 = style.button(t("props.clear"))
         b2.clicked.connect(lambda: self._edit(ops.clear_joints, "props.edit.joints_clear"))
         f.addRow(_buttons(b1, b2))
         # the micro-joint spec of the window (``craft.mj_auto``, OneKey) is edited here only
@@ -282,7 +282,7 @@ class PropertiesPanel(QScrollArea):
         self.overcut.valueChanged.connect(self._overcut_value)
         bs = []
         for key, cmd in (("props.gap", "craft.gap"), ("props.do_overcut", "craft.overcut"), ("props.seal", "craft.seal")):
-            b = QPushButton(t(key))
+            b = style.button(t(key))
             b.clicked.connect(lambda _c=False, c=cmd: self._run(c))
             bs.append(b)
         f.addRow(_buttons(*bs))
@@ -300,9 +300,9 @@ class PropertiesPanel(QScrollArea):
             self.cool_angle.setValue(float(cp.max_angle))
         self.cool_angle.valueChanged.connect(lambda v: self._set_ext_param("ext_cam", "cool_p", "max_angle", float(v)))
         self._row(f, "props.cool_angle", self.cool_angle)
-        b1 = QPushButton(t("props.cool_auto"))
+        b1 = style.button(t("props.cool_auto"))
         b1.clicked.connect(self._cool_auto)
-        b2 = QPushButton(t("props.clear"))
+        b2 = style.button(t("props.clear"))
         b2.clicked.connect(self._cool_clear)
         f.addRow(_buttons(b1, b2))
 

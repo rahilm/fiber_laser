@@ -64,7 +64,7 @@ class PinSetupDialog(QDialog):
         self.error = QLabel()
         self.error.setWordWrap(True)
         v.addWidget(self.error)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         v.addWidget(bb)
@@ -97,7 +97,7 @@ class ShortcutSheet(QDialog):
         v.addWidget(self.filter)
         heads = [tr.tr("shell.shortcuts.workspace"), tr.tr("shell.shortcuts.command"),
                  tr.tr("shell.shortcuts.key"), tr.tr("shell.shortcuts.where")]
-        self.table = QTableWidget(len(rows), 4)
+        self.table = style.table_look(QTableWidget(len(rows), 4))
         self.table.setHorizontalHeaderLabels(heads)
         self.table.verticalHeader().setVisible(False)
         self.table.setEditTriggers(QTableWidget.NoEditTriggers)
@@ -112,7 +112,7 @@ class ShortcutSheet(QDialog):
             hh.setSectionResizeMode(c, QHeaderView.ResizeToContents)
         v.addWidget(self.table, 1)
         self.filter.textChanged.connect(self._filter)
-        bb = QDialogButtonBox(QDialogButtonBox.Close)
+        bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Close))
         bb.rejected.connect(self.close)
         v.addWidget(bb)
         self.resize(720, 560)
@@ -171,8 +171,7 @@ class WelcomeSheet(Dialog):
             if actions:
                 btns = []
                 for key, cmd in actions:
-                    b = QPushButton(tr.tr(key))
-                    b.setMinimumHeight(style.TARGET)
+                    b = style.button(tr.tr(key))
                     b.clicked.connect(lambda _=False, c=cmd: self._run(c))
                     self.actions[cmd] = b
                     btns.append(b)

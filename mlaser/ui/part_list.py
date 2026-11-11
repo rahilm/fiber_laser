@@ -36,7 +36,7 @@ from typing import Any, Callable, Iterable, Optional
 from PySide6.QtCore import (QAbstractTableModel, QItemSelection, QItemSelectionModel, QModelIndex, QRectF,
                             QSize, Qt, QTimer, Signal)
 from PySide6.QtGui import QColor, QFont, QIcon, QPixmap
-from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QLabel, QLineEdit, QPushButton, QToolButton,
+from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QLabel, QLineEdit, QToolButton,
                                QTreeView, QVBoxLayout, QWidget)
 
 from mlaser.services import units as U
@@ -635,7 +635,7 @@ class PartListPanel(QWidget):
         self.show_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.show_btn.setIcon(icon("focus-centered"))
         self.show_btn.clicked.connect(self.zoom_to_selection)
-        self.assign_btn = QPushButton()
+        self.assign_btn = style.button()
         self.assign_btn.setObjectName("part_assign_technology")
         self.assign_btn.clicked.connect(self.assignRequested.emit)
         self.controls = flow([self.layer_combo, self.warn_btn, self.show_btn, self.assign_btn], justify=False)
@@ -682,7 +682,7 @@ class PartListPanel(QWidget):
         self.empty_text.setObjectName("part_list_empty_text")
         self.empty_text.setWordWrap(True)
         self.empty_text.setAlignment(Qt.AlignHCenter | Qt.AlignTop)
-        self.clear_btn = QPushButton()
+        self.clear_btn = style.button()
         self.clear_btn.setObjectName("part_filter_clear")
         self.clear_btn.clicked.connect(self.clear_filter)
         ev.addWidget(self.empty_text)
