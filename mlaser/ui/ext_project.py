@@ -38,13 +38,14 @@ from PySide6.QtWidgets import QFileDialog
 from mlaser.project import Autosave, Project, ProjectError, export_chf, load_project, save_project
 from mlaser.services.config import Setting
 
+from .extension_context import ExtensionContext
+
 log = logging.getLogger("mlaser.ui.project")
 
 
 class ProjectExtension:
-    def __init__(self, ctx) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.w = ctx.window
         self.sections: dict[str, tuple[Callable[[], Any], Callable[[Any], None]]] = {}
         self.extra_meta: dict = {}
         self._dirty = False
@@ -55,7 +56,7 @@ class ProjectExtension:
             Setting("autosave_interval_s", "int", 120, unit="s", min=0, max=3600,
                     label="project.autosave_interval"),
         ])
-        self.timer = QTimer(self.w)
+        self.timer = QTimer(ctx.parent)
         self.timer.timeout.connect(self.autosave_async)
         self._arm()
         ctx.on_document_changed(self._changed)
@@ -89,7 +90,7 @@ class ProjectExtension:
         """The project: ``document`` (default: the live one) and every registered section
         (``copy_sections``: private copies, for a worker thread to serialise)."""
         pr = Project(document=self.ctx.document if document is None else document)
-        docs = getattr(self.ctx, "docs", None)
+        docs = self.ctx.docs
         for name, (get, _set) in self.sections.items():
             try:
                 v = get()
@@ -123,21 +124,19 @@ class ProjectExtension:
                     log.exception("project section %s", name)
 
     def _job_running(self) -> bool:
-        if getattr(self.w, "safety_ui", None) is None:
-            return False
         from . import safety_ui
-        return safety_ui.job_running(self.w)
+        return safety_ui.job_running(self.ctx.parent)     # the controller's state: no "no safety UI" pass
 
     def open(self, path: str) -> bool:
         from mlaser.io.limits import ImportCancelled
         from .import_worker import ImportBusy, run_import, show_error
         try:
             # off the GUI thread with progress and Cancel; .mlz limits in mlaser.project.format
-            pr = run_import(self.w, lambda: load_project(path), self.tr("import.progress.opening_file",
+            pr = run_import(self.ctx.parent, lambda: load_project(path), self.tr("import.progress.opening_file",
                                                                          name=os.path.basename(path)))
         except ProjectError as e:
             self.ctx.log(self.tr("project.error", error=str(e)))
-            show_error(self.w, self.tr("project.not_opened"), str(e))
+            show_error(self.ctx.parent, self.tr("project.not_opened"), str(e))
             return False
         except ImportCancelled:
             self.ctx.log(self.tr("project.log.cancelled", name=os.path.basename(path)))
@@ -162,20 +161,18 @@ class ProjectExtension:
             path += ".mlz"
         from .save_worker import run_in_worker, snapshot_now
         try:
-            pr = self.current(snapshot_now(self.ctx.docs, self.w), copy_sections=True)
-            run_in_worker(self.w, lambda: save_project(path, pr),
+            pr = self.current(snapshot_now(self.ctx.docs, self.ctx.parent), copy_sections=True)
+            run_in_worker(self.ctx.parent, lambda: save_project(path, pr),
                           self.tr("project.saving", name=os.path.basename(path)), self.tr("project.save"))
         except Exception as e:  # noqa: BLE001 - shown to the user; the document stays modified
             self.ctx.log(self.tr("project.save_error", error=f"{type(e).__name__}: {e}"))
             from .import_worker import show_error
-            show_error(self.w, self.tr("app.save_failed"), f"{os.path.basename(path)}\n\n{e}")
+            show_error(self.ctx.parent, self.tr("app.save_failed"), f"{os.path.basename(path)}\n\n{e}")
             return False
         if pr.notes:
             self.ctx.log(self.tr("project.notes", notes="; ".join(pr.notes)))
         self.ctx.docs.path = path
-        shell = getattr(self.w, "shell", None)
-        if shell is not None:
-            shell.mark_saved()
+        self.ctx.shell.mark_saved()
         from .save_worker import seal_undo
         seal_undo(self.ctx.docs)
         self.ctx.log(self.tr("project.saved", path=path))
@@ -183,25 +180,24 @@ class ProjectExtension:
 
     # ------------------------------------------------------------------ commands
     def open_dialog(self) -> None:
-        confirm = getattr(self.w, "confirm_unsaved", None)
-        if confirm is not None and not confirm():      # Save / Don't Save / Cancel first
+        if not self.ctx.confirm_unsaved():             # Save / Don't Save / Cancel first
             return
-        path, _ = QFileDialog.getOpenFileName(self.w, self.tr("project.open"), "", self.tr("project.filter"))
+        path, _ = QFileDialog.getOpenFileName(self.ctx.parent, self.tr("project.open"), "", self.tr("project.filter"))
         if path:
             if path.lower().endswith(".mlz"):
                 self.open(path)
-            elif hasattr(self.w, "load_path"):
-                self.w.load_path(path, confirm=False)
+            else:
+                self.ctx.load_path(path, confirm=False)
 
     def save_dialog(self) -> None:
         cur = self.ctx.docs.path or ""
         start = os.path.splitext(cur)[0] + ".mlz" if cur else ""
-        path, _ = QFileDialog.getSaveFileName(self.w, self.tr("project.save"), start, self.tr("project.filter"))
+        path, _ = QFileDialog.getSaveFileName(self.ctx.parent, self.tr("project.save"), start, self.tr("project.filter"))
         if path:
             self.save(path)
 
     def export_dialog(self) -> None:
-        path, _ = QFileDialog.getSaveFileName(self.w, self.tr("project.export_chf"), "",
+        path, _ = QFileDialog.getSaveFileName(self.ctx.parent, self.tr("project.export_chf"), "",
                                               self.tr("project.chf_filter"))
         if not path:
             return
@@ -217,7 +213,7 @@ class ProjectExtension:
 
     # ------------------------------------------------------------------ autosave
     def autosave_store(self) -> Optional[Autosave]:
-        prov = self.w.hooks.provider("project.autosave")
+        prov = self.ctx.provider("project.autosave")
         if prov is not None:
             return prov()
         return None
@@ -297,7 +293,7 @@ class ProjectExtension:
         return self._autosave_idle.wait(timeout_s)
 
 
-def register(ctx) -> ProjectExtension:
+def register(ctx: ExtensionContext) -> ProjectExtension:
     ext = ProjectExtension(ctx)
     ctx.register_command("file.open_project", ext.open_dialog, label="project.open")
     ctx.register_command("file.save_project", ext.save_dialog, label="project.save")

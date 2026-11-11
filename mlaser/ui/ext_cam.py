@@ -129,7 +129,6 @@ class CamExtension:
         from mlaser.cam import array as A
         from mlaser.cam import flycut as F
         self.ctx = ctx
-        self.w = ctx.window
         self.exec_dialogs = exec_dialogs
         self.array = A.ArrayParams()
         self.circ = CircularArrayParams()
@@ -138,20 +137,20 @@ class CamExtension:
         self.linear = A.FillParams(fill_type=3, space=2.0, stock=1.0)
         # the Optimize parameters are the import clean-up preferences (Settings > Import & Export)
         from .settings_apply import cleanup_params
-        self.cleanup = cleanup_params(self.w.config)
-        self.w.config.subscribe(self._config_changed)
+        self.cleanup = cleanup_params(self.ctx.config)
+        self.ctx.config.subscribe(self._config_changed)
         self.fillet_p, self.unload_p, self.alpha_p, self.cool_p = FilletParams(), UnloadParams(), AlphaParams(), CoolParams()
         self.rect_p = RectShareParams()
         self.circle_fly_p, self.line_fly_p = F.CircleFlyParams(), F.LineFlyParams()
         # the tool dialogs' last-used values survive a restart (cam.tool.*, Settings › CAM tools)
         from . import tool_memory
-        tool_memory.bind(self, self.w.config, CAM_TOOLS)
+        tool_memory.bind(self, self.ctx.config, CAM_TOOLS)
 
     # ---------------------------------------------------------------- infrastructure
     def _config_changed(self, key: str) -> None:
         if key == "*" or key.startswith("import."):
             from .settings_apply import cleanup_params
-            self.cleanup = cleanup_params(self.w.config)
+            self.cleanup = cleanup_params(self.ctx.config)
 
     def log(self, msg: str) -> None:
         self.ctx.log(msg)
@@ -159,7 +158,7 @@ class CamExtension:
     def _count(self, base: str, title_key: str, n) -> None:
         """Log ``<title>: <n> <things>`` (the plural text ``base``) when ``n`` is a count."""
         if isinstance(n, int):
-            tr = self.w.tr_
+            tr = self.ctx.tr
             self.log(tr.plural(base, n, title=tr.tr(title_key)))
 
     def edit(self, fn: Callable[[Document], Any], label: str = "CAM", parts=None) -> Any:
@@ -167,7 +166,7 @@ class CamExtension:
         try:
             return self.ctx.edit(fn, label, parts=parts)
         except OC.OpError as e:
-            self.log(self.w.tr_.tr(e.key) if self.w.tr_.has(e.key) and str(e) == e.key else f"{e.key}: {e}")
+            self.log(self.ctx.tr.tr(e.key) if self.ctx.tr.has(e.key) and str(e) == e.key else f"{e.key}: {e}")
             return None
 
     def _targets(self):
@@ -176,7 +175,7 @@ class CamExtension:
     def ask(self, title_key: str, obj, fields, extra=None) -> bool:
         if obj is None:
             return False
-        d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w, extra)
+        d = FieldDialog(self.ctx.tr, title_key, obj, fields, self.ctx.parent, extra)
         if not self.exec_dialogs:
             d.store()
             ok = True
@@ -186,14 +185,14 @@ class CamExtension:
             from . import tool_memory
             tool = next((t for t, a in CAM_TOOLS.items() if getattr(self, a, None) is obj), None)
             if tool is not None:
-                tool_memory.remember(self.w.config, tool, obj)
+                tool_memory.remember(self.ctx.config, tool, obj)
         return ok
 
     # ---------------------------------------------------------------- array (mf79)
     def _busy(self):
         """The busy state while an array is made (ui/busy.py): a few hundred copies take a moment."""
         from .busy import busy
-        return busy(self.w, self.w.tr_.tr("busy.array"))
+        return busy(self.ctx.parent, self.ctx.tr.tr("busy.array"))
 
     def array_dialog(self) -> None:
         f = [("rows", "pd332", "int", (1, 10000)), ("cols", "pd333", "int", (1, 10000)),
@@ -212,16 +211,14 @@ class CamExtension:
         repainting; UX review 2026-11), then added in one undo step.  Cancel adds nothing and
         says so.  The copies read the selection only; the document changes on this thread."""
         from .progress_task import TaskCancelled, run_with_progress
-        tr = self.w.tr_
+        tr = self.ctx.tr
         try:
-            new = run_with_progress(self.w, make, tr.tr("busy.array"), tr.tr(title_key),
+            new = run_with_progress(self.ctx.parent, make, tr.tr("busy.array"), tr.tr(title_key),
                                     tr.tr("import.progress.cancel"))
         except TaskCancelled:
             msg = tr.tr("camx.log.array_cancelled")
             self.log(msg)
-            sb = getattr(self.w, "statusBar", None)
-            if callable(sb):
-                sb().showMessage(msg, 5000)
+            self.ctx.status_message(msg, 5000)
             return None
 
         def add(doc: Document) -> int:
@@ -296,11 +293,11 @@ class CamExtension:
             prm = self.cleanup
             res = self.edit(lambda doc: OC.cleanup(doc, prm), "optimize")
             if res is not None:
-                self.log(self.w.tr_.format("camx.log.contours_before_after", title=self.w.tr_.tr("mf470"),
+                self.log(self.ctx.tr.format("camx.log.contours_before_after", title=self.ctx.tr.tr("mf470"),
                                            before=res["before"], after=res["after"]))
 
     def dedup(self) -> None:
-        self.log(self.w.tr_.format("camx.log.removed",
+        self.log(self.ctx.tr.format("camx.log.removed",
                                    n=self.edit(lambda doc: OC.dedup(doc, self.cleanup.overlap_gate), "remove duplicates")))
 
     def join(self) -> None:
@@ -347,7 +344,7 @@ class CamExtension:
         r = self.edit(lambda doc: OC.share_edge(doc, c_type), "common edge")
         if r is not None:
             u = units.current()
-            self.log(self.w.tr_.format("camx.log.cut_length", title=self.w.tr_.tr("mf250"),
+            self.log(self.ctx.tr.format("camx.log.cut_length", title=self.ctx.tr.tr("mf250"),
                                        before=u.fmt(r[0], "length", decimals=1), after=u.fmt(r[1], "length", decimals=1)))
 
     def share_edge(self) -> None:
@@ -370,7 +367,7 @@ class CamExtension:
         prm = self.circle_fly_p if kind == F.SCAN_CIRCLE else self.line_fly_p
         part = self.edit(lambda doc: OC.flycut(doc, kind, prm), "fly cut")
         if part is None:
-            self.log(self.w.tr_.tr("mf161"))
+            self.log(self.ctx.tr.tr("mf161"))
         else:
             self._count("camx.log.scan_paths", "mf112", len(part.extra.get("scan_paths", [])))
 
@@ -431,5 +428,5 @@ def register(ctx, exec_dialogs: bool = True) -> CamExtension:
     for cmd, key, name in EXTRA_BUTTONS + FEATURE_BUTTONS:
         ctx.register_command(cmd, getattr(ext, name), label=key)
         tab.append(cmd)
-    ext.tab = ctx.add_ribbon_tab(ctx.window.tr_.tr("camx.tab", "CAM+"), tab)
+    ext.tab = ctx.add_ribbon_tab(ctx.tr.tr("camx.tab", "CAM+"), tab)
     return ext

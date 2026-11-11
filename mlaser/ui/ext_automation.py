@@ -35,7 +35,7 @@ from mlaser.services.config import Setting
 
 from . import style as S
 from .style import Dialog
-from .workspaces import tr
+from .extension_context import ExtensionContext
 
 log = logging.getLogger("mlaser.ui.automation")
 PLUGIN_API = 1
@@ -56,8 +56,8 @@ def new_token() -> str:
     return secrets.token_urlsafe(24)
 
 
-def _alarm_list(window: Any) -> list[dict]:
-    ctl = window.ctl
+def _alarm_list(ctx: ExtensionContext) -> list[dict]:
+    ctl = ctx.controller
     out = []
     try:
         st = ctl.safety()
@@ -65,7 +65,7 @@ def _alarm_list(window: Any) -> list[dict]:
             out.append({"code": "FAULT", "text": st.fault, "kind": "fault"})
     except Exception:  # noqa: BLE001
         pass
-    trn = getattr(window, "tr_", None)
+    trn = ctx.tr
     for a in list(ctl.active_alarms or []):
         out.append({"code": str(getattr(a, "code", "")), "text": a.text(trn) if hasattr(a, "text") else str(a),
                     "kind": str(getattr(a, "kind", "card"))})
@@ -80,9 +80,8 @@ def _entry(e: Any) -> dict:
 
 
 class AutomationPlugin:
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.window = ctx.window
         self.settings = ctx.settings_schema(SETTINGS)
         self.server: Any = None
         self._unsub: list = []
@@ -90,7 +89,7 @@ class AutomationPlugin:
         self._pending_ids: set[str] = set()
         self._runner_state = ""
         self._hooked_queue = False
-        self.timer = QTimer(self.window)
+        self.timer = QTimer(ctx.parent)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.publish_status)
         ctx.on_controller_changed(lambda _c: self.attach())
@@ -101,8 +100,7 @@ class AutomationPlugin:
 
     # ------------------------------------------------------------------ services
     def _provider(self, name: str) -> Any:
-        hooks = getattr(self.window, "hooks", None)
-        fn = hooks.provider(name) if hooks is not None else None
+        fn = self.ctx.provider(name)
         try:
             return fn() if fn is not None else None
         except Exception:  # noqa: BLE001
@@ -143,7 +141,7 @@ class AutomationPlugin:
     # ------------------------------------------------------------------ on / off
     def set_enabled(self, on: bool, confirm: bool = True, port: Optional[int] = None) -> bool:
         from mlaser.api import AutomationServer
-        w = self.window
+        c = self.ctx
         if not on:
             self.stop()
             self.settings["enabled"] = False
@@ -157,15 +155,15 @@ class AutomationPlugin:
         host = str(self.settings["host"] or "127.0.0.1")
         port = int(self.settings["port"]) if port is None else int(port)
         intake_on = bool(self.settings["queue_intake"])
-        if confirm and not getattr(w, "_test_no_dialogs", False):
-            text = tr(w, "api.warn.text",
+        if confirm and not c.dialogs_suppressed:
+            text = c.text("api.warn.text",
                       "The automation API serves the machine status and events on {host}:{port} to programs that "
                       "have its token{intake}. It cannot start, stop, hold, arm or move the machine. "
                       "Keep it on this PC (127.0.0.1) unless the shop network is trusted.\n\nEnable it?",
                       host=host, port=port,
-                      intake=tr(w, "api.warn.intake", ", and accepts jobs for the queue, which wait for your "
+                      intake=c.text("api.warn.intake", ", and accepts jobs for the queue, which wait for your "
                                 "approval on the Run screen") if intake_on else "")
-            if QMessageBox.warning(w, tr(w, "api.warn.title", "Enable the automation API"), text,
+            if QMessageBox.warning(c.parent, c.text("api.warn.title", "Enable the automation API"), text,
                                    QMessageBox.Yes | QMessageBox.No, QMessageBox.No) != QMessageBox.Yes:
                 return False
         try:
@@ -175,15 +173,15 @@ class AutomationPlugin:
                                            max_upload=int(self.settings["max_upload_mb"]) * 1024 * 1024).start()
         except (OSError, ValueError) as exc:
             self.server = None
-            self.ctx.log(tr(w, "api.log.failed", "Automation API could not start on {host}:{port}: {err}",
+            self.ctx.log(c.text("api.log.failed", "Automation API could not start on {host}:{port}: {err}",
                             host=host, port=port, err=exc))
             return False
         self.settings["enabled"] = True
         self.attach()
         self.publish_status()
         self.timer.start()
-        self.ctx.log(tr(w, "api.log.started", "Automation API ON (read-only{intake}): {url}", url=self.server.url(),
-                        intake=tr(w, "api.log.intake", ", queue intake with approval") if intake_on else ""))
+        self.ctx.log(c.text("api.log.started", "Automation API ON (read-only{intake}): {url}", url=self.server.url(),
+                        intake=c.text("api.log.intake", ", queue intake with approval") if intake_on else ""))
         return True
 
     def stop(self) -> None:
@@ -191,7 +189,7 @@ class AutomationPlugin:
         if self.server is not None:
             self.server.stop()
             self.server = None
-            self.ctx.log(tr(self.window, "api.log.stopped", "Automation API stopped"))
+            self.ctx.log(self.ctx.text("api.log.stopped", "Automation API stopped"))
 
     def close(self) -> None:
         self.stop()
@@ -206,7 +204,7 @@ class AutomationPlugin:
             srv.publish_event(kind, data or {})
 
     def attach(self) -> None:
-        bus = self.window.ctl.events
+        bus = self.ctx.controller.events
         if bus is not self._bus:
             for un in self._unsub:
                 un()
@@ -243,16 +241,16 @@ class AutomationPlugin:
     def _on_started(self, ev: Any) -> None:
         if ev.tracked:
             self._pub("job_started", {"mode": ev.mode, "resume": bool(ev.resume),
-                                      "source": RS.window_job_source(self.window, ev.mode), "job": self._job_name()})
+                                      "source": RS.window_job_source(self.ctx.parent, ev.mode), "job": self._job_name()})
 
     def _on_finished(self, ev: Any) -> None:
         if ev.tracked:
             self._pub("job_finished", {"mode": ev.mode, "ok": bool(ev.ok), "reason": ev.reason,
                                        "duration_s": round(float(ev.duration_s or 0.0), 1),
-                                       "source": RS.window_job_source(self.window, ev.mode), "job": self._job_name()})
+                                       "source": RS.window_job_source(self.ctx.parent, ev.mode), "job": self._job_name()})
 
     def _job_name(self) -> str:
-        path = getattr(self.window, "path", None)
+        path = self.ctx.path
         return os.path.basename(path) if path else ""
 
     def _runner_changed(self) -> None:
@@ -278,9 +276,9 @@ class AutomationPlugin:
 
     # ------------------------------------------------------------------ status (GUI thread)
     def status_dict(self) -> dict:
-        w = self.window
-        ctl = w.ctl
-        run = w.extension("run") if hasattr(w, "extension") else None
+        c = self.ctx
+        ctl = c.controller
+        run = c.extension("run")
         out: dict = {"remote_control": False, "queue_intake": bool(self.settings["queue_intake"])}
         try:
             s = run.status() if run is not None else None
@@ -297,9 +295,9 @@ class AutomationPlugin:
         else:
             st = ctl.state()
             out.update({"state": st.mode, "armed": bool(st.armed)})
-        out["source"] = RS.job_source(ctl, "process", RS.practice_active(w))
+        out["source"] = RS.job_source(ctl, "process", RS.practice_active(c.parent))
         out["job"] = self._job_name()
-        out["alarms"] = _alarm_list(w)
+        out["alarms"] = _alarm_list(c)
         q, r, it = self.queue, self.runner, self.intake
         if q is not None:
             out["queue"] = [_entry(e) for e in q][:200]
@@ -322,7 +320,7 @@ class AutomationPlugin:
     # ------------------------------------------------------------------ settings dialog
     def settings_dialog(self) -> Optional[QDialog]:
         d = ApiSettingsDialog(self)
-        if getattr(self.window, "_test_no_dialogs", False):
+        if self.ctx.dialogs_suppressed:
             return d
         if d.exec():
             d.apply()
@@ -331,9 +329,9 @@ class AutomationPlugin:
 
 class ApiSettingsDialog(Dialog):
     def __init__(self, plugin: AutomationPlugin) -> None:
-        w = plugin.window
-        super().__init__(w, tr(w, "api.dlg.title", "Automation API"),
-                         explanation=tr(w, "api.dlg.note", "Read-only status and events for the shop's own tools, "
+        c = plugin.ctx
+        super().__init__(c.parent, c.text("api.dlg.title", "Automation API"),
+                         explanation=c.text("api.dlg.note", "Read-only status and events for the shop's own tools, "
                                         "and optional queue intake. Jobs from the API wait for your approval on the "
                                         "Run screen. The API cannot start, stop, hold, arm or move the machine."))
         self.p = plugin
@@ -344,36 +342,36 @@ class ApiSettingsDialog(Dialog):
         self.port = QSpinBox()
         self.port.setRange(1024, 65535)
         self.port.setValue(int(s["port"]))
-        self.intake = QCheckBox(tr(w, "api.set.queue_intake", "Accept jobs for the queue (operator approval)"))
+        self.intake = QCheckBox(c.text("api.set.queue_intake", "Accept jobs for the queue (operator approval)"))
         self.intake.setChecked(bool(s["queue_intake"]))
-        self.uploads = QCheckBox(tr(w, "api.set.uploads", "Accept uploaded drawings"))
+        self.uploads = QCheckBox(c.text("api.set.uploads", "Accept uploaded drawings"))
         self.uploads.setChecked(bool(s["uploads"]))
         self.folders = QLineEdit(str(s["job_folders"]))
-        self.folders.setPlaceholderText(tr(w, "api.dlg.folders_hint", "folders a job may be named from, ; separated"))
+        self.folders.setPlaceholderText(c.text("api.dlg.folders_hint", "folders a job may be named from, ; separated"))
         self.token = QLineEdit(str(s["token"]))
         self.token.setReadOnly(True)
         self.token.setEchoMode(QLineEdit.Password)
         tok = QWidget()
         trow = S.hbox(tok)
         trow.addWidget(self.token, 1)
-        for key, text, fn in (("show", tr(w, "api.dlg.show", "Show"), self._show),
-                              ("copy", tr(w, "api.dlg.copy", "Copy"), self._copy),
-                              ("new", tr(w, "api.dlg.new_token", "New token"), self._new)):
+        for key, text, fn in (("show", c.text("api.dlg.show", "Show"), self._show),
+                              ("copy", c.text("api.dlg.copy", "Copy"), self._copy),
+                              ("new", c.text("api.dlg.new_token", "New token"), self._new)):
             b = S.button(text, on_click=fn)
             b.setObjectName(f"api_token_{key}")
             trow.addWidget(b)
-        S.form_row(f, tr(w, "api.set.host", "Listen on (address)"), self.host)
-        S.form_row(f, tr(w, "api.set.port", "Port"), self.port)
-        S.form_row(f, tr(w, "api.set.token", "Token"), tok)
+        S.form_row(f, c.text("api.set.host", "Listen on (address)"), self.host)
+        S.form_row(f, c.text("api.set.port", "Port"), self.port)
+        S.form_row(f, c.text("api.set.token", "Token"), tok)
         S.form_row(f, "", self.intake)
         S.form_row(f, "", self.uploads)
-        S.form_row(f, tr(w, "api.set.job_folders", "Job folders"), self.folders)
+        S.form_row(f, c.text("api.set.job_folders", "Job folders"), self.folders)
         self.state = QLabel()
         self.state.setObjectName("api_state")
         self.state.setWordWrap(True)
         srv = plugin.server
-        self.state.setText(tr(w, "api.dlg.on", "Running: {url}", url=srv.url()) if srv is not None and srv.running
-                           else tr(w, "api.dlg.off", "Not running (command: Automation API on/off)"))
+        self.state.setText(c.text("api.dlg.on", "Running: {url}", url=srv.url()) if srv is not None and srv.running
+                           else c.text("api.dlg.off", "Not running (command: Automation API on/off)"))
         self.body.addWidget(self.state)
 
     def _show(self) -> None:
@@ -402,7 +400,7 @@ class ApiSettingsDialog(Dialog):
             self.p.set_enabled(True, confirm=False)
 
 
-def register(ctx: Any) -> AutomationPlugin:
+def register(ctx: ExtensionContext) -> AutomationPlugin:
     p = AutomationPlugin(ctx)
     ctx.register_command("api.toggle", lambda on: p.set_enabled(bool(on)), label="api.cmd.toggle", checkable=True,
                          min_mode="engineer")

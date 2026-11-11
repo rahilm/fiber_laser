@@ -25,13 +25,14 @@ def test_register_and_dialogs(app, tmp_path):
     assert "Devices" in [w.ribbon.tabText(i) for i in range(n, w.ribbon.count())]
     p = tmp_path / "calib.csv"
     CalibrationTable(413023, [(0, 406507), (101, 410429), (201, 410740)]).save(str(p))
-    d = X.FollowerDialog(w, str(p))
+    ctx = w.plugin_contexts["ext_devices"]          # the dialogs take the extension context
+    d = X.FollowerDialog(ctx, str(p))
     assert d.grid.rowCount() == 3 and d.plot.points[1] == (101, 410429)
     d.grab()
     d.refresh()                               # demo controller: no card -> "Not connected"
     assert "Not connected" in d.status_lbl.text()
-    X.LaserDialog(w).grab()
-    pd = X.PendantDialog(w)
+    X.LaserDialog(ctx).grab()
+    pd = X.PendantDialog(ctx)
     pd.grab()
     pd.close()
     w.close()
@@ -46,8 +47,8 @@ def test_follower_dialog_with_card(app):
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,
                                                  fifo_time_ms=600, max_recv=2)).open()
     try:
-        win = SimpleNamespace(ctl=SimpleNamespace(card=lambda: mc), log_panel=None)
-        d = X.FollowerDialog(win, parent=None)
+        ctx = SimpleNamespace(controller=SimpleNamespace(card=lambda: mc), log=lambda _m: None, parent=None)
+        d = X.FollowerDialog(ctx, parent=None)
         d.refresh()
         assert "homed=True" in d.status_lbl.text()
         d._calibrate()

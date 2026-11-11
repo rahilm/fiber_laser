@@ -62,8 +62,7 @@ class ProcessExtension:
         if self.store.load_error:             # a damaged database moved aside, an empty one opened (A9)
             ctx.log(ctx.tr.format("process.log.store_damaged", error=self.store.load_error,
                                   path=f"{self.store.path}.bad"))
-        win = ctx.window
-        self.canvas = win.canvas
+        self.canvas = ctx.canvas
         self.plan: Any = None
         self.timeline: Optional[Timeline] = None
         self.exec_dialogs = True
@@ -86,10 +85,8 @@ class ProcessExtension:
         self.preview_dock = ctx.add_dock(self.scrubber, t("preview.title"), "bottom", key="plugin.ext_process.preview")
         # one tab group with the layer and part docks (left), so the run controls on the right
         # keep their height: Layers | Parts | Properties (Process: Parts | Properties)
-        left = getattr(win, "left_dock", None)
         try:
-            if left is not None:
-                win.tabifyDockWidget(left, self.props_dock)
+            ctx.tabify_dock(ctx.left_dock, self.props_dock)
             self.props_dock.raise_()
         except (AttributeError, RuntimeError):
             pass
@@ -170,10 +167,7 @@ class ProcessExtension:
 
     def rates_dialog(self) -> None:
         """The rates' one home is Settings › Costing."""
-        w = self.ctx.window
-        opener = getattr(w, "settings_dialog", None)
-        if opener is not None:
-            opener().show_page("costing")
+        self.ctx.settings_dialog().show_page("costing")
 
     # ---------------------------------------------------------------- hooks
     def _close(self) -> None:

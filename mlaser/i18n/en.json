@@ -4391,7 +4391,6 @@
   "shell.window.zoom": "Zoom",
   "shell.ws.design": "Design",
   "shell.ws.design.desc": "Draw, import and edit the parts on the canvas",
-  "shell.ws.goto": "Workspace: {workspace}",
   "shell.ws.hidden": "{workspace} is not available in this user mode",
   "shell.ws.machine": "Machine",
   "shell.ws.machine.desc": "Connect, home, calibrate, monitors and settings",
@@ -7466,9 +7465,6 @@
    "mode"
   ],
   "shell.ws.hidden": [
-   "workspace"
-  ],
-  "shell.ws.goto": [
    "workspace"
   ],
   "wizard.error.dry_run_unavailable": [

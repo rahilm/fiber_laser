@@ -1071,9 +1071,12 @@ def resolve(target: str) -> Any:
     return obj
 
 
-def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContext], Any]:
+def register_plugin(host: Host, info: PluginInfo,
+                    context_class: type[PluginContext] = PluginContext) -> tuple[Optional[PluginContext], Any]:
     """Import and register one plugin.  A failure is logged (``host.log`` and logging) and its
     partial registrations are removed; returns (context, register() result) or (None, error).
+    ``context_class``: the context to create (the main window gives its built-in extensions
+    :class:`mlaser.ui.extension_context.ExtensionContext`).
     An entry-point plugin with an invalid manifest, or whose manifest ``api`` / ``mlaser`` range
     excludes this application, is refused before it is imported."""
     if info.origin != "builtin":
@@ -1106,7 +1109,7 @@ def register_plugin(host: Host, info: PluginInfo) -> tuple[Optional[PluginContex
         msg = f"plugin {info.name}: needs plugin API {need}, this is {PLUGIN_API}"
         host.log(msg)
         return None, RuntimeError(msg)
-    ctx = PluginContext(host, info.name, info.origin, info.manifest if info.origin != "builtin" else None)
+    ctx = context_class(host, info.name, info.origin, info.manifest if info.origin != "builtin" else None)
     ctx._icon = info.icon
     try:
         result = reg(ctx)

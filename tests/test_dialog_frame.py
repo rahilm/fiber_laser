@@ -54,6 +54,7 @@ def _factories(w):
     from mlaser.ui.ext_notify import NotifyDialog
     tr = w.tr_
     diag = w.extension("ext_diag")
+    devices = w.plugin_contexts["ext_devices"]     # the device dialogs take the extension context
 
     def draw():
         d = ext_draw._Dialog(tr, "mf591", w)
@@ -78,10 +79,10 @@ def _factories(w):
         "DockDialog": lambda: ext_craft.DockDialog(tr, 0, w),
         "DrawDialog": draw,
         "BitmapDialog": lambda: BitmapDialog(tr, w),
-        "SheetDialog": lambda: ext_nest.SheetDialog(w, None, w),
-        "FollowerDialog": lambda: ext_devices.FollowerDialog(w),
-        "LaserDialog": lambda: ext_devices.LaserDialog(w),
-        "PendantDialog": lambda: ext_devices.PendantDialog(w),
+        "SheetDialog": lambda: ext_nest.SheetDialog(w),
+        "FollowerDialog": lambda: ext_devices.FollowerDialog(devices),
+        "LaserDialog": lambda: ext_devices.LaserDialog(devices),
+        "PendantDialog": lambda: ext_devices.PendantDialog(devices),
         "ProfileDialog": lambda: ext_options.ProfileDialog("original", w),
         "NetCheckDialog": lambda: ext_options.NetCheckDialog(w),
         "PluginsDialog": lambda: ext_options.PluginsDialog(w, [], {}),
@@ -168,7 +169,7 @@ def test_field_dialog_units_move_to_the_suffix(win):
 def test_shadowing_attributes_are_renamed(win):
     from mlaser.ui import ext_devices, ext_nest
     s = ext_nest.SheetDialog(win)
-    f = ext_devices.FollowerDialog(win)
+    f = ext_devices.FollowerDialog(win.plugin_contexts["ext_devices"])
     try:
         assert callable(s.width) and callable(s.height) and callable(f.height)
         assert s.sheet().width == s.width_spin.value()

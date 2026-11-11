@@ -195,9 +195,16 @@ resolve to their slot); `ctx.user_mode` is the mode.  The built-ins reach the sa
 providers `workspace.show` and `user_mode`.  A contributed page sits in a scroll area, so its
 minimum size never makes the main window larger than 1280 × 800.
 
-**What the plugin API does not cover yet.**  `ctx.window` is the main window itself, and the
-built-in plugins of `mlaser/ui` use it freely (they are part of the application).  A plugin
-that is not built in needs it only as the Qt parent of its dialogs.  The project's own plugin
+**What the plugin API does not cover yet.**  `ctx.window` is the main window itself.  The
+built-in extensions (`mlaser/ui/ext_*.py`) do not use it: they get
+`mlaser.ui.extension_context.ExtensionContext`, a subclass of the context with typed, named
+access to the parts of the window they need (the canvas, the safety UI, the log panel, the
+shell, the start interlock registration `add_start_guard`, `run_job`, the settings dialog, the
+window as a Qt `parent` ...), read when used, so a misspelt name is an error rather than a
+silent `None` (`tests/test_extension_context.py` checks that no `ext_*` module uses
+`ctx.window`, keeps the window, or probes it with `getattr` / `hasattr`).  That subclass is
+the application's own and is not part of the plugin API.  A plugin that is not built in needs
+`ctx.window` only as the Qt parent of its dialogs.  The project's own plugin
 (`plugins/mlaser-onshape`) uses no `ctx.window` at all (`tests/test_plugin_public_api.py`),
 and `tests/test_plugin_api_contract.py` checks that every `ctx.` member named in this file
 exists.  These needs have no `ctx` route today; a plugin that has them reaches into the window

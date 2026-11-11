@@ -149,8 +149,9 @@ def test_follower_monitor_with_card(app, tmp_path, monkeypatch):
     mc = MotionController(config=TransportConfig(host="127.0.0.1", port=sim.port, timeout_ms=200,
                                                  fifo_time_ms=600, max_recv=2)).open()
     try:
-        win = SimpleNamespace(ctl=SimpleNamespace(card=lambda: mc, state=lambda: None), log_panel=None, tr_=None)
-        ext = SimpleNamespace(w=win, settings={}, device_settings=None)
+        ctx = SimpleNamespace(controller=SimpleNamespace(card=lambda: mc, state=lambda: None), parent=None, tr=None,
+                              log=lambda _m: None)       # the ExtensionContext parts the monitor uses
+        ext = SimpleNamespace(ctx=ctx, settings={}, device_settings=None)
         m = X.DeviceMonitor(ext, "zf")
         m.refresh()
         assert m.io.wait(30)

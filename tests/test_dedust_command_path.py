@@ -56,8 +56,8 @@ def _ext(settings, card=None):
     card = Card() if card is None else card
     ctl = Ctl(card)
     log: list = []
-    w = SimpleNamespace(ctl=ctl, ribbon=SimpleNamespace(actions={}), log=log.append)
-    return SimpleNamespace(settings=settings, w=w, outputs=CIO.OutputDriver(ctl)), ctl, card
+    ctx = SimpleNamespace(controller=ctl, action=lambda _cmd: None, log=log.append)    # ExtensionContext
+    return SimpleNamespace(settings=settings, ctx=ctx, outputs=CIO.OutputDriver(ctl)), ctl, card
 
 
 def test_the_controllers_dedust_output_goes_through_its_command_path():

@@ -25,18 +25,18 @@ from mlaser.services.procedures import engine as PE
 from mlaser.ui import style
 from mlaser.ui.units_qt import on_units_changed
 
-from .workspaces import tr, trn
+from .extension_context import ExtensionContext
 
 #: the practice sheet (mlaser.services.practice.practice_document): 300 x 200 mm
 PRACTICE_SHEET_MM = (300.0, 200.0)
 
 
-def _t(window: Any, key: str, **kw: Any) -> str:
+def _t(ctx: ExtensionContext, key: str, **kw: Any) -> str:
     """A lesson text (catalogue id with its English default from :data:`PR.TEXTS`)."""
     # the sheet size in the display units (texts that have no {sheet} ignore it)
     kw.setdefault("sheet", U.current().fmt_size(*PRACTICE_SHEET_MM, decimals=None if U.current().imperial else 0,
                                                 trim=True))
-    return tr(window, key, PR.TEXTS.get(key, key), **kw)
+    return ctx.text(key, PR.TEXTS.get(key, key), **kw)
 
 
 class WindowHost:
@@ -50,37 +50,37 @@ class WindowHost:
         return bool(self.plugin.call_on_gui(lambda: self.plugin.load_sheet(doc)))
 
     def document(self) -> Any:
-        return self.plugin.window.document
+        return self.plugin.ctx.document
 
 
 class CoachWindow(QWidget):
     """Lesson list with progress, the current step and its buttons (never modal)."""
 
     def __init__(self, plugin: "PracticePlugin") -> None:
-        super().__init__(plugin.window, Qt.Tool)
+        super().__init__(plugin.ctx.parent, Qt.Tool)
         self.plugin = plugin
-        w = plugin.window
+        cx = plugin.ctx
         self.setObjectName("practice_coach")
-        self.setWindowTitle(tr(w, "practice.title", "Practice (simulator)"))
+        self.setWindowTitle(cx.text("practice.title", "Practice (simulator)"))
         self.setMinimumWidth(380)
         v = QVBoxLayout(self)
         self.summary = QLabel()
         self.summary.setObjectName("practice_summary")
         self.summary.setWordWrap(True)
         v.addWidget(self.summary)
-        self.sim_note = QLabel(_t(w, "practice.error.not_simulator"))
+        self.sim_note = QLabel(_t(cx, "practice.error.not_simulator"))
         self.sim_note.setObjectName("practice_sim_note")
         self.sim_note.setWordWrap(True)
         style.chip(self.sim_note, "warning")
         v.addWidget(self.sim_note)
-        self.connect_btn = self._button("practice_connect", tr(w, "practice.btn.connect", "Connect the simulator"),
+        self.connect_btn = self._button("practice_connect", cx.text("practice.btn.connect", "Connect the simulator"),
                                         plugin.connect_simulator)
         v.addWidget(self.connect_btn)
         self.lessons = QListWidget()
         self.lessons.setObjectName("practice_lessons")
         self.lessons.setMinimumHeight(150)
         v.addWidget(self.lessons)
-        self.start_btn = self._button("practice_start", tr(w, "practice.btn.start", "Start the lesson"),
+        self.start_btn = self._button("practice_start", cx.text("practice.btn.start", "Start the lesson"),
                                       self._start_selected)
         v.addWidget(self.start_btn)
         # current lesson
@@ -107,8 +107,8 @@ class CoachWindow(QWidget):
         v.addWidget(self.status)
         row = QHBoxLayout()
         self.run_btn = self._button("practice_run", "", self._run)
-        self.next_btn = self._button("practice_next", tr(w, "practice.btn.next", "Next"), self._next)
-        self.abort_btn = self._button("practice_abort", tr(w, "practice.btn.abort", "Abort the lesson"),
+        self.next_btn = self._button("practice_next", cx.text("practice.btn.next", "Next"), self._next)
+        self.abort_btn = self._button("practice_abort", cx.text("practice.btn.abort", "Abort the lesson"),
                                       self._abort)
         # Abort stops the lesson's machine: the danger role (text, not a second STOP)
         pal = self.abort_btn.palette()
@@ -155,12 +155,12 @@ class CoachWindow(QWidget):
     # ------------------------------------------------------------------ refresh
     def refresh(self) -> None:
         p = self.plugin
-        w = p.window
+        cx = p.ctx
         svc = p.service
         n = len(PR.LESSONS)
-        self.summary.setText(tr(w, "practice.summary", "{passed} of {n} lessons passed. Practice jobs never "
+        self.summary.setText(cx.text("practice.summary", "{passed} of {n} lessons passed. Practice jobs never "
                                 "count as production.", passed=svc.passed_count(), n=n))
-        sim = PR.Lesson.allowed(w.ctl)
+        sim = PR.Lesson.allowed(cx.controller)
         self.sim_note.setVisible(not sim)
         self.connect_btn.setVisible(not sim)
         keep = self._selected_id()
@@ -169,11 +169,11 @@ class CoachWindow(QWidget):
         for cls in svc.lessons():
             prog = svc.progress.get(cls.id) or PR.LessonProgress()
             mark = "✓" if prog.passed else "○"
-            bits = [f"{mark}  {_t(w, cls.title)}"]
+            bits = [f"{mark}  {_t(cx, cls.title)}"]
             if prog.attempts:
-                bits.append(trn(w, "practice.attempts", prog.attempts))
+                bits.append(cx.plural("practice.attempts", prog.attempts))
             if prog.best_s:
-                bits.append(tr(w, "practice.best", "best {time}", time=fmt_duration(prog.best_s)))
+                bits.append(cx.text("practice.best", "best {time}", time=fmt_duration(prog.best_s)))
             it = QListWidgetItem("  ·  ".join(bits))
             it.setData(Qt.UserRole, cls.id)
             self.lessons.addItem(it)
@@ -185,7 +185,7 @@ class CoachWindow(QWidget):
         self.lessons.blockSignals(False)
         lesson = svc.active
         if lesson is None:
-            self.lesson_title.setText(tr(w, "practice.none", "Choose a lesson and press Start."))
+            self.lesson_title.setText(cx.text("practice.none", "Choose a lesson and press Start."))
             self.progress.setValue(0)
             self.step_title.setText("")
             self.step_text.setText("")
@@ -195,27 +195,27 @@ class CoachWindow(QWidget):
         self._buttons()
 
     def _show_lesson(self, lesson: PR.Lesson) -> None:
-        w = self.plugin.window
+        cx = self.plugin.ctx
         steps = lesson.visible_steps()
-        self.lesson_title.setText(_t(w, lesson.title))
+        self.lesson_title.setText(_t(cx, lesson.title))
         s = lesson.step
         k = steps.index(s) if s in steps else len(steps)
         self.progress.setRange(0, max(1, len(steps)))
         self.progress.setValue(len(steps) if lesson.state == PE.DONE else k)
         if s is not None:
-            self.step_title.setText(_t(w, s.title))
-            self.step_text.setText(_t(w, s.text))
+            self.step_title.setText(_t(cx, s.title))
+            self.step_text.setText(_t(cx, s.text))
         state = lesson.state
         if state == PE.DONE:
-            text = tr(w, "practice.state.done", "Lesson passed in {time}.", time=fmt_duration(lesson.elapsed_s))
+            text = cx.text("practice.state.done", "Lesson passed in {time}.", time=fmt_duration(lesson.elapsed_s))
         elif state == PE.ABORTED:
-            text = tr(w, "practice.state.aborted", "Lesson aborted (the simulator was stopped).")
+            text = cx.text("practice.state.aborted", "Lesson aborted (the simulator was stopped).")
         elif state == PE.FAILED:
             err = lesson.error
-            detail = _t(w, err.key, **err.values) if err is not None else ""
-            text = tr(w, "practice.state.failed", "Lesson not passed: {detail}", detail=detail)
+            detail = _t(cx, err.key, **err.values) if err is not None else ""
+            text = cx.text("practice.state.failed", "Lesson not passed: {detail}", detail=detail)
         elif state == PE.RUNNING:
-            text = tr(w, "practice.state.watching", "Your turn: do it on the Run screen. This panel checks it.")
+            text = cx.text("practice.state.watching", "Your turn: do it on the Run screen. This panel checks it.")
         else:
             text = ""
         self.status.setText(text)
@@ -225,28 +225,27 @@ class CoachWindow(QWidget):
         lesson = svc.active
         running = svc.running
         self.start_btn.setEnabled(not running and self._selected_id() is not None and PR.Lesson.allowed(
-            self.plugin.window.ctl))
+            self.plugin.ctx.controller))
         s = lesson.step if lesson is not None else None
         manual = (running and lesson is not None and s is not None and lesson.state == PE.WAITING
                   and s.kind == "action" and not s.auto and s.id not in lesson.done)
         self.run_btn.setVisible(bool(manual))
         if manual and s is not None:
-            self.run_btn.setText(_t(self.plugin.window, s.action_label or "practice.btn.run"))
+            self.run_btn.setText(_t(self.plugin.ctx, s.action_label or "practice.btn.run"))
         self.next_btn.setEnabled(bool(running and lesson is not None and lesson.can_next()))
         self.abort_btn.setEnabled(running)
 
 
 class PracticePlugin:
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.window = ctx.window
         self.settings = ctx.settings_schema([Setting("progress", "json", {}, label="practice.set.progress")])
         self.service = PR.PracticeService(load=lambda: self.settings["progress"], save=self._save)
         self.host = WindowHost(self)
         self.panel: Optional[CoachWindow] = None
         self._gui_thread = threading.current_thread()
         from .wizards.common import Bridge
-        self.bridge = Bridge(self.window)
+        self.bridge = Bridge(ctx.parent)
         self.service.listeners.append(self._changed)
         ctx.provide("practice.active", lambda: self.service.running)
         ctx.register_command("practice.open", self.open, label="practice.cmd.open", min_mode="operator")
@@ -256,10 +255,7 @@ class PracticePlugin:
     # ------------------------------------------------------------------ helpers
     def _save(self, data: dict) -> None:
         self.settings["progress"] = data
-        cfg = getattr(self.window, "config", None)
-        flush = getattr(cfg, "flush", None)
-        if callable(flush):
-            flush()
+        self.ctx.config.flush()
 
     def call_on_gui(self, fn: Callable[[], Any], timeout_s: float = 30.0) -> Any:
         if threading.current_thread() is self._gui_thread:
@@ -278,15 +274,14 @@ class PracticePlugin:
 
     def load_sheet(self, doc: Any) -> bool:
         try:
-            self.ctx.replace_document(doc, tr(self.window, "practice.undo.load", "practice: load the sheet"))
+            self.ctx.replace_document(doc, self.ctx.text("practice.undo.load", "practice: load the sheet"))
         except Exception as exc:  # noqa: BLE001 - DocumentLockedError: shown as the step's failure
-            self.ctx.log(tr(self.window, "practice.log.error", "Practice: {error}", error=exc))
+            self.ctx.log(self.ctx.text("practice.log.error", "Practice: {error}", error=exc))
             return False
         return True
 
     def connect_simulator(self) -> bool:
-        fn = getattr(self.window, "connect_simulator", None)
-        ok = bool(fn()) if callable(fn) else False
+        ok = bool(self.ctx.connect_simulator())
         self._changed()
         return ok
 
@@ -300,21 +295,21 @@ class PracticePlugin:
         return self.panel
 
     def begin(self, lesson_id: str) -> Optional[PR.Lesson]:
-        w = self.window
-        if not PR.Lesson.allowed(w.ctl):
-            if not getattr(w, "_test_no_dialogs", False) and QMessageBox.question(
-                    w, tr(w, "practice.title", "Practice (simulator)"),
-                    tr(w, "practice.ask_connect", "Practice runs on the simulator only. Connect the simulator "
+        cx = self.ctx
+        if not PR.Lesson.allowed(cx.controller):
+            if not cx.dialogs_suppressed and QMessageBox.question(
+                    cx.parent, cx.text("practice.title", "Practice (simulator)"),
+                    cx.text("practice.ask_connect", "Practice runs on the simulator only. Connect the simulator "
                        "now? (The real machine is disconnected.)"),
                     QMessageBox.Yes | QMessageBox.No, QMessageBox.No) == QMessageBox.Yes:
                 self.connect_simulator()
-            if not PR.Lesson.allowed(w.ctl):
-                self.ctx.log(_t(w, "practice.error.not_simulator"))
+            if not PR.Lesson.allowed(cx.controller):
+                self.ctx.log(_t(cx, "practice.error.not_simulator"))
                 return None
         try:
-            lesson = self.service.begin(lesson_id, w.ctl, self.host, log_fn=self.ctx.log, post=self.bridge.post)
+            lesson = self.service.begin(lesson_id, cx.controller, self.host, log_fn=self.ctx.log, post=self.bridge.post)
         except PR.PracticeError as exc:
-            self.ctx.log(_t(w, exc.key))
+            self.ctx.log(_t(cx, exc.key))
             return None
         self._changed()
         return lesson
@@ -327,7 +322,7 @@ class PracticePlugin:
             self.panel.refresh()
 
 
-def register(ctx: Any) -> PracticePlugin:
+def register(ctx: ExtensionContext) -> PracticePlugin:
     return PracticePlugin(ctx)
 
 

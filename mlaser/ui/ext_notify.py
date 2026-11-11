@@ -27,7 +27,8 @@ from mlaser.services.config import Setting
 from . import style as S
 from .responsive import mark_list
 from .style import Dialog
-from .workspaces import TOUCH_MIN, tr
+from .extension_context import ExtensionContext
+from .workspaces import TOUCH_MIN
 
 #: setting -> (i18n id, English label); the form shows them in this order per group
 LABELS = {
@@ -96,23 +97,22 @@ def settings_schema() -> list[Setting]:
 
 
 class NotifyPlugin:
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.window = w = ctx.window
         self.settings = ctx.settings_schema(settings_schema())
         from mlaser.services.config import config_dir
         self.secrets = SecretStore(config_dir() / "secrets.json")
         self.notifier = Notifier(self.settings, self.secrets)
         from mlaser.services.runsource import window_job_source
-        self.wiring = EventWiring(self.notifier, source=lambda mode: window_job_source(w, mode),
+        self.wiring = EventWiring(self.notifier, source=lambda mode: window_job_source(ctx.parent, mode),
                                   include_simulator=lambda: bool(self.settings["include_simulator"]),
-                                  text=lambda key, default="", **kw: tr(w, key, default, **kw),
+                                  text=ctx.text,
                                   machine=lambda: str(self.settings["machine_name"] or ""))
         self.dialog: Optional[NotifyDialog] = None
         self.attach()
         ctx.on_controller_changed(lambda _c: self.attach())
         ctx.on_close(self.close)
-        diag = w.extension("ext_diag") if hasattr(w, "extension") else None
+        diag = ctx.extension("ext_diag")
         svc = getattr(diag, "svc", None)
         if svc is not None and hasattr(svc, "maintenance_listeners"):
             svc.maintenance_listeners.append(self.wiring.maintenance)
@@ -120,10 +120,8 @@ class NotifyPlugin:
         ctx.register_command("notify.test", self.send_test, label="notify.cmd.test", min_mode="engineer")
 
     def attach(self) -> None:
-        ctl = getattr(self.window, "ctl", None)
-        self.wiring.attach_bus(ctl.events)
-        hooks = getattr(self.window, "hooks", None)
-        fn = hooks.provider("queue_runner") if hooks is not None else None
+        self.wiring.attach_bus(self.ctx.controller.events)
+        fn = self.ctx.provider("queue_runner")
         try:
             runner = fn() if fn is not None else None
         except Exception:  # noqa: BLE001 - no run workspace: no queue notifications
@@ -134,9 +132,9 @@ class NotifyPlugin:
     def send_test(self) -> bool:
         ok = self.wiring.test()
         if not ok:
-            self.ctx.log(tr(self.window, "notify.msg.no_channel", "Notifications: no channel is enabled"))
+            self.ctx.log(self.ctx.text("notify.msg.no_channel", "Notifications: no channel is enabled"))
         else:
-            self.ctx.log(tr(self.window, "notify.msg.test_queued", "Notifications: test sent (see the result in "
+            self.ctx.log(self.ctx.text("notify.msg.test_queued", "Notifications: test sent (see the result in "
                             "Notification settings)"))
         return ok
 
@@ -154,10 +152,10 @@ class NotifyDialog(Dialog):
     """Channel, event and limit settings; the secrets (never shown); **Send test**."""
 
     def __init__(self, plugin: NotifyPlugin) -> None:
-        w = plugin.window
-        super().__init__(w, tr(w, "notify.title", "Notifications"),
+        ctx = plugin.ctx
+        super().__init__(ctx.parent, ctx.text("notify.title", "Notifications"),
                          buttons=QDialogButtonBox.Save | QDialogButtonBox.Close,
-                         explanation=tr(w, "notify.intro", "Messages about the machine to a phone or a mailbox. "
+                         explanation=ctx.text("notify.intro", "Messages about the machine to a phone or a mailbox. "
                                         "They only inform: nothing can be controlled by a notification or a reply."))
         self.plugin = plugin
         self.setObjectName("notify_dialog")
@@ -175,7 +173,7 @@ class NotifyDialog(Dialog):
         self.secret_fields: dict[str, QLineEdit] = {}
         s = plugin.settings
         for gid, gtext, keys in GROUPS:
-            sec, sl = S.section(tr(w, gid, gtext))
+            sec, sl = S.section(ctx.text(gid, gtext))
             host = QWidget()
             form = S.form(host)
             sl.addWidget(host)
@@ -183,22 +181,22 @@ class NotifyDialog(Dialog):
                 lid, ltext = LABELS[key]
                 f = self._field(key, s[key])
                 if isinstance(f, QCheckBox):
-                    f.setText(tr(w, lid, ltext))
+                    f.setText(ctx.text(lid, ltext))
                     S.form_row(form, "", f)
                 else:
-                    S.form_row(form, tr(w, lid, ltext), f)
+                    S.form_row(form, ctx.text(lid, ltext), f)
             ch = GROUP_SECRET.get(gid)
             if ch is not None:
                 e = QLineEdit()
                 e.setObjectName(f"notify_secret_{ch}")
                 e.setEchoMode(QLineEdit.Password)
-                e.setPlaceholderText(tr(w, "notify.secret.stored", "(stored: leave empty to keep)")
+                e.setPlaceholderText(ctx.text("notify.secret.stored", "(stored: leave empty to keep)")
                                      if plugin.secrets.has(SECRETS[ch]) else "")
                 self.secret_fields[ch] = e
                 sid, stext = SECRET_LABELS[ch]
-                S.form_row(form, tr(w, sid, stext), e)
+                S.form_row(form, ctx.text(sid, stext), e)
             bl.addWidget(sec)
-        ev, evl = S.section(tr(w, "notify.group.events", "Events (channels: all, or a list such as ntfy, email)"))
+        ev, evl = S.section(ctx.text("notify.group.events", "Events (channels: all, or a list such as ntfy, email)"))
         eh = QWidget()
         ef = S.form(eh)
         evl.addWidget(eh)
@@ -211,16 +209,16 @@ class NotifyDialog(Dialog):
             self.fields[f"event_{kind}"] = cb
             le = QLineEdit(str(s[f"channels_{kind}"] or "all"))
             le.setObjectName(f"notify_channels_{kind}")
-            le.setAccessibleName(tr(w, *EVENT_LABELS[kind]))
+            le.setAccessibleName(ctx.text(*EVENT_LABELS[kind]))
             self.fields[f"channels_{kind}"] = le
             row.addWidget(cb)
             row.addWidget(le, 1)
             lid, ltext = EVENT_LABELS[kind]
-            lab = S.form_row(ef, tr(w, lid, ltext), roww)
+            lab = S.form_row(ef, ctx.text(lid, ltext), roww)
             if isinstance(lab, QLabel):
                 lab.setBuddy(cb)
         bl.addWidget(ev)
-        bl.addWidget(S.caption(tr(w, "notify.secret.where", "Secrets are kept in: {where}",
+        bl.addWidget(S.caption(ctx.text("notify.secret.where", "Secrets are kept in: {where}",
                                   where=plugin.secrets.backend if plugin.secrets.backend == "keyring"
                                   else str(plugin.secrets.path))))
         bl.addStretch(1)
@@ -228,7 +226,7 @@ class NotifyDialog(Dialog):
         self.result_label.setObjectName("notify_result")
         self.result_label.setWordWrap(True)
         self.body.addWidget(self.result_label)
-        self.test_btn = self.buttons.addButton(tr(w, "notify.btn.test", "Send test"), QDialogButtonBox.ActionRole)
+        self.test_btn = self.buttons.addButton(ctx.text("notify.btn.test", "Send test"), QDialogButtonBox.ActionRole)
         self.test_btn.setObjectName("notify_test")
         self.test_btn.setMinimumHeight(TOUCH_MIN)
         self.test_btn.clicked.connect(self.send_test)
@@ -247,12 +245,12 @@ class NotifyDialog(Dialog):
         self.resize(self.sizeHint().width(), min(want, int(scr.height() * 0.85)) if scr is not None else want)
 
     def _field(self, key: str, value: Any) -> QWidget:
-        w = self.plugin.window
+        ctx = self.plugin.ctx
         f: QWidget
         if key == "smtp_security":
             cb = QComboBox()
             for tid, text in SECURITY_LABELS:
-                cb.addItem(tr(w, tid, text))
+                cb.addItem(ctx.text(tid, text))
             cb.setCurrentIndex(int(value or 0))
             f = cb
         elif key == "smtp_port":
@@ -293,9 +291,7 @@ class NotifyDialog(Dialog):
             if e.text():
                 self.plugin.secrets.set(SECRETS[ch], e.text())
                 e.clear()
-        cfg = getattr(self.plugin.window, "config", None)
-        if cfg is not None and hasattr(cfg, "flush"):
-            cfg.flush()
+        self.plugin.ctx.config.flush()
 
     def _save_close(self) -> None:
         self.save()
@@ -306,14 +302,14 @@ class NotifyDialog(Dialog):
         return self.plugin.send_test()
 
     def show_results(self) -> None:
-        w = self.plugin.window
+        ctx = self.plugin.ctx
         res = list(self.plugin.notifier.results)[-4:]
         if not res:
-            self.result_label.setText(tr(w, "notify.result.none", "No notification sent yet."))
+            self.result_label.setText(ctx.text("notify.result.none", "No notification sent yet."))
             return
         lines = []
         for r in reversed(res):
-            ok = tr(w, "notify.result.ok", "sent") if r.ok else tr(w, "notify.result.failed", "FAILED")
+            ok = ctx.text("notify.result.ok", "sent") if r.ok else ctx.text("notify.result.failed", "FAILED")
             lines.append(f"{time.strftime('%H:%M:%S', time.localtime(r.t))}  {r.kind} → {r.channel}: {ok} ({r.detail})")
         self.result_label.setText("\n".join(lines))
 
@@ -322,7 +318,7 @@ class NotifyDialog(Dialog):
         super().done(r)
 
 
-def register(ctx: Any) -> NotifyPlugin:
+def register(ctx: ExtensionContext) -> NotifyPlugin:
     return NotifyPlugin(ctx)
 
 

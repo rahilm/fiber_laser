@@ -110,8 +110,8 @@ def test_dedust_and_measure(win):
     ext.settings["DO.ClearAsh"] = 6
     act = w.ribbon.actions["aux.dedust"]
     assert ext.dedust() is True and act.isChecked()
-    assert act.text() == ext.w.tr_.tr("mf170")
-    assert ext.dedust() is False and act.text() == ext.w.tr_.tr("mf171")
+    assert act.text() == ext.ctx.tr.tr("mf170")
+    assert ext.dedust() is False and act.text() == ext.ctx.tr.tr("mf171")
     assert ext.toggle_measure() is True
     w.ctl.connect()
     ext.tick()

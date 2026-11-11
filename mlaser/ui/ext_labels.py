@@ -33,7 +33,7 @@ from mlaser.labels import marking as MK
 from mlaser.services import units as U
 from mlaser.services.config import Setting
 
-from .workspaces import tr, trn
+from .extension_context import ExtensionContext
 
 #: the marking layer when the technology database has no marking record: EXAMPLE values
 #: (low peak power and duty, no pierce stage, air), to be verified on the machine
@@ -42,9 +42,8 @@ FALLBACK_MARKING = {"GP.CutSpeed": 150.0, "GP.CutPeakCurrent": 20, "GP.CutPower"
 from mlaser.labels.marking import MARK_LAYER_COLOR as MARK_COLOR  # noqa: E402 - the layer's colour (data)
 
 
-def _data_dir(window: Any) -> str:
-    s = getattr(window, "settings", None)
-    d = s.get("data_dir") if s is not None else None
+def _data_dir(ctx: Any) -> str:
+    d = ctx.config_values.get("data_dir")
     if not d:
         from mlaser.services.config import data_dir
         d = str(data_dir())
@@ -52,9 +51,8 @@ def _data_dir(window: Any) -> str:
 
 
 class LabelsPlugin:
-    def __init__(self, ctx: Any) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.w = ctx.window
         self.settings = ctx.settings_schema([
             Setting("label_size", "enum", 0, options=tuple(s.key for s in L.SIZES), label="labels.set.label_size"),
             Setting("remnant_size", "enum", 0, options=tuple(s.key for s in L.SIZES),
@@ -83,8 +81,7 @@ class LabelsPlugin:
 
     # ------------------------------------------------------------------ helpers
     def _provider(self, name: str) -> Any:
-        hooks = getattr(self.w, "hooks", None)
-        fn = hooks.provider(name) if hooks is not None else None
+        fn = self.ctx.provider(name)
         try:
             return fn() if fn is not None else None
         except Exception:  # noqa: BLE001
@@ -98,9 +95,9 @@ class LabelsPlugin:
         if path:
             return path
         from PySide6.QtWidgets import QFileDialog
-        d = os.path.join(_data_dir(self.w), "labels")
+        d = os.path.join(_data_dir(self.ctx), "labels")
         os.makedirs(d, exist_ok=True)
-        p, _ = QFileDialog.getSaveFileName(self.w, tr(self.w, title_id, title), os.path.join(d, name), "PDF (*.pdf)")
+        p, _ = QFileDialog.getSaveFileName(self.ctx.parent, self.ctx.text(title_id, title), os.path.join(d, name), "PDF (*.pdf)")
         if not p:
             return None
         return p if p.lower().endswith(".pdf") else p + ".pdf"
@@ -122,28 +119,28 @@ class LabelsPlugin:
 
     # ------------------------------------------------------------------ labels
     def part_labels(self, path: Optional[str] = None) -> Optional[str]:
-        doc = self.w.document
+        doc = self.ctx.document
         mat, th = self._doc_material(doc)
         runner = self._provider("queue_runner")
         ent = getattr(runner, "current", None) if runner is not None and runner.state != "idle" else None
         labs = L.part_labels(doc, mat, th, (ent.remnant_id or ent.sheet) if ent else "", ent.id if ent else "")
         if not labs:
-            self.ctx.log(tr(self.w, "labels.msg.no_parts", "No parts to label"))
+            self.ctx.log(self.ctx.text("labels.msg.no_parts", "No parts to label"))
             return None
-        base = os.path.splitext(os.path.basename(getattr(self.w, "path", None) or "parts"))[0]
+        base = os.path.splitext(os.path.basename(self.ctx.path or "parts"))[0]
         path = self._save_path("labels.cmd.part_labels", "Part labels (PDF)...", f"labels-{base}.pdf", path)
         if not path:
             return None
         L.render_part_labels(path, labs, self._size("label_size"), units=U.current())
         self.last_path = path
-        self.ctx.log(trn(self.w, "labels.msg.written", len(labs), path=path))
+        self.ctx.log(self.ctx.plural("labels.msg.written", len(labs), path=path))
         return path
 
     def _ticket_entries(self) -> list:
         q = self._provider("queue")
         if q is None:
             return []
-        run = self.w.extension("run") if hasattr(self.w, "extension") else None
+        run = self.ctx.extension("run")
         panel = getattr(getattr(run, "screen", None), "queue_panel", None)
         sel = panel.selected_id() if panel is not None else None
         if sel:
@@ -156,7 +153,7 @@ class LabelsPlugin:
     def job_tickets(self, path: Optional[str] = None) -> Optional[str]:
         entries = self._ticket_entries()
         if not entries:
-            self.ctx.log(tr(self.w, "labels.msg.no_queue", "The queue has no job for a ticket"))
+            self.ctx.log(self.ctx.text("labels.msg.no_queue", "The queue has no job for a ticket"))
             return None
         from .ext_nest import _load_doc
         tickets = []
@@ -169,7 +166,7 @@ class LabelsPlugin:
             return None
         L.render_tickets(path, tickets, ("A4", "A5")[int(self.settings["ticket_page"] or 0) % 2], units=U.current())
         self.last_path = path
-        self.ctx.log(trn(self.w, "labels.msg.tickets", len(tickets), path=path))
+        self.ctx.log(self.ctx.plural("labels.msg.tickets", len(tickets), path=path))
         return path
 
     def remnant_labels(self, path: Optional[str] = None, remnants: Optional[list] = None) -> Optional[str]:
@@ -177,7 +174,7 @@ class LabelsPlugin:
         items = remnants if remnants is not None else ([r for r in store if r.status == "available"]
                                                        if store is not None else [])
         if not items:
-            self.ctx.log(tr(self.w, "labels.msg.no_remnants", "No remnant to label"))
+            self.ctx.log(self.ctx.text("labels.msg.no_remnants", "No remnant to label"))
             return None
         path = self._save_path("labels.cmd.remnant_labels", "Remnant labels (PDF)...",
                                time.strftime("remnants-%Y%m%d-%H%M%S.pdf"), path)
@@ -185,7 +182,7 @@ class LabelsPlugin:
             return None
         L.render_remnant_labels(path, L.labels_of(items), self._size("remnant_size"), units=U.current())
         self.last_path = path
-        self.ctx.log(trn(self.w, "labels.msg.written", len(items), path=path))
+        self.ctx.log(self.ctx.plural("labels.msg.written", len(items), path=path))
         return path
 
     def _remnants_changed(self) -> None:
@@ -199,21 +196,21 @@ class LabelsPlugin:
         self._known_remnants = ids
         if not new or not bool(self.settings["remnant_auto"]):
             return
-        d = os.path.join(_data_dir(self.w), "labels")
+        d = os.path.join(_data_dir(self.ctx), "labels")
         try:
             os.makedirs(d, exist_ok=True)
             for r in new:
                 p = os.path.join(d, f"remnant-{r.id}.pdf")
                 L.render_remnant_labels(p, [L.remnant_label(r)], self._size("remnant_size"), units=U.current())
-                self.ctx.log(tr(self.w, "labels.msg.remnant_auto", "Remnant label written: {path}", path=p))
+                self.ctx.log(self.ctx.text("labels.msg.remnant_auto", "Remnant label written: {path}", path=p))
         except OSError as exc:  # a label must never disturb the queue
-            self.ctx.log(tr(self.w, "labels.log.error", "Labels: {error}", error=exc))
+            self.ctx.log(self.ctx.text("labels.log.error", "Labels: {error}", error=exc))
 
     # ------------------------------------------------------------------ etching
     def marking_technology(self, material: str, thickness: float) -> Any:
         """The marking technology record for ``material`` / ``thickness`` (see the module
         docstring), or None."""
-        ext = self.w.extension("ext_process") if hasattr(self.w, "extension") else None
+        ext = self.ctx.extension("ext_process")
         store = getattr(ext, "store", None)
         if store is None:
             return None
@@ -243,11 +240,11 @@ class LabelsPlugin:
         return lp, origin
 
     def etch_part_ids(self) -> Optional[MK.EtchResult]:
-        doc = self.w.document
+        doc = self.ctx.document
         layer = int(self.settings["mark_layer"])
         used = {p.craft.layer for p in doc.parts if p.contours}
         if layer in used:
-            self.ctx.log(tr(self.w, "labels.msg.layer_used", "Layer {layer} is used for cutting: choose another "
+            self.ctx.log(self.ctx.text("labels.msg.layer_used", "Layer {layer} is used for cutting: choose another "
                             "marking layer (Options: labels mark_layer)", layer=layer))
             return None
         mat, th = self._doc_material(doc)
@@ -260,13 +257,13 @@ class LabelsPlugin:
         def edit(d: Any) -> None:
             box["r"] = MK.etch_document(d, layer, min_height=lo, max_height=hi, margin=margin, layer_params=lp)
 
-        self.ctx.edit(edit, tr(self.w, "labels.undo.etch", "Etch part IDs"))
+        self.ctx.edit(edit, self.ctx.text("labels.undo.etch", "Etch part IDs"))
         res = box.get("r")
         self.last_result = res
         if res is not None:
-            self.ctx.log(trn(self.w, "labels.msg.etched", len(res.marked), layer=layer, skipped=len(res.skipped)))
+            self.ctx.log(self.ctx.plural("labels.msg.etched", len(res.marked), layer=layer, skipped=len(res.skipped)))
             if origin == "fallback":
-                self.ctx.log(tr(self.w, "labels.msg.fallback", "No marking technology for {material}: the marking "
+                self.ctx.log(self.ctx.text("labels.msg.fallback", "No marking technology for {material}: the marking "
                                 "layer uses EXAMPLE low-power values; verify them before cutting",
                                 material=mat or "-"))
         return res
@@ -278,7 +275,7 @@ class LabelsPlugin:
         def edit(d: Any) -> None:
             box["n"] = MK.remove_marking(d, layer)
 
-        self.ctx.edit(edit, tr(self.w, "labels.undo.remove", "Remove part ID marking"))
+        self.ctx.edit(edit, self.ctx.text("labels.undo.remove", "Remove part ID marking"))
         return box["n"]
 
 
