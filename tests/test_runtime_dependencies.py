@@ -22,8 +22,10 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 
 PROBE = r"""
-import atexit, json, os, sys
+import atexit, faulthandler, json, os, sys
 baseline = set(sys.modules)
+# a start that does not end shows where every thread waits (the test's timeout is 200 s)
+faulthandler.dump_traceback_later(120, repeat=True)
 out = sys.argv[1]
 # the folders as a real start resolves them (no MLASER_* override, not under pytest): paths only
 saved = {k: os.environ.pop(k) for k in ("MLASER_CONFIG_DIR", "MLASER_DATA_DIR", "MLASER_LOG_DIR")}
@@ -35,6 +37,9 @@ def dump():
     new = sorted({m.split(".")[0] for m in set(sys.modules) - baseline})
     with open(out, "w") as f:
         json.dump(new, f)
+    if "multiprocessing" in sys.modules:
+        print("probe: children at exit:", sys.modules["multiprocessing"].active_children(),
+              file=sys.stderr, flush=True)
 atexit.register(dump)
 # start-up questions (startup homing...) answer "no" at once: a modal box would outlive the
 # smoke test's timer
@@ -43,9 +48,27 @@ QDialog.exec = lambda self, *a: 0
 QMessageBox.exec = lambda self, *a: int(QMessageBox.No)
 from mlaser.__main__ import main
 rc = main(["--demo", "--smoke-test", "2", "--new-instance"])
+print("probe: main returned", rc, file=sys.stderr, flush=True)
 dump()
 sys.exit(rc)
 """
+
+
+def _probe(args: list[str], tmp_path: Path, env: dict, tag: str) -> tuple[int, str]:
+    """Run the probe with its output in files (a child process that kept a pipe open would hold
+    a pipe reader too); on a timeout, fail with what the start printed so far."""
+    o, e = tmp_path / f"{tag}.out", tmp_path / f"{tag}.err"
+    with open(o, "wb") as fo, open(e, "wb") as fe:
+        p = subprocess.Popen([sys.executable, "-c", *args], cwd=str(tmp_path), env=env, stdout=fo, stderr=fe)
+        try:
+            rc = p.wait(timeout=200)
+        except subprocess.TimeoutExpired:
+            p.kill()
+            p.wait()
+            pytest.fail(f"the start did not end in 200 s\n--- stdout:\n"
+                        f"{o.read_text('utf-8', 'replace')[-3000:]}\n--- stderr:\n"
+                        f"{e.read_text('utf-8', 'replace')[-12000:]}")
+    return rc, e.read_text("utf-8", "replace")
 
 
 def _norm(name: str) -> str:
@@ -96,9 +119,8 @@ def test_start_imports_only_declared_dependencies(tmp_path):
     env.update(QT_QPA_PLATFORM="offscreen", MLASER_NO_FIRSTRUN="1", MLASER_SINGLE_INSTANCE="0",
                MLASER_CARD_LOCK="0", MLASER_NO_INHIBIT="1", PYTHONPATH=str(ROOT))
     out = tmp_path / "modules.json"
-    r = subprocess.run([sys.executable, "-c", PROBE, str(out)], cwd=str(tmp_path), env=env,
-                       capture_output=True, text=True, timeout=200)
-    assert r.returncode == 0, r.stderr[-3000:]
+    rc, err = _probe([PROBE, str(out)], tmp_path, env, "start")
+    assert rc == 0, err[-3000:]
     mods = json.loads(out.read_text())
     stdlib = set(sys.stdlib_module_names) | set(sys.builtin_module_names)
     dists = metadata.packages_distributions()
@@ -117,7 +139,6 @@ def test_start_imports_only_declared_dependencies(tmp_path):
     required_from_extra = {m: sorted(ds) for m, ds in used.items()
                            if ds and not ds & allowed and "mlaser" not in ds and ds & optional}
     for m in required_from_extra:
-        guard = subprocess.run([sys.executable, "-c",
-                                f"import sys; sys.modules[{m!r}] = None\n" + PROBE, str(out)],
-                               cwd=str(tmp_path), env=env, capture_output=True, text=True, timeout=200)
-        assert guard.returncode == 0, f"the start needs the optional {m}: {guard.stderr[-2000:]}"
+        grc, gerr = _probe([f"import sys; sys.modules[{m!r}] = None\n" + PROBE, str(out)], tmp_path, env,
+                           f"guard-{m}")
+        assert grc == 0, f"the start needs the optional {m}: {gerr[-2000:]}"

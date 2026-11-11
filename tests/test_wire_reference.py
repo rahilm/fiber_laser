@@ -133,6 +133,12 @@ def wire():
         sim.stop()
 
 
+def _little(f) -> bool:
+    """The reply's CRC is stored little-endian.  A CRC whose two bytes are equal (0x0303: one
+    reply in 256) reads the same both ways and decodes as "big"; it is right either way."""
+    return f.crc_order == "little" or (f.crc_order == "big" and f.crc >> 8 == f.crc & 0xFF)
+
+
 def _check_framing(tap: Tap) -> None:
     """Every exchange decodes as §2 says: request CRC big-endian, reply CRC little-endian, LEN,
     unit 0, the reply echoes the request's transaction id; one client numbers its requests
@@ -145,7 +151,7 @@ def _check_framing(tap: Tap) -> None:
         tids.append(fq.tid)
         assert r is not None
         fr = W.decode_reply(r)
-        assert fr.unit == 0 and fr.crc_order == "little" and fr.tid == fq.tid
+        assert fr.unit == 0 and _little(fr) and fr.tid == fq.tid, fr
         assert fr.exception is None and fr.func == fq.func
         if fq.func == W.READ:
             assert (fr.addr, fr.count) == (fq.addr, fq.count) and len(fr.values) == fq.count
@@ -273,7 +279,7 @@ def test_heartbeat_output_on_the_wire():
         assert all(a[3] != b[3] for a, b in zip(hb, hb[1:])), "the heartbeat did not alternate"
         for q, r in tap.pairs:                                   # several clients: framing only
             assert W.decode_request(q).crc_order == "big"
-            assert r is None or W.decode_reply(r).crc_order == "little"
+            assert r is None or _little(W.decode_reply(r))
     finally:
         ctl.disconnect()
 

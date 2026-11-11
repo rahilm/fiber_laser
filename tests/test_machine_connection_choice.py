@@ -77,7 +77,9 @@ def test_first_connect_is_logged_as_a_connect_and_the_choice_follows(app, monkey
         mws.port.setValue(ext.port)
         log0 = w.log_panel.text.toPlainText()
         mws.connect()
-        assert _until(app, lambda: w.ctl.state().connected and "127.0.0.1" in w.log_panel.text.toPlainText()[len(log0):])
+        # the page's own line comes after the controller's "Connected to MCC ..." line: wait for it
+        assert _until(app, lambda: w.ctl.state().connected and f"Connected to the card at 127.0.0.1:{ext.port}"
+                      in w.log_panel.text.toPlainText()[len(log0):])
         new = w.log_panel.text.toPlainText()[len(log0):]
         assert f"Connected to the card at 127.0.0.1:{ext.port}" in new and "not identified" in new
         assert "Hardware reconnected" not in new

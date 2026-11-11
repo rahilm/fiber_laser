@@ -326,7 +326,11 @@ def test_process_pages_fit_half_screen(win, app, size):
         scrolling = [a.objectName() for a in win.findChildren(QAbstractScrollArea)
                      if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
                      and a.verticalScrollBar().isVisible()]
-        assert not scrolling, (size, b.objectName(), scrolling)
+        # the numbers in a failure: viewport height, the content's minimum and preferred height
+        assert not scrolling, (size, b.objectName(), scrolling, [
+            (a.objectName(), a.viewport().height(), a.widget().minimumSizeHint().height(),
+             a.widget().sizeHint().height()) for a in win.findChildren(QAbstractScrollArea)
+            if a.objectName() in scrolling and getattr(a, "widget", lambda: None)() is not None])
         if win.size().toTuple() != size:
             # the details in full in the captured output (the assertion's repr is cut)
             print("HEIGHTS", b.objectName(), win.size().toTuple(), win.minimumSize().toTuple(),
