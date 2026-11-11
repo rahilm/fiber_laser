@@ -129,8 +129,10 @@ class CommandPalette(QFrame):
         for m in self._matches:
             e = m.entry
             right = "    ".join(x for x in (e.workspace, e.shortcut) if x)
-            prefix = "★ " if m.recent else ""
-            it = QListWidgetItem(f"{prefix}{e.label}")
+            it = QListWidgetItem(e.label)
+            if m.recent:                 # the star icon, never a font glyph (UI deep review 12)
+                from ..icons import icon
+                it.setIcon(icon("star"))
             it.setData(Qt.UserRole, e.id)
             it.setData(RIGHT_ROLE, right)
             tip = [e.id]

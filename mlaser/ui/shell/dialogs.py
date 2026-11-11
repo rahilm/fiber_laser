@@ -61,7 +61,7 @@ class PinSetupDialog(QDialog):
             form.addRow(tr.format("shell.pin.for", mode=tr.tr(f"shell.mode.{m}")), row)
             self.edits[m], self.clear[m] = e, c
         v.addLayout(form)
-        self.error = QLabel()
+        self.error = style.IconLabel()            # after the warning icon, never a glyph
         self.error.setWordWrap(True)
         v.addWidget(self.error)
         bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
@@ -78,7 +78,7 @@ class PinSetupDialog(QDialog):
                 elif pin:
                     self.modes.set_pin(m, pin)
         except (ValueError, PermissionError) as exc:
-            self.error.setText(f"⚠ {exc}")
+            style.set_status(self.error, style.warning_text(str(exc)))
             return
         self.accept()
 

@@ -140,7 +140,7 @@ class EdgeSeekWizard(WizardDialog):
                 lbl.setText(T(self.w, "wizard.edge.point_value", n=n, x=u.number(q[0], "length", d),
                               y=u.number(q[1], "length", d), unit=u.suffix("length")) if q else "")
         elif step.id == "apply" and p.applied:
-            self.status.setText(T(self.w, "wizard.edge.applied", angle=f"{p.result.angle_deg:.3f}"))
+            style.set_status(self.status, T(self.w, "wizard.edge.applied", angle=f"{p.result.angle_deg:.3f}"))
 
     def collect(self, step: PE.Step) -> bool:
         if step.id != "params":
@@ -276,9 +276,11 @@ class LaserWizard(WizardDialog):
             self.results.setRowCount(len(p.pulses))
             for i, r in enumerate(p.pulses):
                 for j, v in enumerate((f"{r.duty_pct:g}{suffix_for('%')}", f"{r.duration_ms:g}{suffix_for('ms')}",
-                                       "✓" if r.fired else "✗")):
+                                       T(self.w, "wizard.yes" if r.fired else "wizard.no"))):
                     it = QTableWidgetItem(v)
                     it.setFlags(it.flags() & ~Qt.ItemIsEditable)
+                    if j == 2:                   # the result: its icon beside the word, never a glyph
+                        it.setIcon(icons.status_icon("pass" if r.fired else "fail"))
                     self.results.setItem(i, j, it)
                 self.results.setItem(i, 3, QTableWidgetItem(""))
 
@@ -290,10 +292,10 @@ class LaserWizard(WizardDialog):
                 prm = LaserTestParams(lv, self.duration.value(), self.pause.value())
                 prm.validate()
             except ValueError:
-                self.status.setText("⚠ " + T(self.w, "wizard.laser.error.levels_text"))
+                style.set_status(self.status, style.warning_text(T(self.w, "wizard.laser.error.levels_text")))
                 return False
             except PE.StepFailed as e:
-                self.status.setText("⚠ " + T(self.w, e.key, **e.values))
+                style.set_status(self.status, style.warning_text(T(self.w, e.key, **e.values)))
                 return False
             p.params = prm
         elif step.id == "results":
@@ -392,7 +394,7 @@ class CommissioningWizard(WizardDialog):
             p.recheck_scaling()                      # fixed (or broken) while the checklist is open
         self.panel.set_rows(rows)
         if p.items["interlocks"].status != before:
-            self.status.setText(self.status_text())
+            style.set_status(self.status, self.status_text())
         if getattr(self, "panel", None) is not None:
             self._apply_order()                      # the e-stop test or a scaling fix unblocks a step
         return rows
@@ -556,14 +558,14 @@ class CommissioningWizard(WizardDialog):
             why = p.blocked_reason()
             if why or self.b_run.property("disabled_reason"):
                 style.set_enabled(self.b_run, not why, T(self.w, why) if why else "")
-                self.status.setText(self.status_text())
+                style.set_status(self.status, self.status_text())
         if final and p.state == PE.DONE:
             self.title.setText(self.finish_title())
         elif not final and s.id == "summary":
             state, _n = p.finish_state()
             self.b_next.setText(T(self.w, "wizard.finish" if state in ("ok", "warn")
                                   else "wizard.comm.finish_incomplete"))
-            self.status.setText(self.status_text())
+            style.set_status(self.status, self.status_text())
 
     def run(self) -> None:
         p: CM.CommissioningProcedure = self.proc     # type: ignore[assignment]
@@ -581,7 +583,7 @@ class CommissioningWizard(WizardDialog):
         if p.state == PE.WAITING and p.step is not None:
             why = p.blocked_reason() if p.step.id not in p.done else ""
             if why:
-                return "⚠ " + T(self.w, why)
+                return style.warning_text(T(self.w, why))
             if p.step.id == "summary":
                 return self.finish_title()
         return super().status_text()

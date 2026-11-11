@@ -268,6 +268,73 @@ def chip(widget: QLabel, role: str = "warning") -> QLabel:
     return widget
 
 
+class IconLabel(QLabel):
+    """A label with an SVG icon before its text (:meth:`set_icon`): the icon of a warning or a
+    result, never a font glyph (the warning sign, the tick and the cross take the platform font's
+    shape, a colour emoji on Windows; UI deep review 12).  The text is indented by the icon (all its lines), the icon is
+    centred on the first line and follows a theme switch (its tint is a colour role)."""
+
+    def __init__(self, text: str = "", parent: Optional[QWidget] = None):
+        super().__init__(text, parent)
+        self._icon = None
+        self._icon_name = ""
+
+    def set_icon(self, name: Optional[str], role: str = "warning") -> None:
+        """Show the icon ``name`` tinted by the colour ``role`` (None: no icon)."""
+        self._icon = _icon(name, role) if name else None
+        self._icon_name = name or ""
+        self.setProperty("status_icon", self._icon_name)
+        self.setIndent(ICON_S + SP1 if name else -1)
+        self.update()
+
+    def icon_name(self) -> str:
+        return self._icon_name
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        super().paintEvent(ev)
+        if self._icon is None:
+            return
+        from PySide6.QtCore import QRect
+        from PySide6.QtGui import QPainter
+        r = self.contentsRect()
+        fm = self.fontMetrics()
+        top = r.y()
+        if self.alignment() & (Qt.AlignVCenter | Qt.AlignBottom):     # where the text block starts
+            flags = int(Qt.TextWordWrap) if self.wordWrap() else 0
+            text_h = fm.boundingRect(QRect(0, 0, max(1, r.width() - self.indent()), 100000), flags,
+                                     self.text()).height()
+            top += (r.height() - text_h) // (2 if self.alignment() & Qt.AlignVCenter else 1)
+        y = max(r.y(), top + (fm.height() - ICON_S) // 2)
+        p = QPainter(self)
+        self._icon.paint(p, QRect(r.x(), y, ICON_S, ICON_S),
+                         Qt.AlignCenter, self._icon.Mode.Normal if self.isEnabled() else self._icon.Mode.Disabled)
+        p.end()
+
+
+class _WarningText(str):
+    """A status text that is a warning (:func:`warning_text`, :func:`set_status`)."""
+
+
+def warning_text(text: str) -> str:
+    """Mark ``text`` as a warning: :func:`set_status` shows it after the warning icon."""
+    return _WarningText(text)
+
+
+def is_warning(text: str) -> bool:
+    return isinstance(text, _WarningText)
+
+
+def set_status(label: QLabel, text: str) -> None:
+    """A status line: ``text``, after the warning icon when it is a :func:`warning_text` (an
+    :class:`IconLabel`; a plain label just shows the text)."""
+    if label.text() != text:
+        label.setText(text)
+    if isinstance(label, IconLabel):
+        want = "alert-triangle" if is_warning(text) and text else ""
+        if label.icon_name() != want:
+            label.set_icon(want or None, "warning")
+
+
 # --------------------------------------------------------------------------- buttons
 def _icon(name: Optional[str], tint: Optional[str] = None):
     from .icons import icon
@@ -586,10 +653,10 @@ def section(title: str, *, collapsible: bool = False, priority: int = 0) -> tupl
     Returns (section widget, body layout).  ``collapsible``: the responsive CollapsibleSection."""
     body = QWidget()
     lay = vbox(body)
-    lay.setContentsMargins(SP2, 0, 0, 0)
-    if collapsible:
+    if collapsible:          # the same header and inset, drawn by the CollapsibleSection
         from .responsive import CollapsibleSection
         return CollapsibleSection(title, body, collapsible=True, priority=priority), lay
+    lay.setContentsMargins(SP2, 0, 0, 0)
     sec = QWidget()
     v = vbox(sec, sp=SP1)
     head = heading(title)
@@ -670,8 +737,10 @@ def touch_tab_qss() -> str:
     as selected in every theme (UX audit O11): bold text on the field colour with a 3 px bar in
     the highlight colour along its bottom, the others on the button colour.  Palette roles only:
     light, dark and high contrast alike."""
-    # a tab is TARGET_TOUCH tall: the content, SP1 padding above and below, 1 + 3 px borders
-    return (f"QTabBar::tab{{min-height:{TARGET_TOUCH - 2 * SP1 - 4}px;min-width:{SP5 * 4}px;"
+    # a tab is TARGET_TOUCH tall: the content, SP1 padding above and below, 1 + 3 px borders; at
+    # least two touch targets wide, else as wide as its words (the Run workspace's Live view and
+    # Queue side by side in the canvas column of a half-screen window, no scroll arrows)
+    return (f"QTabBar::tab{{min-height:{TARGET_TOUCH - 2 * SP1 - 4}px;min-width:{TARGET_TOUCH * 2}px;"
             f"padding:{SP1}px {SP3}px;"
             "background:palette(button);color:palette(button-text);"
             "border:1px solid palette(mid);border-bottom:3px solid palette(button);"

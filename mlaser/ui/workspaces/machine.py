@@ -226,11 +226,13 @@ class SettingsPanel(QWidget):
         hh.setStretchLastSection(False)
         hh.setSectionResizeMode(1, QHeaderView.Fixed)     # as wide as the widest editor (build)
         hh.setSectionResizeMode(2, QHeaderView.ResizeToContents)
-        # the name column stretches, the key column hides first in a narrow window
-        self.columns = ColumnFitter(self.tree, {1: None, 2: 0}, stretch=0)
+        # the name column stretches up to its widest name (the values stay next to their names
+        # in a wide window: UI deep review 11), the key column hides first in a narrow window
+        self.columns = ColumnFitter(self.tree, {1: None, 2: 0}, stretch=0,
+                                    cap=lambda: self.tree.sizeHintForColumn(0) + style.SP4)
         lay.addWidget(self.tree, 1)
         row = QHBoxLayout()
-        self.status = QLabel(T(window, "ws.machine.hw_note"))
+        self.status = style.IconLabel(T(window, "ws.machine.hw_note"))     # an error: after its icon
         self.status.setWordWrap(True)
         row.addWidget(self.status, 1)
         self.b_revert = _button(window, "ws.machine.hw_revert", self.build)
@@ -432,7 +434,12 @@ class SettingsPanel(QWidget):
         info = [T(self.w, "wizard.import.confirm_safety", n=len(safe))] if safe else []
         info.append(T(self.w, "wizard.import.confirm_backup"))
         info.append(T(self.w, "wizard.import.confirm_reconnect"))
-        detail = "\n".join(("⚠ " if k in safe else "") + self._change_line(k, changes[k]) for k in safe + rest)
+        # the ones that change how the machine moves first, under their own line (not a glyph)
+        lines = [self._change_line(k, changes[k]) for k in rest]
+        if safe:
+            lines = ([T(self.w, "wizard.import.safety_count", n=len(safe))]
+                     + [self._change_line(k, changes[k]) for k in safe] + ([""] if rest else []) + lines)
+        detail = "\n".join(lines)
         return verb_question(self, T(self.w, "ws.machine.hw_confirm_title"),
                              T(self.w, "wizard.import.confirm_text", n=len(changes)), T(self.w, "wizard.import.apply"),
                              T(self.w, "wizard.import.cancel"), informative="\n\n".join(info), warning=bool(safe),
@@ -447,7 +454,7 @@ class SettingsPanel(QWidget):
         self.errors = []
         changes = self.changed()
         if changes and confirm and not self.confirm(changes):
-            self.status.setText(T(self.w, "wizard.import.cancelled"))
+            style.set_status(self.status, T(self.w, "wizard.import.cancelled"))
             return 0
         bak = SI.backup_config(self.config) if changes else None
         n = 0
@@ -470,7 +477,8 @@ class SettingsPanel(QWidget):
         if connected:
             lines.append(T(self.w, "wizard.import.reconnect_needed"))
         self.b_reconnect.setVisible(connected)
-        self.status.setText("\n".join(lines))
+        text = "\n".join(lines)
+        style.set_status(self.status, style.warning_text(text) if self.errors else text)
         self.build()
         return n
 

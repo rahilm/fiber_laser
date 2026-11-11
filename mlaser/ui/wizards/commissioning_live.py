@@ -21,14 +21,15 @@ from PySide6.QtWidgets import (QFrame, QGridLayout, QLabel, QPushButton, QScroll
 from mlaser.services import units as U
 from mlaser.services.procedures import commissioning_live as CL
 
-from .. import style
+from .. import icons, style
 from ..responsive import CollapsibleSection, ColumnsPanel, FlowLayout, mark_list
 from .common import T
 
-#: status -> (symbol, catalogue id of the word, colour role or "" for a plain chip)
-STATUS = {CL.PASS: ("✓", "wizard.comm.s_pass", "success"), CL.WARN: ("!", "wizard.comm.s_warn", "warning"),
-          CL.FAIL: ("✗", "wizard.comm.s_fail", "danger"), CL.SKIP: ("–", "wizard.comm.s_skip", ""),
-          CL.PENDING: ("…", "wizard.comm.s_pending", "info")}
+#: status -> (its result icon, icons.STATUS_ICONS; catalogue id of the word; colour role or "" for
+#: a plain chip): the icon beside the word, never a font glyph (UI deep review 12)
+STATUS = {CL.PASS: ("pass", "wizard.comm.s_pass", "success"), CL.WARN: ("warn", "wizard.comm.s_warn", "warning"),
+          CL.FAIL: ("fail", "wizard.comm.s_fail", "danger"), CL.SKIP: ("skipped", "wizard.comm.s_skip", ""),
+          CL.PENDING: ("todo", "wizard.comm.s_pending", "info")}
 #: the sections: (catalogue id of the title, fold priority (higher folds last), row ids)
 SECTIONS = (("wizard.comm.live.sec_safety", 2, ("estop", "ilk.door", "ilk.gas", "ilk.laser", "heartbeat")),
             ("wizard.comm.live.sec_link", 1, ("connection", "alarms", "scaling", "soft_limits")),
@@ -79,13 +80,13 @@ class LiveRow(QWidget):
         self.grid.setContentsMargins(0, 0, 0, style.SP1)
         self.grid.setHorizontalSpacing(style.SP2)
         self.grid.setVerticalSpacing(style.SP1 // 2)
-        self.chip = QLabel()
+        self.chip = style.IconLabel()
         self.chip.setObjectName("live_chip")
         self.chip.setAlignment(Qt.AlignCenter)
         self.chip.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         fm = self.chip.fontMetrics()
-        self.chip.setMinimumWidth(max(fm.horizontalAdvance(f"{sym} {T(window, key)}") for sym, key, _r in STATUS.values())
-                                  + 2 * style.SP2 + 4)
+        self.chip.setMinimumWidth(max(fm.horizontalAdvance(T(window, key)) for _i, key, _r in STATUS.values())
+                                  + style.ICON_S + style.SP1 + 2 * style.SP2 + 4)
         self.grid.addWidget(self.chip, 0, 0, Qt.AlignTop)
         self.name = QLabel(T(window, CL.TITLES[rid]))
         style.set_font(self.name, "label_strong")
@@ -150,16 +151,18 @@ class LiveRow(QWidget):
         self._arrange(self.width() < need)
 
     def status_text(self) -> str:
-        """Symbol and word of the current status (what the chip shows)."""
+        """The word of the current status (what the chip shows after its icon)."""
         if self.check is None:
             return ""
-        sym, key, _role = STATUS[self.check.status]
-        return f"{sym} {T(self.w, key)}"
+        _icon, key, _role = STATUS[self.check.status]
+        return T(self.w, key)
 
     def set_check(self, c: CL.LiveCheck, enabled: Callable[[str], tuple[bool, str]]) -> None:
         self.check = c
-        sym, key, role = STATUS[c.status]
-        self.chip.setText(f"{sym} {T(self.w, key)}")
+        ico, key, role = STATUS[c.status]
+        self.chip.setText(T(self.w, key))
+        if self.chip.icon_name() != icons.STATUS_ICONS[ico][0]:
+            self.chip.set_icon(*icons.STATUS_ICONS[ico])
         if role != self._role:
             self._role = role
             if role:
@@ -265,8 +268,8 @@ class LiveStatusPanel(QWidget):
         parts = []
         for st in (CL.FAIL, CL.WARN, CL.PENDING, CL.PASS, CL.SKIP):
             if counts.get(st):
-                sym, key, _role = STATUS[st]
-                parts.append(f"{sym} {counts[st]} {T(self.w, key)}")
+                _icon, key, _role = STATUS[st]
+                parts.append(f"{counts[st]} {T(self.w, key)}")
         return " · ".join(parts)
 
 

@@ -154,21 +154,6 @@ def card_in_units(data: dict, entry: Any = None) -> dict:
     return d
 
 
-def run_tab_style() -> str:
-    """The Run screen's tab bar (Live view / Queue): touch-sized tabs, and a selected tab that
-    reads as selected in every theme (UX audit O11): bold text on the field colour with a 3 px
-    bar in the highlight colour along its bottom, the others on the button colour.  Palette roles
-    only (the theme's tokens, or the platform's palette): light, dark and high contrast alike."""
-    return (f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP2}px;min-width:{style.SP5 * 4}px;"
-            f"padding:{style.SP1}px {style.SP3}px;"
-            "background:palette(button);color:palette(button-text);"
-            "border:1px solid palette(mid);border-bottom:3px solid palette(button);"
-            "border-top-left-radius:4px;border-top-right-radius:4px;}"
-            "QTabBar::tab:selected{background:palette(base);color:palette(text);font-weight:bold;"
-            "border-bottom:3px solid palette(highlight);}"
-            "QTabBar::tab:!selected:hover{background:palette(midlight);}")
-
-
 # ============================================================================== load card
 
 class LoadSheetCard(QFrame):
@@ -212,7 +197,7 @@ class LoadSheetCard(QFrame):
         self.details.setObjectName("run_load_details")
         self.details.setWordWrap(True)
         col.addWidget(self.details)
-        self.warning = QLabel()
+        self.warning = style.IconLabel()          # after the warning icon, never a glyph
         self.warning.setObjectName("run_load_warning")
         self.warning.setWordWrap(True)
         style.styled(self.warning, lambda: (f"background:{style.css('danger_fill')};color:{style.css('on_danger')};"
@@ -250,7 +235,8 @@ class LoadSheetCard(QFrame):
         self.details.setText("\n".join(det))
         mm = data["mismatch"]
         self.warning.setVisible(bool(mm))
-        self.warning.setText("⚠ " + "\n⚠ ".join(mm) if mm else "")
+        self.warning.setText("\n".join(mm))
+        self.warning.set_icon("alert-triangle" if mm else None, "on_danger")
         from .orders import parts_pixmap
         parts = [p for p in getattr(doc, "parts", []) if p.contours] if doc is not None else []
         pw, ph = self.PICTURE
@@ -259,10 +245,10 @@ class LoadSheetCard(QFrame):
 
 # ============================================================================== readout
 class ReadoutRow(QWidget):
-    """The live process values as label / value pairs (UI deep review 13): a muted caption
-    above each value, the value in tabular figures (it does not shift as it changes); the pairs
-    wrap between them (FlowLayout), never inside one.  :meth:`text`: every pair on one line
-    (the accessible description, tests)."""
+    """The live process values as tiles (UI deep review 13): a muted caption above each value,
+    the value in the label_strong font with tabular figures (it does not shift as it changes)
+    and its unit after it, muted; the tiles wrap between them (FlowLayout), never inside one.
+    :meth:`text`: every pair on one line (the accessible description, tests)."""
 
     KEYS = (("speed", "run.cap.speed", "Speed"), ("power", "run.cap.power", "Power"),
             ("gas", "run.cap.gas", "Gas"), ("height", "run.cap.height", "Height"),
@@ -272,10 +258,11 @@ class ReadoutRow(QWidget):
         super().__init__()
         self.window_ = window
         self.setObjectName("run_values")
-        self.flow = FlowLayout(self, justify=False, hspacing=style.SP4)
+        self.flow = FlowLayout(self, justify=False, hspacing=style.SP3)
         self.flow.setContentsMargins(0, 0, 0, 0)
         self.captions: dict[str, QLabel] = {}
         self.fields: dict[str, QLabel] = {}
+        self.units: dict[str, QLabel] = {}
         for key, tid, default in self.KEYS:
             tile = QWidget()
             tile.setObjectName(f"run_value_{key}")
@@ -286,10 +273,18 @@ class ReadoutRow(QWidget):
             val.setTextFormat(Qt.PlainText)
             style.set_font(val, "label_strong")
             tabular(val)
+            unit = QLabel()
+            unit.setObjectName(f"run_value_{key}_unit")
+            unit.setTextFormat(Qt.PlainText)
+            style.styled(unit, lambda: f"color:{style.css('muted')};")
+            line = style.hbox(sp=style.SP1)
+            line.addWidget(val, 0, Qt.AlignBottom)
+            line.addWidget(unit, 0, Qt.AlignBottom)
+            line.addStretch(1)
             v.addWidget(cap)
-            v.addWidget(val)
+            v.addLayout(line)
             self.flow.addWidget(tile)
-            self.captions[key], self.fields[key] = cap, val
+            self.captions[key], self.fields[key], self.units[key] = cap, val, unit
         # the link is lost: the last values the card reported, muted, and said so (W2)
         self.note = style.caption(tr(window, "run.val.last_known_note", "Last known values"), wrap=False)
         self.note.setObjectName("run_values_note")
@@ -299,7 +294,9 @@ class ReadoutRow(QWidget):
         self._text = ""
 
     def set_values(self, values: dict, stale: bool = False) -> None:
-        for key, text in values.items():
+        """``values``: key -> (value, unit) (or the whole text, no unit)."""
+        for key, vu in values.items():
+            text, unit = (vu, "") if isinstance(vu, str) else vu
             lab = self.fields[key]
             if lab.text() != text:
                 lab.setText(text)
@@ -307,12 +304,17 @@ class ReadoutRow(QWidget):
                 need = lab.fontMetrics().horizontalAdvance(text)
                 if need > lab.minimumWidth():
                     lab.setMinimumWidth(need)
+            u = self.units[key]
+            if u.text() != unit:
+                u.setText(unit)
+                u.setVisible(bool(unit))
         if stale != self.stale:
             self.stale = stale
             for lab in self.fields.values():
                 style.styled(lab, (lambda: f"color:{style.css('muted')};") if stale else (lambda: ""))
             self.note.setVisible(stale)
-        text = "    ".join(f"{self.captions[k].text()} {self.fields[k].text()}" for k, _t, _d in self.KEYS)
+        text = "    ".join(" ".join(x for x in (self.captions[k].text(), self.fields[k].text(), self.units[k].text())
+                                    if x) for k, _t, _d in self.KEYS)
         if stale:
             text = tr(self.window_, "run.val.last_known", "{values}   (last known)", values=text)
         if text != self._text:
@@ -769,6 +771,8 @@ class QueuePanel(QWidget):
             ("queue.col.done", "Done"), ("queue.col.status", "Status"), ("queue.col.material", "Material"),
             ("queue.col.sheet", "Sheet"), ("queue.col.est", "Est. / sheet"), ("queue.col.actual", "Actual"),
             ("queue.col.note", "Note"))
+    #: the columns of counts: right-aligned (#, Qty, Done)
+    NUMERIC = (0, 2, 3)
 
     def __init__(self, ws: "RunWorkspace") -> None:
         super().__init__()
@@ -781,14 +785,19 @@ class QueuePanel(QWidget):
         from .approval import ApprovalPanel
         self.approval = ApprovalPanel(ws)            # submitted jobs waiting for the operator
         v.addWidget(self.approval)
-        self.table = QTableWidget(0, len(self.COLS))
+        # the table recipe (style.table_look: left-aligned headers, the counts right-aligned,
+        # zebra rows for its ten columns, the empty-state line); a row stays a touch target
+        self.table = style.table_look(QTableWidget(0, len(self.COLS)), numeric=self.NUMERIC,
+                                      empty=tr(w, "queue.empty", "No jobs in the queue: add a job here, or send one from Nest."))
         self.table.setObjectName("queue_table")
         self.table.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COLS])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table.verticalHeader().setVisible(False)
-        self.table.verticalHeader().setDefaultSectionSize(TOUCH_MIN)
+        rh = max(TOUCH_MIN, style.row_height(self.table))
+        self.table.verticalHeader().setMinimumSectionSize(rh)
+        self.table.verticalHeader().setDefaultSectionSize(rh)
         hh = self.table.horizontalHeader()
         hh.setSectionResizeMode(QHeaderView.ResizeToContents)
         hh.setSectionResizeMode(1, QHeaderView.Stretch)
@@ -1056,11 +1065,10 @@ class OperatorScreen(QWidget):
 
         # --- left: live view / queue tabs, process values, alarms
         left = QVBoxLayout()
-        self.tabs = QTabWidget()
+        # the workspace tab look (style.tabs, docs/dev/STYLE.md "Tabs"): touch-sized, the
+        # selected one bold with a bar in the highlight colour, in every theme
+        self.tabs = style.tabs(QTabWidget(), "workspace")
         self.tabs.setObjectName("run_tabs")
-        self.tabs.tabBar().setMinimumHeight(TOUCH_MIN)
-        # touch-sized tabs on the operator screen (a domain screen: the only tab-bar style sheet)
-        self.tabs.setStyleSheet(run_tab_style())
         self.canvas = RunCanvas()
         self.tabs.addTab(self.canvas, tr(w, "run.tab.live", "Live view"))
         self.queue_panel = QueuePanel(ws)
@@ -1425,15 +1433,22 @@ class OperatorScreen(QWidget):
         # process values
         dash = "-"
         u = U.current()
-        gas = s.gas
+
+        def num(v: Any, kind: str, **kw: Any) -> tuple[str, str]:
+            """(the number, its unit), muted apart on the tile; no unit after a dash."""
+            if v is None:
+                return dash, ""
+            return u.fmt(v, kind, unit=False, **kw), u.suffix(kind)
+        gas: tuple[str, str] = (s.gas or dash, "")
         if s.gas_bar:
-            gas = tr(w, "run.val.gas_bar", "{gas} {pressure}", gas=gas, pressure=u.fmt(s.gas_bar, "pressure", decimals=1))
-        vals = {"speed": u.fmt(s.speed, "speed"),
-                "power": tr(w, "run.val.power_pct", "{v} %", v=f"{s.power_pct:.0f}") if s.power_pct is not None
-                else dash,
-                "gas": gas or dash,
-                "height": u.fmt(s.height_mm, "length", missing=dash),
-                "x": u.fmt(s.x, "length"), "y": u.fmt(s.y, "length"), "z": u.fmt(s.z, "length")}
+            p, unit = num(s.gas_bar, "pressure", decimals=1)
+            gas = (tr(w, "run.val.gas_bar", "{gas} {pressure}", gas=s.gas, pressure=p).strip(), unit)
+        vals = {"speed": num(s.speed, "speed"),
+                "power": (f"{s.power_pct:.0f}", tr(w, "run.unit.percent", "%")) if s.power_pct is not None
+                else (dash, ""),
+                "gas": gas,
+                "height": num(s.height_mm, "length"),
+                "x": num(s.x, "length"), "y": num(s.y, "length"), "z": num(s.z, "length")}
         # the link is lost: the last values the card reported, greyed and marked (W2)
         self.values.set_values(vals, stale=not connected and self.ws.ever_connected)
 
@@ -1715,6 +1730,14 @@ class OperatorScreen(QWidget):
             if box.label.text() != text:
                 box.label.setText(text)
                 b.setAccessibleDescription(text)
+                # one line while it is short, wrapped at a reading width when long (a wrapped
+                # label's own hint was a narrow column of three lines)
+                lab = box.label
+                lab.setMinimumWidth(0)
+                lab.setWordWrap(False)
+                one_line = lab.sizeHint().width()                 # the chip's padding and edge included
+                lab.setWordWrap(True)
+                lab.setMinimumWidth(min(one_line, style.SP5 * 10))
             key, default = self.READY_ACTIONS.get(i.action, ("run.ready.do", "Fix..."))
             act = tr(self.ws.window, key, default)
             if b.text() != act:

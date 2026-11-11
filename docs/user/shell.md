@@ -89,7 +89,7 @@ command's name: letters may be spread out (`mj` finds *Micro Joint*, `hxyz` *Hom
 workspace name works too (`nest`). Each row shows the command, its workspace and its key.
 
 * `Enter` runs the selected command, `↑` `↓` choose, `Esc` closes.
-* Commands you used recently come first (★).
+* Commands you used recently come first, marked with a star.
 * Commands your user mode does not allow are not listed; commands that are not available right
   now (for example *Frame* without a machine) are greyed.
 * The palette runs the command exactly like its button: the pre-flight check, the job lock and

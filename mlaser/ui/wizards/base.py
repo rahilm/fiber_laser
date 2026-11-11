@@ -77,7 +77,7 @@ class WizardDialog(QDialog):
         right.addWidget(self.notes)
         self.stack = QStackedWidget()
         right.addWidget(self.stack, 1)
-        self.status = QLabel()
+        self.status = style.IconLabel()               # a warning: after its icon, never a glyph
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         right.addWidget(self.status)
@@ -127,7 +127,7 @@ class WizardDialog(QDialog):
             pg = self.pages.get(s.id)
             if pg is not None:
                 self.refresh_page(s, pg)
-        self.status.setText(self.status_text())
+        style.set_status(self.status, self.status_text())
 
     # ------------------------------------------------------------------ building
     def _button(self, key: str, fn, icon: str = "", color: Optional[str] = None) -> QPushButton:
@@ -178,7 +178,7 @@ class WizardDialog(QDialog):
             self.dry.blockSignals(False)
             self.proc = self._make(False)
             msg = T(self.w, "wizard.error.dry_run_unavailable", detail=str(e))
-            self.status.setText(msg)
+            style.set_status(self.status, msg)
             # never let an operator believe this is a dry run when it is not
             QMessageBox.warning(self, T(self.w, "wizard.dry_run"), msg)
         self.pages.clear()
@@ -257,7 +257,7 @@ class WizardDialog(QDialog):
                 self.stack.addWidget(pg)
             self.stack.setCurrentWidget(pg)
             self.refresh_page(s, pg)
-        self.status.setText(self.status_text())
+        style.set_status(self.status, self.status_text())
         busy = p.busy()
         why_back = "wizard.back_why.running" if busy else p.why_not_back()
         style.set_enabled(self.b_back, not why_back, T(self.w, why_back) if why_back else "")
@@ -293,12 +293,12 @@ class WizardDialog(QDialog):
         if p.state == PE.RUNNING:
             return T(self.w, "wizard.running")
         if p.state == PE.FAILED and p.error is not None:
-            return "⚠ " + T(self.w, p.error.key, **{**unit_values(), **p.error.values})
+            return style.warning_text(T(self.w, p.error.key, **{**unit_values(), **p.error.values}))
         if p.state == PE.ABORTED:
             return T(self.w, "wizard.aborted_text")
         r = p.results.get(p.step.id) if p.step else None
         if isinstance(r, dict) and r.get("warnings"):
-            return "⚠ " + "; ".join(T(self.w, k) for k in r["warnings"])
+            return style.warning_text("; ".join(T(self.w, k) for k in r["warnings"]))
         return ""
 
     # ------------------------------------------------------------------ actions

@@ -129,8 +129,8 @@ with the measured values.
 Below the steps, the **live status** shows every check as the machine reports it now, updated a
 few times a second from the status the controller already reads (it sends nothing to the card
 itself): the connection, card alarms, the scaling against the parameters, the emergency stop,
-each interlock input, homing and the heartbeat.  Every row has a status chip with a symbol and a
-word (✓ pass, ! warning, ✗ fail, … to do, – skipped).  For each wired sensor it asks you to test
+each interlock input, homing and the heartbeat.  Every row has a status chip with an icon and a
+word (pass, warning, fail, to do, skipped).  For each wired sensor it asks you to test
 it ("Open the door now"): the row passes when the input changes and the guard refuses what that
 interlock blocks (cutting jobs, arming...), then asks you to release it.  Testing every wired
 interlock this way completes the Interlocks check like the wiring test.  A failing row carries
