@@ -764,12 +764,12 @@ class PlanProcess:
         if msg is not None:
             self.have = set(msg["keep"]) & (self.have | set(msg["part_data"]) | set(msg["blob_data"]))
         cancel_sent: Optional[float] = None
-        hurried = hurry is None
+        hurried = False
         while True:
             if cancel_sent is None and cancelled():
                 self.cancel.value = rid
                 cancel_sent = time.monotonic()
-            if not hurried and cancel_sent is None and hurry():
+            if hurry is not None and not hurried and cancel_sent is None and hurry():
                 hurried = True
                 self.cancel.value = -rid       # the child skips the rest of the estimate
             if cancel_sent is not None and time.monotonic() - cancel_sent > self.CANCEL_GRACE_S:
