@@ -241,12 +241,12 @@ class RegistryValues(NamespaceView):
                     self._svc.set(key, shadow)
                     moved.append(key)
                     if log is not None:
-                        log(_tr(None, "machine.log.setting_moved",
+                        log(_tr("machine.log.setting_moved",
                                 "Settings: {setting} = {value} (moved from machine_ops.{setting})", setting=key,
                                 value=repr(shadow)))
                 except ValueError as exc:
                     if log is not None:
-                        log(_tr(None, "machine.log.setting_not_moved",
+                        log(_tr("machine.log.setting_not_moved",
                                 "Settings: machine_ops.{setting} = {value} not moved ({error})", setting=key,
                                 value=repr(shadow), error=exc))
             self._svc.reset(self._p + key)

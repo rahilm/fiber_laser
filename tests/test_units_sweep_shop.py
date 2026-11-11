@@ -288,7 +288,8 @@ def test_cost_notes_labels_and_practice_text_in_imperial(win, app, tmp_path):
     from mlaser.ui.ext_practice import _t
     win.config.set("units.system", "imperial")
     assert costing._sheet_size(3000, 1500) == "118.11 × 59.06 in"
-    t = _t(win, "practice.step.load.text")
+    from mlaser.ui.extension_context import ExtensionContext
+    t = _t(ExtensionContext(win, "test"), "practice.step.load.text")
     assert "11.811 × 7.874 in" in t and not metric_hits(t)
     u = U.current()
     assert L._mat("S235", 3.175, u) == "S235 0.125 in" and L._mat("S235", 3.0) == "S235 3 mm"

@@ -105,7 +105,7 @@ class CanvasToolDriver:
 
     @property
     def canvas(self):
-        return self.ext.w.canvas
+        return self.ext.ctx.canvas
 
     def _snap(self, x, y, mods=()):
         if not self.snap_enabled or "shift" in (mods or ()):
