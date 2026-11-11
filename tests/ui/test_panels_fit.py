@@ -229,7 +229,7 @@ def test_library_takes_the_canvas_width(win, app, doc):
     pump(app, 0.05)
     assert page.canvas_slot.isHidden()
     assert pw.width() > win.width() // 2
-    pw.page_buttons.button(0).click()
+    pw.page_tabs.setCurrentIndex(0)
     pump(app, 0.05)
     assert not page.canvas_slot.isHidden() and pw.pages.currentIndex() == 0
 

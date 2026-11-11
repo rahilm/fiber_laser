@@ -968,7 +968,7 @@ class ProcessWorkspace(QWidget):
 
     def __init__(self, ctx: Any, store: T.TechnologyStore, parent: Optional[QWidget] = None) -> None:
         super().__init__(parent)
-        from PySide6.QtWidgets import QButtonGroup, QFrame, QScrollArea
+        from PySide6.QtWidgets import QFrame, QScrollArea, QTabBar
 
         from mlaser.ui.responsive import CurrentPageStack
 
@@ -984,23 +984,17 @@ class ProcessWorkspace(QWidget):
         root = QVBoxLayout(self)
         root.setContentsMargins(style.SP2, style.SP2, style.SP2, style.SP2)
         root.setSpacing(style.SP1)
-        # ---- Drawing | Library
-        sw = QHBoxLayout()
-        sw.setSpacing(0)
-        self.page_buttons = QButtonGroup(self)
-        self.page_buttons.setExclusive(True)
-        for i, key in enumerate(("process.page.drawing", "process.page.library")):
-            b = QToolButton()
-            b.setText(t(key))
-            b.setCheckable(True)
-            b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-            b.setObjectName(f"process_page_{i}")
-            self.page_buttons.addButton(b, i)
-            sw.addWidget(b)
+        # ---- Drawing | Library: the workspace tab look (style.tabs, docs/dev/STYLE.md "Tabs"),
+        # the same as the Run, Nest and Report workspaces' main views (UI deep review 4)
+        self.page_tabs = style.tabs(QTabBar(), "workspace")
+        self.page_tabs.setObjectName("process_pages")
+        self.page_tabs.setDrawBase(False)
+        for key in ("process.page.drawing", "process.page.library"):
+            self.page_tabs.addTab(t(key))
         # the layout harness visits the Library page too (tests/test_responsive_layout.py)
-        self.page_buttons.button(1).setProperty("responsive_views", True)
-        self.page_buttons.idToggled.connect(lambda i, on: self.show_page(i) if on else None)
-        root.addLayout(sw)
+        self.page_tabs.setProperty("responsive_views", True)
+        self.page_tabs.currentChanged.connect(self.show_page)
+        root.addWidget(self.page_tabs)
         self.pages = CurrentPageStack()       # sized by the page shown (the Library is taller)
         root.addWidget(self.pages, 1)
         # ---- Drawing page
@@ -1127,9 +1121,8 @@ class ProcessWorkspace(QWidget):
         """0: Drawing (beside the canvas), 1: Library (the whole width of the workspace: the
         canvas makes room; it comes back with the Drawing page)."""
         self.pages.setCurrentIndex(int(i))
-        b = self.page_buttons.button(int(i))
-        if b is not None and not b.isChecked():
-            b.setChecked(True)
+        if self.page_tabs.currentIndex() != int(i):
+            self.page_tabs.setCurrentIndex(int(i))
         self._canvas_room(int(i) == 0)
 
     def _canvas_room(self, canvas: bool) -> None:

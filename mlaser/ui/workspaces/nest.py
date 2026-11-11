@@ -394,7 +394,7 @@ class NestWorkspace(QWidget):
         self.options_btn.setText(tr(w, "nestws.options", "Options"))
         self.options_btn.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
         self.options_btn.setArrowType(Qt.RightArrow)
-        self.options_btn.setMinimumHeight(TOUCH_MIN - 8)
+        style.control_size(self.options_btn, "touch")
         self.options_btn.toggled.connect(self.show_options)
         prm.addWidget(self.options_btn)
         mv.addLayout(prm)
@@ -402,10 +402,10 @@ class NestWorkspace(QWidget):
         self.options.setVisible(False)
         mv.addWidget(self.options)
         run = FlowLayout(justify=True)
-        self.nest_btn = self._button("nestws.btn.nest", "Nest", self.start, TOUCH_MIN + 8)
+        self.nest_btn = self._button("nestws.btn.nest", "Nest", self.start)
         self.nest_btn.setObjectName("nestws_nest")
         style.set_font(self.nest_btn, "title")
-        self.cancel_btn = self._button("nestws.btn.cancel", "Cancel", self.service.cancel, TOUCH_MIN + 8)
+        self.cancel_btn = self._button("nestws.btn.cancel", "Cancel", self.service.cancel)
         style.set_enabled(self.cancel_btn, False, tr(self.window_, "nestws.why.not_running", "No nest is running"))
         self.progress = QProgressBar()
         self.progress.setObjectName("nestws_progress")
@@ -454,7 +454,7 @@ class NestWorkspace(QWidget):
         # the hand-off (deep review 2026-11, UX 13): one primary way to cut a sheet, "Open sheet
         # n of N in Run" (the sheet becomes the drawing, the Run workspace is shown with Start
         # naming it); the queue is the second way, for all the sheets, named as such
-        self.main_btn = self._button("nestws.btn.to_run", "Open sheet in Run", self.to_run, TOUCH_MIN + 8)
+        self.main_btn = self._button("nestws.btn.to_run", "Open sheet in Run", self.to_run)
         self.main_btn.setObjectName("nestws_to_run")
         style.set_font(self.main_btn, "title")
         rv.addWidget(self.main_btn)
@@ -692,11 +692,9 @@ class NestWorkspace(QWidget):
         h.addWidget(field, 1)
         return box
 
-    def _button(self, key: str, text: str, fn, h: int = TOUCH_MIN) -> QPushButton:
-        b = style.button(tr(self.window_, key, text), size="touch")
-        b.setMinimumHeight(h)
-        b.clicked.connect(lambda _=False: fn())
-        return b
+    def _button(self, key: str, text: str, fn) -> QPushButton:
+        """A touch-size button (style.button: the height lives there, docs/dev/STYLE.md)."""
+        return style.button(tr(self.window_, key, text), size="touch", on_click=fn)
 
     def _qspin(self, kind: str, lo: float, hi: float, val: float, dec: int = 1) -> QuantitySpinBox:
         """A spin box for a quantity (value and range in mm; shown in the display units)."""
