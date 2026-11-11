@@ -98,6 +98,7 @@ ENTRIES: tuple[Entry, ...] = tuple(
     + _e("appearance", "appearance", "mlaser/ui/shell/__init__.py", "shell.theme", min_mode=OPERATOR,
          choices=THEME_CHOICES)
     + _e("appearance", "appearance", "mlaser/ui/shell/__init__.py", "shell.classic_ribbon", min_mode=OPERATOR)
+    + _e("appearance", "appearance", "mlaser/ui/shell/__init__.py", "shell.colorblind_palette", min_mode=OPERATOR)
     # ---------------------------------------------------------------- Canvas
     + _e("canvas", "canvas", SA, "display.show_bbox", "display.unclosed_red", "display.show_index",
          "display.show_start", "display.show_direction", "display.show_move_path", min_mode=OPERATOR)

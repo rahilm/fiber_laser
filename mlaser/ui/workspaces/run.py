@@ -325,8 +325,9 @@ class ReadoutRow(QWidget):
 
 # ============================================================================== canvas
 class RunCanvas(QWidget):
-    """Live view of the sheet: done parts grey and dashed, the current part bright and thick,
-    the rest in their layer colour, the head as a red dot (Y up, fitted).
+    """Live view of the sheet: done parts grey and dashed, the current part thick in the cut
+    track's colour, the rest in their layer colour, the head as a ringed dot in the canvas's head
+    colour, drawn above the legend (the legend moves away from it); Y up, fitted.
 
     After a job (:meth:`set_rest`): the parts the last job finished dashed, the parts a new
     "cut the rest" job would cut in their layer colour, the parts it would leave out dotted, and
@@ -632,24 +633,46 @@ class RunCanvas(QWidget):
             if self.picked is not None and self.numbers:       # the picked contour: thick
                 p.setPen(QPen(cur_col, 3.0 / s))
                 p.drawPath(self._contour_path(*self.picked))
-            if self.head is not None:
-                r = 6.0 / s
-                p.setPen(QPen(pal.color(QPalette.Base), 1.5 / s))
-                p.setBrush(QColor(CANVAS_COLORS["head"]))
-                p.drawEllipse(QPointF(*self.head), r, r)
             p.resetTransform()
             self._numbers(p, s, ox, oy)
             self._legend(p)
+            if self.head is not None:          # last: nothing is drawn over the head
+                hx, hy = self.head_point()
+                p.setPen(QPen(QColor(CANVAS_COLORS["background"]), 1.5))
+                p.setBrush(QColor(CANVAS_COLORS["head"]))
+                p.drawEllipse(QPointF(hx, hy), self.HEAD_R, self.HEAD_R)
+                p.setBrush(Qt.NoBrush)
         finally:
             p.end()
 
+    #: the head marker's radius in pixels
+    HEAD_R = 6.0
+
+    def head_point(self) -> tuple[float, float]:
+        """The head's position in widget pixels (:attr:`head` must be set)."""
+        s, ox, oy = self._transform()
+        assert self.head is not None
+        return ox + self.head[0] * s, oy - self.head[1] * s
+
     @staticmethod
     def done_color() -> QColor:
-        return style.color("muted")
+        """Done parts: the canvas's ``done`` colour (dashed), as on every theme's canvas."""
+        from ..canvas import CANVAS_COLORS
+        return QColor(CANVAS_COLORS["done"])
 
     @staticmethod
     def current_color() -> QColor:
-        return style.color("accent")
+        """The part being cut: the canvas's cut-track colour (the Design canvas's live track),
+        never the alarm red (UX audit O8, UI review 2026-11 #6)."""
+        from ..canvas import CANVAS_COLORS
+        return QColor(CANVAS_COLORS["track"])
+
+    @staticmethod
+    def todo_color() -> QColor:
+        """The legend's sample for the parts still to cut (drawn in their layer colours): the
+        canvas's cut colour, readable on it in every theme."""
+        from ..canvas import CANVAS_COLORS
+        return QColor(CANVAS_COLORS["cut"])
 
     def _numbers(self, p: QPainter, s: float, ox: float, oy: float) -> None:
         """Each part's number in the last job's cut order, on a small plate at its centre."""
@@ -677,26 +700,65 @@ class RunCanvas(QWidget):
         w = self.window()
         if self.numbers:
             return [(tr(w, "run.legend.done", "Done"), self.done_color(), Qt.DashLine),
-                    (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text), Qt.SolidLine),
+                    (tr(w, "run.legend.todo", "To cut"), self.todo_color(), Qt.SolidLine),
                     (tr(w, "run.legend.not_cut", "Left out"), self.done_color(), Qt.DotLine)]
         return [(tr(w, "run.legend.done", "Done"), self.done_color(), Qt.DashLine),
                 (tr(w, "run.legend.current", "Cutting now"), self.current_color(), Qt.SolidLine),
-                (tr(w, "run.legend.todo", "To cut"), self.palette().color(QPalette.Text), Qt.SolidLine)]
+                (tr(w, "run.legend.todo", "To cut"), self.todo_color(), Qt.SolidLine)]
+
+    def legend_layout(self, fm=None) -> tuple[QRectF, list[tuple[float, float, str, QColor, Qt.PenStyle]]]:
+        """Where the legend goes: its rectangle and each entry's (x, y, text, colour, style).
+        The entries wrap to the width of the view.  The legend sits in the bottom-left corner,
+        else in the first other corner clear of the head marker (UI review 2026-11 #7: the head
+        at the origin lay under "To cut"); in a view too small for any, it stays in the corner
+        and the head is drawn over it (:meth:`paintEvent` draws the head last)."""
+        fm = fm or self.fontMetrics()
+        m, sw, lh = style.SP2, style.SP4, fm.height()
+        avail = max(1, self.width() - 2 * m)
+        rows: list[list[tuple[float, str, QColor, Qt.PenStyle]]] = [[]]
+        x = 0.0
+        width = 0.0
+        for text, col, pen_style in self.legend_items():
+            w = sw + style.SP1 + fm.horizontalAdvance(text)
+            if rows[-1] and x + w > avail:
+                rows.append([])
+                x = 0.0
+            rows[-1].append((x, text, col, pen_style))
+            width = max(width, x + w)
+            x += w + style.SP3
+        height = len(rows) * lh + (len(rows) - 1) * style.SP1
+        corners = [(m, self.height() - m - height), (m, m),
+                   (self.width() - m - width, self.height() - m - height), (self.width() - m - width, m)]
+        rect = QRectF(corners[0][0], corners[0][1], width, height)
+        if self.head is not None and self._paths:
+            hx, hy = self.head_point()
+            r = self.HEAD_R + style.SP1
+            head = QRectF(hx - r, hy - r, 2 * r, 2 * r)
+            for cx, cy in corners:
+                cand = QRectF(cx, cy, width, height)
+                if not cand.intersects(head):
+                    rect = cand
+                    break
+        out = []
+        for k, row in enumerate(rows):
+            y = rect.top() + k * (lh + style.SP1)
+            for dx, text, col, pen_style in row:
+                out.append((rect.left() + dx, y, text, col, pen_style))
+        return rect, out
 
     def _legend(self, p: QPainter) -> None:
-        """A small legend in the bottom-left corner: what grey, the accent and the layer
-        colours mean (O8), and the line styles that tell them apart without colour."""
+        """A small legend (:meth:`legend_layout`): what grey, the cut track's colour and the
+        layer colours mean (O8), and the line styles that tell them apart without colour."""
+        from ..canvas import CANVAS_COLORS
         fm = p.fontMetrics()
-        x, y = style.SP2, self.height() - style.SP2 - fm.height()
-        pal = self.palette()
-        for text, col, pen_style in self.legend_items():
-            sw = style.SP4
+        sw = style.SP4
+        ink = QColor(CANVAS_COLORS["ruler"])     # the canvas's label colour (>= 4.5:1 on it)
+        _rect, entries = self.legend_layout(fm)
+        for x, y, text, col, pen_style in entries:
             p.setPen(QPen(col, 2, pen_style))
-            p.drawLine(x, y + fm.height() // 2, x + sw, y + fm.height() // 2)
-            x += sw + style.SP1
-            p.setPen(pal.color(QPalette.Text))
-            p.drawText(x, y + fm.ascent(), text)
-            x += fm.horizontalAdvance(text) + style.SP3
+            p.drawLine(QPointF(x, y + fm.height() / 2), QPointF(x + sw, y + fm.height() / 2))
+            p.setPen(ink)
+            p.drawText(QPointF(x + sw + style.SP1, y + fm.ascent()), text)
 
 
 # ============================================================================== queue panel

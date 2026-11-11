@@ -56,6 +56,7 @@ Also on this page: the display units (metric or imperial, and per-quantity overr
 |---|---|---|---|
 | Theme | `shell.theme` | System appearance | Light, dark or high contrast (black, white and yellow, for safety glasses). The safety banners keep their own colours in every theme. Operator mode can change it. |
 | Classic ribbon | `shell.classic_ribbon` | off | Show the original program's ribbon with every command instead of the task workspaces' toolbars. Operator mode can change it. |
+| Colour-blind-safe layer colours | `shell.colorblind_palette` | off | Draw the layers in colours that stay apart for red-green colour blindness (Okabe-Ito based, per theme); the layer tables' swatches follow. Only the display changes: the drawing's layer colours are kept and exported as they are. Applies at once. Operator mode can change it. |
 
 
 ## Canvas

@@ -149,9 +149,21 @@ part on the canvas names its layer, so a layer is never told by its colour alone
 (WCAG asks 4.5 : 1 for text and 3 : 1 for graphics.) The colour stored in your files does not
 change with the theme.
 
+**Settings › Appearance › Colour-blind-safe layer colours** (off by default) draws the layers in
+a palette made for red-green colour blindness instead (based on Okabe and Ito's set: bluish
+green, sky blue, reddish purple, yellow, blue, orange, vermillion and greys, adjusted per theme):
+any two layers then differ by at least 15 ΔE for deuteranope and protanope vision as well as
+normal vision, against about 10 with the drawing's own colours. It applies at once, to the
+canvas, the Run live view and the layer tables' swatches. It changes only what you see: the
+drawing's layer colours are kept, saved and exported as they are.
+
 The planned toolpath's parts differ by line style as well as colour: rapids dashed, micro-joint
-gaps (laser off) dotted, the kerf-compensated path on a translucent band (shown where the kerf
-is at least 2 pixels wide), a ring at each pierce point. The legend in the canvas bar (the arrow
+gaps (laser off) dotted, lead-outs dash-dotted, the kerf-compensated path on a translucent band
+(shown where the kerf is at least 2 pixels wide), a ring at each pierce point; while a job runs
+the cut track is drawn wider than any planned line and the head is a ringed cross. Every one of
+these, the markers and the Run view's done parts has a colour of its own in every theme, at
+least 12 ΔE from the others also for red-green colour-blind vision; none is red or amber, which
+stay for alarms, STOP, hazards and the laser being on. The legend in the canvas bar (the arrow
 after *Toolpath*) draws each one as it appears on the canvas; it opens by itself only in a tall
 canvas, so it does not cover the drawing. The rulers' numbers are in the theme's ruler colour
 and the caption font. The safety banners keep their fixed colours in every theme and always
