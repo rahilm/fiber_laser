@@ -227,10 +227,8 @@ def check_updates(window: Any, quiet: bool = False, fetch: Optional[Callable[[],
 
 
 def _job_running(window: Any) -> bool:
-    try:
-        return bool(window.ctl.job_active())
-    except Exception:  # noqa: BLE001
-        return False
+    from .run_rules import job_running
+    return job_running(window)          # the job's phase (arch A1); unreadable: a job runs
 
 
 def _show_update(window: Any, res: Any, quiet: bool) -> None:

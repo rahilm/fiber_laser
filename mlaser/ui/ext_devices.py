@@ -456,7 +456,8 @@ def start_pendant(window) -> bool:
         "home": lambda: ctl.home("XY"), "stop": ctl.stop, "pause_resume": ctl.pause,
         "start": lambda: run("process"), "frame": lambda: run("frame"),
     }
-    mapper = P.PendantJogMapper(ctl, actions, busy=lambda: ctl.job_active() or ctl.state().mode in ("process", "frame", "dry_run"),
+    from .run_rules import job_view            # a job in progress, held too (arch A1): only Stop
+    mapper = P.PendantJogMapper(ctl, actions, busy=lambda: job_view(ctl).running,
                                 leds=pend.set_leds, dev_id=lambda: pend.status.dev_id)
     mapper.attach(pend)              # dead-man: HID error stops the jog, keep-alive while held
     ext.pendant_events = []
