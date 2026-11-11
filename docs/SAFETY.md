@@ -379,7 +379,9 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
 * While a job streams (in-thread streamer, streaming child and its parent), the heap that
   existed before it is frozen and automatic full (generation 2) garbage collections are off
   (`gc.freeze` plus a generation-2 threshold of 2^30, `stream.quiet_gc`); the young generations
-  keep their automatic collections. A full collection of a large drawing's objects stopped every
+  keep their automatic collections. (CPython 3.14.0-3.14.4's incremental collector has no
+  generation-2 threshold and no automatic full collection: it scans the old generation in bounded
+  increments; `stream.full_gc_held_off`.) A full collection of a large drawing's objects stopped every
   thread of the process for up to 1.3 s (review 2 §3.1). The GIL switch interval is 0.5 ms
   instead of 5 ms meanwhile (`mlaser._sched.responsive_gil`): with two CPU-bound threads in the parent
   (`tools/bench_stream.py --load 2`) the heartbeat had gaps up to 544 ms at 5 ms and the process
