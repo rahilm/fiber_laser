@@ -221,6 +221,12 @@ class WorkspacePage(QWidget):
         tr.bind(self.toolbar, spec.title or spec.id, lambda t: self.toolbar.setAccessibleName(
             tr.format("a11y.ws.toolbar", workspace=t)))
         v.addWidget(self.toolbar)
+        # whenever the extension button appears (the layout pass of a style that lays the
+        # buttons out wider than their size hints, after the check fit_toolbar queued had
+        # already found none: Windows CI, every width of a sweep), the tool bar steps down
+        ext = self.toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
+        if ext is not None:
+            ext.installEventFilter(self)
         # the second row of the tool bar in a narrow window (fit_toolbar): icons only, the
         # commands after the separator nearest the middle; never an overflow menu
         self.toolbar2 = QToolBar()
@@ -673,6 +679,13 @@ class WorkspacePage(QWidget):
             QTimer.singleShot(0, self, self._no_overflow)
 
     _overflow_check = False
+
+    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
+        if ev.type() == QEvent.Show and obj.objectName() == "qt_toolbar_ext_button" \
+                and obj.parent() is self.toolbar and not self._overflow_check:
+            self._overflow_check = True
+            QTimer.singleShot(0, self, self._no_overflow)
+        return False
 
     def _no_overflow(self) -> None:
         """Once the tool bar is laid out: if its extension button shows after all (a style lays
