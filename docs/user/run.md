@@ -60,6 +60,31 @@ that job (an edit, another file, other technology) the offer is withdrawn and th
 while a job is held at a breakpoint, resume it or stop it first. *Cut remaining parts* is also in
 the Start button's menu of the run bar and in the command search.
 
+### Cut one contour again (a failed pierce)
+
+When one contour did not cut through (a failed pierce, a hole that stayed in), cut just that
+contour again:
+
+1. Pick it in the live view: click it (inside a hole picks the hole, not the plate around it),
+   or give the live view the focus and step through the job's contours with **←** / **→**. The
+   picked contour is drawn thick.
+2. Choose **Cut contour c of part n again** in the *Cut the rest* section, or open the contour's
+   menu (right-click, Ctrl+click on macOS, a long press on a touch screen, the context-menu key
+   or **Shift+F10**) and choose it there.
+
+The job is planned on the whole drawing and keeps only that contour, so its lead-in, pierce and
+technology are exactly those of the full job; the head travels to it from where it is. It starts
+like any Start: the pre-flight check, then (when the laser is not armed) the arming question, then
+the controller's own checks. The pre-flight dialog and the question say *This start cuts: 1 contour
+of part n*, so it is clear the whole sheet will not be cut. The laser is disarmed after it, as
+after any job, and STOP stops it as any job.
+
+It is offered under the same conditions as *Cut remaining parts* (no job running or held, the
+machine ready, the same drawing as the last job); otherwise it is disabled and its tooltip says
+why. Fly-cut and engraved parts are cut as a whole: use *Start from part* for them. Afterwards
+the last-job line adds *Contour c of part n was cut again* (or *... again was stopped*); what the
+last job finished and *Cut remaining parts* stay as they were.
+
 ## Buttons
 
 All targets are at least 56 px high (44 px for the secondary ones), for gloves and touch screens.

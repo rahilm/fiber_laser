@@ -331,7 +331,10 @@ class RunCanvas(QWidget):
     After a job (:meth:`set_rest`): the parts the last job finished dashed, the parts a new
     "cut the rest" job would cut in their layer colour, the parts it would leave out dotted, and
     each part's number in the last job's cut order; a click on a part picks it (:attr:`pick`,
-    "Start from part")."""
+    "Start from part") and the contour under the pointer (:attr:`picked`, drawn thick in the
+    accent colour; "Cut this contour again").  The contour's menu (:attr:`contour_menu`) opens
+    on a right-click, a long press, the context-menu key or Shift+F10; Left / Right step the
+    picked contour through the job when the view has the focus."""
 
     #: minimum height: as the shared canvas (CANVAS_MIN, a half-screen window); while the load
     #: card above it asks for the next sheet (:class:`LoadSheetCard`)
@@ -342,6 +345,8 @@ class RunCanvas(QWidget):
         super().__init__()
         self.setMinimumSize(260, self.MIN_H)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.setFocusPolicy(Qt.StrongFocus)    # Left / Right pick a contour, the menu key opens its menu
+        self.grabGesture(Qt.TapAndHoldGesture)  # a long press opens the contour's menu (touch)
         self.document: Any = None
         self.sheet: Optional[tuple[float, float, float, float]] = None
         self.done: set = set()
@@ -350,6 +355,9 @@ class RunCanvas(QWidget):
         self.skip: set = set()             # after a job: parts a new job would leave out
         self.numbers: dict = {}            # after a job: part index -> its number in the cut order
         self.pick: Any = None              # fn(part index): a click on a part (after a job)
+        self.picked: Optional[tuple[int, int]] = None    # after a job: (part, contour) picked
+        self.contour_menu: Any = None      # fn(global QPoint): the picked contour's menu (after a job)
+        self._cpaths: dict[tuple[int, int], QPainterPath] = {}
         self._paths: list[tuple[int, int, QPainterPath]] = []      # (part index, layer, path)
         self._doc_id: Optional[int] = None
         self._bounds = (0.0, 0.0, 1.0, 1.0)
@@ -360,6 +368,8 @@ class RunCanvas(QWidget):
         self.document, self.sheet = doc, sheet
         self._doc_id = id(doc) if doc is not None else None
         self._paths = []
+        self._cpaths = {}
+        self.picked = None
         parts = list(getattr(doc, "parts", []) or [])
         segs = sum(len(c.segments) for p in parts for c in p.contours)
         tol = 0.2 if segs < 5000 else 1.0
@@ -405,6 +415,8 @@ class RunCanvas(QWidget):
         if done != self.done or skip != self.skip or numbers != self.numbers:
             self.done, self.skip, self.numbers = done, skip, dict(numbers)
             self.current = -1
+            if self.picked is not None and self.picked[0] not in self.numbers:
+                self.picked = None
             self._a11y()
             self.update()
         self.setCursor(Qt.PointingHandCursor if self.numbers and self.pick is not None else Qt.ArrowCursor)
@@ -427,14 +439,131 @@ class RunCanvas(QWidget):
                 best, area = i, a
         return best
 
+    def _contour_path(self, i: int, ci: int) -> QPainterPath:
+        """The outline of contour ``ci`` of part ``i`` (drawing coordinates), made when needed."""
+        k = (i, ci)
+        path = self._cpaths.get(k)
+        if path is None:
+            path = QPainterPath()
+            parts = list(getattr(self.document, "parts", []) or [])
+            c = parts[i].contours[ci] if 0 <= i < len(parts) and 0 <= ci < len(parts[i].contours) else None
+            pts = list(c.points(0.2)) if c is not None else []
+            if len(pts) >= 2:
+                path.moveTo(pts[0][0], pts[0][1])
+                for x, y in pts[1:]:
+                    path.lineTo(x, y)
+                if c is not None and c.closed:
+                    path.closeSubpath()
+            self._cpaths[k] = path
+        return path
+
+    def contour_at(self, pos) -> Optional[tuple[int, int]]:
+        """(part, contour) under the widget point ``pos``: within a few pixels of its outline or
+        inside it when it is closed; the smallest such contour wins (a hole inside a part)."""
+        if not self._paths:
+            return None
+        from PySide6.QtGui import QPainterPathStroker
+        s, ox, oy = self._transform()
+        pt = QPointF((pos.x() - ox) / s, (oy - pos.y()) / s)
+        tol = 6.0 / s
+        stroker = QPainterPathStroker()
+        stroker.setWidth(2 * tol)
+        parts = list(getattr(self.document, "parts", []) or [])
+        best, area = None, float("inf")
+        for i, _layer, path in self._paths:
+            if not path.boundingRect().adjusted(-tol, -tol, tol, tol).contains(pt):
+                continue
+            for ci, c in enumerate(parts[i].contours if 0 <= i < len(parts) else ()):
+                cp = self._contour_path(i, ci)
+                r = cp.boundingRect()
+                if cp.isEmpty() or not r.adjusted(-tol, -tol, tol, tol).contains(pt):
+                    continue
+                if not ((c.closed and cp.contains(pt)) or stroker.createStroke(cp).contains(pt)):
+                    continue
+                a = r.width() * r.height()
+                if a < area:
+                    best, area = (i, ci), a
+        return best
+
+    def set_picked(self, key: Optional[tuple[int, int]]) -> None:
+        if key != self.picked:
+            self.picked = key
+            self.update()
+
+    def _menu_at(self, key: Optional[tuple[int, int]], global_pos) -> bool:
+        """Pick ``key`` (when it is a contour of the last job) and open the contour menu."""
+        if self.contour_menu is None or not self.numbers:
+            return False
+        if key is not None and key[0] in self.numbers:
+            self.set_picked(key)
+            if self.pick is not None:
+                self.pick(key[0])
+        self.contour_menu(global_pos)
+        return True
+
     def mousePressEvent(self, ev) -> None:  # noqa: N802 - Qt API
         if self.pick is not None and self.numbers and ev.button() == Qt.LeftButton:
             i = self.part_at(ev.position())
             if i in self.numbers:
-                self.pick(i)
+                key = self.contour_at(ev.position())
+                self.set_picked(key if key is not None and key[0] in self.numbers else None)
+                self.pick(key[0] if self.picked is not None else i)
                 ev.accept()
                 return
         super().mousePressEvent(ev)
+
+    def contextMenuEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        """Right-click (Ctrl+click on macOS) on a contour, or the context-menu key on the picked one."""
+        from PySide6.QtGui import QContextMenuEvent
+        if ev.reason() == QContextMenuEvent.Mouse:
+            ok = self._menu_at(self.contour_at(QPointF(ev.pos())), ev.globalPos())
+        else:
+            ok = self._menu_at(self.picked, self.mapToGlobal(self._picked_point()))
+        if ok:
+            ev.accept()
+        else:
+            super().contextMenuEvent(ev)
+
+    def _picked_point(self):
+        """The widget point at the picked contour (the view's centre when none is picked)."""
+        from PySide6.QtCore import QPoint
+        if self.picked is None:
+            return self.rect().center()
+        c = self._contour_path(*self.picked).boundingRect().center()
+        s, ox, oy = self._transform()
+        return QPoint(int(c.x() * s + ox), int(oy - c.y() * s))
+
+    def event(self, ev) -> bool:  # noqa: D401 - Qt API
+        from PySide6.QtCore import QEvent
+        if ev.type() == QEvent.Gesture and self.numbers:
+            g = ev.gesture(Qt.TapAndHoldGesture)
+            if g is not None and g.state() == Qt.GestureFinished:        # a long press: the menu
+                gp = g.position().toPoint()
+                self._menu_at(self.contour_at(QPointF(self.mapFromGlobal(gp))), gp)
+                ev.accept()
+                return True
+        return super().event(ev)
+
+    def keyPressEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self.numbers and ev.key() in (Qt.Key_Left, Qt.Key_Right) and not ev.modifiers():
+            # every contour of the last job, in its cut order
+            parts = list(getattr(self.document, "parts", []) or [])
+            keys = [(i, ci) for i in sorted(self.numbers, key=self.numbers.get)
+                    for ci in range(len(parts[i].contours) if 0 <= i < len(parts) else 0)]
+            if keys:
+                k = keys.index(self.picked) if self.picked in keys else -1
+                k = (k + (1 if ev.key() == Qt.Key_Right else -1)) % len(keys) if k >= 0 else 0
+                self.set_picked(keys[k])
+                if self.pick is not None:
+                    self.pick(keys[k][0])
+                    self.setFocus(Qt.OtherFocusReason)       # stay here (pick focuses the number)
+                ev.accept()
+                return
+        if self.numbers and ev.key() == Qt.Key_F10 and ev.modifiers() == Qt.ShiftModifier:
+            if self._menu_at(self.picked, self.mapToGlobal(self._picked_point())):
+                ev.accept()
+                return
+        super().keyPressEvent(ev)
 
     def _a11y(self) -> None:
         """Accessible name and the progress as its description (F7: the view is painted)."""
@@ -500,6 +629,9 @@ class RunCanvas(QWidget):
                     pen = QPen(cur_col, 3.0 / s)
                     p.setPen(pen)
                     p.drawPath(path)
+            if self.picked is not None and self.numbers:       # the picked contour: thick
+                p.setPen(QPen(cur_col, 3.0 / s))
+                p.drawPath(self._contour_path(*self.picked))
             if self.head is not None:
                 r = 6.0 / s
                 p.setPen(QPen(pal.color(QPalette.Base), 1.5 / s))
@@ -961,11 +1093,16 @@ class OperatorScreen(QWidget):
         from_btn = add("start_from", "run.btn.start_from", "Start from part...", self.start_from, TOUCH_MIN,
                        ico="arrow-bar-right")
         rv.addWidget(row(self.from_spin, from_btn))
+        # a single failed pierce: the contour picked in the live view (click, Left / Right),
+        # cut again as planned in the job, through Start's own path (UX deep review 5)
+        rv.addWidget(add("recut", "run.btn.recut_none", "Cut this contour again", self.recut_contour,
+                         TOUCH_MIN, ico="refresh"))
         self.rest_section = CollapsibleSection(tr(w, "run.rest.title", "Cut the rest: new job"), rest, priority=0)
         self.rest_section.setObjectName("run_rest_section")
         self.rest_section.setVisible(False)
         self.controls.add_section(self.rest_section)
         self.canvas.pick = self.pick_part
+        self.canvas.contour_menu = self.contour_menu
         self._rest_key: Any = None
         # queue card
         card = QWidget()
@@ -1045,12 +1182,77 @@ class OperatorScreen(QWidget):
         self.ws.cut_rest(self.from_spin.value())
         self.refresh()
 
+    def recut_target(self) -> tuple[Optional[tuple[int, int]], str]:
+        """The contour "Cut this contour again" would cut, as (document part, contour), and why
+        it is not offered ("" = offered): Start's own rules (connected, no alarm, no job running),
+        then those of "Cut remaining parts" (a finished or stopped job of this drawing, no job
+        held), then a contour of that job picked in the live view."""
+        w = self.ws.window
+        b = self.buttons["start"]
+        last, why = self.ws.rest_state()
+        if last is None:
+            return None, tr(w, "run.why.recut_nothing", "Nothing was cut yet")
+        if why:
+            return None, why
+        if not b.isEnabled():
+            return None, str(b.property("disabled_reason") or "")
+        key = self.canvas.picked
+        if key is None or key[0] not in self.canvas.numbers:
+            return None, tr(w, "run.why.recut_pick", "Pick a contour in the live view first (click it, "
+                            "or Left / Right)")
+        vparts = list(getattr(self.canvas.document, "parts", []) or [])
+        uid = getattr(vparts[key[0]], "uid", None) if key[0] < len(vparts) else None
+        where = {getattr(p, "uid", None): i for i, p in enumerate(getattr(w.document, "parts", []) or [])}
+        i = where.get(uid) if uid is not None else None
+        part = w.document.parts[i] if i is not None else None
+        if part is None or not last.number_of(i) or key[1] >= len(part.contours):
+            return None, tr(w, "run.why.recut_pick", "Pick a contour in the live view first (click it, "
+                            "or Left / Right)")
+        from mlaser.cam.flycut import scan_paths_of_part
+        if getattr(part, "raster", None) is not None or scan_paths_of_part(part):
+            return None, tr(w, "run.why.recut_scan", "A fly-cut or engraved part is cut as a whole: "
+                            "use Start from part")
+        return (i, key[1]), ""
+
+    def recut_contour(self) -> None:
+        """Cut the picked contour again (a single failed pierce)."""
+        key, why = self.recut_target()
+        if key is None:
+            self.ws.window.statusBar().showMessage(why, 8000)
+            self.ws.log(why)
+        else:
+            self.ws.cut_contour(*key)
+        self.refresh()
+
+    def contour_menu(self, global_pos) -> None:
+        """The live view's menu on a contour after a job: "Cut this contour again", disabled with
+        its reason (tooltip and status tip) when it is not offered."""
+        from PySide6.QtWidgets import QMenu
+        w = self.ws.window
+        self._rest_buttons(self.buttons["start"].isEnabled(),
+                           str(self.buttons["start"].property("disabled_reason") or ""))
+        key, why = self.recut_target()
+        menu = QMenu(self)
+        menu.setObjectName("run_contour_menu")
+        menu.setToolTipsVisible(True)
+        act = menu.addAction(icon("refresh"), self.buttons["recut"].text())
+        act.setObjectName("run_recut_action")
+        act.setEnabled(key is not None)
+        if why:
+            act.setToolTip(why)
+            act.setStatusTip(why)
+            w.statusBar().showMessage(why, 8000)
+        act.triggered.connect(lambda _=False: self.recut_contour())
+        self._menu = menu                  # tests reach it; the next menu replaces it
+        menu.popup(global_pos)
+
     def pick_part(self, canvas_index: int) -> None:
         """A click on a part in the live view after a job: "Start from" that part."""
         n = self.canvas.numbers.get(canvas_index, 0)
         if n:
             self.from_spin.setValue(n)
             self.from_spin.setFocus(Qt.MouseFocusReason)
+            self._rest_refresh()
 
     def toggle_queue(self) -> None:
         r = self.ws.runner
@@ -1293,6 +1495,9 @@ class OperatorScreen(QWidget):
         text = ""
         if any_last is not None and any_last.over and not running:
             text = self.ws.last_job_text(any_last)
+            recut = self.ws.recut_text(any_last)
+            if recut:
+                text = tr(w, "run.last.with_reason", "{summary}\n{reason}", summary=text, reason=recut)
             if why and last is not None:
                 text = tr(w, "run.last.with_reason", "{summary}\n{reason}", summary=text, reason=why)
         if self.last_job.text() != text:
@@ -1347,6 +1552,16 @@ class OperatorScreen(QWidget):
         style.set_enabled(b["cut_remaining"], start_ok and not why_left, why_left or start_why)
         style.set_enabled(b["start_from"], start_ok and not why, why or start_why)
         style.set_enabled(self.from_spin, not why, why)
+        key, why_recut = self.recut_target()
+        pk = self.canvas.picked
+        text = (tr(w, "run.btn.recut", "Cut contour {contour} of part {part} again", contour=pk[1] + 1,
+                   part=self.canvas.numbers.get(pk[0], 0))
+                if pk is not None and pk[0] in self.canvas.numbers
+                else tr(w, "run.btn.recut_none", "Cut this contour again"))
+        if b["recut"].text() != text:
+            b["recut"].setText(text)
+            b["recut"].setAccessibleName(text)
+        style.set_enabled(b["recut"], key is not None, why_recut)
 
     def _rest_view(self, doc: Any) -> Optional[tuple]:
         """The live view after a job: (done, left out, numbers) as part indices of ``doc`` (the
@@ -1681,6 +1896,46 @@ class RunWorkspace:
                       part=part, **args)
         return tr(w, "run.last.stopped", "Last job stopped at {time} in part {part} of {total} ({done} finished), "
                   "after {duration} · {name}", part=part, done=last.done, **args)
+
+    def recut_text(self, last: LastJob) -> str:
+        """The newest "Cut this contour again" after ``last``: "Contour 2 of part 5 was cut again"."""
+        if not last.recut:
+            return ""
+        (part, contour), outcome = list(last.recut.items())[-1]
+        args = dict(contour=contour + 1, part=last.number_of(part))
+        w = self.window
+        if outcome == "finished":
+            return tr(w, "run.last.recut_finished", "Contour {contour} of part {part} was cut again", **args)
+        if outcome == "stopped":
+            return tr(w, "run.last.recut_stopped", "Cutting contour {contour} of part {part} again was stopped",
+                      **args)
+        return tr(w, "run.last.recut_running", "Contour {contour} of part {part} is being cut again", **args)
+
+    def cut_contour(self, part: int, contour: int) -> bool:
+        """"Cut this contour again": a new job of contour ``contour`` of document part ``part``,
+        planned on the whole drawing (its lead-in, pierce and technology as in the full job)
+        and started by the ordinary Start (``SafetyUI.start``: pre-flight, the arming question,
+        the controller's start gate), the pre-flight dialog and the question naming it ("1
+        contour of part 5").  False when the offer is withdrawn (said in the status bar)."""
+        w = self.window
+        self._key_cache = (None, "")              # the exact test, not the cached one
+        last, why = self.rest_state()
+        parts = list(getattr(w.document, "parts", []) or [])
+        n = last.number_of(part) if last is not None else 0
+        if not why and (last is None or not n or not 0 <= part < len(parts)
+                        or not 0 <= contour < len(parts[part].contours)):
+            why = tr(w, "run.why.recut_nothing", "Nothing was cut yet")
+        if why:
+            w.statusBar().showMessage(why, 8000)
+            self.log(why)
+            return False
+        ui = getattr(w, "safety_ui", None)
+        if ui is None:
+            return False
+        scope = tr(w, "run.recut.scope", "1 contour of part {part} (contour {contour})", part=n,
+                   contour=contour + 1)
+        ui.start(contours=((part, contour),), scope=scope)
+        return True
 
     def cut_rest(self, from_part: Optional[int] = None) -> bool:
         """A new job of the last job's parts it did not finish (``from_part`` None), or from its
