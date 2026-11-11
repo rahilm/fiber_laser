@@ -71,6 +71,7 @@ name is already taken is ignored with a log line.
 | `ctx.show_workspace(id)`, `ctx.user_mode` | switch workspace (`"run"`, `"<plugin>.<name>"`); the current user mode |
 | `ctx.on_workspace_changed(fn)`, `ctx.on_user_mode_changed(fn)` | `fn(workspace_id)` / `fn(mode)` after the shell switched |
 | `ctx.settings_schema([Setting, ...])` | typed, validated, persisted settings stored as `plugin.<name>.<key>` in the ConfigService; returns a dict-like `PluginSettings` |
+| `ctx.register_project_section(name, get, set)` | the plugin's job data in the `.mlz` project and its autosave ([project-format.md](project-format.md#plugin-sections)); a plugin that is not built in names the section after itself (`<id>` or `<id>.<part>`) and needs `document`; False when the application has no project support |
 | `ctx.document`, `ctx.docs`, `ctx.config`, `ctx.jobs`, `ctx.commands`, `ctx.controller`, `ctx.tr`, `ctx.log(msg)` | the services; `ctx.window` is the Qt parent for dialogs.  For a plugin that is not built in, `ctx.config` is a view of the ConfigService that reads every value (as copies) and writes only `plugin.<name>.*` (`ProtectedSettingError`, audited, otherwise), and `ctx.controller` needs machine authority (§6) |
 
 **Plugin API 2** (`PLUGIN_API = 2`; the contract is
@@ -92,7 +93,7 @@ A plugin with a manifest gets `PermissionError` when it uses an API it did not d
 
 Data that belongs to the job (a technology assignment, queue entries, a plugin's own state) is
 saved in the `.mlz` project and its autosave when the plugin registers a section:
-`window.extension("ext_project").register_section(name, get, set)`; see
+`ctx.register_project_section(name, get, set)`; see
 [project-format.md](project-format.md#plugin-sections).  Keep typed data in the model's typed
 fields, not in new `extra` keys (`extra` is for opaque round-trip data, `model.EXTRA_KEYS`).
 
@@ -188,11 +189,30 @@ the arming dialog and the keys for free.  The keys of `run.start`, `run.frame` a
 from a menu, a button or the palette is not gated.  The persistent run bar stays at the bottom of every
 workspace; do not build a second one.
 
-**Providers.**  `window.hooks.provider("workspace.show")(id)` and
-`window.show_workspace(id)` switch (ids as in `window.workspaces`: `"run.run"`,
-`"ext_machine.machine"` ... resolve to their slot); `window.hooks.provider("user_mode")()`
-returns the mode.  A contributed page sits in a scroll area, so its minimum size never makes
-the main window larger than 1280 × 800.
+**Switching and the mode.**  `ctx.show_workspace(id)` switches (a slot name such as `"run"`, or
+`"<plugin>.<name>"`; ids as in `window.workspaces`, `"run.run"`, `"ext_machine.machine"` ...,
+resolve to their slot); `ctx.user_mode` is the mode.  The built-ins reach the same through the
+providers `workspace.show` and `user_mode`.  A contributed page sits in a scroll area, so its
+minimum size never makes the main window larger than 1280 × 800.
+
+**What the plugin API does not cover yet.**  `ctx.window` is the main window itself, and the
+built-in plugins of `mlaser/ui` use it freely (they are part of the application).  A plugin
+that is not built in needs it only as the Qt parent of its dialogs.  The project's own plugin
+(`plugins/mlaser-onshape`) uses no `ctx.window` at all (`tests/test_plugin_public_api.py`),
+and `tests/test_plugin_api_contract.py` checks that every `ctx.` member named in this file
+exists.  These needs have no `ctx` route today; a plugin that has them reaches into the window
+and gets no compatibility promise:
+
+| Need | Route today (window, no promise) | Why there is no `ctx` route yet |
+|---|---|---|
+| Put Start / Frame / Dry run on a plugin's own buttons | `QToolButton.setDefaultAction(window.ribbon.actions["run.start"])` | the run bar and the Run workspace already carry them; a second run UI is discouraged (above) |
+| Start a cut from plugin code | `window.run_job(mode)` (pre-flight, the planned job, the arming question) | a plugin starting cuts is a safety decision that has not been made: there is no permission for it, and `machine` covers the controller only |
+| Another plugin's object (an extension) | `window.extension(name)` | its public parts are offered one by one: `ctx.services`, `ctx.register_project_section` |
+| Read a provider of the core (`project.current`, `queue_runner`, `practice.active` ...) | `window.hooks.provider(name)` | only the ones `ctx.services` names are public |
+| The Safety UI (`window.safety_ui`: readiness, the job lock) | `window.safety_ui` | `ctx.replace_document` already refuses while a job runs; nothing else needs it so far |
+
+Everything a plugin may rely on is in the tables of §3 and in
+[PLUGIN_STANDARD.md §4](PLUGIN_STANDARD.md#4-plugin-api-2).
 
 **Testing.**  `tests/wiring.py:real_window(user_mode="service")` (the default) enables every
 command; pass `user_mode="operator"` to test an operator screen.  `window.show_workspace(id)`
@@ -227,7 +247,8 @@ only when you would run its author's program on the machine's PC.
 **Rules for plugin authors** (they keep a well-meaning plugin inside the safety design):
 
 * talk to the machine only through `ctx.controller`'s `MachineAPI` methods (`mlaser.machine.api`)
-  and run cuts only through `window.run_job(mode)` (pre-flight, the planned job, arming);
+  and, if a plugin must start a cut at all, only through `window.run_job(mode)` (pre-flight, the
+  planned job, arming; no compatibility promise, §5);
 * never arm on the operator's behalf, never clear a fault or the halt latch, never change a
   `safety.*` value, the guard, the supervisor or its tunables (deadlines, buffer, heartbeat);
 * never replace the document while a job runs or a breakpoint is pending (`ctx.replace_document`

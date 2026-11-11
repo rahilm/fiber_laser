@@ -72,14 +72,24 @@ mlaser --demo
 Platform notes:
 
 * **macOS: Apple silicon (arm64) only.** There is no Intel macOS build. The bundle and the wheels
-  are not signed unless the release says so: the first start of an unsigned `mlaser.app` needs
-  right-click > Open (or `xattr -dr com.apple.quarantine mlaser.app`).
+  are not signed with a Developer ID or notarised unless the release says so. macOS then refuses
+  the first start of an `mlaser.app` downloaded with a browser. On macOS 15 and later, try to
+  open it once, then choose **Open Anyway** in System Settings › Privacy & Security and confirm
+  (Control-click › Open no longer bypasses the check there); on macOS 14 and earlier,
+  Control-click the app › Open. Or clear the download mark in Terminal:
+  `xattr -dr com.apple.quarantine /path/to/mlaser.app`. A download with the GitHub CLI
+  (`gh release download`, `gh run download`) or `curl` carries no such mark.
+* **macOS, first connection to the card:** macOS 15 and later ask once whether mlaser may find
+  devices on your local network. Answer **Allow**; if it was denied, the card simply never
+  answers. Turn mlaser on under System Settings › Privacy & Security › Local Network (the
+  network self-test says the same). An unsigned build may be asked again after each update.
 * **Linux:** the wheels are tagged manylinux_2_5 (x86_64) and manylinux_2_17 (aarch64), as the C kernel
   needs nothing newer, but PySide6
   6.12 itself needs glibc 2.34 (x86_64) / 2.39 (aarch64), e.g. Ubuntu 22.04 / 24.04 or newer. The
   one-folder bundle is built on Ubuntu 22.04 and runs on glibc 2.35 or newer; it needs the X11 /
   Wayland and EGL libraries of a desktop install (`libegl1 libxkbcommon-x11-0 libxcb-cursor0`).
-* **Windows:** 64-bit only. An unsigned bundle shows a SmartScreen warning on first start.
+* **Windows:** 64-bit only. An unsigned bundle shows a SmartScreen warning on first start:
+  **More info › Run anyway**.
 * The one-folder bundles include the optional OR-Tools, spyrrow and Ruckig; a wheel installs them
   with the extras (`pip install "mlaser-....whl[modern]"`).
 
@@ -138,11 +148,12 @@ reference to `None` too many; 3.12 made `None` immortal, which hides the bug).
 .venv/bin/mlaser --import-lang "/path/to/Mlaser" --lang de   # see Languages below
 ```
 
-You can also connect from inside the UI: **Advanced → Hardware → Connect to simulator**. Start,
-Pause, Stop, Frame and Dry Cut on the Run Control panel go through the full pipeline (CAM →
-planner → 1 ms samples → pulse steps → FIFO frames → UDP), and the head marker and the red track
-follow the position the simulator reports. **Sim** previews the toolpath with the motion planner
-and writes the time estimate to the log.
+You can also connect from inside the UI: **Machine › Connect to simulator**, or *Built-in
+simulator* on the Machine workspace's Connection page. Start, Hold, STOP, Frame and Dry run on
+the run bar go through the full pipeline (CAM → planner → 1 ms samples → pulse steps → FIFO
+frames → UDP), and the Run workspace's live view follows the position the simulator reports.
+**View › Simulate (preview)** (`P` on the canvas) plays the toolpath with the motion planner and
+shows the time estimate. The [user guide](docs/user/README.md) describes the window.
 
 Scripting:
 
@@ -177,7 +188,7 @@ If you own a copy of the original Mlaser, you can use its translations (Simplifi
 Russian, German, Spanish, Portuguese, French, Italian, Polish, Vietnamese, Turkish) with
 mlaser. Point mlaser at the install folder, its `Lang` folder or a single `Lang/*.txt` file:
 
-* in the app: **File → Import Language Files…**, then pick the language at the top right;
+* in the app: **File › Parameters › Import language files…**, then pick the language at the top right;
 * on the command line: `mlaser --import-lang "C:/Program Files/Mlaser" --lang zh`, or
   `python -m mlaser.i18n import <path>` (`list`, `remove <code>` manage them).
 

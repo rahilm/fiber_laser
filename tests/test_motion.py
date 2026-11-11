@@ -27,7 +27,9 @@ def _check_profile(p, vcap):
     acc = np.diff(vel) / np.diff(ts)
     assert np.max(np.abs(acc)) <= p.A * 1.01 + 1e-6
     # position is the integral of velocity
-    assert np.trapezoid(vel, ts) == pytest.approx(p.L, rel=1e-3)
+    # (np.trapezoid is numpy 2.0; np.trapz the same rule on the declared floor, numpy 1.26)
+    trapezoid = getattr(np, "trapezoid", None) or np.trapz
+    assert trapezoid(vel, ts) == pytest.approx(p.L, rel=1e-3)
 
 
 @pytest.mark.parametrize("L,vs,vm,ve", [(100, 0, 200, 0), (5, 0, 200, 0), (10, 100, 200, 20),

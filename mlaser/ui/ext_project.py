@@ -11,7 +11,8 @@ Providers (``window.hooks.provider(name)``): ``project.open(path) -> bool``,
 registered section, what autosave writes).
 
 Sections: other plugins keep their data in the project with
-``window.extension("ext_project").register_section(name, get, set)``: ``get()`` returns
+``ctx.register_project_section(name, get, set)`` (the provider ``project.register_section``;
+built-ins may also call ``register_section`` on this extension): ``get()`` returns
 JSON-able data (or model / nest objects) to save, ``set(value)`` receives it on open.
 ``technology`` and ``queue`` are the well-known names (the technology database and the job queue).
 
@@ -304,5 +305,6 @@ def register(ctx) -> ProjectExtension:
     ctx.provide("project.open", ext.open)
     ctx.provide("project.save", ext.save)
     ctx.provide("project.current", ext.current)
+    ctx.provide("project.register_section", ext.register_section)   # ctx.register_project_section
     ctx.on_close(lambda: ext.wait_idle())
     return ext

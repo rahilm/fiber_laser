@@ -72,7 +72,8 @@ exit codes are not visible there.
   the build host's GTK, cairo and pango), the TLS and network-information plugins, PySide6's
   OpenSSL copy, the TUIO/VNC and embedded-Linux plugins (eglfs, linuxfb, evdev ...),
   `qdirect2d`, the Qt image formats nothing reads through Qt (TIFF, WebP, TGA, WBMP),
-  `opengl32sw.dll` (software OpenGL; the app paints without OpenGL), Qt's translations,
+  `opengl32sw.dll` (software OpenGL; the app paints without OpenGL), Qt's translations except
+  the `qtbase_*.qm` of the languages mlaser offers (`QT_KEEP_TRANSLATIONS`),
   Pillow's AVIF codec, and matplotlib, pytest, hypothesis and tkinter. On Linux, the build
   host's system libraries are left out too (see "Linux system libraries"), and the shared
   libraries outside PySide6/shiboken6 are stripped (`--no-strip` keeps the symbols). The
@@ -179,6 +180,17 @@ secrets are set.
   temporary CI keychain. Notarisation needs either the App Store Connect API key variables
   (`NOTARY_KEY_ID`, `NOTARY_ISSUER_ID`, `NOTARY_KEY_P8_BASE64`) or `APPLE_ID`, `APPLE_TEAM_ID`
   and `APPLE_APP_PASSWORD`.
+
+Without a Developer ID the macOS bundle keeps PyInstaller's ad-hoc signature: Gatekeeper asks
+on the first start of a browser download, and the Local Network permission (the card) may be
+asked again after an update, because an ad-hoc identity changes with every build (what users do:
+[README](../README.md#from-a-release), [RELEASE.md](../docs/dev/RELEASE.md#release-page)). A
+Developer ID gives a stable identity and removes both. A signed build runs with the hardened
+runtime and library validation (`entitlements.plist` has no `disable-library-validation`): a Qt
+library a user replaces (the LGPL right, below) or any native library not signed by the same
+team then loads only after the user re-signs the app ad hoc
+(`codesign --force --deep --sign - mlaser.app`). The project's plugins are pure Python and are
+not affected.
 
 The order is: build (it writes `LICENSES/`), sign, then `build.py --skip-build --smoke
 --archive`. `--skip-build` does not touch the bundle, so the signature stays valid.

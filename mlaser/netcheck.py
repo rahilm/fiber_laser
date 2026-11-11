@@ -266,7 +266,11 @@ def firewall_hints(platform: Optional[str] = None, exe: Optional[str] = None,
         hint = ("macOS application firewall: answer 'Allow' when macOS asks whether the program "
                 "may accept incoming network connections, or add it under System Settings > "
                 "Network > Firewall > Options. Signed and notarised builds keep the permission "
-                "across updates.")
+                "across updates.\n"
+                "macOS 15 and later also ask once whether mlaser may find devices on your local "
+                "network: answer 'Allow'. If it was denied, the card never answers: turn mlaser on "
+                "under System Settings > Privacy & Security > Local Network. An unsigned build may "
+                "be asked again after each update.")
     else:
         tools = [t for t in ("ufw", "firewall-cmd", "nft", "iptables") if which(t)]
         hint = ("Linux: if a firewall is active, allow UDP from the card, e.g.\n"

@@ -20,7 +20,7 @@ command palette finds it as *Settings* (`app.settings`; `app.options` opens the 
   shows one of them, it is read-only with an **Edit in …** button that opens its home. Safety
   values (interlocks, heartbeat) are never here: they are in the Safety I/O dialog, linked from
   *Machine connection*.
-* Unit-bearing values are shown in your display units (Settings › Units); they are always stored in
+* Unit-bearing values are shown in your display units (Settings › General); they are always stored in
   millimetres.
 * Values are stored in `config.json` in the user configuration folder (see
   [Importing your Mlaser setup](importing-mlaser-setup.md) for the original program's files).
@@ -72,7 +72,7 @@ Also on this page: the display units (metric or imperial, and per-quantity overr
 | Nudge step from the selection size | `design.nudge_auto` | on | Derive the arrow-key step from the size of the selection instead of the fixed step. |
 
 
-## Import & Export
+## Import and export
 
 | Setting | Key | Default | What it does |
 |---|---|---|---|
@@ -151,7 +151,7 @@ The one-shot tools (array, fill, round corners, fly-cut, bridge…) are operatio
 | Material (by sheet area) | `costing.material_per_m2` | 0 /m² | The ledger's material cost by area of the used sheet. |
 
 
-## Run & Queue
+## Run and queue
 
 | Setting | Key | Default | What it does |
 |---|---|---|---|

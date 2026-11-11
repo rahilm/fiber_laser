@@ -1,7 +1,13 @@
 name: CI
 
-# No paths filter: a skipped workflow leaves a required check pending forever (the checks a
-# branch rule should require are listed in docs/dev/RELEASE.md, "Branch protection").
+# No `paths-ignore` on the triggers: a skipped workflow leaves a required check pending forever
+# (the checks a branch rule should require are listed in docs/dev/RELEASE.md, "Branch
+# protection"), and a matrix job skipped by a job-level `if` reports one check with the
+# unexpanded name instead of "ubuntu-latest / Python 3.12" ... .  A push or pull request that
+# changes only documentation (Markdown files in docs/ or elsewhere that no test reads by path)
+# is found by the job "changed files" instead: the test matrix then runs with every step skipped (each check is
+# reported, green, under its usual name, in seconds), while the "import contracts, types, i18n,
+# docs" job runs in full and checks the documents.
 on:
   push:
   pull_request:
@@ -19,8 +25,58 @@ permissions:
   contents: read
 
 jobs:
+  changes:
+    name: changed files
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      # "false": documentation only, the test matrix skips its steps; anything else runs them
+      code: ${{ steps.classify.outputs.code }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          sparse-checkout: tests
+      - name: Documentation only?
+        id: classify
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha }}
+        # everything runs unless every changed file is a Markdown document (docs/**/*.md, *.md)
+        # whose path no test quotes ("docs/user/settings.md": a test reads it); the other files
+        # under docs/ (the plugin template, the index schema) are tested like code.  A new branch,
+        # a nightly or manual run, an unknown base or an API error run everything
+        # (tests/test_ci_docs_only.py runs this script with a stand-in `gh`)
+        shell: bash
+        run: |
+          set -uo pipefail
+          code=true
+          if { [ "$EVENT" = push ] || [ "$EVENT" = pull_request ]; } && [ -n "${BASE//0/}" ]; then
+            if files=$(gh api "repos/$GITHUB_REPOSITORY/compare/$BASE...$HEAD_SHA" --jq '.files[].filename') \
+                && [ -n "$files" ] && [ "$(printf '%s\n' "$files" | wc -l)" -lt 300 ]; then
+              code=false
+              while IFS= read -r f; do
+                case "$f" in
+                  *.md)
+                    if grep -rqF -e "\"$f\"" -e "'$f'" tests/; then
+                      echo "$f: a test reads it"; code=true
+                    fi ;;
+                  *) echo "$f: not a Markdown document"; code=true ;;
+                esac
+              done <<< "$files"
+            fi
+          fi
+          echo "code=$code" >> "$GITHUB_OUTPUT"
+          if [ "$code" = false ]; then
+            echo "Documentation only: the test matrix skips its steps; the docs job checks the documents." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   test:
     name: ${{ matrix.os }} / Python ${{ matrix.python }}
+    needs: changes
+    # also when "changed files" failed: its output is then empty and every step runs
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     # the coverage job runs under the tracer (about 1.5x slower)
     timeout-minutes: ${{ matrix.coverage && 60 || 40 }}
@@ -42,6 +98,9 @@ jobs:
           - os: ubuntu-latest
             python: "3.14"
     env:
+      # "false" only for a documentation-only change ("changed files" above): every step below
+      # is then skipped and the check passes under its usual name
+      RUN_TESTS: ${{ needs.changes.outputs.code != 'false' }}
       QT_QPA_PLATFORM: offscreen       # headless Qt everywhere
       MLASER_PARITY: "0"               # no Wine parity harness in CI (tests/parity also deselected)
       MLASER_NO_FIRSTRUN: "1"
@@ -52,10 +111,14 @@ jobs:
       MLASER_BUILD_NATIVE: "1"
       MLASER_NATIVE: "1"
     steps:
+      - name: Documentation only, tests skipped
+        if: env.RUN_TESTS != 'true'
+        run: echo "Only documentation changed (job 'changed files'); the docs job checks it."
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        if: env.RUN_TESTS == 'true'
 
       - name: Qt runtime libraries (Linux)
-        if: runner.os == 'Linux'
+        if: env.RUN_TESTS == 'true' && (runner.os == 'Linux')
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
@@ -63,6 +126,7 @@ jobs:
             libglib2.0-0 fonts-dejavu-core
 
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
+        if: env.RUN_TESTS == 'true'
         with:
           python-version: ${{ matrix.python }}
           enable-cache: true
@@ -74,14 +138,17 @@ jobs:
       # all extras: the optional modern options (OR-Tools, spyrrow, Ruckig) are tested too.
       # The editable install compiles mlaser._native._emitter (gcc / clang / MSVC, setup.py flags).
       - name: Install (locked, builds the C kernel)
+        if: env.RUN_TESTS == 'true'
         run: uv sync --locked --all-extras
 
       # the module imports, has no FMA instruction (objdump / llvm-objdump; skipped on Windows
       # without dumpbin), passes its self-check, is selected by default, smoke parity run
       - name: C kernel check
+        if: env.RUN_TESTS == 'true'
         run: uv run --locked python tools/build_native.py --check
 
       - name: "Tests (default suite: unit, ui, sim, safety; parity and golden deselected; C kernel default)"
+        if: env.RUN_TESTS == 'true'
         # pytest-xdist: one worker per CPU; tests/conftest.py puts every safety and sim test in
         # the xdist group "timing", so --dist loadgroup runs them one after another on one
         # worker (their real-time bounds keep their meaning) while the rest spreads over the
@@ -104,7 +171,7 @@ jobs:
       # modules as a table in the job summary, the whole package as the "coverage" artifact
       # (htmlcov/index.html, coverage.xml)
       - name: Coverage report
-        if: matrix.coverage && !cancelled()
+        if: env.RUN_TESTS == 'true' && (matrix.coverage && !cancelled())
         shell: bash
         run: |
           set -euo pipefail
@@ -125,7 +192,7 @@ jobs:
           uv run --locked --no-sync coverage html -q
           uv run --locked --no-sync coverage xml -q
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: matrix.coverage && !cancelled()
+        if: env.RUN_TESTS == 'true' && (matrix.coverage && !cancelled())
         with:
           name: coverage
           path: |
@@ -139,6 +206,7 @@ jobs:
       # requires), then its own tests; plugins/conftest.py makes tests/ importable and isolates
       # the mlaser directories
       - name: Plugin tests (plugins/*/tests)
+        if: env.RUN_TESTS == 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -152,7 +220,7 @@ jobs:
           done
 
       - name: Crash diagnostics (macOS)
-        if: failure() && runner.os == 'macOS'
+        if: env.RUN_TESTS == 'true' && (failure() && runner.os == 'macOS')
         run: |
           for f in "$RUNNER_TEMP"/fault.log*; do echo "== fault log $f"; cat "$f" || true; done
           echo "== coverage trace (last commands)"; tail -5 "$RUNNER_TEMP/coverage.log" || true
@@ -179,6 +247,7 @@ jobs:
       # bit (float.hex for the carry and the cut length): catches a platform-specific C build
       # (compiler, flags, libm) independently of the frozen golden files. Fatal everywhere.
       - name: Native parity (C kernel = Python port, all golden jobs)
+        if: env.RUN_TESTS == 'true'
         run: uv run --locked python tools/native_parity.py
 
       # The goldens are bit-exact on CPython 3.12 (tests/golden/test_goldens.py skips on other
@@ -187,14 +256,14 @@ jobs:
       # and a few records with them (measured and proven libm-only: docs/dev/TESTING.md,
       # "Goldens on Windows and macOS"), so a difference there is reported, not fatal.
       - name: Golden check (C kernel, MLASER_NATIVE=1)
-        if: matrix.python == '3.12'
+        if: env.RUN_TESTS == 'true' && (matrix.python == '3.12')
         continue-on-error: ${{ runner.os != 'Linux' }}
         env:
           MLASER_NATIVE: "1"
         run: uv run --locked pytest -q -m golden
 
       - name: Golden check (Python port, MLASER_NATIVE=0)
-        if: matrix.python == '3.12'
+        if: env.RUN_TESTS == 'true' && (matrix.python == '3.12')
         continue-on-error: ${{ runner.os != 'Linux' }}
         env:
           MLASER_NATIVE: "0"
@@ -205,11 +274,11 @@ jobs:
       # `tools/golden_libm.py replay` on the reference platform (docs/dev/TESTING.md)
       # (manual runs only: about 1.5 min and a 40-70 MB artifact per job)
       - name: Golden libm recording (Windows, macOS)
-        if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        if: env.RUN_TESTS == 'true' && (github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled())
         continue-on-error: true
         run: uv run --locked python tools/golden_libm.py record --out golden-libm-${{ runner.os }}.json.gz
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled()
+        if: env.RUN_TESTS == 'true' && (github.event_name == 'workflow_dispatch' && matrix.python == '3.12' && runner.os != 'Linux' && !cancelled())
         continue-on-error: true
         with:
           name: golden-libm-${{ runner.os }}
@@ -219,7 +288,7 @@ jobs:
       # 3.13 keeps 3.12's compensated sum() and matched bit for bit locally (2026-10-18); the
       # reference stays 3.12, so a difference here (3.13, 3.14) is reported, not fatal.
       - name: Golden check (informative, ${{ matrix.python }}, both kernels)
-        if: matrix.python != '3.12' && runner.os == 'Linux'
+        if: env.RUN_TESTS == 'true' && (matrix.python != '3.12' && runner.os == 'Linux')
         continue-on-error: true
         env:
           MLASER_GOLDEN_ANY_PYTHON: "1"
@@ -276,9 +345,16 @@ jobs:
       # in the test job (tests/test_i18n_check.py)
       - name: i18n check
         run: uv run --locked python tools/i18n_check.py --no-legacy-scan
-      # every relative Markdown link and anchor in docs/ and README.md, docs paths named in code
-      - name: docs link check
-        run: uv run --locked pytest -q tests/test_docs_links.py
+      # the documents: every relative Markdown link and anchor in docs/ and README.md, docs paths
+      # named in code, the user guide's menu paths against the real window, the help browser,
+      # and keyboard.md against the command registry.  They also cover a documentation-only
+      # change, for which the test matrix skips its steps (job "changed files").
+      - name: docs checks
+        env:
+          MLASER_NO_FIRSTRUN: "1"
+        run: |
+          uv run --locked pytest -q tests/test_docs_*.py tests/test_help_browser.py
+          uv run --locked python tools/gen_keyboard_doc.py --check
       # every ribbon command triggered headlessly (dialogs stubbed, no network): the contract is
       # 0 unimplemented / 0 raising / 0 duplicate registrations (CONTRIBUTING.md); about 30 s
       - name: command coverage

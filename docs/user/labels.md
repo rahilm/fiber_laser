@@ -5,7 +5,7 @@ print a label for every part, a job ticket for every queued sheet, a label for e
 and etch each part's id into the part itself. All labels are PDF files: print them on any
 printer, including label printers that print PDF.
 
-Commands (in the command palette):
+Commands (**Process › Labels and marking**, also in the command palette):
 
 | Command | Who | What it does |
 |---|---|---|

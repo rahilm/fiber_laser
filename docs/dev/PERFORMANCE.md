@@ -6,6 +6,36 @@ offscreen Qt. The benchmark scripts are in `tools/bench/` (path-independent copi
 review's scripts plus a few new ones). Every change below keeps `tools/make_goldens.py --check`
 bit-identical on the default profile.
 
+## Current figures (re-measured 2026-11-11)
+
+The tables further down record each track's before / after **as measured then**, mostly on a
+host at load average 230-260 (3-5x slower than a quiet desktop). The rows the 2026-11 deep
+review found stale (perf.md finding 13) were measured again on the current code (commit
+`4dc0363`, the plugin and docs work of wave 2 on top of the wave-1 fixes):
+
+**Machine:** the same shared 64-core x86-64 Linux host (an AMD engineering-sample server CPU) (125 GB RAM), CPython
+3.12, offscreen Qt (PySide6 6.12), C kernel on, **load average 8-11** (other jobs running, about
+a sixth of the cores busy): close to a quiet workstation, but not an idle one. Single runs vary
+by about 20 %; where a row gives a range it is the spread of three runs. Commands from the
+repository root with throw-away `MLASER_CONFIG_DIR` / `MLASER_DATA_DIR`.
+
+| Row | Before (documented below) | Now | How |
+|---|---|---|---|
+| `build_toolpath`, 2,000 parts, sort 5 | 0.27 s | **287-299 ms** standalone; 547-579 ms as the first calls in `bench_large.py` (cold caches) | `tools/bench/bench_toolpath.py 2000`, 3 runs |
+| `MainWindow.set_document`, 2,000 parts | 1.0 s | **736-764 ms** | `tools/bench/bench_large.py 2000`, 3 runs |
+| `MainWindow._refresh` per edit, 2,000 parts | 0.65 s (1.1 s single run) | **51-53 ms** (the compile no longer follows every edit) | same |
+| `select_parts(all)`, 2,000 parts | 148 ms | **127-195 ms** | same |
+| rubber band, all, 2,000 parts | 162 ms | **196-310 ms** | same (`_rubber_select` of the whole drawing) |
+| one-part nudge, synchronous, 2,000 parts | 115-210 ms | **median 64 ms** (29-208 ms over 7 nudges; the first is the slowest) | `w.nudge(±1, 0)` with one part selected, bare `MainWindow`, 1 s between nudges |
+| `canvas.set_toolpath`, 2,000 parts | 117 ms | **median 95 ms** (65-97 ms), the overlay finished at once (`finish_overlay`) | `set_toolpath(build_toolpath(...))` on the same window, 5 runs |
+| part list: refresh after an edit of 10 parts / unchanged / first fill | 22 / 21 / 248 ms | **6.0 / 4.7-5.7 / 226-228 ms** | `tools/bench/bench_partlist.py`, 3 runs |
+| default compile, 1,000 parts, 5.0 M steps | 2.93 s serial, 0.96 s with 4 processes | **1.13 s** wall with the default workers (runs 1.62 / 1.15 / 1.13 s), 0.23 µs/step | `tools/bench/bench_throughput.py --parts 1000 --repeat 3` |
+
+The nudge and `set_toolpath` driver is not in `tools/bench/` (it is twenty lines around
+`bench_large.py`'s document). Not re-measured here: job-start latency and memory, the repaint
+per head move, open-to-interactive; their current figures are those of the wave-1 fixes in
+§8 and §9 ("after" columns) and in CHANGELOG.md.
+
 ## 1. Headline numbers
 
 | Measurement | Before | After | How |
@@ -325,7 +355,8 @@ no longer leaves its pool behind.
 ## 8. Interactive responsiveness, Review 2 (responsiveness track)
 
 Measured on the shared 64-core host at a load average of about 260 (3–5× slower than a quiet
-desktop: compare ratios). "Before" is `d71c581` (the Wave A safety merge) measured in the same
+desktop: compare ratios; the current figures of the rows that changed since are in
+[Current figures](#current-figures-re-measured-2026-11-11)). "Before" is `d71c581` (the Wave A safety merge) measured in the same
 session from an export of that commit, except where a row says "review" (the review 2 report's
 figure). The document is the review's `make_doc(N)`: half 24 mm squares with a hole, half
 24-point stars with two holes, line lead-ins, four layers, default machine (smoothing on).

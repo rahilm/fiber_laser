@@ -1,6 +1,6 @@
 # Process: technology database, properties, preview and cost
 
-This page covers the Process features of mlaser (Wave 3): the material/technology database, the
+This page covers the Process features of mlaser: the material/technology database, the
 Process workspace, the Properties panel, and the preview with its time and cost estimate.
 
 > **The example technologies are examples.** mlaser ships a small set (mild steel with oxygen,
@@ -81,36 +81,49 @@ once. If you delete examples, they are not added again.
 
 ## 2. Process workspace
 
-Open it with **Process+ → Process** (or the *Process* tab next to *Layer parameters*).
+Open it with **Process** in the rail, **Workspace › Process**, **Process › Process** or `Ctrl+2`.
+The switch at the top of its side panel shows the **Drawing** page (the layers of the open
+drawing) or the **Library** page (the technology records, [above](#1-technology-database)).
 
-1. Choose **Material**, **Thickness**, **Gas** and **Nozzle**. The lists only offer
-   combinations that exist.
-2. Choose **Apply to**: one layer, or all layers in use.
-3. Choose what else to apply: **Leads**, **Kerf**, **Micro-joints**, **Rules**.
-4. Press **Apply technology**. This is one undo step (Ctrl+Z restores the layers and parts).
+On the **Drawing** page the **Layers** table lists each layer in use with its technology and its
+state:
 
-Applying a technology sets the layer's parameters exactly as if you had typed them into the
-*Layer parameters* dialog. Parameters the technology does not set get the original program's
-defaults. Values from an earlier `LayerPara.xml` do not remain.
-
-The **Layers** list shows each layer in use with its technology and its state:
-
-* *As applied*: unchanged since the technology was applied;
-* *Modified: n fields*: edited afterwards (see *What changed → Layer vs its technology*);
+* *As recipe*: the layer follows its technology record unchanged;
+* *n set on the layer*: n values were changed on the layer itself (they are bold in the layer's
+  values; *What changed* on the Library page compares the layer with its technology);
 * *example values*: from the example set;
-* *version n available*: the technology was saved again after it was applied, so apply it
-  again to use the new values;
-* *Set by hand* / *Not defined*: no technology. A layer that is not defined cannot be cut; the
-  pre-flight check refuses it.
+* *recipe version n available: Update*: the record was saved again after it was assigned;
+  **Update** takes the new version;
+* *Recipe no longer in the library*: the record was deleted;
+* *No recipe*: every value is set on the layer by hand;
+* *Not defined: choose a recipe*: the layer has no cutting values yet. It cannot be cut; the
+  pre-flight check refuses it (with *Choose technology…*).
 
-**Save layer as technology…** stores a layer you tuned by hand as a new technology.
+Select a layer: its **Layer** tab shows
+
+1. **Choose technology…** (first and open while the layer has none; *Recipe* afterwards): pick
+   the material and thickness chips, the gas and the nozzle, then **Use for layer n** (*Assign
+   recipe* once the layer has one). This is one undo step (Ctrl+Z restores the layer and its
+   parts). The layer then follows the record: its values and the parts' leads and kerf come
+   from it, except what is set on the layer, a part or a contour. **Process › Apply technology**
+   does the same for the selected layer (all layers in use when none is selected).
+2. The layer's values, grouped (*Cutting*, *Piercing*, *Gas and nozzle*, *Height follow*,
+   *Leads and kerf (layer defaults)*); they stay folded until a technology is chosen. A value
+   changed here is set on this layer: bold, with a restore button.
+3. **Save as new recipe…** stores the layer's values as a new technology; **Put changes into the
+   recipe…** saves the values set on the layer as a new version of its record (it asks first);
+   **Restore all** goes back to the record's values.
+
+The **Estimate** tab is the time and cost estimate ([§4](#4-preview-and-estimate)); the
+**Cutting strategy** tab is described [below](#technology-for-some-parts). **Process › Layer
+parameters…** opens the Layer tab of the current layer.
 
 ### Technology for some parts
 
 A technology belongs to a layer: every part on a layer is cut with the layer's technology. To
 cut some parts with another one, select them (on the canvas, or in the **Parts** list; see
 [Design › Parts list](design.md#parts-list)) and press **Assign technology…** in the Parts list
-(also **Process → Assign technology to selected parts…**). Pick the material, thickness, gas and
+(also **Process › Assign technology to selected parts…**). Pick the material, thickness, gas and
 nozzle and press **Assign**. mlaser then, as one undo step:
 
 * moves the parts to a layer that already uses that technology (unchanged since it was
@@ -123,7 +136,7 @@ The status bar and the log say what happened, for example "12 parts moved to lay
 steel S235 2 mm · O2 · …". **Ctrl+Z** undoes it all. When every layer is in use, it says so and
 changes nothing: move some parts to another layer first (Properties › Layer).
 
-The tab **Cutting strategy** (next to *Technology*, *What changed* and *History*) works on the
+The tab **Cutting strategy** (next to *Layer* and *Estimate* on the Drawing page) works on the
 drawing (details in [Cutting strategy](cutting-strategy.md)):
 
 * **Lead-ins**: *Check* lists the lead-ins that reach another contour, cross their own contour or
@@ -185,7 +198,7 @@ planned job, not a separate simulation, so the times are those of the job itself
   the contour and the head position;
 * **Clear** removes the preview from the canvas.
 
-The **Estimate** card (bottom of the Process workspace) lists:
+The **Estimate** tab (next to *Layer* on the Drawing page) lists:
 
 | Line | Source |
 |---|---|

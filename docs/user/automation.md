@@ -59,7 +59,7 @@ as before, and may carry a unit: `--sheet 120inx60in`, `--spacing 0.125in`, `--t
 | `plugin ...` | the Plugin manager: `list`, `search`, `info`, `install`, `uninstall`, `update`, `enable`, `disable`, `hosts`, `repo add/remove/list` ([Plugins](plugins.md#command-line)) |
 | `diag-bundle OUT.zip` | a diagnostic bundle for a bug report, as Help › Save diagnostic bundle… but without the window and its controller state: version and commit, the settings (redacted), the machine parameters, the alarm history and the logs. `--drawing FILE` adds a drawing (only when given); `--data-dir`, `--log-dir`, `--config` pick other folders. Nothing is sent ([FAQ](faq.md#how-do-i-report-a-problem)) |
 
-`--tech` picks a record of the technology database like Process > Apply: material (any unique
+`--tech` picks a record of the technology database like *Choose technology…* on the Process workspace: material (any unique
 part of its name), thickness, and the gas and nozzle when needed to make it unique, e.g.
 `"S235/3/O2"`. An ambiguous choice is an error that lists the candidates. A parts list CSV is the
 same format as the Nest workspace's Orders tab ([Import](import.md#orders-several-files-and-parts-lists):
@@ -112,9 +112,10 @@ drawing and the machine's layer table, as for a job the operator adds. Waiting j
 
 ## Automation API
 
-A local web service of the running program, **off by default**. Turn it on with the command
-**Automation API on/off** (`api.toggle`, Engineer mode); a warning explains what it shares
-before it starts. **Automation API settings** (`api.settings`) sets:
+A local web service of the running program, **off by default**. Turn it on with **Tools ›
+Automation and notifications › Automation API on/off** (Engineer mode); a warning explains what
+it shares before it starts. **Automation API settings...** in the same submenu (or Settings ›
+Network & API) sets:
 
 | Setting | Default | |
 |---|---|---|

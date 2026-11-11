@@ -124,8 +124,9 @@ members exist on every context; a built-in plugin may use everything.
 | `ctx.services` | `orders` (the `OrderBook`; needs `orders`), `orders_load_group` (`fn(key, replace=None)`: one material x thickness group into Nest; needs `orders`), `technology` (the technology database), `queue` and `intake` (need `queue`), `config` (= `ctx.config`: a view of the ConfigService that reads every value, as copies, and writes only `plugin.<id>.*`; any other write raises `ProtectedSettingError` and is audited); None when that part of the application is absent |
 | `ctx.show_message(text, level="info")` | status-bar message, also in the log (`level`: `info`, `warning`, `error`) |
 | `ctx.register_command(..., icon="")` | `icon`: a Tabler icon name or an icon file; the manifest's `min_mode` is the default `min_mode` |
+| `ctx.register_project_section(name, get, set) -> bool` | the plugin's data in the `.mlz` project and its autosave; `name` is the plugin id or `<id>.<part>` (else `PermissionError`); needs `document`; False without project support |
 
-`ctx.edit` / `ctx.replace_document` need `document`.
+`ctx.edit` / `ctx.replace_document` / `ctx.register_project_section` need `document`.
 
 ## 5. Permissions and the security model
 
@@ -138,7 +139,7 @@ a well-meaning plugin cannot exceed them by accident:
 |---|---|
 | `network` | `ctx.http`: the host of every request and redirect (plus hosts granted in the Plugin manager, 5.2) |
 | `files` | declarative (the plugin's own `data_dir` is always available) |
-| `document` | `ctx.edit`, `ctx.replace_document` |
+| `document` | `ctx.edit`, `ctx.replace_document`, `ctx.register_project_section` |
 | `orders` | `ctx.services.orders`, `ctx.services.orders_load_group` |
 | `queue` | `ctx.services.queue`, `ctx.services.intake` (the queue never starts a job by itself) |
 | `machine` | `ctx.controller` (and the machine-authority grant); the controller's plugin policy still refuses arm / fault reset / halt-latch clearing / heartbeat hold / safety changes without the grant |

@@ -22,10 +22,11 @@ the server or the phone can fail, and notifications are rate-limited.
 
 ## Set up
 
-Open **Notification settings** (command `notify.settings`, Engineer mode). Tick **Send
+Open **Tools › Automation and notifications › Notification settings...** (Engineer mode; the
+same settings are on the *Notifications* page of Settings). Tick **Send
 notifications**, enable at least one channel, fill it in and press **Send test**. The result of
 the last sends ("sent" or the error) is shown at the bottom of the dialog; **Save** keeps the
-settings. The command `notify.test` sends a test message without opening the dialog.
+settings. **Send a test notification** in the same submenu sends a test message without opening the dialog.
 
 | Channel | Fields |
 |---|---|
