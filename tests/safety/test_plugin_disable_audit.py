@@ -94,6 +94,7 @@ def test_disable_records_a_change_and_nothing_else(isolated, caplog):
     cfg = ConfigService(isolated / "c.json")
     pm = PM.PluginManager(cfg, root=isolated / "p")
     pm.enable("x", "m:plugin", None, grant_authority=True)
+    caplog.clear()        # the enable's own record, when an earlier test left the audit log at INFO
     with caplog.at_level(logging.INFO, logger="mlaser.audit"):
         assert pm.disable("x")["was_enabled"] is True
         assert pm.disable("x")["was_enabled"] is False             # already off: nothing to record
