@@ -67,6 +67,11 @@ class CanvasEmptyState(QFrame):
             b.setMinimumHeight(style.TARGET)
             b.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
             b.setFocusPolicy(Qt.StrongFocus)
+            # sized and placed as widgets, not as the style's smaller "layout item" rectangles:
+            # the macOS style's buttons have layout item margins, and buttons placed one spacing
+            # apart by their item rectangles overlapped by 8 px (native check, macOS style; as
+            # responsive.FlowLayout.addWidget)
+            b.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
             b.clicked.connect(lambda _c=False, c=cmd: self.trigger(c))
             lay.addWidget(b)
             self.buttons[cmd] = b

@@ -767,6 +767,8 @@ class CanvasHud(QFrame):
         for b in (self.fit_drawing, self.fit_table):
             b.setAutoRaise(True)
             b.setFocusPolicy(Qt.TabFocus)
+            b.setToolButtonStyle(Qt.ToolButtonTextOnly)    # icons only where the row is short
+            b.setAccessibleName(b.text())
             lay.addWidget(b)
         outer.addWidget(self.legend)
         self._fold_look()
@@ -823,6 +825,9 @@ class CanvasHud(QFrame):
             f"QFrame#canvas_hud {{ background: rgb({panel.red()},{panel.green()},{panel.blue()});"
             f" border: 1px solid {c['table']}; border-radius: 6px; }}"
             f" QFrame#canvas_hud QLabel, QFrame#canvas_hud QCheckBox, QFrame#canvas_hud QToolButton {{ color: {fg}; }}")
+        from .icons import COMMAND_ICONS, icon
+        for b, cmd in ((self.fit_drawing, "view.zoom_fit"), (self.fit_table, "view.fit_table")):
+            b.setIcon(icon(COMMAND_ICONS[cmd], fg))        # the bar's text colour, on the canvas
         self.legend.refresh()
         self.legend.setToolTip(tr("canvas.legend.tip"))
         self.set_status(self.view.plan_state)
@@ -845,11 +850,19 @@ class CanvasHud(QFrame):
         self.legend.setVisible(self.view.options.show_toolpath and not self.collapsed and self.legend_wanted())
         self._legend_look()              # (its arrow is part of the button's size)
         lay = self.layout()
-        lay.activate()
         # what surrounds the row: the layout's margins and the frame's own (the style sheet's
         # border), so the buttons get their full size hint
         lm, fm = lay.contentsMargins(), self.contentsMargins()
         pad = lm.left() + lm.right() + fm.left() + fm.right()
+        # Fit drawing / Fit table show their icons alone (names in the tooltip and for assistive
+        # tech) where their words would wrap the row: a second row covered 14 % of a half-screen
+        # view with the macOS font (the bar may cover AREA_SHARE)
+        for style_ in (Qt.ToolButtonTextOnly, Qt.ToolButtonIconOnly):
+            for b in (self.fit_drawing, self.fit_table):
+                b.setToolButtonStyle(style_)
+            lay.activate()
+            if lay.itemAt(0).sizeHint().width() + pad <= avail:
+                break
         w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
         if self.legend.isVisibleTo(self):
             # the legend wraps to the bar's width (at most the row's when that is wider than
