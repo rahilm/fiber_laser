@@ -546,16 +546,22 @@ def test_import_review_runs_in_a_child_and_the_gui_keeps_the_interpreter(win, ap
     win.hooks.emit("document_imported", "big.dxf", win.document)
     task = orders._review_task
     assert task is not None and in_child.wait(60)
-    # hand-overs of the interpreter while the child analyses: 100 x sleep(0) per batch
-    worst = 0.0
+    # hand-overs of the interpreter while the child analyses: 100 x sleep(0) per batch.  A batch
+    # counts with the time this process was BUSY in it (the smaller of its wall time and the
+    # process's CPU time): a CPU-bound thread here burns the whole wait (0.515 s of 0.515 s
+    # measured), while a starved runner's wait is idle - on Windows sleep(0) gives the rest of
+    # the time slice to any other ready thread of the machine, the review child and the other
+    # test workers included (CI: a batch of 1.15 s with 0.1 s of process CPU in the whole test)
+    worst = worst_wall = 0.0
     batches = 0
     with StallProbe(always=True, top=6) as probe:   # diagnostics for the failure message only
         while not task.done.is_set() and batches < 400:
-            t0 = time.perf_counter()
+            t0, c0 = time.perf_counter(), time.process_time()
             for _ in range(100):
                 time.sleep(0)
                 probe.beat()
-            worst = max(worst, time.perf_counter() - t0)
+            wall, cpu = time.perf_counter() - t0, time.process_time() - c0
+            worst, worst_wall = max(worst, min(wall, cpu)), max(worst_wall, wall)
             batches += 1
     t_end = time.time() + 60
     while not shown and time.time() < t_end:
@@ -565,4 +571,4 @@ def test_import_review_runs_in_a_child_and_the_gui_keeps_the_interpreter(win, ap
     assert here == []                                        # nothing analysed in this process
     # a CPU-bound thread makes 100 hand-overs cost about 100 x the switch interval (0.5 s)
     assert batches >= 1 and worst < runner_budget(100 * sys.getswitchinterval() / 5), (
-        worst, batches, probe.report())
+        worst, worst_wall, batches, probe.report())
