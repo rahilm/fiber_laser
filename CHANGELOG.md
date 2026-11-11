@@ -496,6 +496,9 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   reader stopping silently.
 - A start or fault reset made while the card is disconnecting is refused cleanly; a jog stop
   in that moment goes out on the halt channel.
+- The app could crash on exit (segmentation fault or "malloc ... corrupted") when the card's
+  disconnect finished while the window was being closed; window updates from the controller's
+  threads are now dropped once the window is gone.
 
 ## [0.1.0rc1]
 
