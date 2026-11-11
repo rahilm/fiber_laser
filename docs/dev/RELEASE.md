@@ -202,7 +202,12 @@ it. Recommended (details in [CONTRIBUTING.md](../../CONTRIBUTING.md#branch-prote
   paths, after the fact); `windows-latest / Python 3.12` and `macos-latest / Python 3.12`
   once stable. The parity guard runs on every pull request (only its push trigger has a
   `paths` filter), so it can be required; `ci.yml` has no `paths` filter at all, because a
-  required check whose workflow is skipped stays pending and blocks the pull request;
+  required check whose workflow is skipped stays pending and blocks the pull request.
+  Instead its job `changed files` recognises a change of Markdown documents only (none of
+  them read by a test by path): the test matrix then reports every check under its usual name
+  with all steps skipped (green in seconds), and `import contracts, types, i18n, docs` checks
+  the documents (links, the user guide's menu paths, `keyboard.md`, the help browser). The
+  nightly run and the next code change run everything;
 * linear history, no force pushes or deletions, no bypass for administrators;
 * private vulnerability reporting enabled ([SECURITY.md](../../SECURITY.md)).
 
