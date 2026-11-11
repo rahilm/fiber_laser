@@ -950,10 +950,16 @@ class MachineWorkspace(QWidget):
         self.lbl["kind"].setText(controller_kind_text(self.w, ctl, st))
         self._follow_controller(ctl, st)
         self.lbl["safety"].setText(safety_state_text(self.w, saf))
-        self.lbl["safety"].setToolTip(saf.fault or "")
+        # only on a change: every setToolTip / set_enabled sends events, and this runs per poll
+        # (an idle Machine page held the GUI thread at ~29 % on Windows CI)
+        if self.lbl["safety"].toolTip() != (saf.fault or ""):
+            self.lbl["safety"].setToolTip(saf.fault or "")
         # Connect while not connected, Disconnect while connected (UX audit O9)
-        style.set_enabled(self.connect_btn, not st.connected, T(self.w, "ws.machine.why_connected"))
-        style.set_enabled(self.disconnect_btn, bool(st.connected), T(self.w, "ws.machine.why_not_connected"))
+        for b, on, why in ((self.connect_btn, not st.connected, "ws.machine.why_connected"),
+                           (self.disconnect_btn, bool(st.connected), "ws.machine.why_not_connected")):
+            reason = "" if on else T(self.w, why)
+            if b.isEnabled() != on or (b.property("disabled_reason") or "") != reason:
+                style.set_enabled(b, on, T(self.w, why))
         ep = ctl.endpoint()
         self.lbl["endpoint"].setText(f"{ep[0]}:{ep[1]}" if ep else "–")
         self.lbl["link"].setText(y if st.link_ok else n)
