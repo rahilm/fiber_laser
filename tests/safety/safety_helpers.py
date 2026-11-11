@@ -101,8 +101,27 @@ def start_and_run(ctl, doc=None, run_s: float = 0.6):
     still move, e.g. the pessimistic simulator's halt lag after a stop)."""
     wait_until(lambda: stopped(ctl.sim), 5)
     ctl.start(doc or rect_doc())
-    assert wait_until(lambda: ctl.sim.state.fifo_running and ctl.sim.state.laser, 20), "job did not start"
+    # a fault latched during the start (link lost, a stalled streaming child) ends the wait: the
+    # job will not start, and the message says why (CI, Windows: "job did not start" alone)
+    assert wait_until(lambda: (ctl.sim.state.fifo_running and ctl.sim.state.laser) or ctl.fsm.faulted, 20), \
+        f"job did not start: {start_diagnosis(ctl)}"
+    assert not ctl.fsm.faulted, f"job did not start: {start_diagnosis(ctl)}"
     time.sleep(run_s)
+
+
+def start_diagnosis(ctl) -> str:
+    """What the controller and the card say when a job did not start."""
+    parts = []
+    for name, get in (("safety state", lambda: ctl.fsm.state), ("fault", lambda: ctl.safety().fault),
+                      ("mode", lambda: ctl.state().mode), ("breakpoint", lambda: ctl.breakpoint),
+                      ("streaming", lambda: ctl._sup.streaming), ("card stopped", lambda: stopped(ctl.sim)),
+                      ("card fifo_running", lambda: ctl.sim.state.fifo_running),
+                      ("card laser", lambda: ctl.sim.state.laser)):
+        try:
+            parts.append(f"{name}={get()!r}")
+        except Exception as e:  # noqa: BLE001 - a diagnosis never raises
+            parts.append(f"{name}=<{type(e).__name__}>")
+    return ", ".join(parts)
 
 
 def thread_stacks() -> str:

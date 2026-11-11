@@ -534,6 +534,30 @@ class MachineProfile:
     overrides: dict = field(default_factory=dict)  # Machine attribute overrides (e.g. smooth)
 
 
+#: the background writes (:meth:`ConfigService.flush` ``background=True``) not yet on disk, by
+#: file: a :meth:`ConfigService.load` of the same file in this process waits for them, so a
+#: second window opened right after the first saved its counters reads them (CI: it read the
+#: file before the writer thread had replaced it)
+_INFLIGHT: dict[str, set[threading.Thread]] = {}
+_INFLIGHT_LOCK = threading.Lock()
+
+
+def _inflight_key(p: Path) -> str:
+    return os.path.normcase(os.path.abspath(p))
+
+
+def wait_for_background_writes(path: os.PathLike | str, timeout: float = 30.0) -> bool:
+    """Wait until the background writes of ``path`` started in this process are on disk;
+    False if one is still running after ``timeout`` seconds (a hung disk: the caller reads
+    what is there)."""
+    with _INFLIGHT_LOCK:
+        threads = list(_INFLIGHT.get(_inflight_key(Path(path)), ()))
+    for t in threads:
+        if t is not threading.current_thread():
+            t.join(timeout)
+    return not any(t.is_alive() for t in threads)
+
+
 class ConfigService:
     """The typed configuration store (see the module docstring)."""
 
@@ -672,6 +696,9 @@ class ConfigService:
         problem), and the file is not written until the operator answered the start-up notice
         (:meth:`acknowledge_load_error` / :meth:`restore_backup`).  A clean load keeps a copy
         of the file as ``config.json.bak`` (the backup that notice offers)."""
+        if not wait_for_background_writes(self.path):
+            log.warning("configuration %s: a background write is still running; reading what is on disk",
+                        self.path)
         try:
             raw = self.path.read_bytes()
         except FileNotFoundError:
@@ -844,7 +871,7 @@ class ConfigService:
         written by a (non-daemon) thread, so the caller - the GUI thread closing the window or
         saving the counters - never waits on the disk (Windows CI: a settings write held a
         close for 0.1-0.8 s); a later save never loses to it, and the interpreter waits for
-        the write before it exits."""
+        the write before it exits; a :meth:`load` of the same file waits for it."""
         if not self._dirty:
             return
         if self._held:
@@ -861,12 +888,30 @@ class ConfigService:
         ticket, text = self._snapshot()
         self._dirty = False
 
+        key = _inflight_key(self.path)
+
         def write() -> None:
             try:
                 self._write(self.path, ticket, text)
             except OSError:
                 self._dirty = True
-        threading.Thread(target=write, name="mlaser-config-save", daemon=False).start()
+            finally:
+                with _INFLIGHT_LOCK:
+                    running = _INFLIGHT.get(key)
+                    if running is not None:
+                        running.discard(threading.current_thread())
+                        if not running:
+                            del _INFLIGHT[key]
+        t = threading.Thread(target=write, name="mlaser-config-save", daemon=False)
+        with _INFLIGHT_LOCK:
+            _INFLIGHT.setdefault(key, set()).add(t)
+        try:
+            t.start()
+        except BaseException:
+            with _INFLIGHT_LOCK:
+                _INFLIGHT.get(key, set()).discard(t)
+            self._dirty = True
+            raise
 
     # ------------------------------------------------------------------ original XML files
     def machine_params(self):

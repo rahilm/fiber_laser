@@ -864,6 +864,13 @@ class CanvasHud(QFrame):
             if lay.itemAt(0).sizeHint().width() + pad <= avail:
                 break
         w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
+        # never narrower than its widest control (one per row): a very narrow view (Windows'
+        # metrics, the Process workspace at the window's minimum width) gave the row less than
+        # an icon button and cut it; the bar then moves over the ruler (x below) as far as the
+        # view allows
+        row = lay.itemAt(0).layout()
+        widest = row.minimumSize().width() if row is not None else 0
+        w = max(w, min(widest + pad, self.view.width()))
         if self.legend.isVisibleTo(self):
             # the legend wraps to the bar's width (at most the row's when that is wider than
             # half the view: it then takes more lines, not more of the drawing)
@@ -888,7 +895,23 @@ class CanvasHud(QFrame):
         # past the rulers' corner while the view has room for that; a very short view keeps the
         # whole bar inside it (over the ruler) instead of cutting it
         y = max(0, min(inset, self.view.height() - h - 2))
-        self.setGeometry(inset, y, w, h)
+        # likewise a very narrow view keeps the whole bar inside it, over the ruler
+        x = max(0, min(inset, self.view.width() - w - 2))
+        self.setGeometry(x, y, w, h)
+        # what the row really took once laid out at that width (a style whose size hints and
+        # layout disagree, Windows: the Fit table button 4 px past the bar's edge): the bar
+        # grows to hold it, as far as the view allows
+        lay.activate()
+        kids = [c for c in self.findChildren(QWidget, options=Qt.FindDirectChildrenOnly) if c.isVisibleTo(self)]
+        if kids:
+            need_w = max(c.geometry().right() for c in kids) + 1 + lm.right() + fm.right()
+            need_h = max(c.geometry().bottom() for c in kids) + 1 + lm.bottom() + fm.bottom()
+            if need_w > w or need_h > h:
+                w = min(max(w, need_w), self.view.width())
+                h = max(h, need_h)
+                x = max(0, min(inset, self.view.width() - w - 2))
+                y = max(0, min(inset, self.view.height() - h - 2))
+                self.setGeometry(x, y, w, h)
         self.raise_()
 
 
