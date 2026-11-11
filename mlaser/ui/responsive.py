@@ -10,15 +10,23 @@ fits", "two columns of the widest section no longer fit").
   each row to the full width.  It reports ``heightForWidth``, so the parent gives it the rows it
   needs.
 * :class:`ResponsiveForm`: label beside the field while the widest label plus the widest field
-  minimum fit, the label above the field otherwise.
+  minimum fit, the label above the field otherwise.  The form of the *panels*: the sections of a
+  :class:`ColumnsPanel` (the Control dock, the Properties and technology forms, the Process,
+  Machine and recipe pages), because the panel measures each section's height at several
+  widths before it places them (:meth:`ResponsiveForm.heightForWidth` answers for the
+  arrangement that width gets) and hides and shows single rows (``set_row_visible``).
+  ``style.form()`` (a stock :class:`QFormLayout` whose wrap policy follows the width it is
+  given) is the form of *dialogs* and plugin pages, laid out once at the size they get: it
+  answers a height for a width only in its current arrangement, so it cannot serve a panel
+  that folds sections by their height (deep review 2026-11 fw F12: both kept, one job each).
 * :class:`CollapsibleSection`: a titled section whose body folds away (a header button with an
   arrow; keyboard and screen-reader accessible).
 * :class:`ColumnsPanel`: sections in 1, 2 or 3 columns, as many as the widest section allows;
   when the panel is shorter than its content it first turns compact and then folds the
   collapsible sections, lowest priority first (a section the user opened stays open), and
   unfolds them again when the room comes back: a control panel never needs a scroll bar.
-* :func:`set_compact` / :class:`CompactWhenNarrow`: smaller paddings and icon-only tool buttons
-  (their text goes to the tooltip) when the comfortable layout does not fit the width.
+* :func:`set_compact`: smaller paddings and icon-only tool buttons (their text goes to the
+  tooltip); :class:`ColumnsPanel` turns it on when the comfortable layout does not fit.
 * :func:`columns_for`: the number of columns of a given minimum width that fit.
 * :func:`mark_list`: a scroll area that holds a *list* (may scroll vertically); forms and
   control panels must not (tests/test_responsive_layout.py).
@@ -40,7 +48,7 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QLabel, QLayout, 
 STATE_PROP = "responsive_state"
 LIST_PROP = "responsive_scroll"
 #: touch targets (px, logical): the primary run / safety controls, every other touch control
-from .style import SP1, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
+from .style import SP1, SP2, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN, set_font  # noqa: E402 - one source (style.py)
 
 
 # --------------------------------------------------------------------------- measuring passes
@@ -772,19 +780,37 @@ class ElidedToolButton(QToolButton):
         self._fit()
 
     muted = False        # drawn in the palette's placeholder colour (a summary, not a title)
+    flat = False         # a section header: drawn the same checked or not (no pressed box)
 
     def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
-        if not self.muted:
+        if not (self.muted or self.flat):
             super().paintEvent(ev)
             return
-        from PySide6.QtWidgets import QStyle, QStyleOptionToolButton, QStylePainter
-        p = QStylePainter(self)
-        opt = QStyleOptionToolButton()
-        self.initStyleOption(opt)
+        _paint_tool_button(self, muted=self.muted, flat=self.flat)
+
+
+def _paint_tool_button(btn: QToolButton, muted: bool = False, flat: bool = False) -> None:
+    """Paint ``btn`` as the style does, with its text in the placeholder colour (``muted``)
+    and/or without the checked state's pressed box (``flat``: a section header, whose arrow says
+    open or folded; the checked state stays for keyboard and screen-reader users)."""
+    from PySide6.QtWidgets import QStyleOptionToolButton, QStylePainter
+    p = QStylePainter(btn)
+    opt = QStyleOptionToolButton()
+    btn.initStyleOption(opt)
+    if flat:
+        opt.state &= ~(QStyle.State_On | QStyle.State_Sunken)
+    if muted:
         c = opt.palette.color(QPalette.PlaceholderText)
         for role in (QPalette.ButtonText, QPalette.WindowText, QPalette.Text):
             opt.palette.setColor(role, c)
-        p.drawComplexControl(QStyle.CC_ToolButton, opt)
+    p.drawComplexControl(QStyle.CC_ToolButton, opt)
+
+
+class _HeaderButton(QToolButton):
+    """A section header's button (title, arrow): the one flat look, open or folded."""
+
+    def paintEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        _paint_tool_button(self, flat=True)
 
 
 class _HeaderRow(QWidget):
@@ -847,12 +873,19 @@ class CollapsibleSection(QWidget):
         v = QVBoxLayout(self)
         v.setContentsMargins(0, 0, 0, 0)
         v.setSpacing(SP1)
-        # the header: a tool button with an arrow (keyboard and screen readers can open and
-        # close it), a plain bold label when the section does not fold
+        # the header (docs/dev/STYLE.md "Section header", the one look of style.section): the
+        # arrow and the title in the label_strong font, flat and the same open or folded (UI
+        # deep review 4: a checked tool button drew a grey box while open); a tool button that
+        # keyboard and screen readers can open and close, a label when the section does not fold
         self.header: QWidget
         self.summary_btn: Optional[ElidedToolButton] = None
         if collapsible:
-            hb = ElidedToolButton() if self.fit_title else QToolButton()
+            hb: QToolButton
+            if self.fit_title:
+                hb = ElidedToolButton()
+                hb.flat = True
+            else:
+                hb = _HeaderButton()
             hb.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
             hb.setAutoRaise(True)
             hb.setCheckable(True)
@@ -864,9 +897,7 @@ class CollapsibleSection(QWidget):
             self.header = QLabel()
         self.header.setObjectName("section_header")
         self.header.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
-        f = self.header.font()
-        f.setBold(True)
-        self.header.setFont(f)
+        set_font(self.header, "label_strong")
         self.header_row: QWidget = self.header
         if self.fit_title:
             sb = ElidedToolButton()
@@ -880,11 +911,12 @@ class CollapsibleSection(QWidget):
             self.header_row = _HeaderRow(self.header, sb)   # type: ignore[arg-type]
             self.header_row.setProperty("folded", False)
         v.addWidget(self.header_row)
+        # the body: inset under the title like style.section's, no box around it
         self.frame = QFrame()
         self.frame.setObjectName("section_body")
-        self.frame.setFrameShape(QFrame.StyledPanel)
+        self.frame.setFrameShape(QFrame.NoFrame)
         fl = QVBoxLayout(self.frame)
-        fl.setContentsMargins(SP1 + SP1 // 2, SP1 + SP1 // 2, SP1 + SP1 // 2, SP1 + SP1 // 2)   # 6 px: the narrowest dock still fits
+        fl.setContentsMargins(SP2, 0, 0, SP1)
         v.addWidget(self.frame)
         self.body = body
         if body is not None:
@@ -1039,36 +1071,6 @@ def set_compact(root: QWidget, on: bool, ratio: float = 0.5) -> None:
             lay.invalidate()
             w.updateGeometry()
     _forget_measures()
-
-
-class CompactWhenNarrow(QObject):
-    """Turns ``widget`` compact (:func:`set_compact`) while its width is below what its
-    comfortable layout needs, and comfortable again when that fits."""
-
-    def __init__(self, widget: QWidget, on_change: Optional[Callable[[bool], None]] = None):
-        super().__init__(widget)
-        self.w = widget
-        self.on_change = on_change
-        self._comfortable = 0
-        widget.installEventFilter(self)
-
-    def comfortable_width(self) -> int:
-        was = bool(self.w.property("compact"))
-        if was:
-            set_compact(self.w, False)
-        need = self.w.sizeHint().width()
-        if was:
-            set_compact(self.w, True)
-        return need
-
-    def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
-        if obj is self.w and ev.type() == QEvent.Resize:
-            on = ev.size().width() < self.comfortable_width()
-            if on != bool(self.w.property("compact")):
-                set_compact(self.w, on)
-                if self.on_change is not None:
-                    self.on_change(on)
-        return False
 
 
 # --------------------------------------------------------------------------- columns panel
@@ -1522,13 +1524,17 @@ class ColumnFitter(QObject):
     while the columns' content widths do not fit the view, the columns of lowest ``priority``
     hide (the key column, priority ``None``, never does; a stretched column gives way down to
     its minimum first); they come back when the view grows.  ``priorities``: column -> priority
-    (higher stays longer); columns not listed have priority 0."""
+    (higher stays longer); columns not listed have priority 0.  ``cap``: the stretched column's
+    widest useful width (a callable): in a wider view it stops there and the room is left after
+    the last column, so the values stay next to their names (the Setup tree, UI deep review 11)."""
 
-    def __init__(self, view, priorities: Optional[dict] = None, stretch: Optional[int] = None):
+    def __init__(self, view, priorities: Optional[dict] = None, stretch: Optional[int] = None,
+                 cap: Optional[Callable[[], int]] = None):
         super().__init__(view)
         self.view = view
         self.priorities = dict(priorities or {})
         self.stretch = stretch
+        self.cap = cap
         self.auto_hidden: set[int] = set()
         self._timer = QTimer(self)
         self._timer.setSingleShot(True)
@@ -1590,6 +1596,8 @@ class ColumnFitter(QObject):
         # (macOS CI: the compare table's run column alone, a scroll bar with nothing to scroll)
         if self.stretch is not None and self.stretch in shown and not h.isSectionHidden(self.stretch):
             need -= self.need(self.stretch) - h.minimumSectionSize()
+            if self.cap is not None:
+                self._cap(h, avail)
         fits = need <= avail
         self.view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff if fits else Qt.ScrollBarAsNeeded)
         if not fits and self.view.isVisible() and hasattr(self.view, "updateGeometries"):
@@ -1597,6 +1605,19 @@ class ColumnFitter(QObject):
             # from an earlier width with nothing left to scroll (macOS CI: "0 px wider")
             self.view.updateGeometries()
         self.view.setProperty(STATE_PROP, f"hidden columns: {sorted(self.auto_hidden)}" if self.auto_hidden else "all columns")
+
+    def _cap(self, h, avail: int) -> None:
+        """The stretched column at its cap while the view has more room, stretched below it."""
+        assert self.cap is not None and self.stretch is not None
+        others = sum(h.sectionSize(c) for c in range(h.count()) if c != self.stretch and not h.isSectionHidden(c))
+        cap = max(h.minimumSectionSize(), int(self.cap()))
+        if avail - others > cap:
+            if h.sectionResizeMode(self.stretch) != h.ResizeMode.Interactive:
+                h.setSectionResizeMode(self.stretch, h.ResizeMode.Interactive)
+            if h.sectionSize(self.stretch) != cap:
+                h.resizeSection(self.stretch, cap)
+        elif h.sectionResizeMode(self.stretch) != h.ResizeMode.Stretch:
+            h.setSectionResizeMode(self.stretch, h.ResizeMode.Stretch)
 
 
 # --------------------------------------------------------------------------- page stack
@@ -1975,4 +1996,4 @@ class FitArea(QScrollArea):
 
 
 __all__ = ["WrapCheckBox", "TARGET", "TARGET_MIN", "keep_min_size", "ColumnFitter", "CurrentPageStack", "TabsWhenNarrow", "ElidedLabel", "FlowLayout", "ResponsiveForm", "CollapsibleSection", "ColumnsPanel", "FitArea",
-           "CompactWhenNarrow", "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]
+           "set_compact", "columns_for", "mark_list", "flow", "STATE_PROP", "LIST_PROP"]

@@ -63,7 +63,9 @@ is neutral, and the canvas head marker and cut track are not red.
 take the platform font's shape, a colour emoji on Windows; `tests/test_glyph_icons.py`). A
 tinted icon names a colour role, `icons.icon("alert-triangle", "warning")`, looked up when the
 icon is painted, so it follows a live theme switch; a step's or a check's result is
-`icons.status_icon(status)` beside its word. Disabled text reads at 3.5:1 or more on the window
+`icons.status_icon(status)` beside its word. A status line or a notice that is a warning is a
+`style.IconLabel` (the icon before its text, indenting every line): `style.set_status(label,
+style.warning_text(text))`; a plain text clears the icon. Disabled text reads at 3.5:1 or more on the window
 and on a button; in high contrast push buttons have a border-coloured edge.
 
 A domain widget's style sheet is built from roles with `style.styled(widget, build)`, which
@@ -121,10 +123,13 @@ tooltip and restores the normal tooltip when it is enabled again.
 ## Sections, tabs, tables: one way each
 
 * **Section header**: `style.section(title)` (or the Control dock's and the forms'
-  `CollapsibleSection`): a `label_strong` heading, no frame. No `QGroupBox` in the UI.
+  `CollapsibleSection`): a `label_strong` heading, no frame, the body inset by SP2. A section
+  that folds has the arrow before its title and looks the same open or folded (its header is
+  never drawn as a pressed button; the checked state stays for the keyboard and screen readers).
+  No `QGroupBox` in the UI.
 * **Tabs**, two looks, `style.tabs(widget, kind)` wraps the constructor:
-  `workspace` for a workspace's main views (Report, the Nest / Orders tabs of a workspace with
-  several pages): touch-height tabs, the selected one bold on the field colour with a bar in the
+  `workspace` for a workspace's main views (Run's Live view / Queue, Process's Drawing /
+  Library, Nest / Orders, Report): touch-height tabs, at least two touch targets wide, the selected one bold on the field colour with a bar in the
   highlight colour (`style.touch_tab_qss()`, palette roles only); `dock` (the default) for docks,
   monitors and dialogs: the platform's own tabs in document mode.
 * **Tables**: every table and tree goes through `style.table` or
@@ -132,7 +137,9 @@ tooltip and restores the normal tooltip when it is enabled again.
   numeric column right-aligned, header included, with the unit in the header; one row height
   (`ROW_RATIO` = 1.8 font heights); zebra rows only above `ZEBRA_COLUMNS` (6) columns; an
   empty-state line (`empty`, `style.set_empty_text` on a language switch) while there are no
-  rows.
+  rows. A table operated at the machine by touch (the Run queue) keeps rows of at least
+  `TARGET_TOUCH`. A tree whose values sit in their own column caps its stretched label column at
+  the widest label (`ColumnFitter(cap=...)`, Machine › Setup), so a value stays next to its name.
 
 `tests/test_ui_consistency.py` checks that every `QTabWidget(` / `QTabBar(`, table, tree and
 `QDialogButtonBox(` is wrapped by its helper on the same line, and that no `QGroupBox(` is made.
