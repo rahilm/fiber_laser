@@ -48,7 +48,7 @@ from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QDockWidget, QDoubleSpinBox, QFileDialog, QFormLayout, QGridLayout,
                                QHBoxLayout, QHeaderView, QLabel, QLineEdit, QListWidget,
-                               QListWidgetItem, QMainWindow, QMessageBox, QPlainTextEdit, QPushButton,
+                               QListWidgetItem, QMessageBox, QPlainTextEdit, QPushButton,
                                QSpinBox, QSplitter, QTableWidget, QTableWidgetItem, QTabWidget,
                                QVBoxLayout, QWidget)
 
@@ -61,22 +61,24 @@ from mlaser.services import units as U
 from mlaser.services.production import STATE_FILE, ProductionService  # noqa: F401
 from mlaser.ui import style as S
 from mlaser.ui.dialogs import split_unit, suffix_for
+from mlaser.ui.extension_context import ExtensionContext
 from mlaser.ui.help_browser import HelpBrowser
+from mlaser.ui.i18n import translator
 from mlaser.ui.style import Dialog
 from mlaser.ui.units_qt import QuantitySpinBox, kind_for, on_units_changed
 
 
 # =========================================================================== helpers
-def _tr(window, key: str, default: str, **values) -> str:
-    """Text of ``key`` (``default`` without a translator), ``{placeholders}`` filled from ``values``."""
-    tr = getattr(window, "tr_", None)
+def _tr(key: str, default: str, **values) -> str:
+    """Text of ``key`` (``default`` when the catalogue lacks it), ``{placeholders}`` filled from
+    ``values``."""
+    tr = translator()
     text = None
-    if tr is not None:
-        try:
-            if tr.has(key):
-                text = tr.format(key, **values) if values else tr.tr(key)
-        except Exception:  # noqa: BLE001
-            text = None
+    try:
+        if tr.has(key):
+            text = tr.format(key, **values) if values else tr.tr(key)
+    except Exception:  # noqa: BLE001
+        text = None
     if text is None:
         text = default
         if values:
@@ -87,13 +89,9 @@ def _tr(window, key: str, default: str, **values) -> str:
     return text
 
 
-def _plural(window, base: str, n: int, **values) -> str:
-    """The plural form of ``base`` for the count ``n`` (``{n}``) in the window's language."""
-    tr = getattr(window, "tr_", None)
-    if tr is not None and hasattr(tr, "plural"):
-        return tr.plural(base, n, **values)
-    from mlaser import i18n
-    return i18n.plural(base, n, **values)
+def _plural(base: str, n: int, **values) -> str:
+    """The plural form of ``base`` for the count ``n`` (``{n}``) in the application's language."""
+    return translator().plural(base, n, **values)
 
 
 def _parent(window):
@@ -133,26 +131,24 @@ def _fit_screen(d: QWidget) -> None:
              min(max(hint.height(), scr.height() // 2), int(scr.height() * 0.8)))
 
 
-def _log(window, msg: str) -> None:
-    lp = getattr(window, "log_panel", None)
-    if lp is not None:
-        lp.log(msg)
+def _log(ctx: ExtensionContext, msg: str) -> None:
+    ctx.log(msg)
 
 
-def _mc(window):
+def _mc(ctx: ExtensionContext):
     """The supervised card handle (None without a card): every command is checked by the safety
     supervisor (arming for DA/PWM/laser outputs, no motion while a fault is latched)."""
-    return window.ctl.card()                 # MachineAPI: None without a card
+    return ctx.controller.card()             # MachineAPI: None without a card
 
 
-def _lang(window) -> str:
-    return getattr(getattr(window, "tr_", None), "language", "en")
+def _lang() -> str:
+    return translator().language
 
 
-def _cols(window, first: str = "") -> list[str]:
+def _cols(first: str = "") -> list[str]:
     """The (address or #, name, value) headers of the register tables."""
-    return [first or _tr(window, "diag.col.addr", "addr"), _tr(window, "diag.col.name", "name"),
-            _tr(window, "diag.col.value", "value")]
+    return [first or _tr("diag.col.addr", "addr"), _tr("diag.col.name", "name"),
+            _tr("diag.col.value", "value")]
 
 
 def _table(headers: list[str], stretch: Optional[int] = None) -> QTableWidget:
@@ -192,12 +188,12 @@ class ParamForm(QWidget):
     """Editors for a :class:`ParamSet` built from the original parameter descriptors (labels =
     the name part of the ``Group.Name`` lang text, ranges / enum options from the table)."""
 
-    def __init__(self, window, pset: ParamSet, keys=None, parent=None):
+    def __init__(self, pset: ParamSet, keys=None, parent=None):
         super().__init__(parent)
         self.pset = pset
         self.editors: dict[str, QWidget] = {}
         form = S.form(self)
-        tr = getattr(window, "tr_", None)
+        tr = translator()
         for key in keys or pset.keys:
             d = find_def(key)
             v = pset.get(key)
@@ -263,14 +259,14 @@ class ParamForm(QWidget):
 class ParamDialog(Dialog):
     """OK / Cancel property dialog (FUN_005ee240 equivalent) on the one dialog frame."""
 
-    def __init__(self, window, title: str, pset: ParamSet, extra: Optional[QWidget] = None):
-        super().__init__(_parent(window), title)
-        self.params_form = ParamForm(window, pset, parent=self)
+    def __init__(self, parent, title: str, pset: ParamSet, extra: Optional[QWidget] = None):
+        super().__init__(_parent(parent), title)
+        self.params_form = ParamForm(pset, parent=self)
         self.body.addWidget(self.params_form)
         if extra is not None:
             self.body.addWidget(extra)
-        self.buttons.button(QDialogButtonBox.Ok).setText(_tr(window, "ap1", "OK"))
-        self.buttons.button(QDialogButtonBox.Cancel).setText(_tr(window, "ap0", "Cancel"))
+        self.buttons.button(QDialogButtonBox.Ok).setText(_tr("ap1", "OK"))
+        self.buttons.button(QDialogButtonBox.Cancel).setText(_tr("ap0", "Cancel"))
         self.buttons.accepted.disconnect()
         self.buttons.accepted.connect(self._ok)
 
@@ -292,21 +288,21 @@ class ControllerMonitor(QDialog):
              ("AxisRW", "diag.controller.page.axis_rw", "Axis RW 50200+"))
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w))
-        self.ext, w = ext, ext.w
-        self.setWindowTitle(_tr(w, "mf119", "Controller"))
+        super().__init__(ext.ctx.parent)
+        self.ext = ext
+        self.setWindowTitle(_tr("mf119", "Controller"))
         self.resize(760, 560)
         lay = QVBoxLayout(self)
         top = QHBoxLayout()
-        self.ro_mode = QCheckBox(_tr(w, "ss10", "Read&Write"))
-        top.addWidget(QLabel(_tr(w, "diag.controller.readonly_or", "{readonly} / ", readonly=_tr(w, "ss9", "ReadOnly"))))
+        self.ro_mode = QCheckBox(_tr("ss10", "Read&Write"))
+        top.addWidget(QLabel(_tr("diag.controller.readonly_or", "{readonly} / ", readonly=_tr("ss9", "ReadOnly"))))
         top.addWidget(self.ro_mode)
         self.status = QLabel("")
         top.addWidget(self.status, 1)
-        b = S.button(_tr(w, "zf0", "Refresh"))
+        b = S.button(_tr("zf0", "Refresh"))
         b.clicked.connect(lambda: self.refresh(True))
         top.addWidget(b)
-        b = S.button(_tr(w, "ss0", "System Reset"))
+        b = S.button(_tr("ss0", "System Reset"))
         b.clicked.connect(self._reset)
         top.addWidget(b)
         lay.addLayout(top)
@@ -314,13 +310,13 @@ class ControllerMonitor(QDialog):
         lay.addWidget(self.tabs, 1)
         self.tables = {}
         for key, tkey, title in self.PAGES:
-            t = _table(_cols(w))
+            t = _table(_cols())
             self.tables[key] = t
-            self.tabs.addTab(t, _tr(w, tkey, title))
-        self.tabs.addTab(self._io_page(), _tr(w, "diag.controller.io_tab", "{inputs} / {outputs}",
-                                              inputs=_tr(w, "ss5", "DI"), outputs=_tr(w, "ss4", "DO")))
-        self.tabs.addTab(self._axis_page(), _tr(w, "ss13", "Axis"))
-        self.tabs.addTab(self._da_page(), _tr(w, "diag.controller.da_pwm_tab", "DA / PWM"))
+            self.tabs.addTab(t, _tr(tkey, title))
+        self.tabs.addTab(self._io_page(), _tr("diag.controller.io_tab", "{inputs} / {outputs}",
+                                              inputs=_tr("ss5", "DI"), outputs=_tr("ss4", "DO")))
+        self.tabs.addTab(self._axis_page(), _tr("ss13", "Axis"))
+        self.tabs.addTab(self._da_page(), _tr("diag.controller.da_pwm_tab", "DA / PWM"))
         self.snapshot = R.ControllerSnapshot()
         self.io = BackgroundCall(self, "mlaser-monitor")   # the reads never block the GUI (#5)
         self._want_params = False
@@ -336,13 +332,13 @@ class ControllerMonitor(QDialog):
         self.di = []
         self.do = []
         for i in range(28):
-            lb = QLabel(_tr(self.ext.w, "diag.controller.di", "DI{n}", n=i + 1))
+            lb = QLabel(_tr("diag.controller.di", "DI{n}", n=i + 1))
             lb.setFrameShape(QLabel.Box)
             lb.setAlignment(Qt.AlignCenter)
             g.addWidget(lb, i // 7, i % 7)
             self.di.append(lb)
         for i in range(26):
-            b = S.button(_tr(self.ext.w, "diag.controller.do", "DO{n}", n=i + 1))
+            b = S.button(_tr("diag.controller.do", "DO{n}", n=i + 1))
             b.setCheckable(True)
             b.clicked.connect(lambda on, n=i + 1: self._set_do(n, on))
             g.addWidget(b, 5 + i // 7, i % 7)
@@ -362,19 +358,19 @@ class ControllerMonitor(QDialog):
         self.pulse_speed = QSpinBox()
         self.pulse_speed.setRange(1, 10 ** 8)
         self.pulse_speed.setValue(10000)
-        f.addRow(_tr(self.ext.w, "ss6", "Axis"), self.axis)
-        f.addRow(_tr(self.ext.w, "ss14", "Pulse"), self.pulses)
-        f.addRow(_tr(self.ext.w, "diag.controller.pulse_speed", "speed (pulses/s)"), self.pulse_speed)
+        f.addRow(_tr("ss6", "Axis"), self.axis)
+        f.addRow(_tr("ss14", "Pulse"), self.pulses)
+        f.addRow(_tr("diag.controller.pulse_speed", "speed (pulses/s)"), self.pulse_speed)
         row = QHBoxLayout()
-        b = S.button(_tr(self.ext.w, "ss8", "Send"))
+        b = S.button(_tr("ss8", "Send"))
         b.clicked.connect(self.send_pulses)
         row.addWidget(b)
-        b = S.button(_tr(self.ext.w, "ss15", "Stop"))
+        b = S.button(_tr("ss15", "Stop"))
         b.clicked.connect(self._stop_axes)
         row.addWidget(b)
         f.addRow(row)
         self.pos_lbl = QLabel("")
-        f.addRow(_tr(self.ext.w, "newLang402", "current location:"), self.pos_lbl)
+        f.addRow(_tr("newLang402", "current location:"), self.pos_lbl)
         return page
 
     def _da_page(self) -> QWidget:
@@ -387,14 +383,13 @@ class ControllerMonitor(QDialog):
         self.pwm_f.setRange(0, 100000)
         self.pwm_f.setValue(5000)
         self.pwm_d.setRange(0, 100)
-        w = self.ext.w
-        f.addRow(_tr(w, "diag.controller.da1", "DA1 (0..10000)"), self.da1)
-        f.addRow(_tr(w, "diag.controller.da2", "DA2 (0..10000)"), self.da2)
+        f.addRow(_tr("diag.controller.da1", "DA1 (0..10000)"), self.da1)
+        f.addRow(_tr("diag.controller.da2", "DA2 (0..10000)"), self.da2)
         self.pwm_f.setSuffix(suffix_for("Hz"))
         self.pwm_d.setSuffix(suffix_for("%"))
-        f.addRow(_tr(w, "diag.controller.pwm_freq", "PWM frequency"), self.pwm_f)
-        f.addRow(_tr(w, "diag.controller.pwm_duty", "PWM duty"), self.pwm_d)
-        b = S.button(_tr(self.ext.w, "ec17", "Set"))
+        f.addRow(_tr("diag.controller.pwm_freq", "PWM frequency"), self.pwm_f)
+        f.addRow(_tr("diag.controller.pwm_duty", "PWM duty"), self.pwm_d)
+        b = S.button(_tr("ec17", "Set"))
         b.clicked.connect(self.apply_da_pwm)
         f.addRow(b)
         return page
@@ -402,10 +397,10 @@ class ControllerMonitor(QDialog):
     # actions
     def _writable(self) -> bool:
         if not self.ro_mode.isChecked():
-            self.status.setText(_tr(self.ext.w, "ss9", "ReadOnly"))
+            self.status.setText(_tr("ss9", "ReadOnly"))
             return False
-        if _mc(self.ext.w) is None:
-            self.status.setText(_tr(self.ext.w, "ss1", "Hardware is not connected"))
+        if _mc(self.ext.ctx) is None:
+            self.status.setText(_tr("ss1", "Hardware is not connected"))
             return False
         return True
 
@@ -414,7 +409,7 @@ class ControllerMonitor(QDialog):
             self.do[n - 1].setChecked(not on)
             return
         try:
-            _mc(self.ext.w).set_output(n, on)
+            _mc(self.ext.ctx).set_output(n, on)
         except Exception as e:  # noqa: BLE001
             self.status.setText(str(e))
 
@@ -423,18 +418,18 @@ class ControllerMonitor(QDialog):
         acc, acc*10, distance]`` (FUN_10032b80) in card units; ss3 if not an integer."""
         if not self._writable():
             return
-        st = self.ext.w.ctl.state()
+        st = self.ext.ctx.controller.state()
         if st.mode in ("process", "frame", "dry_run"):
-            self.status.setText(_tr(self.ext.w, "ss2", "System is moving"))
+            self.status.setText(_tr("ss2", "System is moving"))
             return
         try:
             sp = self.pulse_speed.value()
-            _mc(self.ext.w).jog(self.axis.currentIndex(), sp, sp * 10, self.pulses.value())
+            _mc(self.ext.ctx).jog(self.axis.currentIndex(), sp, sp * 10, self.pulses.value())
         except Exception as e:  # noqa: BLE001
             self.status.setText(str(e))
 
     def _stop_axes(self) -> None:
-        mc = _mc(self.ext.w)
+        mc = _mc(self.ext.ctx)
         if mc is not None:
             try:
                 mc.stop_axes()
@@ -445,7 +440,7 @@ class ControllerMonitor(QDialog):
         """DA / PWM test ([9999, 4, ch, v], [9999, 3, f, d]); ss16..ss18 on bad values."""
         if not self._writable():
             return
-        mc = _mc(self.ext.w)
+        mc = _mc(self.ext.ctx)
         try:
             mc.set_da(0, self.da1.value())
             mc.set_da(1, self.da2.value())
@@ -456,16 +451,16 @@ class ControllerMonitor(QDialog):
     def _reset(self) -> None:
         """ss0 "System Reset": alarm reset [9999, 5, 0, 0]."""
         try:
-            self.ext.w.ctl.clear_alarms()
+            self.ext.ctx.controller.clear_alarms()
         except Exception as e:  # noqa: BLE001
             self.status.setText(str(e))
 
     def refresh(self, params: bool = False) -> None:
         """Read the card in the background (:class:`BackgroundCall`) and show the result when it
         arrives; a refresh while one runs only remembers whether the parameters were asked."""
-        mc = _mc(self.ext.w)
+        mc = _mc(self.ext.ctx)
         if mc is None:
-            self.status.setText(_tr(self.ext.w, "ss1", "Hardware is not connected"))
+            self.status.setText(_tr("ss1", "Hardware is not connected"))
             return
         self._want_params = self._want_params or params or not self.snapshot.sys_rw
         want = self._want_params
@@ -480,7 +475,7 @@ class ControllerMonitor(QDialog):
             snap.sys_rw, snap.axis_rw = self.snapshot.sys_rw, self.snapshot.axis_rw
         self.snapshot = snap
         self.status.setText("; ".join(snap.errors) or "")
-        pages = R.table_rows(snap, getattr(self.ext.w, "tr_", None))
+        pages = R.table_rows(snap, self.ext.ctx.tr)
         for key, rows in pages.items():
             _fill(self.tables[key], rows)
         for lb, on in zip(self.di, snap.inputs()):
@@ -488,7 +483,7 @@ class ControllerMonitor(QDialog):
         for b, on in zip(self.do, snap.outputs()):
             if b.isChecked() != on:
                 b.setChecked(on)
-        neg, pos = _tr(self.ext.w, "ss19", "NEG"), _tr(self.ext.w, "ss21", "POS")
+        neg, pos = _tr("ss19", "NEG"), _tr("ss21", "POS")
         txt = []
         for a in range(min(4, len(snap.axis_ro))):
             n, _o, p = snap.axis_limits(a)
@@ -521,24 +516,24 @@ class DeviceMonitor(QDialog):
     TYPE_KEYS = {"zf": "ZF.ZFType", "af": "AF.AFType", "ec": "EC.ECType"}
 
     def __init__(self, ext, kind: str):
-        super().__init__(_parent(ext.w))
-        self.ext, self.kind, w = ext, kind, ext.w
+        super().__init__(ext.ctx.parent)
+        self.ext, self.kind = ext, kind
         self.client = None
         key, default = self.TITLES[kind]
-        self.setWindowTitle(_tr(w, key, default))
+        self.setWindowTitle(_tr(key, default))
         self.resize(560, 520)
         lay = QVBoxLayout(self)
         self.info = QLabel("")
         self.info.setWordWrap(True)
         lay.addWidget(self.info)
-        self.table = _table(_cols(w, "#"))
+        self.table = _table(_cols("#"))
         lay.addWidget(self.table, 1)
         row = QHBoxLayout()
         self._buttons(row)
         lay.addLayout(row)
         if kind == "zf":
-            lay.addWidget(QLabel(_tr(w, "zf36", "FTC Property")))
-            self.props = _table(["#", _tr(w, "diag.col.name", "name"), _tr(w, "diag.col.raw", "raw")])
+            lay.addWidget(QLabel(_tr("zf36", "FTC Property")))
+            self.props = _table(["#", _tr("diag.col.name", "name"), _tr("diag.col.raw", "raw")])
             self.props.setEditTriggers(QAbstractItemView.DoubleClicked)
             lay.addWidget(self.props, 1)
         self._timer = QTimer(self)
@@ -547,13 +542,13 @@ class DeviceMonitor(QDialog):
         self._last_status = ""
         t = ext.settings.get(self.TYPE_KEYS[kind])
         if t is not None and int(t) == 0:
-            self.info.setText(_tr(w, "diag.device.not_configured",
+            self.info.setText(_tr("diag.device.not_configured",
                                   "{param} = 0: device not configured (the original disables this monitor)",
                                   param=self.TYPE_KEYS[kind]))
         self.refresh()
 
     def _btn(self, row, key, default, fn):
-        b = S.button(_tr(self.ext.w, key, default))
+        b = S.button(_tr(key, default))
         b.clicked.connect(lambda _=False: self._safe(fn))
         row.addWidget(b)
         return b
@@ -569,7 +564,7 @@ class DeviceMonitor(QDialog):
         elif self.kind == "af":
             self.step = QuantitySpinBox("small_length", minimum=0.001, maximum=100, decimals=2, step=1.0)
             self.step.setValue(1.0)
-            row.addWidget(QLabel(_tr(self.ext.w, "af9", "StepLen")))
+            row.addWidget(QLabel(_tr("af9", "StepLen")))
             row.addWidget(self.step)
             self._btn(row, "mf0", "Connect", self.connect_device)
             self._btn(row, "af13", "Go Origin", lambda: self.client.home())
@@ -581,7 +576,7 @@ class DeviceMonitor(QDialog):
             self.speed.setValue(10)
             self.length = QuantitySpinBox("length", minimum=0, maximum=10000)           # ec23 0..10000 mm
             self.length.setValue(10)
-            row.addWidget(QLabel(_tr(self.ext.w, "ec26", "Speed")))
+            row.addWidget(QLabel(_tr("ec26", "Speed")))
             row.addWidget(self.speed)
             row.addWidget(self.length)
             self._btn(row, "mf0", "Connect", self.connect_device)
@@ -593,11 +588,11 @@ class DeviceMonitor(QDialog):
     def _safe(self, fn) -> None:
         try:
             if self.kind in ("af", "ec") and self.client is None and fn != self.connect_device:
-                self._status(_tr(self.ext.w, "diag.device.not_connected", "not connected"))
+                self._status(_tr("diag.device.not_connected", "not connected"))
                 return
             fn()
         except Exception as e:  # noqa: BLE001
-            self._status(_tr(self.ext.w, "diag.device.error", "error: {error}", error=e))
+            self._status(_tr("diag.device.error", "error: {error}", error=e))
 
     def _status(self, text: str) -> None:
         """A connection / error line that the next good read may replace."""
@@ -606,9 +601,9 @@ class DeviceMonitor(QDialog):
 
     def _zf(self):
         from mlaser.devices.follower import OnBoardFollower
-        mc = _mc(self.ext.w)
+        mc = _mc(self.ext.ctx)
         if mc is None:
-            raise RuntimeError(_tr(self.ext.w, "diag.device.hw_not_connected", "hardware is not connected"))
+            raise RuntimeError(_tr("diag.device.hw_not_connected", "hardware is not connected"))
         return OnBoardFollower(mc)
 
     def connect_device(self) -> None:
@@ -631,7 +626,7 @@ class DeviceMonitor(QDialog):
     def calibrate(self) -> None:
         zf = self._zf()
         if not zf.status().homed:
-            self.info.setText(_tr(self.ext.w, "zf49", "Z Follower does not go origin, calibration refused"))
+            self.info.setText(_tr("zf49", "Z Follower does not go origin, calibration refused"))
             return
         zf.calibrate()
 
@@ -658,26 +653,26 @@ class DeviceMonitor(QDialog):
                 n += 1
         if n:
             from mlaser.devices.follower import COMMIT_SAVE, REG_COMMIT
-            _mc(self.ext.w).write_reg(REG_COMMIT, COMMIT_SAVE)
-            self.info.setText(_tr(self.ext.w, "zf37", "Parameters write successfully!"))
+            _mc(self.ext.ctx).write_reg(REG_COMMIT, COMMIT_SAVE)
+            self.info.setText(_tr("zf37", "Parameters write successfully!"))
 
     def export_zpf(self, path: Optional[str] = None) -> Optional[str]:
         """zf103: ``N\\r\\n`` + N x ``%d\\r\\n`` + ``eof`` from 11000 (FUN_006343c0)."""
         if path is None:
-            path, _ = QFileDialog.getSaveFileName(self, _tr(self.ext.w, "zf103", "Export Param"), "", "*.zpf")
+            path, _ = QFileDialog.getSaveFileName(self, _tr("zf103", "Export Param"), "", "*.zpf")
         if not path:
             return None
         raw = self._zf().read_props()
         from mlaser._atomic import atomic_open
         with atomic_open(path, "w", newline="") as f:
             f.write(f"{len(raw)}\r\n" + "".join(f"{R.s32(v)}\r\n" for v in raw) + "eof")
-        self.info.setText(_tr(self.ext.w, "zf105", "The param data export success"))
+        self.info.setText(_tr("zf105", "The param data export success"))
         return path
 
     def import_zpf(self, path: Optional[str] = None) -> bool:
         """zf102: write the values back at 11000 (func 0x40, FUN_00634780)."""
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(self, _tr(self.ext.w, "zf102", "Import Param"), "", "*.zpf")
+            path, _ = QFileDialog.getOpenFileName(self, _tr("zf102", "Import Param"), "", "*.zpf")
         if not path:
             return False
         lines = [ln.strip() for ln in open(path).read().splitlines() if ln.strip()]
@@ -685,35 +680,35 @@ class DeviceMonitor(QDialog):
             n = int(lines[0])
             vals = [int(x) & 0xFFFFFFFF for x in lines[1:1 + n]]
         except (ValueError, IndexError):
-            self.info.setText(_tr(self.ext.w, "zf106", "The param data import failed!"))
+            self.info.setText(_tr("zf106", "The param data import failed!"))
             return False
-        _mc(self.ext.w).write_regs(11000, vals)
-        self.info.setText(_tr(self.ext.w, "zf107", "The param data import success"))
+        _mc(self.ext.ctx).write_regs(11000, vals)
+        self.info.setText(_tr("zf107", "The param data import success"))
         return True
 
     def refresh(self) -> None:
         """Read the device in the background (:class:`BackgroundCall`, issue #5)."""
         if not hasattr(self, "io"):
             self.io = BackgroundCall(self, "mlaser-device-monitor")
-        mc, client = _mc(self.ext.w), self.client
+        mc, client = _mc(self.ext.ctx), self.client
         self.io.start(lambda: R.read_device(self.kind, mc, client), lambda res, err: self._show(res, err))
 
     def _show(self, res, exc) -> None:
         raw, err = res if exc is None and res is not None else ([], str(exc))
         if err:
             if not self.info.text() or self.info.text() == getattr(self, "_last_status", ""):
-                self._status(_tr(self.ext.w, "diag.device.not_available", "not available: {error}", error=err))
+                self._status(_tr("diag.device.not_available", "not available: {error}", error=err))
             return
-        rows = R.device_rows(self.kind, raw, getattr(self.ext.w, "tr_", None))
+        rows = R.device_rows(self.kind, raw, self.ext.ctx.tr)
         if self.kind == "zf":
             from mlaser.devices.follower import FollowerStatus
             fs = FollowerStatus(list(raw) + [0] * max(0, 18 - len(raw)))
             grade = {"excellent": "zf20", "good": "zf21", "bad": "zf22"}.get(fs.calibration_grade)
-            rows.append(("", _tr(self.ext.w, "diag.device.homed", "homed"),
-                         _tr(self.ext.w, "af11", "Go Origin Done") if fs.homed
-                         else _tr(self.ext.w, "af12", "Go Origin Undone")))
-            rows.append(("", _tr(self.ext.w, "diag.device.calibration", "calibration"),
-                         _tr(self.ext.w, grade, fs.calibration_grade) if grade
+            rows.append(("", _tr("diag.device.homed", "homed"),
+                         _tr("af11", "Go Origin Done") if fs.homed
+                         else _tr("af12", "Go Origin Undone")))
+            rows.append(("", _tr("diag.device.calibration", "calibration"),
+                         _tr(grade, fs.calibration_grade) if grade
                          else fs.calibration_grade))
         _fill(self.table, rows)
 
@@ -753,20 +748,20 @@ def device_rows(counters, tr=None) -> list[tuple[str, str, str]]:
 
 class DeviceReportDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w), _tr(ext.w, "mf801", "Device Report"), buttons=QDialogButtonBox.Close)
-        self.ext, w = ext, ext.w
-        self.table = _table(["", _tr(w, "hp40", "Name"), _tr(w, "diag.report.value", "Value")], stretch=1)
+        super().__init__(ext.ctx.parent, _tr("mf801", "Device Report"), buttons=QDialogButtonBox.Close)
+        self.ext = ext
+        self.table = _table(["", _tr("hp40", "Name"), _tr("diag.report.value", "Value")], stretch=1)
         self.table.setColumnHidden(0, True)
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.body.addWidget(self.table, 1)
         for key, default, fn in (("ap20", "Set Zero", self.zero_selected), ("ap21", "All Set Zero", lambda: self.zero_all())):
-            b = self.buttons.addButton(_tr(w, key, default), QDialogButtonBox.ActionRole)
+            b = self.buttons.addButton(_tr(key, default), QDialogButtonBox.ActionRole)
             b.clicked.connect(lambda _=False, f=fn: f())
         self.refresh()
         _fit_screen(self)
 
     def refresh(self) -> None:
-        _fill(self.table, device_rows(self.ext.counters, getattr(self.ext.w, "tr_", None)))
+        _fill(self.table, device_rows(self.ext.counters, self.ext.ctx.tr))
 
     def zero_selected(self) -> None:
         rows = {i.row() for i in self.table.selectedIndexes()}
@@ -777,8 +772,8 @@ class DeviceReportDialog(Dialog):
 
     def zero_all(self, confirm: bool = True) -> None:
         """ap21 with confirmation ap22."""
-        if confirm and QMessageBox.question(self, _tr(self.ext.w, "ap21", "All Set Zero"),
-                                            _tr(self.ext.w, "ap22", "The device run info will be set zero, continue?"),
+        if confirm and QMessageBox.question(self, _tr("ap21", "All Set Zero"),
+                                            _tr("ap22", "The device run info will be set zero, continue?"),
                                             QMessageBox.Yes | QMessageBox.No) != QMessageBox.Yes:
             return
         self.ext.counters.reset()
@@ -790,27 +785,27 @@ class LogViewer(Dialog):
     """Log directory viewer (mf431): files of the log directories, filter and level."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w), _tr(ext.w, "mf431", "Open Log Directory"), buttons=QDialogButtonBox.Close)
+        super().__init__(ext.ctx.parent, _tr("mf431", "Open Log Directory"), buttons=QDialogButtonBox.Close)
         self.ext = ext
         top = S.hbox()
         self.filter = QLineEdit()
-        self.filter.setPlaceholderText(_tr(ext.w, "diag.log.filter", "Filter"))
-        self.filter.setAccessibleName(_tr(ext.w, "diag.log.filter", "Filter"))
+        self.filter.setPlaceholderText(_tr("diag.log.filter", "Filter"))
+        self.filter.setAccessibleName(_tr("diag.log.filter", "Filter"))
         self.filter.textChanged.connect(self._show)
         self.level = QComboBox()
         self.level.addItem("", "")
         for lv in ("Info", "Warning", "Error"):            # the log files' level words (data)
-            self.level.addItem(_tr(ext.w, f"diag.log.level.{lv.lower()}", lv), lv)
-        self.level.setAccessibleName(_tr(ext.w, "diag.log.level", "Level"))
+            self.level.addItem(_tr(f"diag.log.level.{lv.lower()}", lv), lv)
+        self.level.setAccessibleName(_tr("diag.log.level", "Level"))
         self.level.currentIndexChanged.connect(self._show)
         top.addWidget(self.filter, 1)
         top.addWidget(self.level)
-        top.addWidget(S.button(_tr(ext.w, "diag.log.refresh", "Refresh"), on_click=self.reload))
+        top.addWidget(S.button(_tr("diag.log.refresh", "Refresh"), on_click=self.reload))
         self.body.addLayout(top)
-        b = self.buttons.addButton(_tr(ext.w, "mf431", "Open Log Directory"), QDialogButtonBox.ActionRole)
+        b = self.buttons.addButton(_tr("mf431", "Open Log Directory"), QDialogButtonBox.ActionRole)
         b.clicked.connect(self.open_folder)
         from .diag_bundle import bundle_button
-        bundle_button(ext.w, self.buttons, self)
+        bundle_button(ext.ctx.parent, self.buttons, self)
         sp = QSplitter()
         self.files = QListWidget()
         # long file names are elided in the middle (date and extension stay), the whole name in
@@ -841,7 +836,7 @@ class LogViewer(Dialog):
         if self.paths:
             self.files.setCurrentRow(0)
         else:
-            self.text.setPlainText(_tr(self.ext.w, "diag.log.none", "No log files in: {dirs}",
+            self.text.setPlainText(_tr("diag.log.none", "No log files in: {dirs}",
                                        dirs=", ".join(self.ext.log_dirs())))
 
     def _load(self, row: int) -> None:
@@ -863,19 +858,18 @@ class MeasureWindow(Dialog):
     """Data measurement samples (mf229)."""
 
     def __init__(self, ext):
-        super().__init__(_parent(ext.w), _tr(ext.w, "mf229", "Data measurement"), buttons=QDialogButtonBox.Close)
+        super().__init__(ext.ctx.parent, _tr("mf229", "Data measurement"), buttons=QDialogButtonBox.Close)
         self.ext = ext
         self.summary = QLabel("")
         self.body.addWidget(self.summary)
-        w = ext.w
-        self.table = _table([_tr(w, "diag.measure.col.time", "t [s]"), "X", "Y", "Z",
-                             _tr(w, "diag.measure.col.speed", "Speed"), _tr(w, "diag.measure.col.laser", "Laser"),
-                             _tr(w, "diag.measure.col.mode", "Mode")])
+        self.table = _table([_tr("diag.measure.col.time", "t [s]"), "X", "Y", "Z",
+                             _tr("diag.measure.col.speed", "Speed"), _tr("diag.measure.col.laser", "Laser"),
+                             _tr("diag.measure.col.mode", "Mode")])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)
         self.table.horizontalHeader().setStretchLastSection(False)
         self.body.addWidget(self.table, 1)
-        for text, fn in ((_tr(w, "diag.measure.save_csv", "Save CSV…"), lambda: self.save()),
-                         (_tr(w, "diag.measure.clear", "Clear"), self.ext.measure.start)):
+        for text, fn in ((_tr("diag.measure.save_csv", "Save CSV…"), lambda: self.save()),
+                         (_tr("diag.measure.clear", "Clear"), self.ext.measure.start)):
             b = self.buttons.addButton(text, QDialogButtonBox.ActionRole)
             b.clicked.connect(lambda _=False, f=fn: f())
         self._timer = QTimer(self)
@@ -886,11 +880,10 @@ class MeasureWindow(Dialog):
 
     def refresh(self) -> None:
         u = U.current()
-        w = self.ext.w
         self.table.setHorizontalHeaderLabels([
-            _tr(w, "diag.measure.col.time", "t [s]"), u.header("X", "length"), u.header("Y", "length"),
-            u.header("Z", "length"), u.header(_tr(w, "diag.measure.col.speed", "Speed"), "speed"),
-            _tr(w, "diag.measure.col.laser", "Laser"), _tr(w, "diag.measure.col.mode", "Mode")])
+            _tr("diag.measure.col.time", "t [s]"), u.header("X", "length"), u.header("Y", "length"),
+            u.header("Z", "length"), u.header(_tr("diag.measure.col.speed", "Speed"), "speed"),
+            _tr("diag.measure.col.laser", "Laser"), _tr("diag.measure.col.mode", "Mode")])
         s = self.ext.measure.samples[-200:]
         d = u.decimals("small_length")
         _fill(self.table, [(f"{x.t:.2f}", u.number(x.x, "length", d), u.number(x.y, "length", d),
@@ -899,12 +892,12 @@ class MeasureWindow(Dialog):
         sm = self.ext.measure.summary()
         n = int(sm.get("n", 0) or 0)
         self.summary.setText(
-            _plural(w, "diag.measure.summary_full", n, seconds=f"{sm['duration_s']:.1f}",
-                    speed=u.fmt(sm["max_speed"], "speed")) if n else _plural(w, "diag.measure.summary", n))
+            _plural("diag.measure.summary_full", n, seconds=f"{sm['duration_s']:.1f}",
+                    speed=u.fmt(sm["max_speed"], "speed")) if n else _plural("diag.measure.summary", n))
 
     def save(self, path: Optional[str] = None) -> Optional[str]:
         if path is None:
-            path, _ = QFileDialog.getSaveFileName(self, _tr(self.ext.w, "diag.measure.save_title", "CSV"),
+            path, _ = QFileDialog.getSaveFileName(self, _tr("diag.measure.save_title", "CSV"),
                                                   "measure.csv", "CSV (*.csv)")
         if path:
             self.ext.measure.save_csv(path)
@@ -921,8 +914,7 @@ class CustomIODialog(Dialog):
     """Custom IO buttons of one type plus the DO.CustomDOStr editor."""
 
     def __init__(self, ext, self_locking: bool):
-        w = ext.w
-        super().__init__(_parent(w), _tr(w, "newLang301" if self_locking else "newLang300",
+        super().__init__(ext.ctx.parent, _tr("newLang301" if self_locking else "newLang300",
                                          "Custom IO [self-locking]" if self_locking else "Custom IO [non-self-locking]"),
                          buttons=QDialogButtonBox.Close)
         self.ext, self.self_locking = ext, self_locking
@@ -931,21 +923,21 @@ class CustomIODialog(Dialog):
         S.margins(self.grid, "none")
         self.body.addWidget(gridw)
         self.io_buttons: dict[int, QPushButton] = {}
-        sec, sl = S.section(_tr(w, "diag.customio.section", "Custom outputs (DO.CustomDOStr, pd521)"))
-        self.editor = _table([_tr(w, "hp40", "Name"), _tr(w, "diag.customio.col.do", "DO"),
-                              _tr(w, "diag.customio.col.self_locking", "Self-locking")])
+        sec, sl = S.section(_tr("diag.customio.section", "Custom outputs (DO.CustomDOStr, pd521)"))
+        self.editor = _table([_tr("hp40", "Name"), _tr("diag.customio.col.do", "DO"),
+                              _tr("diag.customio.col.self_locking", "Self-locking")])
         self.editor.setEditTriggers(QAbstractItemView.DoubleClicked | QAbstractItemView.EditKeyPressed)
         sl.addWidget(self.editor)
         row = S.hbox()
         for key, text, tip, fn in (("add", "Add", "Add a row", self._add_row),
                                    ("remove", "Remove", "Remove the selected row", self._del_row)):
-            b = S.button(_tr(w, f"diag.customio.{key}", text), tooltip=_tr(w, f"diag.customio.{key}_tip", tip),
+            b = S.button(_tr(f"diag.customio.{key}", text), tooltip=_tr(f"diag.customio.{key}_tip", tip),
                          on_click=fn)
             row.addWidget(b)
         row.addStretch(1)
         sl.addLayout(row)
         self.body.addWidget(sec, 1)
-        save = self.buttons.addButton(_tr(w, "cp3", "Save"), QDialogButtonBox.ApplyRole)
+        save = self.buttons.addButton(_tr("cp3", "Save"), QDialogButtonBox.ApplyRole)
         save.clicked.connect(self.save)
         self._load_editor()
         self._build_buttons()
@@ -961,10 +953,10 @@ class CustomIODialog(Dialog):
         self.io_buttons.clear()
         items = self.items()
         if not items:
-            self.grid.addWidget(QLabel(_tr(self.ext.w, "diag.customio.none",
+            self.grid.addWidget(QLabel(_tr("diag.customio.none",
                                            "No custom output of this type is configured.")), 0, 0)
         for i, c in enumerate(items):
-            b = S.button(_tr(self.ext.w, "diag.customio.button", "{name} (DO{port})", name=c.name, port=c.port))
+            b = S.button(_tr("diag.customio.button", "{name} (DO{port})", name=c.name, port=c.port))
             if self.self_locking:
                 b.setCheckable(True)
                 b.setChecked(self.ext.outputs.get(c.port))
@@ -1015,33 +1007,32 @@ class CustomIODialog(Dialog):
 
 class LightTestDialog(Dialog):
     def __init__(self, ext):
-        super().__init__(_parent(ext.w), _tr(ext.w, "newLang200", "Light test"), buttons=QDialogButtonBox.Close)
-        self.ext, w = ext, ext.w
+        super().__init__(ext.ctx.parent, _tr("newLang200", "Light test"), buttons=QDialogButtonBox.Close)
+        self.ext = ext
         self.p = lighttest.params(ext.settings)
-        self.params_form = ParamForm(w, self.p, parent=self)
+        self.params_form = ParamForm(self.p, parent=self)
         self.body.addWidget(self.params_form)
         self.remain = QLabel("")
         self.body.addWidget(self.remain)
-        self.body.addWidget(S.button_row(S.button(_tr(w, "mp54", "Start"), on_click=self.start),
-                                         S.button(_tr(w, "mp56", "Stop"), on_click=self.stop), align="leading"))
-        self.test = lighttest.LightTest(ext.w.ctl, self.p, log=lambda m: _log(w, m))
+        self.body.addWidget(S.button_row(S.button(_tr("mp54", "Start"), on_click=self.start),
+                                         S.button(_tr("mp56", "Stop"), on_click=self.stop), align="leading"))
+        self.test = lighttest.LightTest(ext.ctx.controller, self.p, log=lambda m: _log(ext.ctx, m))
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
         self.finished.connect(lambda _r: self.stop())   # FUN_005686c0: stop before EndDialog
 
     def start(self) -> None:
         self.params_form.store()
-        self.test.ctl = self.ext.w.ctl
+        self.test.ctl = self.ext.ctx.controller
         if self.test.start():
             self._timer.start(200)
             self._tick()
 
     def _tick(self) -> None:
         on = self.test.tick()
-        w = self.ext.w
-        self.remain.setText(_tr(w, "diag.light.remaining", "Remaining emission time: {seconds} s",
+        self.remain.setText(_tr("diag.light.remaining", "Remaining emission time: {seconds} s",
                                 seconds=self.test.remaining) if on and self.test.timed else
-                            (_tr(w, "diag.light.laser_on", "Laser on") if on else ""))
+                            (_tr("diag.light.laser_on", "Laser on") if on else ""))
         if not on:
             self._timer.stop()
 
@@ -1053,21 +1044,20 @@ class LightTestDialog(Dialog):
 
 class BurnInDialog(Dialog):
     def __init__(self, ext):
-        w = ext.w
-        super().__init__(_parent(w), _tr(w, "newLang1", "Burn-in test"), buttons=QDialogButtonBox.Close)
+        super().__init__(ext.ctx.parent, _tr("newLang1", "Burn-in test"), buttons=QDialogButtonBox.Close)
         self.ext = ext
         self.p = burnin.params(ext.settings)
-        self.params_form = ParamForm(w, self.p, parent=self)
+        self.params_form = ParamForm(self.p, parent=self)
         self.body.addWidget(self.params_form)
         self.count = QLabel("")
         self.body.addWidget(self.count)
-        warn = QLabel(_tr(w, "newLang24", "When this page is exited, the baking test will stop!"))
+        warn = QLabel(_tr("newLang24", "When this page is exited, the baking test will stop!"))
         warn.setWordWrap(True)
         S.chip(warn, "warning")
         self.warning = warn
         self.body.addWidget(warn)
-        self.body.addWidget(S.button_row(S.button(_tr(w, "mp54", "Start"), on_click=self.start),
-                                         S.button(_tr(w, "mp56", "Stop"), on_click=self.stop), align="leading"))
+        self.body.addWidget(S.button_row(S.button(_tr("mp54", "Start"), on_click=self.start),
+                                         S.button(_tr("mp56", "Stop"), on_click=self.stop), align="leading"))
         self.test: Optional[burnin.BurnIn] = None
         self._timer = QTimer(self)
         self._timer.timeout.connect(self._tick)
@@ -1075,8 +1065,8 @@ class BurnInDialog(Dialog):
 
     def start(self) -> None:
         self.params_form.store()
-        self.test = burnin.BurnIn(self.ext.w.ctl, self.p, self.ext.w.document, self.ext.marks(),
-                                  log=lambda m: _log(self.ext.w, m))
+        self.test = burnin.BurnIn(self.ext.ctx.controller, self.p, self.ext.ctx.document, self.ext.marks(),
+                                  log=lambda m: _log(self.ext.ctx, m))
         if self.test.start():
             self._timer.start(50)
             self._tick()
@@ -1086,7 +1076,7 @@ class BurnInDialog(Dialog):
             return
         running = self.test.tick()
         done, total = self.test.progress()
-        self.count.setText(_tr(self.ext.w, "newLang7", "Burn-in cycles: {done}/{total}", done=done, total=total))
+        self.count.setText(_tr("newLang7", "Burn-in cycles: {done}/{total}", done=done, total=total))
         if not running:
             self._timer.stop()
 
@@ -1101,43 +1091,43 @@ class InterferometerPanel(QWidget):
 
     def __init__(self, ext):
         super().__init__()
-        self.ext, w = ext, ext.w
+        self.ext = ext
         lay = QVBoxLayout(self)
         tabs = S.tabs(QTabWidget())
         lay.addWidget(tabs)
         page = QWidget()
         pl = QVBoxLayout(page)
         self.p = IF.params(ext.settings)
-        self.form = ParamForm(w, self.p, parent=page)
+        self.form = ParamForm(self.p, parent=page)
         pl.addWidget(self.form)
         row = QHBoxLayout()
         for key, default, fn in (("mp59", "Sim", self.simulate), ("mp54", "Start", self.start),
                                  ("mp56", "Stop", self.stop)):
-            b = S.button(_tr(w, key, default))
+            b = S.button(_tr(key, default))
             b.clicked.connect(fn)
             row.addWidget(b)
         pl.addLayout(row)
         self.status = QLabel("")
         pl.addWidget(self.status)
-        tabs.addTab(page, _tr(w, "mf180", "Laser Interferometer"))
+        tabs.addTab(page, _tr("mf180", "Laser Interferometer"))
         comp = QWidget()
         cl = QVBoxLayout(comp)
-        self.ctable = _table([_tr(w, "cp7", "Position"), _tr(w, "cp8", "Positive Measured"),
-                              _tr(w, "cp10", "Negative Measured"), _tr(w, "cp9", "Positive Deviation"),
-                              _tr(w, "cp11", "Negative Deviation"), _tr(w, "cp12", "Back Lash")])
+        self.ctable = _table([_tr("cp7", "Position"), _tr("cp8", "Positive Measured"),
+                              _tr("cp10", "Negative Measured"), _tr("cp9", "Positive Deviation"),
+                              _tr("cp11", "Negative Deviation"), _tr("cp12", "Back Lash")])
         cl.addWidget(self.ctable, 1)
         self.backlash = QLabel("")
         cl.addWidget(self.backlash)
         row = QHBoxLayout()
-        self.use_comp = QCheckBox(_tr(w, "diag.pitch.compensate", "compensate targets (MP.CompensateType 2)"))
+        self.use_comp = QCheckBox(_tr("diag.pitch.compensate", "compensate targets (MP.CompensateType 2)"))
         row.addWidget(self.use_comp)
         for key, default, fn in (("mf9", "Open", self.import_table), ("cp3", "Save", self.save_table),
                                  ("cp2", "Clear", self.clear_table)):
-            b = S.button(_tr(w, key, default))
+            b = S.button(_tr(key, default))
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
         cl.addLayout(row)
-        tabs.addTab(comp, _tr(w, "cp6", "Precision Compensate"))
+        tabs.addTab(comp, _tr("cp6", "Precision Compensate"))
         self.table = IF.PitchTable()
         on_units_changed(self, lambda _u: self.set_table(self.table))   # headers and values in units
         self.runner = None
@@ -1146,11 +1136,11 @@ class InterferometerPanel(QWidget):
 
     def _program(self):
         self.form.store()
-        st = self.ext.w.ctl.state()
+        st = self.ext.ctx.controller.state()
         axis = int(self.p["SP.InterfereAxisIndex"])
         home_dir = int(self.ext.settings.get(f"MAC_{axis}.GoOriginalDirection",
                                              self.ext.settings.get("MAC.GoOriginalDirection", 0)) or 0)
-        mc = _mc(self.ext.w)
+        mc = _mc(self.ext.ctx)
         ppm = getattr(mc, "pulses_per_mm", 1000.0) if mc is not None else 1000.0
         return IF.build_program(self.p, (st.x, st.y), home_dir, ppm, self.table,
                                 2 if self.use_comp.isChecked() and self.table.positions else 0)
@@ -1162,11 +1152,11 @@ class InterferometerPanel(QWidget):
             self.status.setText(str(e))
             return
         path = [(x, y, False) for x, y in IF.program_path(steps)]
-        st = self.ext.w.ctl.state()
-        canvas = getattr(self.ext.w, "canvas", None)
+        st = self.ext.ctx.controller.state()
+        canvas = self.ext.ctx.canvas
         if canvas is not None and path:
             canvas.start_simulation(path=[(st.x, st.y, False)] + path)
-        self.status.setText(_plural(self.ext.w, "diag.pitch.moves", len(path)))
+        self.status.setText(_plural("diag.pitch.moves", len(path)))
 
     def start(self) -> None:
         from mlaser.diag.program import ProgramRunner
@@ -1175,10 +1165,10 @@ class InterferometerPanel(QWidget):
         except ValueError as e:
             self.status.setText(str(e))
             return
-        if not self.ext.w.ctl.state().connected:
-            self.status.setText(_tr(self.ext.w, "ss1", "Hardware is not connected"))
+        if not self.ext.ctx.controller.state().connected:
+            self.status.setText(_tr("ss1", "Hardware is not connected"))
             return
-        self.runner = ProgramRunner(self.ext.w.ctl, steps, log=lambda m: _log(self.ext.w, m))
+        self.runner = ProgramRunner(self.ext.ctx.controller, steps, log=lambda m: _log(self.ext.ctx, m))
         self.runner.start()
         self._timer.start(50)
 
@@ -1188,7 +1178,7 @@ class InterferometerPanel(QWidget):
         if not self.runner.tick():
             self._timer.stop()
         cur = self.runner.current
-        self.status.setText(_tr(self.ext.w, "diag.pitch.progress", "{state}: step {step}/{total} {label}",
+        self.status.setText(_tr("diag.pitch.progress", "{state}: step {step}/{total} {label}",
                                 state=self.runner.state, step=self.runner.index + 1, total=len(self.runner.steps),
                                 label=getattr(cur, "label", "")).rstrip())
 
@@ -1202,9 +1192,8 @@ class InterferometerPanel(QWidget):
         fe, be = t.errors()
         bl = t.backlash()
         u = U.current()
-        w = self.ext.w
-        heads = [_tr(w, "cp7", "Position"), _tr(w, "cp8", "Positive Measured"), _tr(w, "cp10", "Negative Measured"),
-                 _tr(w, "cp9", "Positive Deviation"), _tr(w, "cp11", "Negative Deviation"), _tr(w, "cp12", "Back Lash")]
+        heads = [_tr("cp7", "Position"), _tr("cp8", "Positive Measured"), _tr("cp10", "Negative Measured"),
+                 _tr("cp9", "Positive Deviation"), _tr("cp11", "Negative Deviation"), _tr("cp12", "Back Lash")]
         self.ctable.setHorizontalHeaderLabels([u.header(h, "small_length") for h in heads])
 
         def n(v: float) -> str:
@@ -1212,32 +1201,32 @@ class InterferometerPanel(QWidget):
         _fill(self.ctable, [(n(p), n(t.forward[i]), n(t.backward[i]), n(fe[i]), n(be[i]), n(bl[i]))
                             for i, p in enumerate(t.positions)])
         avg = u.fmt(t.mean_backlash(), "small_length", decimals=4 if not u.imperial else 5)
-        self.backlash.setText(_tr(w, "cp15", "Average backlash: {backlash}", backlash=avg))
+        self.backlash.setText(_tr("cp15", "Average backlash: {backlash}", backlash=avg))
 
     def import_table(self, path: Optional[str] = None) -> bool:
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(self, _tr(self.ext.w, "cp6", "Precision Compensate"), "",
+            path, _ = QFileDialog.getOpenFileName(self, _tr("cp6", "Precision Compensate"), "",
                                                   "*.csv *.txt *.pos *.rtl *.ren")
         if not path:
             return False
         try:
             raw = open(path, "rb").read()
         except OSError:
-            self.backlash.setText(_tr(self.ext.w, "cp30", "Invalid file path"))
+            self.backlash.setText(_tr("cp30", "Invalid file path"))
             return False
         if not raw:
-            self.backlash.setText(_tr(self.ext.w, "cp31", "Empty file"))
+            self.backlash.setText(_tr("cp31", "Empty file"))
             return False
         t = IF.PitchTable.parse(L.decode(raw))
         if not t.positions:
-            self.backlash.setText(_tr(self.ext.w, "cp33", "Can't parse file"))
+            self.backlash.setText(_tr("cp33", "Can't parse file"))
             return False
         self.set_table(t)
         return True
 
     def save_table(self, path: Optional[str] = None) -> Optional[str]:
         if path is None:
-            path, _ = QFileDialog.getSaveFileName(self, _tr(self.ext.w, "cp3", "Save"), "pitch.csv", "*.csv")
+            path, _ = QFileDialog.getSaveFileName(self, _tr("cp3", "Save"), "pitch.csv", "*.csv")
         if path:
             from mlaser._atomic import atomic_write_text
             atomic_write_text(path, self.table.to_csv())
@@ -1250,26 +1239,25 @@ class InterferometerPanel(QWidget):
 
 class BatchDialog(Dialog):
     def __init__(self, ext):
-        w = ext.w
-        super().__init__(_parent(w), _tr(w, "mf705", "Batch Cut"))
+        super().__init__(ext.ctx.parent, _tr("mf705", "Batch Cut"))
         self.ext = ext
         self.p = B.params(ext.settings)
-        self.params_form = ParamForm(w, self.p, parent=self)
+        self.params_form = ParamForm(self.p, parent=self)
         self.body.addWidget(self.params_form)
-        self.files = _table([_tr(w, "ap101", "File Path"), _tr(w, "ap102", "Planned quantity"),
-                             _tr(w, "ap103", "Done quantity")])
+        self.files = _table([_tr("ap101", "File Path"), _tr("ap102", "Planned quantity"),
+                             _tr("ap103", "Done quantity")])
         self.files.setEditTriggers(QAbstractItemView.DoubleClicked)
         self.body.addWidget(self.files, 1)
         row = S.hbox()
         for key, text, tip, fn in (("add", "Add…", "Add drawings to the batch", self.add_file),
                                    ("remove", "Remove", "Remove the selected drawing", self.remove_file),
                                    ("reset_done", "Reset done", "Set every done quantity to 0", self.reset_done)):
-            row.addWidget(S.button(_tr(w, f"diag.batch.{key}", text), tooltip=_tr(w, f"diag.batch.{key}_tip", tip),
+            row.addWidget(S.button(_tr(f"diag.batch.{key}", text), tooltip=_tr(f"diag.batch.{key}_tip", tip),
                                    on_click=fn))
         row.addStretch(1)
         self.body.addLayout(row)
-        sec, sl = S.section(_tr(w, "pd858", "Plan Count").split(".")[0])
-        self.counter = ParamForm(w, ParamSet(B.COUNTER_KEYS, ext.settings), parent=sec)
+        sec, sl = S.section(_tr("pd858", "Plan Count").split(".")[0])
+        self.counter = ParamForm(ParamSet(B.COUNTER_KEYS, ext.settings), parent=sec)
         sl.addWidget(self.counter)
         self.body.addWidget(sec)
         self.buttons.accepted.disconnect()
@@ -1291,8 +1279,8 @@ class BatchDialog(Dialog):
         self.ext.batch_list.entries = entries
 
     def add_file(self, path: Optional[str] = None, planned: int = 1) -> None:
-        paths = [path] if path else QFileDialog.getOpenFileNames(self, _tr(self.ext.w, "mf9", "Open"), "",
-                                                                 getattr(self.ext.w, "FILTER", "*"))[0]
+        paths = [path] if path else QFileDialog.getOpenFileNames(self, _tr("mf9", "Open"), "",
+                                                                 self.ext.ctx.open_filter)[0]
         self._collect()
         for p in paths:
             self.ext.batch_list.entries.append(B.BatchEntry(p, planned, 0))
@@ -1321,25 +1309,24 @@ class MaintainDialog(Dialog):
     COLS = ("A251113_7", "A251113_8", "A251113_9", "A251113_10")
 
     def __init__(self, ext):
-        w = ext.w
-        super().__init__(_parent(w), _tr(w, "A251113_0", "Maintain"))
+        super().__init__(ext.ctx.parent, _tr("A251113_0", "Maintain"))
         self.ext = ext
-        heads = ["", _tr(w, "hp40", "Name"), *[_tr(w, k, k) for k in self.COLS],
-                 _tr(w, "diag.maintain.col.status", "Status")]
+        heads = ["", _tr("hp40", "Name"), *[_tr(k, k) for k in self.COLS],
+                 _tr("diag.maintain.col.status", "Status")]
         self.table = _table(heads, stretch=1)
         self.table.setColumnHidden(0, True)
         self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.body.addWidget(self.table, 1)
         row = S.hbox()
-        row.addWidget(S.button(_tr(w, "diag.maintain.mark_done", "Mark as done"),
-                               tooltip=_tr(w, "diag.maintain.mark_done_tip", "The selected items were maintained now"),
+        row.addWidget(S.button(_tr("diag.maintain.mark_done", "Mark as done"),
+                               tooltip=_tr("diag.maintain.mark_done_tip", "The selected items were maintained now"),
                                on_click=self.mark_done))
         self.custom = QLineEdit()
-        self.custom.setPlaceholderText(_tr(w, "A251113_13", "Customized maintenance items"))
+        self.custom.setPlaceholderText(_tr("A251113_13", "Customized maintenance items"))
         self.custom.setAccessibleName(self.custom.placeholderText())
         row.addWidget(self.custom, 1)
-        row.addWidget(S.button(_tr(w, "diag.maintain.add", "Add"),
-                               tooltip=_tr(w, "diag.maintain.add_tip", "Add this maintenance item"),
+        row.addWidget(S.button(_tr("diag.maintain.add", "Add"),
+                               tooltip=_tr("diag.maintain.add_tip", "Add this maintenance item"),
                                on_click=self.add_custom))
         self.body.addLayout(row)
         self.buttons.accepted.disconnect()
@@ -1349,29 +1336,28 @@ class MaintainDialog(Dialog):
         _fit_screen(self)
 
     def _build(self) -> None:
-        w = self.ext.w
         plan = self.ext.maintain_plan
         self.table.setRowCount(len(plan.items))
         self.editors = []
         now, ps = time.time(), self.ext.process_seconds()
         for r, it in enumerate(plan.items):
             self.table.setItem(r, 0, QTableWidgetItem(str(r)))
-            group = _tr(w, it.group, it.group)
-            name = it.key if it.custom else _tr(w, it.key, it.key)
-            self.table.setItem(r, 1, QTableWidgetItem(_tr(w, "diag.maintain.item", "[{group}] {name}",
+            group = _tr(it.group, it.group)
+            name = it.key if it.custom else _tr(it.key, it.key)
+            self.table.setItem(r, 1, QTableWidgetItem(_tr("diag.maintain.item", "[{group}] {name}",
                                                           group=group, name=name)))
             cyc = QDoubleSpinBox()
             cyc.setRange(0, 3650)
             cyc.setValue(it.cycle_days)
             mode = QComboBox()
-            mode.addItems([_tr(w, "A251113_11", "World Time"), _tr(w, "A251113_12", "Processing time")])
+            mode.addItems([_tr("A251113_11", "World Time"), _tr("A251113_12", "Processing time")])
             mode.setCurrentIndex(it.mode)
             warn = QDoubleSpinBox()
             warn.setRange(0, 3650)
             warn.setValue(it.warn_days)
             prompt = QComboBox()
-            prompt.addItems([_tr(w, "A251113_4", "Pop-up prompt"), _tr(w, "A251113_5", "Error bar"),
-                             _tr(w, "A251113_6", "Log information bar")])
+            prompt.addItems([_tr("A251113_4", "Pop-up prompt"), _tr("A251113_5", "Error bar"),
+                             _tr("A251113_6", "Log information bar")])
             prompt.setCurrentIndex(it.prompt)
             for c, ed in enumerate((cyc, mode, warn, prompt), start=2):
                 self.table.setCellWidget(r, c, ed)
@@ -1411,43 +1397,42 @@ class HelpWindow(HelpBrowser):
 
     def __init__(self, ext):
         self.ext = ext
-        super().__init__(_parent(ext.w), getattr(ext.w, "tr_", None))
+        super().__init__(ext.ctx.parent, ext.ctx.tr)
 
 
 # =========================================================================== extension
 class DiagExtension:
-    def __init__(self, window, ctx=None):
-        self.w = window
+    def __init__(self, ctx: ExtensionContext):
         self.ctx = ctx
-        self.settings = window.settings
+        self.settings = ctx.config_values
         self.data_dir = data_dir(self.settings)
         self.log_dir = os.path.join(self.data_dir, "Log")
         self.device_settings = None
-        lang = "zh" if _lang(window) == "zh" else "en"
-        cfg = getattr(window, "config", None)
+        lang = "zh" if _lang() == "zh" else "en"
+        cfg = ctx.config
         from mlaser.report.recorder import StatsRecorder
         from mlaser.report.records import ReportStore
         from mlaser.services.runsource import window_job_source
         self.store = ReportStore(self.data_dir, lang)
-        self.svc = ProductionService(self.settings, self.data_dir, stop=lambda: QTimer.singleShot(0, self.w.ctl.stop),
+        self.svc = ProductionService(self.settings, self.data_dir, stop=lambda: QTimer.singleShot(0, self.ctx.controller.stop),
                                      notify=self._notify, stats=StatsRecorder(self.store, self._job_snapshot),
                                      # the counters' settings written off the GUI thread
-                                     flush=(lambda: cfg.flush(background=True)) if cfg is not None else (lambda: None),
-                                     job_source=lambda mode: window_job_source(self.w, mode))
+                                     flush=lambda: cfg.flush(background=True),
+                                     job_source=lambda mode: window_job_source(self.ctx.parent, mode))
         self.counters, self.use_timer = self.svc.counters, self.svc.use_timer
         self.watcher, self.stats, self.production = self.svc.watcher, self.svc.stats, self.svc.production
         self.maintain_plan = self.svc.maintain_plan
         self.measure = DataRecorder()
-        self.outputs = CIO.OutputDriver(window.ctl, lambda m: _log(window, m))
+        self.outputs = CIO.OutputDriver(ctx.controller, lambda m: _log(ctx, m))
         self.batch_list = B.BatchList.from_text(self.settings.get(B.TABLE_KEY, ""))
-        self.batch = B.BatchRunner(window, B.params(self.settings), self.batch_list, lambda m: _log(window, m))
+        self.batch = B.BatchRunner(ctx.parent, B.params(self.settings), self.batch_list, lambda m: _log(ctx, m))
         self.svc.job_done_listeners.append(self.batch.job_done)
         self.log_writer = L.LogFileWriter(self.log_dir) if self.settings.get("write_log_files", True) else None
         self.windows: dict[str, QWidget] = {}
         self.interferometer_dock: Optional[QDockWidget] = None
         self._attached = None
         self.attach()
-        self.timer = QTimer(window if isinstance(window, QWidget) else None)
+        self.timer = QTimer(ctx.parent)
         self.timer.timeout.connect(self.tick)
         self.timer.start(200)
         if self.log_writer is not None:
@@ -1455,16 +1440,16 @@ class DiagExtension:
 
     def _notify(self, kind: str, text: str) -> None:
         if kind == "log":
-            _log(self.w, text)
+            _log(self.ctx, text)
         elif kind == "plan_reached":
             QTimer.singleShot(0, lambda: QMessageBox.information(
-                _parent(self.w), _tr(self.w, "mf705", "Batch Cut"),
-                _tr(self.w, "diag.batch.plan_reached", "Plan count: {text}", text=text)))
+                self.ctx.parent, _tr("mf705", "Batch Cut"),
+                _tr("diag.batch.plan_reached", "Plan count: {text}", text=text)))
         elif kind == "popup":
             QTimer.singleShot(0, lambda m=text: QMessageBox.information(
-                _parent(self.w), _tr(self.w, "A251113_0", "Maintain"), m))
-        elif kind == "alarm" and hasattr(getattr(self.w, "log_panel", None), "add_alarm"):
-            self.w.log_panel.add_alarm(text)
+                self.ctx.parent, _tr("A251113_0", "Maintain"), m))
+        elif kind == "alarm":
+            self.ctx.log_panel.add_alarm(text)
 
     # ------------------------------------------------------------------ state
     def save_state(self) -> None:
@@ -1472,7 +1457,7 @@ class DiagExtension:
 
     # ------------------------------------------------------------------ controller hooks
     def attach(self) -> None:
-        ctl = self.w.ctl
+        ctl = self.ctx.controller
         if ctl is self._attached:
             return
         self._attached = ctl
@@ -1483,13 +1468,12 @@ class DiagExtension:
     def _on_log(self, msg: str) -> None:
         if self.log_writer is not None:
             self.log_writer.write(msg)
-        if self.w.ctl is self._attached:
+        if self.ctx.controller is self._attached:
             self.svc.feed_log(msg)
 
     def _job_snapshot(self):
-        w = self.w
-        return (w.document, getattr(w, "toolpath", None), getattr(w, "estimate", None) or None,
-                getattr(w, "path", None), getattr(w, "machine", None))
+        c = self.ctx
+        return (c.document, c.toolpath, c.estimate or None, c.path, c.machine)
 
     def process_seconds(self) -> float:
         return self.svc.process_seconds()
@@ -1518,24 +1502,24 @@ class DiagExtension:
 
     # ------------------------------------------------------------------ timer
     def tick(self) -> None:
-        if self.w.ctl is not self._attached:
+        if self.ctx.controller is not self._attached:
             self.attach()
         try:
-            st = self.w.ctl.state()
+            st = self.ctx.controller.state()
         except Exception:  # noqa: BLE001
             return
-        self.svc.poll(st, bool(getattr(st, "connected", False)) and _mc(self.w) is not None)
+        self.svc.poll(st, bool(getattr(st, "connected", False)) and _mc(self.ctx) is not None)
         if self.measure.enabled:
             self.measure.sample(st)
         self.batch.tick()
 
     def check_maintenance(self, now: Optional[float] = None) -> list:
-        return self.svc.check_maintenance(now, lambda k: _tr(self.w, k, k))
+        return self.svc.check_maintenance(now, lambda k: _tr(k, k))
 
     # ------------------------------------------------------------------ commands
     def _show(self, key: str, factory: Callable[[], QWidget]) -> QWidget:
-        if key in self.MONITOR_KEYS and self.ctx is not None:
-            host = self.ctx.host.hooks.provider("machine.monitor_host")   # Machine workspace
+        if key in self.MONITOR_KEYS:
+            host = self.ctx.provider("machine.monitor_host")   # Machine workspace
             if host is not None:
                 return host(key, factory)
         win = self.windows.get(key)
@@ -1568,17 +1552,17 @@ class DiagExtension:
 
     def device_report(self):
         """FUN_004b9260: add the card's run info when connected, then show the counters."""
-        mc = _mc(self.w)
-        if mc is not None and self.w.ctl.state().connected:
+        mc = _mc(self.ctx)
+        if mc is not None and self.ctx.controller.state().connected:
             try:
                 z = self.settings.get("ZF.ZFType")
                 info, mileage = DR.read_card_info(mc, (0, 1), 2 if z else None)
                 self.counters.add_card_info(info, mileage, getattr(mc, "pulses_per_mm", 1000.0))
             except Exception as e:  # noqa: BLE001
-                _log(self.w, _tr(self.w, "diag.log.card_info_unreadable",
+                _log(self.ctx, _tr("diag.log.card_info_unreadable",
                                  "Device report: card run info not readable: {error}", error=e))
         else:
-            _log(self.w, _tr(self.w, "diag.log.card_not_connected",
+            _log(self.ctx, _tr("diag.log.card_not_connected",
                              "Device report: hardware is not connected - showing the stored counters"))
         self.save_state()
         d = DeviceReportDialog(self)
@@ -1589,12 +1573,12 @@ class DiagExtension:
         """FUN_004b96c0: report.txt with the newest / all records, then the viewer."""
         from mlaser.report.window import ReportWindow
         recs = self.stats.selection(all_records)
-        self.store.lang = "zh" if _lang(self.w) == "zh" else "en"
+        self.store.lang = "zh" if _lang() == "zh" else "en"
         self.store.write_report_txt(recs)
-        if self.w.document is not None and recs and not os.path.exists(self.store.thumbnail_path(recs[-1].name)):
+        if self.ctx.document is not None and recs and not os.path.exists(self.store.thumbnail_path(recs[-1].name)):
             try:
                 from mlaser.report.thumbnail import save_thumbnail
-                save_thumbnail(self.w.document, self.store.thumbnail_path(recs[-1].name))
+                save_thumbnail(self.ctx.document, self.store.thumbnail_path(recs[-1].name))
             except Exception:  # noqa: BLE001
                 pass
         win = self.windows.get("report")
@@ -1615,11 +1599,11 @@ class DiagExtension:
         """mf229: toggles the measurement switch (cfg+0x4327) and the recorder."""
         if self.measure.enabled:
             self.measure.stop()
-            _log(self.w, _tr(self.w, "diag.log.measure_off", "Data measurement off"))
+            _log(self.ctx, _tr("diag.log.measure_off", "Data measurement off"))
         else:
             self.measure.start()
             self._show("measure", lambda: MeasureWindow(self))
-            _log(self.w, _tr(self.w, "diag.log.measure_on", "Data measurement on"))
+            _log(self.ctx, _tr("diag.log.measure_on", "Data measurement on"))
         return self.measure.enabled
 
     def custom_io_dialog(self, self_locking: bool = True):
@@ -1629,30 +1613,30 @@ class DiagExtension:
 
     def dedust(self, on: Optional[bool] = None) -> bool:
         """FUN_004bc020: toggle DO.ClearAsh; caption mf171 Enable / mf170 Disable."""
-        port = CIO.dedust_port(self.settings, self.w.ctl)
+        port = CIO.dedust_port(self.settings, self.ctx.controller)
         if port is None:
-            _log(self.w, _tr(self.w, "diag.log.no_dedust",
+            _log(self.ctx, _tr("diag.log.no_dedust",
                              "Dust extraction: no dedust output configured (DO.ClearAsh pd1400)"))
             state = False
-        elif port == CIO.dedust_port({}, self.w.ctl):
+        elif port == CIO.dedust_port({}, self.ctx.controller):
             # the controller's own dedust output: its command path (guard, its state under its
             # lock, the log), never a write into ctl.state() (arch A6)
             state = (not self.outputs.get(port)) if on is None else bool(on)
-            if self.w.ctl.card() is None:
+            if self.ctx.controller.card() is None:
                 self.outputs.set(port, state)    # no card: remembered and logged as before
             else:
-                self.w.ctl.set_output("dedust", state)
+                self.ctx.controller.set_output("dedust", state)
         else:
             if on is None:
                 state = self.outputs.toggle(port)
             else:
                 self.outputs.set(port, bool(on))
                 state = bool(on)
-        act = self.w.ribbon.actions.get("aux.dedust")
+        act = self.ctx.action("aux.dedust")
         if act is not None:
             act.blockSignals(True)
             act.setChecked(state)
-            act.setText(_tr(self.w, "mf170" if state else "mf171", "Disable Dedust" if state else "Enable Dedust"))
+            act.setText(_tr("mf170" if state else "mf171", "Disable Dedust" if state else "Enable Dedust"))
             act.blockSignals(False)
         return state
 
@@ -1669,18 +1653,18 @@ class DiagExtension:
     def ball_arm(self):
         """FUN_004bbd20: parameter grid, then CAD slot +0xcc replaces the drawing."""
         p = ballarm.params(self.settings)
-        d = ParamDialog(self.w, _tr(self.w, "mf702", "Ball Arm"), p)
+        d = ParamDialog(self.ctx, _tr("mf702", "Ball Arm"), p)
         if d.exec():
             return self.apply_ball_arm(p)
         return None
 
     def apply_ball_arm(self, p: ParamSet):
-        doc = ballarm.make_document(p, getattr(self.w.document, "layers", None))
+        doc = ballarm.make_document(p, getattr(self.ctx.document, "layers", None))
         if self.ctx is not None:
             self.ctx.replace_document(doc, "ball arm")
         else:
-            self.w.set_document(doc)
-        _log(self.w, _tr(self.w, "diag.log.ball_arm", "Ball arm: pattern R={radius} x{times}",
+            self.ctx.set_document(doc)
+        _log(self.ctx, _tr("diag.log.ball_arm", "Ball arm: pattern R={radius} x{times}",
                          radius=U.current().fmt(float(p["GRP.BallArmCircleRadius"]), "length", trim=True),
                          times=p["GRP.BallArmCircleTimes"]))
         return doc
@@ -1688,15 +1672,8 @@ class DiagExtension:
     def interferometer(self):
         """FUN_004bbc60: toggle the interferometer panel (cfg+0x40b8)."""
         if self.interferometer_dock is None:
-            title = _tr(self.w, "mf180", "Laser Interferometer")
-            if self.ctx is not None:
-                dock = self.ctx.add_dock(InterferometerPanel(self), title, "right", "diag_interferometer")
-            else:
-                dock = QDockWidget(title, _parent(self.w))
-                dock.setObjectName("diag_interferometer")
-                dock.setWidget(InterferometerPanel(self))
-                if isinstance(self.w, QMainWindow):
-                    self.w.addDockWidget(Qt.RightDockWidgetArea, dock)
+            title = _tr("mf180", "Laser Interferometer")
+            dock = self.ctx.add_dock(InterferometerPanel(self), title, "right", "diag_interferometer")
             self.interferometer_dock = dock
             dock.show()
         else:
@@ -1722,12 +1699,12 @@ class DiagExtension:
     def save_bundle(self):
         """Help › Save diagnostic bundle… (mlaser.ui.diag_bundle)."""
         from .diag_bundle import open_bundle_dialog
-        return open_bundle_dialog(self.w)
+        return open_bundle_dialog(self.ctx.parent)
 
     def check_updates(self, quiet: bool = False):
         """Help › Check for updates; ``quiet``: the opt-in check at start (UPDATE_SETTING)."""
         from .diag_bundle import check_updates
-        return check_updates(self.w, quiet=quiet)
+        return check_updates(self.ctx.parent, quiet=quiet)
 
 
 def data_dir(settings) -> str:
@@ -1787,22 +1764,18 @@ def _handler(ext: DiagExtension, spec):
 
 
 def register(ctx) -> DiagExtension:
-    """Bind the monitor / diagnostics / auxiliary commands (``ctx``: PluginContext)."""
-    window = ctx.window
-    ext = DiagExtension(window, ctx)
+    """Bind the monitor / diagnostics / auxiliary commands (``ctx``: ExtensionContext)."""
+    ext = DiagExtension(ctx)
     for cmd, spec in COMMANDS.items():
         ctx.register_command(cmd, _handler(ext, spec))
-    act = window.ribbon.actions.get("aux.dedust")
+    act = ctx.action("aux.dedust")
     if act is not None:
-        act.setText(_tr(window, "mf171", "Enable Dedust"))
+        act.setText(_tr("mf171", "Enable Dedust"))
     ctx.on_controller_changed(lambda _ctl: ext.attach())
     ctx.on_close(ext.save_state)
-    schema = getattr(ctx, "settings_schema", None)
-    if callable(schema):
-        from mlaser.services.config import Setting
-        ext.update_settings = schema([Setting(UPDATE_SETTING, "bool", False, label="diag.set.update_check")])
-        if bool(ext.update_settings[UPDATE_SETTING]):        # opt-in only: never asked for
-            QTimer.singleShot(UPDATE_DELAY_MS, lambda: ext.check_updates(quiet=True))
-    if ctx.jobs is not None:
-        ctx.jobs.add_start_guard(ext.svc.start_allowed)
+    from mlaser.services.config import Setting
+    ext.update_settings = ctx.settings_schema([Setting(UPDATE_SETTING, "bool", False, label="diag.set.update_check")])
+    if bool(ext.update_settings[UPDATE_SETTING]):        # opt-in only: never asked for
+        QTimer.singleShot(UPDATE_DELAY_MS, lambda: ext.check_updates(quiet=True))
+    ctx.add_start_guard(ext.svc.start_allowed)
     return ext

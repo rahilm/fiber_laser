@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import copy
 import os
-from typing import Callable, Optional
+from typing import TYPE_CHECKING, Callable, Optional
 
 from PySide6.QtCore import QEvent, QMimeData, QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QKeySequence, QShortcut
@@ -29,6 +29,10 @@ from .facade import DemoController
 from .i18n import Translator, translator
 from .panels import ControlPanel, LayerPanel, LogPanel
 from .ribbon import Ribbon
+
+if TYPE_CHECKING:                       # installed after construction (shell.install, safety_ui.install)
+    from .safety_ui import SafetyUI
+    from .shell import Shell
 
 # ribbon sort command -> CamParams.sort_mode (CADModule 0x1003f010 modes 1..7, docs/re/cam.md §8;
 # 6/7 CRingSort; 0 keep, 20/21 rebuild additions).  The one path for every ordering mode: the
@@ -235,6 +239,9 @@ class _StatusFit(QObject):
 
 
 class MainWindow(QMainWindow):
+    shell: "Shell"                      # shell.install (typed for the extensions' context, A12)
+    safety_ui: "SafetyUI"               # safety_ui.install
+
     def __init__(self, controller: Optional[ControllerFacade] = None, tr: Optional[Translator] = None,
                  extensions: tuple = (), config: Optional[ConfigService] = None,
                  entry_points: bool = False):
@@ -399,7 +406,9 @@ class MainWindow(QMainWindow):
         return self.extensions
 
     def _register(self, info) -> bool:
-        ctx, result = register_plugin(self, info)
+        from mlaser.services.plugins import PluginContext
+        from .extension_context import ExtensionContext   # built-ins: typed access to this window (A12)
+        ctx, result = register_plugin(self, info, ExtensionContext if info.origin == "builtin" else PluginContext)
         if ctx is None:
             self.failed_extensions[info.name] = result     # safety_ui: required start guards
             if info.origin == "builtin":         # a missing built-in feature is said, not only logged
