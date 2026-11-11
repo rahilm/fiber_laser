@@ -3748,7 +3748,7 @@
   "run.why.offline": "Connect the machine or the simulator first",
   "run.why.queue_empty": "The queue has no job left to run",
   "run.why.recut_nothing": "Nothing was cut yet",
-  "run.why.recut_pick": "Pick a contour in the live view first (click it, or Left / Right)",
+  "run.why.recut_pick": "Pick a contour in the live view first (click it, or use the arrow keys)",
   "run.why.recut_scan": "A fly-cut or engraved part is cut as a whole: use Start from part",
   "run.why.recut_unavailable": "Cut this contour again: not available now",
   "run.why.rest_changed": "The drawing changed since the last job: cutting its rest is no longer offered",

@@ -368,7 +368,8 @@ def test_stop_during_it_is_the_stop_of_any_job(win, app):
     scr.buttons["recut"].click()
     assert win.safety_ui.wait_preflight(30)
     assert wait(app, lambda: ctl.job_active() and ctl.state().mode == "process", 30)
-    assert ws.parts.last.recut.get((0, 1)) == "running"
+    # (the tracker hears of the start on the GUI thread, a moment after the controller runs it)
+    assert wait(app, lambda: ws.parts.last.recut.get((0, 1)) == "running", 10)
     scr.refresh()
     assert not scr.buttons["recut"].isEnabled()                 # not while it runs
     win.safety_ui.stop()

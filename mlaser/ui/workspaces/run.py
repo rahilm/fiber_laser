@@ -1261,7 +1261,7 @@ class OperatorScreen(QWidget):
         key = self.canvas.picked
         if key is None or key[0] not in self.canvas.numbers:
             return None, tr(w, "run.why.recut_pick", "Pick a contour in the live view first (click it, "
-                            "or Left / Right)")
+                            "or use the arrow keys)")
         vparts = list(getattr(self.canvas.document, "parts", []) or [])
         uid = getattr(vparts[key[0]], "uid", None) if key[0] < len(vparts) else None
         where = {getattr(p, "uid", None): i for i, p in enumerate(getattr(w.document, "parts", []) or [])}
@@ -1269,7 +1269,7 @@ class OperatorScreen(QWidget):
         part = w.document.parts[i] if i is not None else None
         if part is None or not last.number_of(i) or key[1] >= len(part.contours):
             return None, tr(w, "run.why.recut_pick", "Pick a contour in the live view first (click it, "
-                            "or Left / Right)")
+                            "or use the arrow keys)")
         from mlaser.cam.flycut import scan_paths_of_part
         if getattr(part, "raster", None) is not None or scan_paths_of_part(part):
             return None, tr(w, "run.why.recut_scan", "A fly-cut or engraved part is cut as a whole: "
