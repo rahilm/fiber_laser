@@ -20,7 +20,6 @@ running meanwhile.
 """
 from __future__ import annotations
 
-import gc
 import threading
 import time
 from typing import Any, Callable, Optional
@@ -169,6 +168,7 @@ def start_worker(fn: Callable[[], Any], on_done: Callable[[Any, Optional[BaseExc
     post.done.connect(deliver, Qt.QueuedConnection)
 
     def work() -> None:
+        from mlaser._gcsafe import no_collections
         from mlaser._sched import responsive_gil
         res: Any = None
         err: Optional[BaseException] = None
@@ -176,16 +176,11 @@ def start_worker(fn: Callable[[], Any], on_done: Callable[[Any, Optional[BaseExc
         # collections they trigger holds the interpreter for the whole heap of a large session
         # (measured 0.1-0.2 s at 2,700 parts, every thread stopped, the window too), and frees
         # nothing (as mlaser.cam.toolpath.build_toolpath does)
-        was = gc.isenabled()
-        gc.disable()
         try:
-            with responsive_gil():           # the GUI thread gets the interpreter within 0.5 ms
+            with no_collections(), responsive_gil():   # the GUI thread gets the GIL within 0.5 ms
                 res = fn()
         except BaseException as e:  # noqa: BLE001 - handed to the GUI thread
             err = e
-        finally:
-            if was:
-                gc.enable()
         try:
             post.done.emit((res, err))
         except RuntimeError:                 # the application is gone
