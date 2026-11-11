@@ -423,8 +423,8 @@ class ControllerMonitor(QDialog):
         acc, acc*10, distance]`` (FUN_10032b80) in card units; ss3 if not an integer."""
         if not self._writable():
             return
-        st = self.ext.w.ctl.state()
-        if st.mode in ("process", "frame", "dry_run"):
+        from .run_rules import machine_moving
+        if machine_moving(self.ext.w):           # a job, homing or a jog (arch A1)
             self.status.setText(_tr(self.ext.w, "ss2", "System is moving"))
             return
         try:

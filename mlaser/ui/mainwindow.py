@@ -1897,7 +1897,8 @@ class MainWindow(QMainWindow):
         """The plan starts at the head position (it is the sort origin and the first rapid's
         start), so an idle head that moved means a new plan (debounced)."""
         h = self._plan_head
-        if (st.mode == "ready" and h is not None and self.document.parts
+        from .run_rules import job_view
+        if (h is not None and self.document.parts and job_view(self.ctl, st).idle
                 and abs(st.x - h[0]) + abs(st.y - h[1]) > 0.5):
             self._plan_head = (st.x, st.y)
             self.jobs.schedule_preview(self._preview_request, 0.3)

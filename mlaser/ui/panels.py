@@ -23,6 +23,7 @@ from .params import GAS_KEYS
 from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 from . import style
 from .responsive import (CollapsibleSection, ColumnsPanel, ResponsiveForm, flow)
+from .run_rules import job_view
 
 
 
@@ -585,8 +586,7 @@ class ControlPanel(QWidget):
         if self.run_hooks is not None:
             self.run_hooks.start()
             return
-        st = self.ctl.state()
-        if st.mode == "pause":
+        if job_view(self.ctl).held:          # held: Start continues (arch A1: the job's phase)
             from .resume import resume
             resume(self.ctl, "exact", self.get_document())
             return
@@ -598,7 +598,7 @@ class ControlPanel(QWidget):
         if self.run_hooks is not None:
             self.run_hooks.hold()
             return
-        if self.ctl.state().mode == "pause":
+        if job_view(self.ctl).held:
             from .resume import resume
             resume(self.ctl, "exact", self.get_document())
         else:
@@ -669,8 +669,7 @@ class ControlPanel(QWidget):
         t = self.tr_.tr
         connected = bool(ms is not None and getattr(ms, "connected", False))
         fault = st is not None and getattr(st, "banner", "") == "FAULT"
-        mode = getattr(ms, "mode", "") if ms is not None else ""
-        running = mode in ("process", "dry_run", "frame")
+        running = job_view(self.ctl, ms).owns_card     # held: stepping along the path is allowed
         no_conn, why_fault, why_running = t("panel.why.offline"), t("run.why.fault"), t("run.why.running")
 
         def why(*checks: tuple[bool, str]) -> str:

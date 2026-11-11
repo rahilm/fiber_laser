@@ -49,7 +49,7 @@ from .style import TARGET_RUN
 # the Qt-free run rules (review arch A15): which run controls are enabled and why, the run
 # state, the alarm source; importable from here as before
 from .run_rules import (JOB_MODES, _ctl, _safety, _tr, _unknown_alarm, active_alarms,  # noqa: F401
-                        alarm_text, job_running, run_enabled, run_state)
+                        alarm_text, job_held, job_running, job_view, run_enabled, run_state)
 
 log = logging.getLogger("mlaser.ui.safety")
 
@@ -1024,8 +1024,9 @@ class RunBar(QToolBar):
             name = (_tr(w, "run.state.ready_armed_sim", "Simulator: {state}, laser armed", state=label) if name
                     else _tr(w, "state.axis.value", "{axis}: {state}", axis=caption, state=label))
         self.pill.set_state(rs, col, label, caption, name, outline=outline)
-        paused = ms is not None and ms.mode == "pause"
-        for k, on, why in run_enabled(w, st, ms, running, alarms):
+        job = job_view(_ctl(w), ms)             # the job's phase (arch A1): one answer
+        paused = job.held
+        for k, on, why in run_enabled(w, st, ms, job, alarms):
             if k == "hold" and on and paused:
                 # held: Start is the one "Continue"; Hold stays Hold, disabled (UX audit W4)
                 on, why = False, _tr(w, "run.why.held", "Held: Start continues the job")
@@ -1686,9 +1687,8 @@ class SafetyUI(QObject):
         same steps: the pre-flight, the arming question, the controller's start gate."""
         ctl, doc = self.w.ctl, self.w.document
         finish = then if then is not None else (lambda: None)
-        ms = ctl.state()
-        if contours is not None and (ms.mode == "pause" or ctl.breakpoint is not None
-                                     or not getattr(self._runner(), "reports_start_result", False)):
+        held = job_held(self.w) or ctl.breakpoint is not None      # held: Start is Continue
+        if contours is not None and (held or not getattr(self._runner(), "reports_start_result", False)):
             # never a resume of the held job in place of the contour asked for; without the
             # planned-job runner a contour job cannot be built
             text = _tr(self.w, "run.why.recut_unavailable", "Cut this contour again: not available now")
@@ -1696,7 +1696,7 @@ class SafetyUI(QObject):
             self.w.statusBar().showMessage(text, 8000)
             finish()
             return
-        if ms.mode == "pause" or ctl.breakpoint is not None:
+        if held:
             from .resume import resume
             try:
                 resume(ctl, "exact", doc)           # a breakpoint of another document is refused
@@ -1964,7 +1964,7 @@ class SafetyUI(QObject):
         Start / Continue (the button, or F5 on the Run workspace): a second, nervous press of
         the Hold key keeps the machine held (deep review 2026-11, UX 8)."""
         ctl = self.w.ctl
-        if ctl.state().mode == "pause":
+        if job_held(self.w):            # a Hold during a Stop or unreadable phase still goes out
             self.w.statusBar().showMessage(_tr(self.w, "run.why.held", "Held: Start continues the job"), 6000)
             return
         ctl.pause()
