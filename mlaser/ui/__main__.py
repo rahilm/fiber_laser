@@ -238,6 +238,7 @@ def _run(args, app, inst) -> int:
     from . import native_report
     native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
+    app.setProperty("mlaser_main_loop", True)   # the launcher's --smoke-test ends this loop
     return app.exec()
 
 
