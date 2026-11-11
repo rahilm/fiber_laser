@@ -84,3 +84,40 @@ def test_tall_view_keeps_the_bar_and_the_whole_panel(win, app):
     v, e = win.canvas, win.canvas_empty
     assert v.hud.isVisible() and e.isVisible() and e.title.isVisible() and e.text.isVisible()
     assert not _in_view(e, v).intersects(_in_view(v.hud, v))
+
+
+def test_buttons_with_layout_item_margins_do_not_overlap(win, app):
+    """The macOS style gives a push button "layout item" margins (its bezel's shadow): placed by
+    those smaller rectangles, the panel's buttons overlapped by 8 px at a window 649 px high
+    (native check, macOS style).  Simulated here with a style whose buttons have such margins."""
+    from PySide6.QtWidgets import QProxyStyle, QStyle
+
+    from mlaser.model import Document
+
+    class _Bezel(QProxyStyle):
+        def subElementRect(self, el, opt, widget=None):  # noqa: N802 - Qt API
+            r = super().subElementRect(el, opt, widget)
+            if el == QStyle.SE_PushButtonLayoutItem:
+                return opt.rect.adjusted(6, 6, -6, -6)
+            return r
+
+    e = win.canvas_empty
+    bezel = _Bezel("Fusion")
+    for b in e.buttons.values():
+        b.setStyle(bezel)
+    try:
+        win.set_document(Document())
+        win.show_workspace("design")
+        for size in ((1280, 649), (683, 649)):
+            _settle(win, app, size)
+            shown = [b for b in e.buttons.values() if b.isVisible()]
+            assert len(shown) >= 2, size
+            for b in shown:
+                assert b.height() >= b.minimumHeight(), (size, b.objectName(), b.height())
+                assert e.rect().contains(b.geometry()), (size, b.objectName())
+            for a, b in zip(shown, shown[1:]):
+                assert not a.geometry().intersects(b.geometry()), (size, a.geometry(), b.geometry())
+    finally:
+        for b in e.buttons.values():
+            b.setStyle(None)
+        _settle(win, app, (1280, 800))
