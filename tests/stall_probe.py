@@ -23,14 +23,19 @@ import os
 import sys
 import threading
 import time
-import traceback
 from collections import Counter
 
 
 def _stack(frame, depth: int = 10) -> str:
-    """The innermost ``depth`` frames, outermost first, one ``file:line func`` per line."""
-    items = traceback.extract_stack(frame)[-depth:]
-    return "\n".join(f"      {os.path.basename(f.filename)}:{f.lineno} {f.name}" for f in items)
+    """The innermost ``depth`` frames, outermost first, one ``file:line func`` per line.  Read
+    from the frames' code objects only (no source lines: ``traceback`` reads files through
+    linecache, which lets the sampled thread run on while its stack is walked)."""
+    items = []
+    while frame is not None and len(items) < depth:
+        code = frame.f_code
+        items.append(f"      {os.path.basename(code.co_filename)}:{frame.f_lineno} {code.co_name}")
+        frame = frame.f_back
+    return "\n".join(reversed(items))
 
 
 class StallProbe:
@@ -65,7 +70,6 @@ class StallProbe:
                                          time.perf_counter() - t0))
 
     def _watch(self) -> None:
-        names = {}
         prev = time.perf_counter()
         prev_cpu = time.process_time()
         while not self._stop.wait(self.period_s):
@@ -81,13 +85,15 @@ class StallProbe:
             self.worst_late = max(self.worst_late, late)
             self.samples += 1
             names = {t.ident: t.name for t in threading.enumerate()}
-            for tid, frame in sys._current_frames().items():
+            frames, frame = sys._current_frames(), None
+            for tid, frame in frames.items():
                 if tid == threading.get_ident():
                     continue
                 if tid == self._main:
                     self.main_stacks[_stack(frame)] += 1
                 else:
                     self.other_stacks[f"    [{names.get(tid, tid)}]\n" + _stack(frame, 6)] += 1
+            del frames, frame                             # no thread's frames kept alive here
 
     def __enter__(self) -> StallProbe:
         self._last = time.perf_counter()
