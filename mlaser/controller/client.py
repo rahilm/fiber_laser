@@ -384,7 +384,8 @@ class MotionController:
 
     def __init__(self, host: str = "10.1.1.168", port: int = 502, transport: str = "udp",
                  config: Optional[TransportConfig] = None, pulses_per_mm: float = 1000.0,
-                 apply_hal_filter: bool = True, guard=None):
+                 apply_hal_filter: bool = True, guard=None, clock=None, link=None):
+        from .clock import SYSTEM
         self.cfg = config or TransportConfig(host=host, port=port, transport=transport)
         if config is None:
             self.cfg.host, self.cfg.port, self.cfg.transport = host, port, transport
@@ -405,6 +406,14 @@ class MotionController:
         # at construction or by the first assignment, never replaced or removed); ``last_ok``
         # is the time.monotonic() of the last successful reply (link watchdog).
         self._guard = guard
+        # ``resend_guard(req)`` (the supervisor, set once with the guard): called before the
+        # first send of a request, returns None or a check run before every re-send of it, which
+        # raises (CommandRefused) when the request must not go out again (a halt since)
+        self.resend_guard = None
+        # the time source (controller.clock; tests: virtual time) and an in-memory link that
+        # replaces the socket (controller.memlink; tests only)
+        self.clock = clock or SYSTEM
+        self.link = link
         self.last_ok = 0.0
         self.last_sent = 0.0         # time.monotonic() of the last request sent
         self.requests = 0
@@ -433,6 +442,10 @@ class MotionController:
         """Create the socket (FUN_100062a0)."""
         with self._lock:
             self.close()
+            if self.link is not None:
+                self._sock = self.link          # type: ignore[assignment] - send/recv below
+                self._rxbuf = b""
+                return self
             if self.cfg.transport == "tcp":
                 s = socket.create_connection((self.cfg.host, self.cfg.port),
                                              timeout=self.cfg.connect_wait_ms / 1000)
@@ -466,6 +479,9 @@ class MotionController:
     def _drain(self) -> None:
         """FUN_100061f0: drop one pending datagram before sending."""
         s = self._sock
+        if s is not None and self.link is not None:
+            self.link.drain()
+            return
         if s is None or self.cfg.transport == "tcp":
             return
         r, _, _ = select.select([s], [], [], 0)
@@ -476,13 +492,17 @@ class MotionController:
                 pass
 
     def _send(self, data: bytes) -> None:
-        if self.cfg.transport == "tcp":
+        if self.link is not None:
+            self.link.send(data)
+        elif self.cfg.transport == "tcp":
             self._sock.sendall(data)
         else:
             self._sock.sendto(data, (self.cfg.host, self.cfg.port))
 
     def _recv(self, timeout_s: float) -> Optional[bytes]:
         s = self._sock
+        if self.link is not None:
+            return self.link.recv(timeout_s)
         if self.cfg.transport != "tcp":
             r, _, _ = select.select([s], [], [], timeout_s)
             if not r:
@@ -525,9 +545,18 @@ class MotionController:
                 sends = recvs = 1
             tmo = self._timeout_ms / 1000
             last = F.ERR_TIMEOUT
+            rg = self.resend_guard
+            again = rg(req) if rg is not None else None
+            clock = self.clock
             self._drain()
             for s_try in range(sends):
-                self.last_sent = time.monotonic()
+                if s_try and again is not None:
+                    try:
+                        again()        # a halt since the first send: this request never again
+                    except Exception as e:
+                        self.recent.append((time.time(), req.func, req.addr, frame, None, f"not re-sent: {e}"))
+                        raise
+                self.last_sent = clock.monotonic()
                 try:
                     self._send(frame)
                 except OSError as e:
@@ -536,7 +565,7 @@ class MotionController:
                     # usual pause, never an unexpected exception or a tight retry loop (#5)
                     last = F.ERR_HOST_UNREACHABLE
                     log.debug("MC-SendErr %s Try-Times(S):%d", e, s_try + 1)
-                    time.sleep(max(self.cfg.send_interval_ms, 10) / 1000)
+                    clock.sleep(max(self.cfg.send_interval_ms, 10) / 1000)
                     continue
                 for r_try in range(recvs):
                     try:
@@ -562,12 +591,12 @@ class MotionController:
                         raise ControllerError("DecodeRecvData", last) from e
                     rc = F.check_reply(req, resp)
                     if rc == F.ERR_OK:
-                        self.last_ok = time.monotonic()
+                        self.last_ok = clock.monotonic()
                         self.recent.append((time.time(), req.func, req.addr, frame, data, "ok"))
                         return resp
                     self.recent.append((time.time(), req.func, req.addr, frame, data, f"error {rc}"))
                     raise ControllerError("RecvDataErr", rc)
-                time.sleep(self.cfg.send_interval_ms / 1000)
+                clock.sleep(self.cfg.send_interval_ms / 1000)
             self.recent.append((time.time(), req.func, req.addr, frame, None, f"no reply {last}"))
             raise ControllerError("no reply", last)
 

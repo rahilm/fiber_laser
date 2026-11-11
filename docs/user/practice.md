@@ -5,15 +5,15 @@ only: nothing moves and no laser fires. You use the normal Run screen buttons (F
 START, HOLD, Reset alarm, Resume); a small coach window tells you what to do next and checks that
 you did it.
 
-Open it with the command **Practice (simulator)...** (`practice.open`, available in Operator
-mode; search for "practice" in the command palette). The coach window stays open next to the
+Open it with **Tools › Practice (simulator)...** (available in Operator mode; or search for
+"practice" in the command palette, or *Practice on the simulator* on the empty canvas). The coach window stays open next to the
 main window, so you can work on the Run screen while it shows the steps.
 
 ## Before you start
 
 The lessons refuse to start on a real machine. If the program is connected to a real card, the
-coach window says so and offers **Connect the simulator** (the same as Machine > Connect
-simulator; the real machine is disconnected). Jobs you run during a lesson are recorded as
+coach window says so and offers **Connect the simulator** (the same as **Machine › Connect to
+simulator**; the real machine is disconnected). Jobs you run during a lesson are recorded as
 **practice** runs: the Report leaves them out of the production figures (select *Runs: All* to
 see them, [report.md](report.md)), and they add nothing to the processing hours, the maintenance
 counters or the planned quantity.

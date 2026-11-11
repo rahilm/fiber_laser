@@ -1,7 +1,7 @@
 # User guide
 
 This guide is for people who run a fiber-laser cutter with mlaser: preparing drawings, setting
-the cutting process, nesting sheets and running jobs. It ships with the program (**Start → Help**) and works offline.
+the cutting process, nesting sheets and running jobs. It ships with the program (**Help › Help**, F1) and works offline.
 
 > **Read [Safety](safety.md) before you connect mlaser to a machine.** The motion-card protocol
 > was reverse-engineered and has not yet been tested on real hardware.
@@ -30,8 +30,9 @@ the cutting process, nesting sheets and running jobs. It ships with the program 
 | [Machine](machine.md) | homing, jogging, outputs, follower, calibration and diagnostics |
 | [FAQ](faq.md) | common questions and problems |
 
-The task guides (Design to Machine) follow the workspaces of the Wave 3 interface. Where a
-workspace is still being built, the guide describes the ribbon commands that do the same job.
+The task guides (Design to Machine) follow the workspaces in the rail on the left of the window.
+Menu paths are written **Menu › Submenu › Command** as they read on Windows and Linux; on macOS
+a few commands sit in the **mlaser** application menu instead ([The window](shell.md#1-menu-bar-and-top-bar)).
 
 Other documentation: the [developer docs](../dev/README.md) (architecture, plugins, testing,
 release) and the [reverse-engineering notes](../re/README.md) (how the original program works).

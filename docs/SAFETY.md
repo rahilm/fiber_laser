@@ -228,7 +228,11 @@ of the original's program stop (parity `test_stop_sequence`):
 
 A halt that did not get through completely is repeated every 0.5 s until it does (the link may
 come back). After a halt nothing moves until the operator starts a new action (halt latch in the
-guard), so a streamer racing the stop cannot restart the card.
+guard), so a streamer racing the stop cannot restart the card. A request that moves or fires
+and is still waiting for its reply when a halt comes is never sent again by the client's retry
+policy (`MotionController.transact` asks the supervisor before every re-send; in the streaming
+process the child's guard, which sees the cancel and its own halt): the motion a halt stopped
+cannot follow it. Reads, halts and output-off commands keep the retry policy.
 
 Called from: the job worker's `finally` (every exit except a verified complete run),
 `disconnect()`, `closeEvent`, `atexit`, SIGINT/SIGTERM, `sys.excepthook` / `threading.excepthook`,

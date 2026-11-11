@@ -46,7 +46,7 @@ uv run lint-imports                                # layer rules of ARCHITECTURE
 uv run mypy                                        # the typed core
 uv run python tools/i18n_check.py --no-legacy-scan # string catalogue and placeholders
 uv run pytest -q tests/test_docs_links.py          # every relative Markdown link and anchor
-uvx ruff@0.17.1 check <changed files>
+uvx ruff@0.17.1 check <changed files>                # CI's ruff job is informative until the tree is clean
 ```
 
 * After a change to the emitter loop or `mlaser/_native`: also `MLASER_NATIVE=0 uv run python

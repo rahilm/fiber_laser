@@ -30,7 +30,7 @@ import numpy as np
 from PySide6.QtCore import Qt
 from PySide6.QtGui import QImage, QPixmap
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialogButtonBox, QFileDialog, QGridLayout, QLabel, QPushButton, QSizePolicy,
+    QCheckBox, QComboBox, QDialogButtonBox, QFileDialog, QGridLayout, QLabel, QSizePolicy,
     QSlider, QSpinBox, QWidget,
 )
 
@@ -165,7 +165,7 @@ class BitmapDialog(Dialog):
         self.body.addWidget(cols, 1)
         # the picture: the image as it will be engraved, on the base colour
         left = S.vbox()
-        self.open_button = QPushButton()
+        self.open_button = S.button()
         self.open_button.clicked.connect(self.open_image)
         left.addWidget(self.open_button, 0, Qt.AlignLeft)
         self.preview = QLabel()
@@ -207,13 +207,13 @@ class BitmapDialog(Dialog):
 
         # edit: the image operations, then the crop rectangle (image pixels)
         self.edit_section, ed = S.section("")
-        self.crop_button = QPushButton()
-        self.binarize_button = QPushButton()
-        self.blur_button = QPushButton()
-        self.cancel_button = QPushButton()
-        self.invert_button = QPushButton()
-        self.flip_h_button = QPushButton()
-        self.flip_v_button = QPushButton()
+        self.crop_button = S.button()
+        self.binarize_button = S.button()
+        self.blur_button = S.button()
+        self.cancel_button = S.button()
+        self.invert_button = S.button()
+        self.flip_h_button = S.button()
+        self.flip_v_button = S.button()
         self.binarize_button.clicked.connect(lambda: self.apply_edit("binarize"))
         self.blur_button.clicked.connect(lambda: self.apply_edit("blur"))
         self.invert_button.clicked.connect(lambda: self.apply_edit("invert"))

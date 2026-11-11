@@ -70,8 +70,10 @@ fixes), from the bundle jobs' logs and the uploaded artifact sizes.
 
 What was removed and why (`packaging/bundle_config.py` has the rules and the reasons):
 
-* all OSes: Qt's own translations (7.0 MB; mlaser loads no Qt translator); QtNetwork and the
-  TUIO/VNC plugins, which were its only users; the QtDBus binding (on Linux `libQt6DBus`
+* all OSes: Qt's own translations except the nine `qtbase_*.qm` of the languages mlaser offers
+  (`QT_KEEP_TRANSLATIONS`; `mlaser.ui.i18n.install_qt_translations` loads them for Qt's own
+  buttons and dialogs); the TUIO/VNC plugins (QtNetwork itself is shipped again, for the
+  single-instance socket); the QtDBus binding (on Linux `libQt6DBus`
   itself stays, because `libQt6Gui` links it); the Qt image formats nothing reads through Qt
   (TIFF, WebP, TGA, WBMP; raster import goes through Pillow); Pillow's AVIF codec (5-8 MB; not
   an engrave input format).
@@ -143,8 +145,18 @@ cp314 x manylinux x86_64, manylinux aarch64, win_amd64, macosx_11_0_arm64), the 
 `build-info-<OS>.json` (bundled distributions, sizes, LGPL check, smoke-test output), and the
 project's plugin wheels with `SHA256SUMS` and `mlaser-plugin-index.json` (job `plugins`; the
 application's default plugin repository, docs/dev/PLUGIN_STANDARD.md). Without
-the signing secrets the bundles are unsigned (say so in the notes: SmartScreen on Windows,
-right-click > Open on macOS).
+the signing secrets the bundles are unsigned. Say so in the notes, with what the user does:
+
+> The Windows and macOS builds of this release are not signed. **Windows:** SmartScreen says
+> "Windows protected your PC": choose **More info › Run anyway**. **macOS 15 and later:** open
+> `mlaser.app` once, then **Open Anyway** in System Settings › Privacy & Security (macOS 14:
+> Control-click › Open), or run `xattr -dr com.apple.quarantine mlaser.app`. On the first
+> connection to the card allow mlaser to find devices on the local network (System Settings ›
+> Privacy & Security › Local Network); an unsigned build may ask again after an update.
+
+The release stays a draft until the owner publishes it. `gh release download` and
+`gh run download` set no quarantine mark, a browser download does: try the macOS bundle from a
+browser download before publishing.
 
 **Build provenance.** On a `v*` tag push, the `attest` job of package.yml signs a SLSA build
 provenance attestation (Sigstore, through the job's OIDC token; no secret, no repository
@@ -190,7 +202,12 @@ it. Recommended (details in [CONTRIBUTING.md](../../CONTRIBUTING.md#branch-prote
   paths, after the fact); `windows-latest / Python 3.12` and `macos-latest / Python 3.12`
   once stable. The parity guard runs on every pull request (only its push trigger has a
   `paths` filter), so it can be required; `ci.yml` has no `paths` filter at all, because a
-  required check whose workflow is skipped stays pending and blocks the pull request;
+  required check whose workflow is skipped stays pending and blocks the pull request.
+  Instead its job `changed files` recognises a change of Markdown documents only (none of
+  them read by a test by path): the test matrix then reports every check under its usual name
+  with all steps skipped (green in seconds), and `import contracts, types, i18n, docs` checks
+  the documents (links, the user guide's menu paths, `keyboard.md`, the help browser). The
+  nightly run and the next code change run everything;
 * linear history, no force pushes or deletions, no bypass for administrators;
 * private vulnerability reporting enabled ([SECURITY.md](../../SECURITY.md)).
 

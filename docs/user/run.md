@@ -1,7 +1,7 @@
 # Run workspace: operator screen and job queue
 
-Open it with the command `workspace.run` (until the workspace switcher exists it opens in its own
-window; **F11** toggles full screen). Everything on this screen goes through the same safety path
+Open it with **Run** in the rail, **Workspace › Run** or `Ctrl+4` (**F11** toggles full screen).
+The Run workspace hides the other panels, so STOP, Hold and Start always stay in view. Everything on this screen goes through the same safety path
 as the run bar: arming question, pre-flight check, the planned job, the safety supervisor
 (docs/SAFETY.md). Nothing here bypasses it.
 
@@ -14,7 +14,7 @@ as the run bar: arming question, pre-flight check, the planned job, the safety s
 | HOMING / MOVING | dark slate | the axes are homing or moving to a position; Start, Frame and Dry run wait ("Homing in progress"), STOP stops the move |
 | HOLD | grey | held, or paused at a breakpoint (with its X/Y position) |
 | ALARM / E-STOP | red | a card alarm or the emergency stop is active (code and text) |
-| FAULT | dark red | a fault is latched (the reason); nothing moves until **Reset** |
+| FAULT | dark red | a fault is latched (the reason); nothing moves until **Reset alarm** |
 | OFFLINE | grey | no machine connected |
 
 Colour is never the only cue: every state has its text and an icon.
@@ -131,7 +131,7 @@ Sheets sent from the Nest workspace carry their sheet outline: after a sheet is 
 part is saved as a remnant (see nest.md), and a remnant sheet is marked *used*.
 Settings: `plugin.run.remnant_auto`, `remnant_min_width` (mm), `remnant_min_area` (mm²).
 
-The command `queue.add_current` adds the open (saved) document to the queue.
+**Machine › Add document to queue** adds the open (saved) document to the queue.
 
 ### Jobs submitted from outside
 

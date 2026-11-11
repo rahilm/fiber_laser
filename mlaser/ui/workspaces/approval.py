@@ -14,7 +14,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QAbstractItemView, QFrame, QHBoxLayout, QHeaderView, QLabel, QMessageBox,
-                               QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout)
+                               QTableWidget, QTableWidgetItem, QVBoxLayout)
 
 from mlaser.services import units as U
 from mlaser.services.intake import IntakeError
@@ -50,7 +50,7 @@ class ApprovalPanel(QFrame):
         self.title.setFont(f)
         self.title.setWordWrap(True)
         v.addWidget(self.title)
-        self.table = QTableWidget(0, len(self.COLS))
+        self.table = style.table_look(QTableWidget(0, len(self.COLS)), numeric=(1,))
         self.table.setObjectName("queue_approval_table")
         self.table.setHorizontalHeaderLabels([tr(w, k, d) for k, d in self.COLS])
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -64,9 +64,9 @@ class ApprovalPanel(QFrame):
         hh.setSectionResizeMode(0, QHeaderView.Stretch)
         v.addWidget(self.table)
         row = QHBoxLayout()
-        self.approve_btn = QPushButton(tr(w, "approval.btn.approve", "Approve"))
+        self.approve_btn = style.button(tr(w, "approval.btn.approve", "Approve"), size="touch")
         self.approve_btn.setObjectName("queue_approve")
-        self.reject_btn = QPushButton(tr(w, "approval.btn.reject", "Reject"))
+        self.reject_btn = style.button(tr(w, "approval.btn.reject", "Reject"), size="touch")
         self.reject_btn.setObjectName("queue_reject")
         for b in (self.approve_btn, self.reject_btn):
             b.setMinimumHeight(TOUCH_MIN)

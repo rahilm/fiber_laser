@@ -26,7 +26,7 @@ from typing import Any, Optional
 from PySide6.QtCore import QRectF, Qt, QTimer
 from PySide6.QtGui import QPainter, QPalette, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QComboBox, QFileDialog, QFrame,
-                               QHBoxLayout, QHeaderView, QLabel, QPushButton, QSizePolicy,
+                               QHBoxLayout, QHeaderView, QLabel, QSizePolicy,
                                QTableWidget, QTableWidgetItem, QTabWidget, QVBoxLayout, QWidget)
 
 from mlaser.machine import events as EV
@@ -215,7 +215,7 @@ class DayChart(QWidget):
 
 # ============================================================================== workspace
 def _table(cols: list[str], name: str, label: str = "") -> QTableWidget:
-    t = QTableWidget(0, len(cols))
+    t = style.table_look(QTableWidget(0, len(cols)))
     t.setObjectName(name)
     t.setAccessibleName(label)
     t.setHorizontalHeaderLabels(cols)
@@ -296,7 +296,7 @@ class ReportWorkspace(QWidget):
                                    ("csv", "report.btn.csv", "Export CSV...", self.export_csv),
                                    ("pdf", "report.btn.pdf", "Export PDF...", self.export_pdf),
                                    ("legacy", "report.btn.legacy", "Job report pages...", self.legacy_viewer)):
-            b = QPushButton(tr(w, tid, text))
+            b = style.button(tr(w, tid, text), size="touch")
             b.setObjectName(f"report_{key}")
             b.setMinimumHeight(TOUCH_MIN)
             b.clicked.connect(lambda _=False, f=fn: f())
@@ -330,10 +330,8 @@ class ReportWorkspace(QWidget):
         v.addWidget(tiles)
         self.chart = DayChart()
         v.addWidget(self.chart)
-        self.tabs = QTabWidget()
+        self.tabs = style.tabs(QTabWidget(), "workspace")
         self.tabs.setObjectName("report_tabs")
-        self.tabs.setStyleSheet(f"QTabBar::tab{{min-height:{TOUCH_MIN - style.SP3}px;"
-                                f"padding:{style.SP1}px {style.SP3}px;}}")
         self.days = _table([tr(w, "report.col.day", "Day"), tr(w, "report.col.jobs", "Jobs"),
                             tr(w, "report.col.ok", "Done"), tr(w, "report.col.stopped", "Stopped"),
                             tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut"),

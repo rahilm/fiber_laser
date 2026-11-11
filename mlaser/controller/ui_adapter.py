@@ -45,6 +45,7 @@ from ..machine.safety import SafetyState
 from .client import CardScaling, ControllerError, MotionController, TransportConfig
 from .commands import CommandExecutor
 from .interlocks import InterlockConfig, InterlockMonitor
+from ..machine.jobphase import JobLifecycle
 from .parts.connection import AXES, ConnectionPart
 from .parts.gate import StartGatePart
 from .parts.io import IOPart
@@ -74,8 +75,12 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
                  idle_link_deadline_ms: float = 1500.0, halt_timeout_ms: int = 40,
                  heartbeat_output: int = 0, heartbeat_hz: float = 5.0,
                  interlocks: Optional[InterlockConfig] = None, jog_deadman_s: Optional[float] = 0.5,
-                 require_homed: bool = True):
+                 require_homed: bool = True, clock=None):
         super().__init__()
+        from .clock import SYSTEM
+        # the time of the job runner, the streamer, the card client and the link watch
+        # (controller.clock): the wall clock; tests pass a ManualClock (virtual time)
+        self.clock = clock or SYSTEM
         from ..nc import Machine
         self.cfg = TransportConfig.from_ini(ini_path) if ini_path else TransportConfig(host=host, port=port)
         if machine is None and dat_dir:
@@ -117,7 +122,7 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
                                     heartbeat_output=heartbeat_output, heartbeat_hz=heartbeat_hz,
                                     on_link_lost=self._on_link_lost,
                                     on_link_restored=self._on_link_restored,
-                                    halt_params=self._halt_params)
+                                    halt_params=self._halt_params, clock=self.clock)
         self._sup._guarded_fn = self._guarded_outputs_mask
         self.sim = None                      # in-process CardSimulator when connect_simulator() is used
         self.version = 0
@@ -130,12 +135,11 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
         self._poll_thread: Optional[threading.Thread] = None
         self._worker: Optional[threading.Thread] = None
         self._cancel = threading.Event()
-        self._paused = False
-        self._pausing = False
+        # the job's phase, its one owner (machine.jobphase, arch A1): it replaced the flags
+        # _job_starting, _job_live, _paused (held / stop in progress), _pausing and _job_mode
+        self._lc = JobLifecycle()
+        self._poll_failing = False           # the status poll failed 3 times in a row
         self._stop_reason = ""
-        self._job_mode = ""
-        self._job_starting = False           # _run_job: between the start and the worker
-        self._job_live = False               # a job started and its worker has not ended it
         self._job_emits = False
         self._run_job_obj = None             # job currently streaming (may be a resume job)
         self._run_offset = 0                 # wire index in self._bp_job = streaming index + offset

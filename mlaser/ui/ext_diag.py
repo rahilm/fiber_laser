@@ -158,7 +158,7 @@ def _cols(window, first: str = "") -> list[str]:
 def _table(headers: list[str], stretch: Optional[int] = None) -> QTableWidget:
     """A table; ``stretch``: the key column that takes the rest of the width and elides (rule
     R2), else the last column stretches."""
-    t = QTableWidget(0, len(headers))
+    t = S.table_look(QTableWidget(0, len(headers)))
     t.setHorizontalHeaderLabels(headers)
     t.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
     if stretch is None:
@@ -303,14 +303,14 @@ class ControllerMonitor(QDialog):
         top.addWidget(self.ro_mode)
         self.status = QLabel("")
         top.addWidget(self.status, 1)
-        b = QPushButton(_tr(w, "zf0", "Refresh"))
+        b = S.button(_tr(w, "zf0", "Refresh"))
         b.clicked.connect(lambda: self.refresh(True))
         top.addWidget(b)
-        b = QPushButton(_tr(w, "ss0", "System Reset"))
+        b = S.button(_tr(w, "ss0", "System Reset"))
         b.clicked.connect(self._reset)
         top.addWidget(b)
         lay.addLayout(top)
-        self.tabs = QTabWidget()
+        self.tabs = S.tabs(QTabWidget())
         lay.addWidget(self.tabs, 1)
         self.tables = {}
         for key, tkey, title in self.PAGES:
@@ -342,7 +342,7 @@ class ControllerMonitor(QDialog):
             g.addWidget(lb, i // 7, i % 7)
             self.di.append(lb)
         for i in range(26):
-            b = QPushButton(_tr(self.ext.w, "diag.controller.do", "DO{n}", n=i + 1))
+            b = S.button(_tr(self.ext.w, "diag.controller.do", "DO{n}", n=i + 1))
             b.setCheckable(True)
             b.clicked.connect(lambda on, n=i + 1: self._set_do(n, on))
             g.addWidget(b, 5 + i // 7, i % 7)
@@ -366,10 +366,10 @@ class ControllerMonitor(QDialog):
         f.addRow(_tr(self.ext.w, "ss14", "Pulse"), self.pulses)
         f.addRow(_tr(self.ext.w, "diag.controller.pulse_speed", "speed (pulses/s)"), self.pulse_speed)
         row = QHBoxLayout()
-        b = QPushButton(_tr(self.ext.w, "ss8", "Send"))
+        b = S.button(_tr(self.ext.w, "ss8", "Send"))
         b.clicked.connect(self.send_pulses)
         row.addWidget(b)
-        b = QPushButton(_tr(self.ext.w, "ss15", "Stop"))
+        b = S.button(_tr(self.ext.w, "ss15", "Stop"))
         b.clicked.connect(self._stop_axes)
         row.addWidget(b)
         f.addRow(row)
@@ -394,7 +394,7 @@ class ControllerMonitor(QDialog):
         self.pwm_d.setSuffix(suffix_for("%"))
         f.addRow(_tr(w, "diag.controller.pwm_freq", "PWM frequency"), self.pwm_f)
         f.addRow(_tr(w, "diag.controller.pwm_duty", "PWM duty"), self.pwm_d)
-        b = QPushButton(_tr(self.ext.w, "ec17", "Set"))
+        b = S.button(_tr(self.ext.w, "ec17", "Set"))
         b.clicked.connect(self.apply_da_pwm)
         f.addRow(b)
         return page
@@ -553,7 +553,7 @@ class DeviceMonitor(QDialog):
         self.refresh()
 
     def _btn(self, row, key, default, fn):
-        b = QPushButton(_tr(self.ext.w, key, default))
+        b = S.button(_tr(self.ext.w, key, default))
         b.clicked.connect(lambda _=False: self._safe(fn))
         row.addWidget(b)
         return b
@@ -964,7 +964,7 @@ class CustomIODialog(Dialog):
             self.grid.addWidget(QLabel(_tr(self.ext.w, "diag.customio.none",
                                            "No custom output of this type is configured.")), 0, 0)
         for i, c in enumerate(items):
-            b = QPushButton(_tr(self.ext.w, "diag.customio.button", "{name} (DO{port})", name=c.name, port=c.port))
+            b = S.button(_tr(self.ext.w, "diag.customio.button", "{name} (DO{port})", name=c.name, port=c.port))
             if self.self_locking:
                 b.setCheckable(True)
                 b.setChecked(self.ext.outputs.get(c.port))
@@ -1103,7 +1103,7 @@ class InterferometerPanel(QWidget):
         super().__init__()
         self.ext, w = ext, ext.w
         lay = QVBoxLayout(self)
-        tabs = QTabWidget()
+        tabs = S.tabs(QTabWidget())
         lay.addWidget(tabs)
         page = QWidget()
         pl = QVBoxLayout(page)
@@ -1113,7 +1113,7 @@ class InterferometerPanel(QWidget):
         row = QHBoxLayout()
         for key, default, fn in (("mp59", "Sim", self.simulate), ("mp54", "Start", self.start),
                                  ("mp56", "Stop", self.stop)):
-            b = QPushButton(_tr(w, key, default))
+            b = S.button(_tr(w, key, default))
             b.clicked.connect(fn)
             row.addWidget(b)
         pl.addLayout(row)
@@ -1133,7 +1133,7 @@ class InterferometerPanel(QWidget):
         row.addWidget(self.use_comp)
         for key, default, fn in (("mf9", "Open", self.import_table), ("cp3", "Save", self.save_table),
                                  ("cp2", "Clear", self.clear_table)):
-            b = QPushButton(_tr(w, key, default))
+            b = S.button(_tr(w, key, default))
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
         cl.addLayout(row)
@@ -1634,16 +1634,20 @@ class DiagExtension:
             _log(self.w, _tr(self.w, "diag.log.no_dedust",
                              "Dust extraction: no dedust output configured (DO.ClearAsh pd1400)"))
             state = False
+        elif port == CIO.dedust_port({}, self.w.ctl):
+            # the controller's own dedust output: its command path (guard, its state under its
+            # lock, the log), never a write into ctl.state() (arch A6)
+            state = (not self.outputs.get(port)) if on is None else bool(on)
+            if self.w.ctl.card() is None:
+                self.outputs.set(port, state)    # no card: remembered and logged as before
+            else:
+                self.w.ctl.set_output("dedust", state)
         else:
             if on is None:
                 state = self.outputs.toggle(port)
             else:
                 self.outputs.set(port, bool(on))
                 state = bool(on)
-            try:
-                self.w.ctl.state().outputs["dedust"] = state
-            except Exception:  # noqa: BLE001
-                pass
         act = self.w.ribbon.actions.get("aux.dedust")
         if act is not None:
             act.blockSignals(True)
