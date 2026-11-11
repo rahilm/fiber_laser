@@ -33,11 +33,13 @@ def test_disconnect_mid_job_halts_the_card(make_ctl, process):
     ctl = make_ctl(process=process)
     start_and_run(ctl)
     sim = ctl.sim
-    w = Watch(sim)
+    w = Watch(sim, from_halt=True)      # travel from the halt's arrival at the card
     ctl.disconnect(keep_sim=True)
     dt, travel = w.until_safe(1.0)
     assert dt is not None and dt < 0.5, f"card not safe {dt} s after disconnect"
-    assert travel < 20.0, f"head moved {travel:.1f} mm after disconnect (was 527 mm)"
+    assert w.halt_at is not None, "no stop command reached the card"
+    assert travel < 20.0, (f"head moved {travel:.1f} mm after the halt reached the card "
+                           f"({w.halt_delay_s:.3f} s after disconnect; was 527 mm)")
     assert not sim.state.pwm_on and not sim.state.laser
     cmds = sim.state.commands
     assert [1, 0x1F, 2, ctl._decel_counts(), 200000] in cmds
