@@ -39,6 +39,8 @@ from PySide6.QtWidgets import (
 from mlaser.services.config import Setting
 
 from . import style as S
+from .extension_context import ExtensionContext, dialogs_suppressed
+from .extension_context import text as _text
 from .style import Dialog
 
 
@@ -57,17 +59,16 @@ def profiles() -> dict:
 
 class ProfileDialog(Dialog):
     def __init__(self, current: str, parent=None) -> None:
-        super().__init__(parent, _t(parent, "options.profile.title", "Parity profile"),
-                         explanation=_t(parent, "options.profile.explanation",
+        super().__init__(parent, _t("options.profile.title", "Parity profile"),
+                         explanation=_t("options.profile.explanation",
                                         "How the toolpath and the motion are computed. The original "
                                         "profile is bit-exact with the original program."))
-        self.w = parent
         self.profs = profiles()
         self.combo = QComboBox()
         for name in self.profs:
             self.combo.addItem(name, name)
         self.combo.setCurrentIndex(max(0, self.combo.findData(current)))
-        S.form_row(self.form(), _t(parent, "options.profile.combo", "Profile"), self.combo)
+        S.form_row(self.form(), _t("options.profile.combo", "Profile"), self.combo)
         self.info = QLabel()
         self.info.setWordWrap(True)
         self.body.addWidget(self.info)
@@ -83,9 +84,9 @@ class ProfileDialog(Dialog):
             return
         paras = [p.description]                  # the profile's own text (from its registration)
         if p.warning:
-            paras.append(_t(self.w, "options.profile.warning", "Warning: {warning}", warning=p.warning))
+            paras.append(_t("options.profile.warning", "Warning: {warning}", warning=p.warning))
         if p.name == "original":
-            paras.append(_t(self.w, "options.profile.original_note",
+            paras.append(_t("options.profile.original_note",
                             "(Bit-exact with the original; the goldens and the Wine parity run use it.)"))
         self.info.setText("\n\n".join(paras))
 
@@ -94,18 +95,18 @@ class NetCheckDialog(Dialog):
     def __init__(self, parent=None) -> None:
         from mlaser import netcheck
 
-        super().__init__(parent, _t(parent, "options.netcheck.title", "Network self-test"),
+        super().__init__(parent, _t("options.netcheck.title", "Network self-test"),
                          buttons=QDialogButtonBox.Close,
-                         explanation=_t(parent, "options.netcheck.explanation",
+                         explanation=_t("options.netcheck.explanation",
                                         "Checks this computer's network for the motion card. "
                                         "No packet is sent to the card."))
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         last = netcheck.last_result()
         self.text.setPlainText(last.text() if last is not None else
-                               _t(parent, "options.netcheck.none", "No self-test result yet."))
+                               _t("options.netcheck.none", "No self-test result yet."))
         self.body.addWidget(self.text, 1)
-        self.run_button = self.buttons.addButton(_t(parent, "options.netcheck.run", "Run now"),
+        self.run_button = self.buttons.addButton(_t("options.netcheck.run", "Run now"),
                                                  QDialogButtonBox.ActionRole)
         self.run_button.clicked.connect(self.run)
 
@@ -134,10 +135,10 @@ class PluginsDialog(Dialog):
 
     def __init__(self, window, catalog: list, allowlist: dict, editable: bool = True,
                  authority: Optional[list] = None) -> None:
-        super().__init__(window, _t(window, "plugins.title", "Plugins"),
+        super().__init__(window, _t("plugins.title", "Plugins"),
                          buttons=QDialogButtonBox.Save | QDialogButtonBox.Cancel if editable else QDialogButtonBox.Close,
-                         explanation=_t(window, "plugins.warning", PLUGIN_WARNING))
-        self.w = window
+                         explanation=_t("plugins.warning", PLUGIN_WARNING))
+        self._parent_window = window
         self.setObjectName("plugins_dialog")
         warn = self.explanation
         warn.setObjectName("plugins_warning")
@@ -148,7 +149,7 @@ class PluginsDialog(Dialog):
         self.authority0 = set(authority or ())
         self.table = S.table_look(QTableWidget(len(self.catalog), len(self.COLUMNS)))
         self.table.setObjectName("plugins_table")
-        self.table.setHorizontalHeaderLabels([_t(window, f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
+        self.table.setHorizontalHeaderLabels([_t(f"plugins.col_{c}", c.capitalize()) for c in self.COLUMNS])
         self.table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
         self.table.verticalHeader().hide()
@@ -176,7 +177,7 @@ class PluginsDialog(Dialog):
                 self.table.setItem(r, c, it)
         lay.addWidget(self.table, 1)
         if not self.catalog:
-            lay.addWidget(QLabel(_t(window, "plugins.none", "No third-party plugin is installed.")))
+            lay.addWidget(QLabel(_t("plugins.none", "No third-party plugin is installed.")))
         self.buttons.accepted.disconnect()
         self.buttons.accepted.connect(self._save)
 
@@ -199,26 +200,24 @@ class PluginsDialog(Dialog):
 
     def _save(self) -> None:
         new = self.new_ones() + [n for n in self.authority() if n not in self.authority0]
-        if new and not getattr(self.w, "_test_no_dialogs", False):
+        if new and not dialogs_suppressed(self._parent_window):
             ok = QMessageBox.question(
-                self, _t(self.w, "plugins.title", "Plugins"),
-                _t(self.w, "plugins.confirm", "Enable {names}?\n\n{warning}", names=", ".join(new),
-                   warning=_t(self.w, "plugins.warning", PLUGIN_WARNING)),
+                self, _t("plugins.title", "Plugins"),
+                _t("plugins.confirm", "Enable {names}?\n\n{warning}", names=", ".join(new),
+                   warning=_t("plugins.warning", PLUGIN_WARNING)),
                 QMessageBox.Yes | QMessageBox.No, QMessageBox.No)
             if ok != QMessageBox.Yes:
                 return
         self.accept()
 
 
-def _t(window, key: str, default: str, **kw) -> str:
-    from .workspaces import tr
-    return tr(window, key, default, **kw)
+def _t(key: str, default: str, **kw) -> str:
+    return _text(key, default, **kw)
 
 
 class OptionsExtension:
-    def __init__(self, ctx) -> None:
+    def __init__(self, ctx: ExtensionContext) -> None:
         self.ctx = ctx
-        self.w = ctx.window
         self.s = ctx.settings_schema(
             [
                 Setting("parity_profile", "str", "original", label="Parity profile"),
@@ -244,18 +243,18 @@ class OptionsExtension:
             try:
                 set_profile(name)
             except KeyError:
-                self.ctx.log(_t(self.w, "options.profile.unavailable",
+                self.ctx.log(_t("options.profile.unavailable",
                                 "Parity profile {name} is not available; using 'original'", name=repr(name)))
                 self.s["parity_profile"] = "original"
                 set_profile("original")
-        self.w.cam_params.kerf_fallback = "clipper" if self.s["kerf_clipper"] else None
+        self.ctx.cam_params.kerf_fallback = "clipper" if self.s["kerf_clipper"] else None
         for cmd, key in (("app.dxf_modern", "dxf_modern"), ("craft.kerf_clipper", "kerf_clipper")):
-            act = self.w.ribbon.actions.get(cmd)
+            act = self.ctx.action(cmd)
             if act is not None and act.isChecked() != bool(self.s[key]):
                 act.blockSignals(True)
                 act.setChecked(bool(self.s[key]))
                 act.blockSignals(False)
-        self.w._update_toolpath()
+        self.ctx.update_toolpath()
 
     def dxf_mode(self):
         """``import_dxf`` mode for the file loaders (None = the active profile's rules)."""
@@ -263,7 +262,7 @@ class OptionsExtension:
 
     # ---------------------------------------------------------------- commands
     def profile(self) -> None:
-        d = ProfileDialog(self.s["parity_profile"], self.w)
+        d = ProfileDialog(self.s["parity_profile"], self.ctx.parent)
         if not d.exec():
             return
         self.choose_profile(d.name())
@@ -274,25 +273,25 @@ class OptionsExtension:
             return
         self.s["parity_profile"] = name
         self.apply()
-        self.ctx.log(_t(self.w, "options.profile.chosen_warning", "Parity profile: {name} - warning: {warning}",
+        self.ctx.log(_t("options.profile.chosen_warning", "Parity profile: {name} - warning: {warning}",
                         name=name, warning=p.warning) if p.warning else
-                     _t(self.w, "options.profile.chosen", "Parity profile: {name}", name=name))
-        if p.warning and not getattr(self.w, "_test_no_dialogs", False):
-            QMessageBox.warning(self.w, _t(self.w, "options.profile.title", "Parity profile"),
-                                _t(self.w, "options.profile.warning_box", "{name}: {warning}", name=name,
+                     _t("options.profile.chosen", "Parity profile: {name}", name=name))
+        if p.warning and not self.ctx.dialogs_suppressed:
+            QMessageBox.warning(self.ctx.parent, _t("options.profile.title", "Parity profile"),
+                                _t("options.profile.warning_box", "{name}: {warning}", name=name,
                                    warning=p.warning))
 
     def set_dxf_modern(self, on: bool) -> None:
         self.s["dxf_modern"] = bool(on)
-        self.ctx.log(_t(self.w, "options.dxf.modern", "DXF import: modern (ezdxf)") if on
-                     else _t(self.w, "options.dxf.original", "DXF import: original rules"))
+        self.ctx.log(_t("options.dxf.modern", "DXF import: modern (ezdxf)") if on
+                     else _t("options.dxf.original", "DXF import: original rules"))
 
     def set_kerf_clipper(self, on: bool) -> None:
         self.s["kerf_clipper"] = bool(on)
         self.apply()
 
     def netcheck(self) -> None:
-        NetCheckDialog(self.w).exec()
+        NetCheckDialog(self.ctx.parent).exec()
 
     def plugins(self):
         """``app.plugins``: the allowlist's one home is the Plugin manager (enable / disable,
@@ -304,7 +303,7 @@ class OptionsExtension:
         the allowlist (persisted at once, used at the next start)."""
         from mlaser.services.plugins import ALLOWLIST_KEY, AUTHORITY_KEY
         cfg = self.ctx.config
-        d = PluginsDialog(self.w, list(getattr(self.w, "plugin_catalog", []) or []), cfg.get(ALLOWLIST_KEY, {}),
+        d = PluginsDialog(self.ctx.parent, list(self.ctx.plugin_catalog), cfg.get(ALLOWLIST_KEY, {}),
                           authority=list(cfg.get(AUTHORITY_KEY, []) or []))
         if d.exec():
             self.save_allowlist(d.checked(), d.authority())
@@ -313,7 +312,7 @@ class OptionsExtension:
     def plugin_manager(self):
         """The Plugin manager dialog (Engineer mode views; changes need Service mode)."""
         from .plugin_manager import PluginManagerDialog
-        d = PluginManagerDialog(self.w)
+        d = PluginManagerDialog(self.ctx.parent)
         d.exec()
         return d
 
@@ -326,14 +325,14 @@ class OptionsExtension:
         # the manifest permissions accepted now (a later change needs enabling again)
         from mlaser.services.plugin_manifest import normalize_permissions
         accepted = {k: v for k, v in (cfg.get(ACCEPTED_KEY, {}) or {}).items() if k in allow}
-        for info, _st in getattr(self.w, "plugin_catalog", []) or []:
+        for info, _st in self.ctx.plugin_catalog:
             if info.name in allow and allow.get(info.name) == info.target and info.manifest is not None:
                 accepted[info.name] = normalize_permissions(info.manifest.get("permissions", {}))
         cfg.set(ACCEPTED_KEY, accepted)
         try:
             cfg.save()
         except OSError as exc:
-            self.ctx.log(_t(self.w, "options.plugins.not_saved", "Plugins: the allowlist could not be saved ({error})",
+            self.ctx.log(_t("options.plugins.not_saved", "Plugins: the allowlist could not be saved ({error})",
                             error=exc))
             return
         try:
@@ -342,11 +341,11 @@ class OptionsExtension:
                   authority=list(cfg.get(AUTHORITY_KEY, [])))
         except Exception:  # noqa: BLE001
             pass
-        self.ctx.log(_t(self.w, "options.plugins.enabled", "Plugins enabled: {names} (at the next start)",
-                        names=", ".join(sorted(allow)) or _t(self.w, "options.plugins.none", "none")))
+        self.ctx.log(_t("options.plugins.enabled", "Plugins enabled: {names} (at the next start)",
+                        names=", ".join(sorted(allow)) or _t("options.plugins.none", "none")))
 
 
-def register(ctx) -> OptionsExtension:
+def register(ctx: ExtensionContext) -> OptionsExtension:
     ext = OptionsExtension(ctx)
     # labels: the catalogue's cmd.<id> (the window looks it up for a command without a label)
     ctx.register_command("app.profile", ext.profile)
@@ -355,13 +354,13 @@ def register(ctx) -> OptionsExtension:
     ctx.register_command("app.netcheck", ext.netcheck)
     ctx.register_command("app.plugins", ext.plugins, label="plugins.allowlist", min_mode="service")
     ctx.register_command("app.plugin_manager", ext.plugin_manager, label="plugins.title", min_mode="engineer")
-    ctx.add_ribbon_tab(_t(ext.w, "options.tab", "Options+"), ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
+    ctx.add_ribbon_tab(_t("options.tab", "Options+"), ["app.profile", "app.dxf_modern", "craft.kerf_clipper", "app.netcheck",
                                     "app.plugin_manager"])
     ctx.provide("dxf.mode", ext.dxf_mode)
     # the controller's plugin policy (Safety core): plugins arm / reset / reconfigure safety only
     # with the machine authority granted here; re-installed on every controller swap
     from mlaser.services.plugins import install_policy
-    install_policy(ctx.window.ctl, ctx.config)
+    install_policy(ctx.controller, ctx.config)
     ctx.on_controller_changed(lambda ctl: install_policy(ctl, ctx.config))
     ext.apply()
     return ext

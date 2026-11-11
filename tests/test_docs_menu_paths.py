@@ -70,9 +70,6 @@ def menu_tree():
             if a.isSeparator() or not a.text():
                 continue
             text = _norm(a.text())
-            # the Workspace menu labels some entries "Workspace: Design" and others "Nest": the
-            # guides name the workspace alone
-            text = text.removeprefix("workspace: ")
             child = node.setdefault(text, {})
             if a.menu() is not None:
                 walk(a.menu(), child)

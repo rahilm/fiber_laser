@@ -2065,7 +2065,7 @@ class SafetyUI(QObject):
         from .ext_card import AlarmListDialog
         st = _safety(self.w.ctl)
         fault = st.fault if st is not None and st.banner == "FAULT" else ""
-        AlarmListDialog(self.w, active_alarms(self.w), fault=fault).exec()
+        AlarmListDialog(self.w, active_alarms(self.w), fault=fault, reset=self.reset_fault).exec()
 
     # ------------------------------------------------------------------ readiness (W3)
     def readiness(self) -> list:
