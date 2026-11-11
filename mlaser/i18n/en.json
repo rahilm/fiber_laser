@@ -3261,6 +3261,7 @@
   "queue.col.qty": "Qty",
   "queue.col.sheet": "Sheet",
   "queue.col.status": "Status",
+  "queue.msg.checking": "Checking the sheet's job…",
   "queue.msg.empty": "The queue has no job left to run.",
   "queue.msg.finished": "Queue finished.",
   "queue.msg.load_sheet": "Load the next sheet, then confirm.",

@@ -1759,18 +1759,35 @@ class RunWorkspace:
         self._sheet_doc = self.window.document
         return True
 
-    def _start_sheet(self) -> bool:
-        """Start the loaded sheet through the run bar's path (arming, pre-flight, planned job).
-        False when it was refused before reaching the job service."""
+    def _start_sheet(self) -> Optional[bool]:
+        """Start the loaded sheet through the run bar's path (pre-flight, the one arming
+        question, planned job).  The check runs off the GUI thread, as for Start (perf review
+        2026-11-09, finding 10): None, and the runner learns later through
+        ``QueueRunner.start_result`` whether the start reached the job service; True / False
+        when that was decided at once.  A queue left meanwhile drops the start."""
         ui = getattr(self.window, "safety_ui", None)
         if ui is None:
             return False
         jobs = self.window.jobs
         before = getattr(jobs, "last_run", None)
-        ui.start()
-        ui.wait_preflight()             # the queue needs the answer now (pre-flight, arming)
-        after = getattr(jobs, "last_run", None)
-        return after is not None and after is not before
+        runner, entry = self.runner, self.runner.current
+        box: dict = {}
+
+        def handled() -> None:
+            after = getattr(jobs, "last_run", None)
+            started = after is not None and after is not before
+            if "pending" in box:
+                runner.start_result(started)
+            else:
+                box["started"] = started
+
+        def wanted() -> bool:
+            return runner.state == "starting" and runner.current is entry
+        ui.start(then=handled, proceed=wanted)
+        if "started" in box:
+            return box["started"]
+        box["pending"] = True
+        return None
 
     def _sheet_done(self, e: QueueEntry, ok: bool) -> None:
         if not ok:

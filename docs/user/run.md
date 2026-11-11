@@ -105,7 +105,9 @@ program ended is shown as *interrupted*.
 presses **Sheet loaded: start**: the next job is opened and started through the normal Start
 (pre-flight, arming). The queue never starts a sheet by itself. Arming is asked before the first
 sheet only: the machine stays armed between the queue's sheets, is disarmed when a sheet is
-stopped or fails, and when the last sheet is done.
+stopped or fails, and when the last sheet is done. While a large sheet is being checked the
+queue says "Checking the sheet's job…" and the window stays responsive: STOP or **Leave
+queue** in that time cancels the start (nothing moves, the sheet waits for a new confirmation).
 
 While the queue waits, the **Load this sheet** card shows, in large type, the material and
 thickness, the sheet size, the remnant id and the sheet number (n/N), with a picture of the

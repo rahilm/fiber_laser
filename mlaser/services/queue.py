@@ -258,10 +258,15 @@ class QueueRunner:
     States: ``idle`` (not running the queue), ``confirm`` (waiting for the operator to load the
     next sheet and confirm), ``starting`` (start requested, waiting for the job to start),
     ``running`` (a sheet of the queue is being cut).  ``on_sheet_done(entry, ok)`` listeners run
-    after every finished sheet (remnant capture, reports)."""
+    after every finished sheet (remnant capture, reports).
+
+    ``start()`` returns whether the sheet's start reached the job runner, or None when that is
+    decided later (the application checks the job off the GUI thread, perf review 2026-11-09
+    finding 10): then the state stays ``starting`` (:attr:`checking`) until the application calls
+    :meth:`start_result` exactly once."""
 
     def __init__(self, queue: JobQueue, load: Callable[[QueueEntry], bool] = lambda e: True,
-                 start: Callable[[], bool] = lambda: True,
+                 start: Callable[[], Optional[bool]] = lambda: True,
                  start_allowed: Callable[[], tuple[bool, str]] = lambda: (True, ""),
                  clock: Callable[[], float] = time.time,
                  start_timeout_s: float = 30.0,
@@ -287,6 +292,8 @@ class QueueRunner:
         self.sheet_listeners: list[Callable[[QueueEntry, bool], None]] = []
         self.watcher: Any = None
         self._t_request = 0.0
+        #: the start of the current sheet is being checked (``start`` returned None)
+        self.checking = False
 
     # ------------------------------------------------------------------ wiring
     def attach(self, bus: Any) -> None:
@@ -328,8 +335,11 @@ class QueueRunner:
         return True
 
     def cancel(self) -> None:
-        """Leave queue mode (a running sheet keeps running; stop it with Stop)."""
+        """Leave queue mode (a running sheet keeps running; stop it with Stop).  A sheet whose
+        start is still being checked does not start, and its keep-armed request is withdrawn."""
         if self.state in ("confirm", "starting", "idle"):
+            if self.state == "starting":
+                self._keep(False)
             self.state = "idle"
             self.current = None
             self._say("")
@@ -375,10 +385,32 @@ class QueueRunner:
         self._t_request = self.clock()
         self._keep(True)
         try:
-            started = bool(self.start())
-        except Exception as exc:  # noqa: BLE001
-            started = False
+            got = self.start()
+        except Exception as exc:  # noqa: BLE001 - reported to the operator
+            got = False
             e.note = f"start failed: {exc}"
+        if got is None:                         # being checked: start_result() follows
+            self.checking = True
+            self._say("queue.msg.checking")
+            self._notify()
+            return True
+        return self._settle_start(e, bool(got))
+
+    def start_result(self, started: bool) -> None:
+        """The answer to a ``start()`` that returned None: whether the sheet's start reached
+        the job runner.  Ignored when no start was being checked."""
+        if not self.checking:
+            return
+        self.checking = False
+        e = self.current
+        if self.state != "starting" or e is None:
+            if not started:
+                self._keep(False)
+            return                              # left meanwhile (cancel), or the job runs already
+        self._t_request = self.clock()          # the start timeout counts from the hand-off
+        self._settle_start(e, bool(started))
+
+    def _settle_start(self, e: QueueEntry, started: bool) -> bool:
         if not started:
             self._keep(False)
         if not started and self.state == "starting":
@@ -399,8 +431,9 @@ class QueueRunner:
                 pass
 
     def tick(self) -> None:
-        """Periodic check: a start request that never produced a job goes back to confirm."""
-        if self.state == "starting" and self.clock() - self._t_request > self.start_timeout_s:
+        """Periodic check: a start request that never produced a job goes back to confirm (not
+        while it is being checked: the check ends in :meth:`start_result`)."""
+        if self.state == "starting" and not self.checking and self.clock() - self._t_request > self.start_timeout_s:
             self._keep(False)
             self.state = "confirm"
             self._say("queue.msg.start_refused")

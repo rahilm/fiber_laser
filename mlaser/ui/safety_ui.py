@@ -1780,15 +1780,26 @@ class SafetyUI(QObject):
         on it).  Without the services layer: the controller itself."""
         return getattr(self.w, "run_controls", None) or self.w.ctl
 
-    def start(self, selected_only: bool = False) -> None:
+    def start(self, selected_only: bool = False, then: Optional[Callable[[], None]] = None,
+              proceed: Optional[Callable[[], bool]] = None) -> None:
         """Start (or resume) the job; ``selected_only``: only the selected parts, asked for
-        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch."""
+        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch.
+
+        The check runs off the GUI thread (:meth:`_preflight_async`).  ``then()`` is called
+        once when this start was handled: handed to the job runner, refused, declined at the
+        arming question, or dropped by a Stop meanwhile (the job queue reads the result from
+        there, perf review 2026-11-09 finding 10).  ``proceed()``, asked once the check is
+        done and before the arming question: False drops the start (the queue was left)."""
         ctl, doc = self.w.ctl, self.w.document
+        finish = then if then is not None else (lambda: None)
         ms = ctl.state()
         if ms.mode == "pause" or ctl.breakpoint is not None:
             from .resume import resume
-            resume(ctl, "exact", doc)           # a breakpoint of another document is refused
-            self._after(_tr(self.w, "safety.refused.resume", "Resume refused"))
+            try:
+                resume(ctl, "exact", doc)           # a breakpoint of another document is refused
+                self._after(_tr(self.w, "safety.refused.resume", "Resume refused"))
+            finally:
+                finish()
             return
         st = _safety(ctl)
         emits = bool(ctl.laser_enabled)
@@ -1796,7 +1807,13 @@ class SafetyUI(QObject):
         arm_first = emits and st is not None and not st.armed and self._dialogs()
 
         def checked(ok: bool) -> None:
-            if not ok:
+            try:
+                go(ok)
+            finally:
+                finish()
+
+        def go(ok: bool) -> None:
+            if not ok or (proceed is not None and not proceed()):
                 return
             if arm_first:
                 # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
@@ -1836,8 +1853,9 @@ class SafetyUI(QObject):
         (``ctl.preflight(job=...)``, as ``start_job`` checks it) and the cutting-strategy check.
         Back on the GUI thread the rest of :meth:`preflight_ok` runs (interlock warnings,
         plugins, the dialog) and ``then(ok)``.  A Stop or a halt meanwhile (the controller's
-        start generation moved) drops the start without a question.  Without the services
-        layer the check runs here, as before."""
+        start generation moved) drops the start without a question (``then(False)``), as does
+        a press while the previous one is still being checked.  ``then`` is called exactly
+        once.  Without the services layer the check runs here, as before."""
         w, ctl = self.w, self.w.ctl
         jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
         gen_fn = ctl.start_generation
@@ -1847,7 +1865,8 @@ class SafetyUI(QObject):
         checking = _tr(w, "run.checking", "Checking the job…")
         if self.preflight_busy:
             w.statusBar().showMessage(checking)
-            return                          # the previous Start is still being checked
+            then(False)                     # the previous Start is still being checked
+            return
         try:
             from ..services.jobs import build_request
             req = build_request(mode, docs, ctl, w.machine, w.cam_params, selected_only)
@@ -1879,17 +1898,26 @@ class SafetyUI(QObject):
             extra = list(augment_cutting(cut_win, rep, action, src, selected_only).issues[n:])
             return rep, extra
 
+        def decide(checked=None) -> None:
+            try:
+                ok = self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
+                                       checked=checked)
+            except Exception:  # noqa: BLE001 - a check that fails refuses (and then() still runs)
+                log.exception("pre-flight check failed: the start is refused")
+                ok = False
+            then(ok)
+
         def done(res, err) -> None:
             if w.statusBar().currentMessage() == checking:
                 w.statusBar().clearMessage()
             if err is not None:
                 log.error("pre-flight failed: %s", err)
-                then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
+                decide()
                 return
             if res is None or gen_fn() != gen:
-                return                      # stopped meanwhile: no start, no question
-            then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
-                                   checked=res))
+                then(False)                 # stopped meanwhile: no start, no question
+                return
+            decide(res)
         if self._prep_call is None:
             self._prep_call = qtbridge.BackgroundCall(self, name="mlaser-preflight")
         # the press is answered at once: the check of a large job takes seconds
