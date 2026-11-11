@@ -103,9 +103,12 @@ class JobRunnerPart:
 
     def head_position(self, fresh: bool = False) -> tuple[float, float]:
         """MachineAPI: the polled head position; ``fresh`` reads the card now (and stores it as
-        the state's position) unless a job owns the link.  The pre-flight worker of Start asks
-        for it: the poll's position is behind while the axes run out after a Stop."""
-        if fresh and self._mc is not None and not self._busy() and not self._sup.streaming:
+        the state's position) unless a job owns the link, and never on the GUI thread (a card
+        read can take the link timeout: there the polled position is returned).  The pre-flight
+        worker of Start asks for it: the poll's position is behind while the axes run out
+        after a Stop."""
+        if (fresh and self._mc is not None and not self._busy() and not self._sup.streaming
+                and not self._on_ui_thread()):
             return self._fresh_head()
         s = self.state()
         return float(s.x), float(s.y)
