@@ -239,7 +239,21 @@ def _run(args, app, inst) -> int:
     native_report.install(win)           # MLASER_NATIVE_REPORT (the native-check CI workflow)
     win.shell.maybe_show_welcome()       # first run: simulator, imports, safety model, docs
     app.setProperty("mlaser_main_loop", True)   # the launcher's --smoke-test ends this loop
-    return app.exec()
+    rc = app.exec()
+    release_widgets(app)
+    return rc
+
+
+def release_widgets(app) -> None:
+    """Delete the window and every other parentless top-level widget now, after the main loop
+    (the window has shut down: ``aboutToQuit``), while the QApplication and the interpreter are
+    whole.  Left to the interpreter's exit, PySide6 destroys them with the QApplication in no
+    fixed order (Python 3.14 CI: "double free or corruption" after the smoke test's clean end,
+    exit code -6).  The controllers are not widgets: the exit's halt (lifecycle) still runs."""
+    import shiboken6
+    for w in list(app.topLevelWidgets()):
+        if shiboken6.isValid(w) and w.parent() is None:
+            shiboken6.delete(w)
 
 
 if __name__ == "__main__":
