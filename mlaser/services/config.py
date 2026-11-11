@@ -903,15 +903,17 @@ class ConfigService:
                         if not running:
                             del _INFLIGHT[key]
         t = threading.Thread(target=write, name="mlaser-config-save", daemon=False)
-        with _INFLIGHT_LOCK:
-            _INFLIGHT.setdefault(key, set()).add(t)
-        try:
-            t.start()
-        except BaseException:
-            with _INFLIGHT_LOCK:
-                _INFLIGHT.get(key, set()).discard(t)
-            self._dirty = True
-            raise
+        with _INFLIGHT_LOCK:                     # started under the lock: a waiter never joins
+            running = _INFLIGHT.setdefault(key, set())     # a thread that has not started
+            running.add(t)
+            try:
+                t.start()
+            except BaseException:
+                running.discard(t)
+                if not running:
+                    del _INFLIGHT[key]
+                self._dirty = True
+                raise
 
     # ------------------------------------------------------------------ original XML files
     def machine_params(self):
