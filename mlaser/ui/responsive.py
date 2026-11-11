@@ -1651,17 +1651,24 @@ class TabsWhenNarrow(QWidget):
     default proportion among the widths that do (until the user moves the splitter): with a
     larger font the Nest page's left column took the width its one-row fields wanted, the sheet
     column's parameters wrapped one per row, and the page needed 100 px more than a 1280 x 800
-    screen with a taskbar has (12 pt)."""
+    screen with a taskbar has (12 pt).
+
+    ``give=k``: pane ``k`` (no rows that wrap) gives the two balanced panes width, down to its
+    own minimum width, when that lowers the height they need, and takes it back up to its
+    default width when it does not (a font with wider text, macOS: one more row of the Nest
+    sheet column's parameters scrolled the page by 30 px at 12 pt)."""
 
     #: the step (px) of the widths tried when balancing
     BALANCE_STEP = 8
 
     def __init__(self, extra: int = 0, parent: Optional[QWidget] = None,
-                 need: Optional[Callable[[], int]] = None, balance: Optional[tuple[int, int]] = None) -> None:
+                 need: Optional[Callable[[], int]] = None, balance: Optional[tuple[int, int]] = None,
+                 give: Optional[int] = None) -> None:
         super().__init__(parent)
         from PySide6.QtWidgets import QSplitter, QTabWidget
         self.extra = extra
         self.balance = balance
+        self.give = give
         self._user_sized = False
         self._balanced_for: Optional[tuple] = None
         #: ``need``: the width side by side needs, when the panes' minimums are not the measure
@@ -1780,27 +1787,54 @@ class TabsWhenNarrow(QWidget):
         sizes = self.splitter.sizes()
         if max(i, j) >= len(sizes) or min(sizes) <= 0:
             return
-        both = sizes[i] + sizes[j]
-        key = (both, self.font().key(), tuple(sizes[k] for k in range(len(sizes)) if k not in (i, j)))
+        k = self.give if self.give is not None and self.give < len(sizes) and self.give not in (i, j) else None
+        pool = sizes[i] + sizes[j] + (sizes[k] if k is not None else 0)
+        key = (pool, self.font().key(), tuple(sizes[n] for n in range(len(sizes)) if n not in (i, j, k)))
         if key == self._balanced_for:
             return
         pi, pj = self.panes[i][0], self.panes[j][0]
         lo_i = pi.minimumSizeHint().expandedTo(pi.minimumSize()).width()
         lo_j = pj.minimumSizeHint().expandedTo(pj.minimumSize()).width()
-        if lo_i + lo_j > both:
-            return
         d = getattr(self, "_sizes", None) or sizes
+        # the giving pane's widths, its default (or current) first: it gives only for less height
+        if k is None:
+            give_widths = [0]
+        else:
+            pk = self.panes[k][0]
+            lo_k = pk.minimumSizeHint().expandedTo(pk.minimumSize()).width()
+            hi_k = min(max(d[k], sizes[k], lo_k), pool - lo_i - lo_j)
+            give_widths = sorted({*range(lo_k, hi_k + 1, self.BALANCE_STEP), hi_k}, reverse=True)
+            if hi_k < lo_k:
+                return
+        if lo_i + lo_j > pool - (give_widths[-1] if k is not None else 0):
+            return
         ratio = d[i] / max(d[i] + d[j], 1)
         best: Optional[tuple] = None
         with measure_pass():
-            for wi in sorted({*range(lo_i, both - lo_j + 1, self.BALANCE_STEP), both - lo_j}):
-                tall = max(self._height_at(pi, wi), self._height_at(pj, both - wi))
-                cand = (tall, abs(wi - ratio * both), wi)
-                if best is None or cand < best:
-                    best = cand
+            for wk in give_widths:
+                both = pool - wk
+                floor = self._height_at(self.panes[k][0], wk) if k is not None else 0
+                grid = sorted({*range(lo_i, both - lo_j + 1, self.BALANCE_STEP), both - lo_j})
+                here: Optional[tuple] = None
+                for wis in (grid, None):
+                    if wis is None:      # then to the pixel around the best of the grid
+                        if here is None:
+                            break
+                        wis = [w for w in range(here[3] - self.BALANCE_STEP + 1, here[3] + self.BALANCE_STEP)
+                               if lo_i <= w <= both - lo_j and w not in grid]
+                    for wi in wis:
+                        tall = max(self._height_at(pi, wi), self._height_at(pj, both - wi), floor)
+                        cand = (tall, -wk, abs(wi - ratio * both), wi, wk)
+                        if here is None or cand < here:
+                            here = cand
+                if here is not None and (best is None or here < best):
+                    best = here
         self._balanced_for = key
-        if best is not None and best[2] != sizes[i]:
-            sizes[i], sizes[j] = best[2], both - best[2]
+        if best is not None and (best[3] != sizes[i] or (k is not None and best[4] != sizes[k])):
+            wi, wk = best[3], best[4]
+            if k is not None:
+                sizes[k] = wk
+            sizes[i], sizes[j] = wi, pool - wk - wi
             self.splitter.setSizes(sizes)
             self.updateGeometry()
 
