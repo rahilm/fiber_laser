@@ -294,14 +294,11 @@ class ConnectionPart:
             self._log("disconnected")
 
     def state(self) -> MachineState:
-        """The live state object (the controller's own; fields refreshed here under the state
-        lock).  A reader on another thread that needs a consistent set of fields uses
-        :meth:`snapshot`."""
-        with self._slock:
-            s = self._s
-            self._fill_safety(s)
-            s.link_ok = self._sup.link_ok and s.connected
-        return s
+        """The current state, as a copy taken under the state lock (review A6): every field
+        from one moment, and ``outputs`` / ``alarms`` that no other thread changes while the
+        caller reads them.  A write made before the call (a command, the poll) is in it; the
+        copy does not follow later writes (call again).  Same as :meth:`snapshot`."""
+        return self.snapshot()
 
     def snapshot(self) -> MachineState:
         """Thread-safe copy of the current state: every field from one moment (the status
