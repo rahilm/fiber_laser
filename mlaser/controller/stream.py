@@ -45,7 +45,6 @@ from __future__ import annotations
 
 import bisect
 import contextlib
-import functools
 import gc
 import multiprocessing as mp
 import os
@@ -55,6 +54,7 @@ import time
 from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, Optional
 
+from .. import _gcsafe
 from ..protocol import frames as F
 from .client import ControllerError, FifoStreamer, MotionController, StreamStats, TransportConfig
 from .clock import SYSTEM as _SYSTEM_CLOCK
@@ -78,6 +78,7 @@ class StreamFault(ControllerError):
 _gc_lock = threading.Lock()
 _gc_depth = [0]
 _gc_saved: list = []
+_gcsafe.add_full_hold(lambda: _gc_depth[0] > 0)    # quiet_gc open: no full collection
 #: generation-2 threshold while a job streams: no automatic full collection (CPython counts gen-1
 #: collections against it; 2**30 of them do not happen within any job)
 NO_FULL_GC_THRESHOLD = 1 << 30
@@ -90,21 +91,19 @@ def full_gc_held_off() -> bool:
     threshold raised by :func:`quiet_gc`.  CPython 3.14.0-3.14.4 shipped the incremental
     collector instead: it has no generation-2 threshold (``gc.get_threshold()[2]`` reads 0 and a
     set is ignored) and no automatic full collection at all: it scans the old generation in
-    bounded increments, so the goal holds there by construction."""
+    bounded increments, so the goal holds there by construction.  mlaser replaces that collector's
+    automatic collections by young and full ones from a thread (:mod:`mlaser._gcsafe`): its full
+    collections wait while :func:`quiet_gc` is open."""
     th2 = gc.get_threshold()[2]
-    return th2 >= NO_FULL_GC_THRESHOLD or (th2 == 0 and _incremental_gc())
+    return th2 >= NO_FULL_GC_THRESHOLD or (th2 == 0 and _incremental_gc()) or _gcsafe.full_held()
 
 
-@functools.cache
 def _incremental_gc() -> bool:
-    """The interpreter's collector ignores the generation-2 threshold (CPython 3.14.0-3.14.4)."""
+    """The incremental collector of CPython 3.14.0-3.14.4 runs this process's automatic
+    collections (it ignores the generation-2 threshold); not while :mod:`mlaser._gcsafe`
+    replaces them."""
     with _gc_lock:
-        th = gc.get_threshold()
-        gc.set_threshold(th[0], th[1], th[2] + 1)
-        try:
-            return gc.get_threshold()[2] == th[2]
-        finally:
-            gc.set_threshold(*th)
+        return _gcsafe.incremental_collector() and not _gcsafe.active()
 
 
 @contextlib.contextmanager
