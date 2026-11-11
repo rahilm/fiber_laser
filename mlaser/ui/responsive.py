@@ -28,7 +28,8 @@ fits", "two columns of the widest section no longer fit").
 """
 from __future__ import annotations
 
-from typing import Callable, Iterable, Optional
+from contextlib import contextmanager
+from typing import Any, Callable, Iterable, Iterator, Optional
 
 from PySide6.QtCore import QEvent, QObject, QPoint, QRect, QSize, Qt, QTimer, Signal
 from PySide6.QtGui import QPalette
@@ -39,7 +40,67 @@ from PySide6.QtWidgets import (QCheckBox, QFrame, QGridLayout, QLabel, QLayout, 
 STATE_PROP = "responsive_state"
 LIST_PROP = "responsive_scroll"
 #: touch targets (px, logical): the primary run / safety controls, every other touch control
-from .style import SP1, SP2, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
+from .style import SP1, TARGET_RUN as TARGET, TARGET_TOUCH as TARGET_MIN  # noqa: E402 - one source (style.py)
+
+
+# --------------------------------------------------------------------------- measuring passes
+#: the sizes measured in the current measuring pass (:func:`measure_pass`), None outside one
+_MEMO: Optional[dict] = None
+
+
+@contextmanager
+def measure_pass() -> Iterator[None]:
+    """A stretch of pure measuring (nothing is shown, hidden, resized or restyled inside it):
+    the sizes the responsive helpers compute (a form's height for a width, a section's height
+    and minimum width, a title button's hint) are computed once and reused until it ends.  A
+    panel's layout pass asks for the same sizes many times: at three column widths, for every
+    folding step, from the form inside each section and from the panel around it (the Process
+    page's technology form, a drawing open: 88,000 ``_hidden`` calls and 260 ms per
+    window-resize step; perf review 2026-11 finding 14).  Re-entrant: an inner pass shares the
+    outer one's sizes."""
+    global _MEMO
+    if _MEMO is not None:
+        yield
+        return
+    _MEMO = {}
+    try:
+        yield
+    finally:
+        _MEMO = None
+
+
+@contextmanager
+def _changing() -> Iterator[None]:
+    """A stretch inside a measuring pass that changes the widgets (placing them): measured
+    without the pass's sizes, which are forgotten when it ends."""
+    global _MEMO
+    outer = _MEMO
+    _MEMO = None
+    try:
+        yield
+    finally:
+        _MEMO = {} if outer is not None else None
+
+
+def _forget_measures() -> None:
+    """Something inside a measuring pass changed the widgets (compact mode, folding): the
+    sizes measured so far are stale."""
+    global _MEMO
+    if _MEMO is not None:
+        _MEMO = {}
+
+
+def _memo(key: tuple, fn: Callable[[], Any]) -> Any:
+    """``fn()``, computed once per measuring pass for ``key`` (always outside one)."""
+    memo = _MEMO
+    if memo is None:
+        return fn()
+    try:
+        return memo[key]
+    except KeyError:
+        # stored in the pass it was measured in (a change while measuring starts a new one)
+        v = memo[key] = fn()
+        return v
 
 
 class _KeepMin(QObject):
@@ -408,16 +469,19 @@ class ResponsiveForm(QWidget):
         return self._beside
 
     def _label_w(self) -> int:
-        return max((lab.sizeHint().width() for lab, f in self._rows
-                    if lab is not None and not _hidden(lab) and not _hidden(f)), default=0)
+        return _memo((id(self), "label_w"), lambda: max(
+            (lab.sizeHint().width() for lab, f in self._rows
+             if lab is not None and not _hidden(lab) and not _hidden(f)), default=0))
 
     def _field_min(self) -> int:
-        return max((max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
-                    if not _hidden(f) and lab is not None), default=0)
+        return _memo((id(self), "field_min"), lambda: max(
+            (max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
+             if not _hidden(f) and lab is not None), default=0))
 
     def _span_min(self) -> int:
-        return max((max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
-                    if not _hidden(f) and lab is None), default=0)
+        return _memo((id(self), "span_min"), lambda: max(
+            (max(f.minimumSizeHint().width(), f.minimumWidth()) for lab, f in self._rows
+             if not _hidden(f) and lab is None), default=0))
 
     def needed_beside(self) -> int:
         m = self._grid.contentsMargins()
@@ -472,6 +536,9 @@ class ResponsiveForm(QWidget):
         return gap if gap >= 0 else _spacing(self, False)
 
     def _height(self, width: int, beside: bool) -> int:
+        return _memo((id(self), "height", width, beside), lambda: self._measure_height(width, beside))
+
+    def _measure_height(self, width: int, beside: bool) -> int:
         g = self._grid
         hs = g.horizontalSpacing()
         hs = hs if hs >= 0 else _spacing(self)
@@ -483,7 +550,8 @@ class ResponsiveForm(QWidget):
                 return 0
             hfw = x.heightForWidth(w) if x.hasHeightForWidth() else -1
             return max(hfw, x.sizeHint().height(), x.minimumSizeHint().height(), x.minimumHeight())
-        field_w = max(inner - self._label_w() - hs, 1) if beside else inner
+        label_w = self._label_w()
+        field_w = max(inner - label_w - hs, 1) if beside else inner
         rows: list[tuple[int, list]] = []         # (height, the widgets in that grid row)
         for lab, f in self._rows:
             if _hidden(f):
@@ -491,7 +559,7 @@ class ResponsiveForm(QWidget):
             if lab is None:
                 rows.append((h(f, inner), [f]))
             elif beside:
-                rows.append((max(h(lab, self._label_w()), h(f, field_w)), [lab, f]))
+                rows.append((max(h(lab, label_w), h(f, field_w)), [lab, f]))
             else:
                 rows.append((h(lab, inner), [lab]))
                 rows.append((h(f, inner), [f]))
@@ -507,6 +575,7 @@ class ResponsiveForm(QWidget):
             self._placing = False
 
     def _place_rows(self) -> None:
+        _forget_measures()
         g = self._grid
         while g.count():
             g.takeAt(0)
@@ -638,6 +707,9 @@ class ElidedToolButton(QToolButton):
     def hint_for(self, text: str) -> QSize:
         """The size the button needs to show ``text`` (as ``QToolButton.sizeHint`` computes it,
         without its cache, which a font change after the text does not clear)."""
+        return QSize(_memo((id(self), "hint", text), lambda: self._measure_hint(text)))
+
+    def _measure_hint(self, text: str) -> QSize:
         from PySide6.QtWidgets import QStyle, QStyleOptionToolButton
         opt = QStyleOptionToolButton()
         self.initStyleOption(opt)
@@ -687,6 +759,7 @@ class ElidedToolButton(QToolButton):
     def changeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().changeEvent(ev)
         if ev.type() in (QEvent.FontChange, QEvent.StyleChange):
+            _forget_measures()
             self._fit()
             self.updateGeometry()
 
@@ -857,6 +930,7 @@ class CollapsibleSection(QWidget):
     def set_expanded(self, on: bool) -> None:
         if on == self.expanded():
             return
+        _forget_measures()
         self.frame.setVisible(on)
         if isinstance(self.header, QToolButton):
             self.header.setChecked(on)
@@ -885,13 +959,16 @@ class CollapsibleSection(QWidget):
             p.section_chosen(self)
 
     def collapsed_height(self) -> int:
-        return self.header_row.sizeHint().height()
+        return _memo((id(self), "collapsed"), lambda: self.header_row.sizeHint().height())
 
     def height_for(self, width: int, expanded: Optional[bool] = None) -> int:
         """The section's height at ``width`` (expanded or not, default: as it is)."""
         exp = self.expanded() if expanded is None else expanded
         if not exp:
             return self.collapsed_height()
+        return _memo((id(self), "height", width), lambda: self._measure_height(width))
+
+    def _measure_height(self, width: int) -> int:
         lay = self.layout()
         sp = lay.spacing()
         fl = self.frame.layout()
@@ -908,6 +985,9 @@ class CollapsibleSection(QWidget):
 
     def min_width(self) -> int:
         """The section's minimum width when expanded (the body's minimum plus the frame)."""
+        return _memo((id(self), "min_width"), self._measure_min_width)
+
+    def _measure_min_width(self) -> int:
         fl = self.frame.layout()
         m = fl.contentsMargins()
         body = 0
@@ -958,6 +1038,7 @@ def set_compact(root: QWidget, on: bool, ratio: float = 0.5) -> None:
         if lay is not None:          # only containers: their sizes follow their layouts'
             lay.invalidate()
             w.updateGeometry()
+    _forget_measures()
 
 
 class CompactWhenNarrow(QObject):
@@ -1125,7 +1206,8 @@ class ColumnsPanel(QWidget):
         return sum(self._widget_h(p, width) + self.spacing() for p in self.pinned if not p.isHidden())
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
-        s = self._min_now()
+        with measure_pass():
+            s = self._min_now()
         if bool(self.property("compact")) and self._comfortable_min_w:
             # compact saves height, not width: a minimum width that shrank with the compact
             # paddings let the dock narrow, which made the panel comfortable again, which
@@ -1176,7 +1258,8 @@ class ColumnsPanel(QWidget):
             # and the panel stayed compact after the window grew again (live resize ended with
             # Run Control 23 px narrower and compact, X11 and macOS)
             return self._comfortable_hint
-        return self._hint_now()
+        with measure_pass():
+            return self._hint_now()
 
     def _hint_now(self) -> QSize:
         m = 2 * self.margins()
@@ -1239,6 +1322,10 @@ class ColumnsPanel(QWidget):
         return tuple(out)
 
     def _key(self) -> tuple:
+        with measure_pass():
+            return self._measure_key()
+
+    def _measure_key(self) -> tuple:
         W = self.width() - 2 * self.margins()
         H = self.height() - 2 * self.margins()
         return (W, H, tuple((id(s), s.user_choice, s.isHidden(), s.priority) for s in self.sections),
@@ -1248,18 +1335,19 @@ class ColumnsPanel(QWidget):
     def relayout(self) -> None:
         if self._busy:
             return
-        if self._key() == self._last:
-            return
-        self._busy = True
-        key = None
-        self._placed_key = None
-        try:
-            self._relayout(self.width() - 2 * self.margins(), self.height() - 2 * self.margins())
-            # the key of the state this pass leaves (its compact margins and sizes): the
-            # requests the pass itself posted find nothing to do
-            key = self._key()
-        finally:
-            self._busy = False
+        with measure_pass():         # the sizes the key measured are those the pass decides by
+            if self._key() == self._last:
+                return
+            self._busy = True
+            key = None
+            self._placed_key = None
+            try:
+                self._relayout(self.width() - 2 * self.margins(), self.height() - 2 * self.margins())
+                # the key of the state this pass leaves (its compact margins and sizes): the
+                # requests the pass itself posted find nothing to do
+                key = self._key()
+            finally:
+                self._busy = False
         if key is not None and key != self._placed_key:
             # placing the sections changed what they need (their contents laid out at the new
             # widths): the sizes this pass used are stale, one more pass with the new ones
@@ -1294,6 +1382,23 @@ class ColumnsPanel(QWidget):
         return self.max_columns
 
     def _relayout(self, W: int, H: int) -> None:
+        with measure_pass():
+            n, cols, secs, exp, compact = self._decide(W, H)
+            # what the sections are placed by: placing them lays out their contents at the new
+            # widths, which can change what they need (a flow layout's rows at the width it last
+            # had), so ``relayout`` compares it with the key after the pass
+            self._placed_key = self._key()
+        W, H = self.width() - 2 * self.margins(), self.height() - 2 * self.margins()
+        with _changing():
+            self._place(W, n, cols)
+        folded = [s.title() for s in secs if not exp[id(s)]]
+        self.setProperty(STATE_PROP, f"{n} col{'s' if n > 1 else ''}" + (" compact" if compact else "")
+                         + (f" folded: {', '.join(folded)}" if folded else ""))
+
+    def _decide(self, W: int, H: int) -> tuple:
+        """The layout of this pass (columns, sections per column, the shown sections, which are
+        open, compact): turns the panel compact and folds sections as it decides, places
+        nothing.  Runs in a measuring pass; changing the widgets forgets its sizes."""
         secs = [s for s in self.sections if not s.isHidden()]
         exp = {id(s): (s.user_choice if s.user_choice is not None else True) if s.collapsible else True
                for s in secs}
@@ -1341,14 +1446,7 @@ class ColumnsPanel(QWidget):
         n, cols, _ = self._plan(W, H, exp, self._cols(W, H, exp))
         if self.scroll_overflow:
             self._overflow(W, H, secs, exp)
-        # what the sections are placed by: placing them lays out their contents at the new
-        # widths, which can change what they need (a flow layout's rows at the width it last
-        # had), so ``relayout`` compares it with the key after the pass
-        self._placed_key = self._key()
-        self._place(W, n, cols)
-        folded = [s.title() for s in secs if not exp[id(s)]]
-        self.setProperty(STATE_PROP, f"{n} col{'s' if n > 1 else ''}" + (" compact" if compact else "")
-                         + (f" folded: {', '.join(folded)}" if folded else ""))
+        return n, cols, secs, exp, compact
 
     def _overflow(self, W: int, H: int, secs: list, exp: dict) -> None:
         """``scroll_overflow``: the height the panel needs with every automatic section folded
@@ -1366,6 +1464,10 @@ class ColumnsPanel(QWidget):
     def folded_height(self, width: int) -> int:
         """The least height at ``width``: every collapsible section folded, in as many columns
         as the width allows (a wide panel's headers sit side by side)."""
+        with measure_pass():
+            return self._folded_height(width)
+
+    def _folded_height(self, width: int) -> int:
         secs = [s for s in self.sections if not s.isHidden()]
         exp = {id(s): not s.collapsible for s in secs}
         W = max(1, width - 2 * self.margins())
@@ -1374,6 +1476,10 @@ class ColumnsPanel(QWidget):
 
     def needed_height(self, width: int) -> int:
         """The height every visible section needs open at ``width`` (a list that may scroll)."""
+        with measure_pass():
+            return self._needed_height(width)
+
+    def _needed_height(self, width: int) -> int:
         secs = [s for s in self.sections if not s.isHidden()]
         exp = {id(s): s.user_choice is not False or not s.collapsible for s in secs}
         W = width - 2 * self.margins()
@@ -1723,8 +1829,9 @@ class FitArea(QScrollArea):
             return
         # the whole area (scroll bars or not): a page that fits shows none
         avail = self.contentsRect().size()
-        need = self.need(avail.width())
-        hint = self.minimumSizeHint()
+        with measure_pass():
+            need = self.need(avail.width())
+            hint = self.minimumSizeHint()
         if need != self._need or hint != self._hint:
             self._need, self._hint = need, hint
             self.updateGeometry()
