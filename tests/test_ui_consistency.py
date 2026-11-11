@@ -32,7 +32,7 @@ EXEMPT = {"mlaser/ui/style.py"}
 #: work when this rule was set; the plugin manager's own UI is outside mlaser/ui.)
 ALLOWLIST: dict[str, dict[str, int]] = {
     "mlaser/ui/safety_ui.py": {"button": 6, "button_box": 1},
-    "mlaser/ui/workspaces/run.py": {"button": 5, "table": 1, "tabs": 1},
+    "mlaser/ui/workspaces/run.py": {"button": 5},
     "mlaser/ui/jogpad.py": {"button": 2},
     "mlaser/ui/canvas_empty.py": {"button": 1},
     "mlaser/ui/responsive.py": {"tabs": 1},
@@ -235,9 +235,9 @@ def test_one_size_per_panel_in_the_window(app, tmp_path, monkeypatch):
             got = {b.property("control_size") for b in page.findChildren(QPushButton)
                    if not b.objectName().startswith("canvas_empty_")}
             assert got == {size}, (name, got)
-        # every table and tree of the window has the table recipe (the Run queue: run.py's own)
+        # every table and tree of the window has the table recipe
         tables = w.findChildren(QTableWidget) + w.findChildren(QTreeWidget)
         missing = [v.objectName() or type(v.parentWidget()).__name__ for v in tables if not v.property("table_look")]
-        assert set(missing) <= {"queue_table"}, missing
+        assert not missing, missing
     finally:
         dispose(w)

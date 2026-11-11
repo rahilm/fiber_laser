@@ -39,7 +39,7 @@ from mlaser.ui.units_qt import on_units_changed
 from ..responsive import ColumnFitter, FlowLayout
 from ..safety_texts import remedy
 from .. import style
-from . import TOUCH_MIN, show_workspace, tr
+from . import show_workspace, tr
 
 PERIODS = (("today", "report.period.today", "Today"), ("week", "report.period.week", "Last 7 days"),
            ("month", "report.period.month", "Last 30 days"), ("all", "report.period.all", "All"))
@@ -279,7 +279,7 @@ class ReportWorkspace(QWidget):
             return box
         self.period = QComboBox()
         self.period.setObjectName("report_period")
-        self.period.setMinimumHeight(TOUCH_MIN)
+        style.control_size(self.period, "touch")
         for key, tid, text in PERIODS:
             self.period.addItem(tr(w, tid, text), key)
         self.period.setCurrentIndex(1)
@@ -288,7 +288,7 @@ class ReportWorkspace(QWidget):
         # simulator, dry-run and practice runs are not production: hidden unless asked for
         self.runs = QComboBox()
         self.runs.setObjectName("report_runs")
-        self.runs.setMinimumHeight(TOUCH_MIN)
+        style.control_size(self.runs, "touch")
         for key, tid, text, _src in RUN_FILTERS:
             self.runs.addItem(tr(w, tid, text), key)
         self.runs.currentIndexChanged.connect(lambda _i: self.refresh())
@@ -299,7 +299,6 @@ class ReportWorkspace(QWidget):
                                    ("legacy", "report.btn.legacy", "Job report pages...", self.legacy_viewer)):
             b = style.button(tr(w, tid, text), size="touch")
             b.setObjectName(f"report_{key}")
-            b.setMinimumHeight(TOUCH_MIN)
             b.clicked.connect(lambda _=False, f=fn: f())
             top.addWidget(b)
         v.addWidget(top_w)

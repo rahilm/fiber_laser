@@ -42,6 +42,7 @@ from mlaser.ui.techform import Section, beside_width, shrinkable
 from ..units_qt import QuantitySpinBox, on_units_changed
 from .lead_diagram import LeadDiagram
 from .. import style
+from ..icons import COMMAND_ICONS
 
 MAX_PREVIEW_CONTOURS = 400     # live CAM preview only for selections up to this size
 LEAD_KINDS = ("props.lead.none", "props.lead.line", "props.lead.arc", "props.lead.line_arc")
@@ -133,7 +134,9 @@ class PropertiesPanel(QScrollArea):
         self._preview_fn: Optional[Callable[[Document], Any]] = None
         self.edits = 0                      # committed edits (tests, status)
         t = self._t
-        self.summary = QLabel()
+        # the selection in one line; with nothing selected an empty state (the select tool's
+        # icon, muted text: what to do and the drawing's extent; UI deep review 13)
+        self.summary = style.IconLabel()
         self.summary.setWordWrap(True)
         self.summary.setObjectName("props_summary")
         self.panel.add_pinned(self.summary)
@@ -448,6 +451,14 @@ class PropertiesPanel(QScrollArea):
         if mode != "design" and self._cam_stale:      # the CAM fields were not read in Design
             self.refresh()
 
+    def _empty_state(self, empty: bool) -> None:
+        """The summary as the empty state (icon, muted) while nothing is selected."""
+        if bool(self.summary.property("empty_state")) == empty:
+            return
+        self.summary.setProperty("empty_state", empty)
+        self.summary.set_icon(COMMAND_ICONS["view.select_mode"] if empty else None, "muted")
+        style.styled(self.summary, (lambda: f"color:{style.css('muted')};") if empty else (lambda: ""))
+
     def _section_visibility(self) -> None:
         """The sections show while something is selected (the mode's ones: Design has no CAM
         sections); with nothing selected only the summary (the hint and the drawing's extent),
@@ -641,6 +652,7 @@ class PropertiesPanel(QScrollArea):
                                               w=u.fmt(x1 - x0, "length", trim=True),
                                               h=u.fmt(y1 - y0, "length", trim=True))
             self.summary.setText(txt)
+            self._empty_state(True)
             self.diagram.set_leads(LeadParams(kind=0), LeadParams(kind=0))
             for g in self.sections:
                 g.set_summary("")
@@ -656,6 +668,7 @@ class PropertiesPanel(QScrollArea):
         if open_c:
             txt += " · " + self.tr_.format("props.open_contours", n=open_c)
         self.summary.setText(txt)
+        self._empty_state(False)
         x0, y0, x1, y1 = self._selection_bbox(doc)
         for wdg, v in ((self.x, x0), (self.y, y0), (self.w, max(x1 - x0, 0.001)), (self.h, max(y1 - y0, 0.001))):
             wdg.setValue(v)

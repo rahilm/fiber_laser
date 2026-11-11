@@ -23,7 +23,7 @@ def _under(w) -> list[str]:
 
 
 def test_library_short_with_the_side_docks_folded_moves_the_docks_under_it(win, app):  # noqa: F811 - the fixtures of test_half_screen
-    from PySide6.QtWidgets import QAbstractButton, QAbstractScrollArea
+    from PySide6.QtWidgets import QAbstractScrollArea, QTabBar
     from mlaser.ops import demo_document
     font = app.font()
     big = app.font()
@@ -38,8 +38,8 @@ def test_library_short_with_the_side_docks_folded_moves_the_docks_under_it(win, 
         if page.view_tabs.isVisible():
             page.view_tabs.setCurrentIndex(1)
             settle(app, 0.2)
-        lib = next(b for b in win.findChildren(QAbstractButton) if b.objectName() == "process_page_1")
-        lib.setChecked(True)
+        bar = next(b for b in win.findChildren(QTabBar) if b.objectName() == "process_pages")
+        bar.setCurrentIndex(1)                            # the Library
         settle(app)
         pol = win.shell.dock_policy
         assert pol.folded is not None and pol.vfolded is None and _under(win), "the starting layout"
