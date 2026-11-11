@@ -420,20 +420,23 @@ def test_wizard_step_list_marks_and_back_reason(win, app):
     d.dry.setChecked(True)
     pump(app, 0.05)
     assert not d.b_back.isEnabled() and d.b_back.toolTip() == "This is the first step."
+    from mlaser.ui.wizards.base import MARK_ROLE
     first = d.steps_list.item(0)
-    assert first.text().startswith("▶") and first.toolTip() == "To do"
-    assert d.steps_list.item(1).text().startswith("…")
+    # the marks are SVG icons, never font glyphs (UI review 2026-11-09 finding 12)
+    assert first.data(MARK_ROLE) == "current" and first.toolTip() == "To do" and not first.icon().isNull()
+    assert d.steps_list.item(1).data(MARK_ROLE) == "todo"
+    assert not any(c in d.steps_list.item(i).text() for i in range(d.steps_list.count()) for c in "▶✓✗…!–")
     from test_machine_workspace import drive
     drive(app, d, until="homing")
     assert d.proc.step.id == "homing" and not d.b_skip.isHidden() and d.b_skip.text() == "Skip, do later"
-    marks = {d.proc.visible_steps()[i].id: d.steps_list.item(i).text()[0] for i in range(d.steps_list.count())}
-    assert marks["network"] == "✓" and marks["soft_limits"] == "!" and marks["homing"] == "▶"
+    marks = {d.proc.visible_steps()[i].id: d.steps_list.item(i).data(MARK_ROLE) for i in range(d.steps_list.count())}
+    assert marks["network"] == "pass" and marks["soft_limits"] == "warn" and marks["homing"] == "current"
     assert "An action" not in d.b_back.toolTip() and d.b_back.toolTip().startswith("Back is not possible")
     d.b_skip.click()
     pump(app, 0.05)
     assert d.proc.items["homing"].status == "skip"
-    marks = {d.proc.visible_steps()[i].id: d.steps_list.item(i).text()[0] for i in range(d.steps_list.count())}
-    assert marks["homing"] == "–"
+    marks = {d.proc.visible_steps()[i].id: d.steps_list.item(i).data(MARK_ROLE) for i in range(d.steps_list.count())}
+    assert marks["homing"] == "skipped"
     d.abort()
     d.done(0)
     assert d.proc.state in PE.FINAL

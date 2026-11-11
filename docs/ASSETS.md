@@ -15,7 +15,7 @@ own copy of the original at runtime.
 
 | Resource | What | Provenance | Licence |
 |---|---|---|---|
-| `mlaser/ui/resources/icons/tabler/*.svg` (171 files) | UI icons (ribbon, menus, control panel, CAM+/Devices tabs, machine and laser states) | [Tabler Icons](https://github.com/tabler/tabler-icons) 3.24.0, npm `@tabler/icons`, `icons/outline/`, unmodified. Only icons referenced by `mlaser/ui/icons.py` are vendored (a test checks that the set matches). | MIT, © Paweł Kuna; `icons/tabler/LICENSE` |
+| `mlaser/ui/resources/icons/tabler/*.svg` (173 files) | UI icons (ribbon, menus, control panel, CAM+/Devices tabs, machine and laser states) | [Tabler Icons](https://github.com/tabler/tabler-icons) 3.24.0, npm `@tabler/icons`, `icons/outline/`, unmodified. Only icons referenced by `mlaser/ui/icons.py` are vendored (a test checks that the set matches). | MIT, © Paweł Kuna; `icons/tabler/LICENSE` |
 | `mlaser/i18n/en.json` | English UI catalogue: 1,858 strings, readable ids, placeholder names, map from the original's keys | Written for mlaser (see §3) | MIT (mlaser) |
 | `mlaser/formats/data/mlaser_params.json` | 1,129 parameter descriptors | Facts recovered from MainApp.exe's descriptor tables (§4) | facts; file is mlaser's (MIT) |
 | `mlaser/ui/resources/layer_colors.json` | 11 RGB layer colours | Values read from MainApp.exe `.rdata` (FUN_004473c0; docs/re/ui.md §3.1). Needed so layers in the user's `.chf` files keep the colours they have in the original. | facts |

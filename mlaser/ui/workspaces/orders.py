@@ -205,7 +205,14 @@ class ImportReviewDialog(QDialog):
             self.head.setText(trn(w, "review.found", len(rep.findings), c=rep.contours, fix=rep.fixable,
                                   what=", ".join(parts)))
         for f in rep.findings[:self.MAX_ROWS]:
-            it = QListWidgetItem(("✔ " if f.fixable else "⚠ ") + f.message)
+            # an SVG icon and its word (tooltip, accessible text), never a font glyph
+            from ..icons import status_icon
+            said = tr(w, "review.item.fixable", "Can be fixed") if f.fixable else \
+                tr(w, "review.item.manual", "Needs a manual fix")
+            it = QListWidgetItem(status_icon("fixable" if f.fixable else "warn"), f.message)
+            it.setToolTip(said)
+            it.setData(Qt.AccessibleTextRole, tr(w, "review.item.a11y", "{message} ({state})",
+                                                 message=f.message, state=said))
             it.setData(Qt.UserRole, f.where)
             self.list.addItem(it)
         if len(rep.findings) > self.MAX_ROWS:
@@ -378,7 +385,7 @@ class OrdersWorkspace(QWidget):
         self.group.setMinimumHeight(TOUCH_MIN - 8)
         nest.addWidget(QLabel(tr(w, "orders.group", "Material × thickness")))
         nest.addWidget(self.group, 2)
-        self.to_nest_btn = style.button(tr(w, "orders.btn.nest", "Load into Nest ▶"), size="touch")
+        self.to_nest_btn = style.button(tr(w, "orders.btn.nest", "Load into Nest"), size="touch")
         self.to_nest_btn.setObjectName("orders_to_nest")
         self.to_nest_btn.clicked.connect(lambda _=False: plugin.to_nest())
         nest.addWidget(self.to_nest_btn, 1)

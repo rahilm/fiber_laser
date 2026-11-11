@@ -31,6 +31,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
+from ..style import TYPE_SCALE as _STYLE_TYPE_SCALE
 from .contrast import adjust_palette, contrast
 
 SYSTEM, LIGHT, DARK, HIGH_CONTRAST = "system", "light", "dark", "high_contrast"
@@ -48,16 +49,18 @@ THEMES: dict[str, dict[str, str]] = {
         "window": "#f3f4f6", "base": "#ffffff", "alt_base": "#f6f7f9", "text": "#1d2127",
         "muted": "#59616d", "button": "#e8eaee", "button_text": "#1d2127", "border": "#c4c9d1",
         "accent": "#1b5fc1", "accent_text": "#ffffff", "tooltip": "#ffffe8", "tooltip_text": "#1d2127",
-        "disabled": "#8b929c", "rail": "#e4e7ec", "rail_checked": "#ffffff", "topbar": "#ffffff",
+        "disabled": "#737a85", "rail": "#e4e7ec", "rail_checked": "#ffffff", "topbar": "#ffffff",
         "focus": "#1b5fc1", "link": "#1b5fc1", "placeholder": "#6b7280",
         # the boundary of a field / check box drawn by Fusion (>= 3:1 on base and window,
         # WCAG 1.4.11; :class:`FusionBoundaries`)
         "control_border": "#7d8590",
-        # canvas
+        # canvas (red is alarm, STOP and emission only: the head marker is in the text colour
+        # and the cut track in the accent colour, as the Run view's part being cut; UI review
+        # 2026-11-09 finding 6)
         "c_background": "#fbfbfa", "c_table": "#8b9099", "c_axis_x": "#c62828", "c_axis_y": "#2e7d32",
-        "c_cut": "#3a3f46", "c_gap": "#c2410c", "c_rapid": "#3b5bdb", "c_track": "#d62828",
+        "c_cut": "#3a3f46", "c_gap": "#c2410c", "c_rapid": "#3b5bdb", "c_track": "#1b5fc1",
         "c_unclosed": "#d00000", "c_selected": "#101418", "c_start": "#101418", "c_index": "#8a5300",
-        "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#d62828", "c_marker": "#0b7285",
+        "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#101418", "c_marker": "#0b7285",
         "c_sim": "#101418",
         # the planned toolpath: leads and the kerf-compensated path in their own colours
         # the toolpath preview (preview_scrubber, Orders' sheet preview)
@@ -73,12 +76,12 @@ THEMES: dict[str, dict[str, str]] = {
         "window": "#1f2226", "base": "#16181b", "alt_base": "#1c1f23", "text": "#e6e8eb",
         "muted": "#a3aab4", "button": "#2b2f35", "button_text": "#e6e8eb", "border": "#3d434b",
         "accent": "#4d8ff0", "accent_text": "#0b0d10", "tooltip": "#2b2f35", "tooltip_text": "#e6e8eb",
-        "disabled": "#6f7680", "rail": "#181a1d", "rail_checked": "#2f343b", "topbar": "#181a1d",
+        "disabled": "#7f8690", "rail": "#181a1d", "rail_checked": "#2f343b", "topbar": "#181a1d",
         "focus": "#7fb0ff", "link": "#7fb0ff", "placeholder": "#8b929c", "control_border": "#747c87",
         "c_background": "#000000", "c_table": "#606060", "c_axis_x": "#c04040", "c_axis_y": "#40c040",
-        "c_cut": "#d0d0d0", "c_gap": "#ff8000", "c_rapid": "#8080ff", "c_track": "#ff6060",
+        "c_cut": "#d0d0d0", "c_gap": "#ff8000", "c_rapid": "#8080ff", "c_track": "#4d8ff0",
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
-        "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ff4040", "c_marker": "#00ffff",
+        "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ffffff", "c_marker": "#00ffff",
         "c_sim": "#ffffff",
         "c_preview_cut": "#ffb000", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
         "c_preview_head_off": "#c0c0c0", "c_preview": "#e6e600", "c_preview_alert": "#e53935",
@@ -95,9 +98,9 @@ THEMES: dict[str, dict[str, str]] = {
         "disabled": "#b0b0b0", "rail": "#000000", "rail_checked": "#ffd400", "topbar": "#000000",
         "focus": "#00e5ff", "link": "#00e5ff", "placeholder": "#d0d0d0", "control_border": "#ffffff",
         "c_background": "#000000", "c_table": "#bdbdbd", "c_axis_x": "#ff5252", "c_axis_y": "#69f0ae",
-        "c_cut": "#ffffff", "c_gap": "#ff9100", "c_rapid": "#82b1ff", "c_track": "#ff5252",
+        "c_cut": "#ffffff", "c_gap": "#ff9100", "c_rapid": "#82b1ff", "c_track": "#00e5ff",
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
-        "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ff1744", "c_marker": "#00e5ff",
+        "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ffffff", "c_marker": "#00e5ff",
         "c_sim": "#ffffff",
         "c_preview_cut": "#ffd740", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
         "c_preview_head_off": "#ffffff", "c_preview": "#ffff00", "c_preview_alert": "#ff5252",
@@ -307,8 +310,8 @@ def style_sheet(theme: str, base_pt: Optional[float] = None) -> str:
             f"QLabel#shell_empty_title {{ font-size: {base * TYPE_SCALE['display']:.1f}pt; font-weight: bold; }}\n")
 
 
-#: the type scale (docs: ui_audit DESIGN.md §1): sizes as ratios of the platform font
-TYPE_SCALE = {"caption": 0.85, "body": 1.0, "title": 1.25, "display": 1.6}
+#: the type scale's size ratios (one source: :data:`mlaser.ui.style.TYPE_SCALE`)
+TYPE_SCALE = {role: ratio for role, (ratio, _weight) in _STYLE_TYPE_SCALE.items()}
 
 
 def _base_point_size() -> float:
@@ -320,16 +323,9 @@ def _base_point_size() -> float:
 
 def scaled_font(role: str, base=None):
     """A QFont of the type-scale ``role`` (caption / body / title / display) relative to
-    ``base`` (default: the application font)."""
-    from PySide6.QtGui import QFont, QGuiApplication
-    f = QFont(base if base is not None else QGuiApplication.font())
-    if f.pointSizeF() > 0:
-        f.setPointSizeF(f.pointSizeF() * TYPE_SCALE.get(role, 1.0))
-    elif f.pixelSize() > 0:
-        f.setPixelSize(max(1, round(f.pixelSize() * TYPE_SCALE.get(role, 1.0))))
-    if role in ("title", "display"):
-        f.setBold(True)
-    return f
+    ``base`` (default: the application font): :func:`mlaser.ui.style.font`."""
+    from ..style import font
+    return font(role if role in _STYLE_TYPE_SCALE else "body", base)
 
 
 def canvas_colors(theme: str) -> dict[str, str]:
@@ -393,6 +389,11 @@ def boundary_color(pal: QPalette, theme: Optional[str] = None) -> QColor:
     return QColor(hit)
 
 
+def _high_contrast_now() -> bool:
+    app = QApplication.instance()
+    return app is not None and app.property("mlaser_theme") == HIGH_CONTRAST
+
+
 def _fusion_boundaries_class():
     """:class:`FusionBoundaries`, built on first use (QtWidgets' QProxyStyle)."""
     global FusionBoundaries
@@ -418,8 +419,8 @@ def _fusion_boundaries_class():
         @staticmethod
         def _outline(p, opt, rect, kind: str) -> None:
             st = opt.state
-            if kind != "check" and st & QStyle.State_HasFocus:
-                return                           # Fusion's focus outline
+            if kind in ("field", "radio") and st & QStyle.State_HasFocus:
+                return                           # Fusion's focus outline (a button's is inside)
             col = boundary_color(opt.palette)
             if not st & QStyle.State_Enabled:
                 col.setAlphaF(0.5)
@@ -442,6 +443,11 @@ def _fusion_boundaries_class():
                 kind = ("check" if el == QStyle.PE_IndicatorCheckBox else
                         "radio" if el == QStyle.PE_IndicatorRadioButton else "field")
                 self._outline(p, opt, opt.rect, kind)
+            elif el == QStyle.PE_PanelButtonCommand and p is not None and _high_contrast_now():
+                # high contrast: Fusion draws a push button's bevel from the button colour,
+                # black on the black window (1.26:1): Start, Hold, Frame were text floating on
+                # black.  The theme's border colour around it (UI review 2026-11-09 finding 9)
+                self._outline(p, opt, opt.rect, "button")
 
         def drawComplexControl(self, cc, opt, p, w=None) -> None:  # noqa: N802 - Qt API
             super().drawComplexControl(cc, opt, p, w)
@@ -603,7 +609,7 @@ def watch_link_palette(window) -> None:
         def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
             if ev.type() in self.EVENTS and not self._pending:
                 self._pending = True
-                QTimer.singleShot(0, self._run)
+                QTimer.singleShot(0, self, self._run)      # dropped if the window goes first
             return False
 
         def _run(self) -> None:
