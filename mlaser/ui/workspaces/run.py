@@ -1073,12 +1073,32 @@ class OperatorScreen(QWidget):
         self.timer.stop()
 
     def refresh(self) -> None:
-        w = self.ws.window
+        """Bring the screen up to the controller's state (every 150 ms while shown): one
+        :class:`RunStatus`, then one updater per region of the screen (review 2026-11-09, arch
+        A15): the state block, the counters and progress, the process values, the alarms, the
+        run buttons, the queue card, the readiness strip, the chips, the live view."""
         s = self.ws.status()
         self.status = s
+        ms = self.ws.machine_state()
+        connected = bool(ms is not None and ms.connected)
+        running = s.kind in ("running", "hold") or s.mode != ""
+        self._refresh_state(s, ms)
+        self._refresh_progress(s, running)
+        self._refresh_values(s, connected)
+        self._alarms(s)
+        job = self.ws.job_running()
+        self._refresh_buttons(s, ms, job)
+        self._refresh_queue(job, connected, s.kind == "fault")
+        self._readiness(job)
+        self._refresh_chips()
+        self._refresh_canvas(s, running, connected)
+
+    def _refresh_state(self, s: RunStatus, ms: Any) -> None:
+        """The state block: the machine state with its icon and colours, the reason, and the
+        safety I/O notice."""
+        w = self.ws.window
         # state: the machine axis (state_display), with its icon, on the state colours
         from .. import state_display as SD
-        ms = self.ws.machine_state()
         ctl = w.ctl
         ui = getattr(w, "safety_ui", None)
         kind = SD.machine_state(ctl.safety(), ms, list(ctl.active_alarms or []), ctl,
@@ -1109,6 +1129,11 @@ class OperatorScreen(QWidget):
             self.safety_notice.setText(note)
         if bool(note) != self.safety_notice.isVisibleTo(self):
             self.safety_notice.setVisible(bool(note))
+
+    def _refresh_progress(self, s: RunStatus, running: bool) -> None:
+        """The counters (sheet, part, contour; idle: what Start runs), the last job, progress
+        and times."""
+        w = self.ws.window
         # counters
         bits = []
         ent = self.ws.runner.current
@@ -1119,7 +1144,6 @@ class OperatorScreen(QWidget):
             bits.append(tr(w, "run.count.part", "part {n}/{total}", n=s.part, total=s.parts))
         if s.contours:
             bits.append(tr(w, "run.count.contour", "contour {n}/{total}", n=s.contour, total=s.contours))
-        running = s.kind in ("running", "hold") or s.mode != ""
         # idle: what Start will run (UX audit W18)
         self.counters.setText("  ·  ".join(bits) or tr(w, "run.start_target", "Start: {name}", name=self.ws.job_name()))
         self._last_job(running)
@@ -1130,6 +1154,10 @@ class OperatorScreen(QWidget):
         self.times.setText(tr(w, "run.times", "Elapsed {elapsed}   ETA {eta}",
                               elapsed=fmt_duration(s.elapsed_s) if running else "-",
                               eta=fmt_duration(s.eta_s) if running else "-"))
+
+    def _refresh_values(self, s: RunStatus, connected: bool) -> None:
+        """The process values (greyed and marked when the link is lost)."""
+        w = self.ws.window
         # process values
         dash = "-"
         u = U.current()
@@ -1142,14 +1170,15 @@ class OperatorScreen(QWidget):
                 "gas": gas or dash,
                 "height": u.fmt(s.height_mm, "length", missing=dash),
                 "x": u.fmt(s.x, "length"), "y": u.fmt(s.y, "length"), "z": u.fmt(s.z, "length")}
-        connected = bool(ms is not None and ms.connected)
         # the link is lost: the last values the card reported, greyed and marked (W2)
         self.values.set_values(vals, stale=not connected and self.ws.ever_connected)
-        # alarms
-        self._alarms(s)
+
+    def _refresh_buttons(self, s: RunStatus, ms: Any, job: bool) -> None:
+        """The run buttons (the run bar's rules and reasons), the resume and "cut the rest"
+        buttons."""
+        w = self.ws.window
         # buttons (the same rules as the run bar)
         fault = s.kind == "fault"
-        job = self.ws.job_running()
         paused = ms is not None and ms.mode == "pause"
         b = self.buttons
         # the run bar's rules and reasons (safety_ui.run_enabled); on this screen Start is the
@@ -1172,6 +1201,11 @@ class OperatorScreen(QWidget):
         style.set_enabled(b["resume_here"], not why_bp, why_bp)
         style.set_enabled(b["resume_contour"], not why_bp, why_bp)
         self._rest_buttons(b["start"].isEnabled(), str(b["start"].property("disabled_reason") or ""))
+
+    def _refresh_queue(self, job: bool, connected: bool, fault: bool) -> None:
+        """The queue card: its title and message, "Load this sheet", "Sheet loaded: start"."""
+        w = self.ws.window
+        b = self.buttons
         # queue card
         r = self.ws.runner
         title = trn(w, "run.queue.title", len(self.ws.queue),
@@ -1215,7 +1249,10 @@ class OperatorScreen(QWidget):
                                 else tr(w, "run.btn.queue_run", "Run queue"))
         style.set_enabled(b["queue_mode"], r.state != "idle" or self.ws.queue.next_entry() is not None,
                           tr(w, "run.why.queue_empty", "The queue has no job left to run"))
-        self._readiness(job)
+
+    def _refresh_chips(self) -> None:
+        """The LAN monitor and automation API chips."""
+        w = self.ws.window
         # monitor chip
         mon = self.ws.monitor
         self.monitor_chip.setVisible(mon is not None and mon.running)
@@ -1230,6 +1267,9 @@ class OperatorScreen(QWidget):
         if on:
             h, port = api.address
             self.api_chip.setText(tr(w, "run.api_on", "Automation API ON {host}:{port}", host=h, port=port))
+
+    def _refresh_canvas(self, s: RunStatus, running: bool, connected: bool) -> None:
+        """The live view: the sheet, the progress or, after a job, the parts left."""
         # canvas
         doc, sheet = self.ws.view_document()
         self.canvas.set_document(doc, sheet)
