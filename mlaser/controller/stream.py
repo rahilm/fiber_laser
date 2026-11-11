@@ -676,11 +676,11 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
         except Exception as e:  # noqa: BLE001 - no job data: refuse before any socket is opened
             hello.update(ok=False, kind="handoff",
                          error=f"the streaming process did not receive the job ({type(e).__name__}: {e})")
-    try:
-        evt_q.put(("hello", hello))
-    except Exception:  # noqa: BLE001 - parent gone
-        return
     if not hello["ok"]:
+        try:
+            evt_q.put(("hello", hello))
+        except Exception:  # noqa: BLE001 - parent gone
+            pass
         return                                  # nothing was opened: the card never heard of us
     try:  # best effort: a little more priority for the real-time-ish loop (often not permitted)
         os.nice(-5)
@@ -711,6 +711,20 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     halt = HaltParams(**policy.get("halt", {}))
     stats_kw = {k: v for k, v in kw.items()}
     js = JobStreamer(mc, **stats_kw)
+    # the host-side preparation (timing, frames) before the hello: the parent's stall and link
+    # watch (stall_s, child_deadline_ms: 0.5 s) count from the hello, and the card has nothing
+    # of this job before the first request, so the preparation is start-up (startup_s), not
+    # silence (CI, Windows: a 28 000-item job prepared after the hello on a loaded runner, no
+    # message for 703 ms, "link lost").  A preparation error is raised again by run_job below
+    # and reported as before.
+    try:
+        js.prepare(wj)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        evt_q.put(("hello", hello))
+    except Exception:  # noqa: BLE001 - parent gone
+        return
     last = [0.0, 0.0]
     started = [False]
 
