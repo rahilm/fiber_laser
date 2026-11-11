@@ -126,3 +126,48 @@ def test_buttons_with_layout_item_margins_do_not_overlap(win, app):
         for b in e.buttons.values():
             b.setStyle(None)
         _settle(win, app, (1280, 800))
+
+
+def test_a_short_view_shows_a_smaller_form_not_nothing(win, app):
+    """Windows CI at a window of 683 x 649: the four buttons in a column did not fit the canvas
+    even with the bar stepped aside, and the empty state vanished (a blank canvas that does not
+    say what to do).  Simulated here with a style whose push buttons are taller (40 px): the
+    panel takes a smaller form (buttons side by side, one row at last), whole, never over the
+    bar, and still offers *Open drawing…* and *Try the sample*."""
+    from PySide6.QtCore import QSize
+    from PySide6.QtWidgets import QProxyStyle, QStyle
+
+    from mlaser.model import Document
+
+    class _Tall(QProxyStyle):
+        def sizeFromContents(self, ct, opt, size, widget=None):  # noqa: N802 - Qt API
+            s = super().sizeFromContents(ct, opt, size, widget)
+            return QSize(s.width(), max(s.height(), 40)) if ct == QStyle.CT_PushButton else s
+
+    e = win.canvas_empty
+    tall = _Tall("Fusion")
+    for b in e.buttons.values():
+        b.setStyle(tall)
+    try:
+        win.set_document(Document())
+        win.show_workspace("design")
+        v = win.canvas
+        for size in ((683, 649), (1280, 649), (683, 600)):
+            _settle(win, app, size)
+            assert e.isVisible(), (size, v.size())
+            assert e.buttons["file.open"].isVisible() and e.buttons["sample"].isVisible(), size
+            panel = _in_view(e, v)
+            assert QRect(QPoint(0, 0), v.size()).contains(panel), (size, panel)
+            shown = [b for b in e.buttons.values() if b.isVisible()]
+            for b in shown:
+                assert e.rect().contains(b.geometry()), (size, b.objectName(), b.geometry())
+                assert b.height() >= b.minimumHeight(), (size, b.objectName())
+            for i, a in enumerate(shown):
+                for b in shown[i + 1:]:
+                    assert not a.geometry().intersects(b.geometry()), (size, a.objectName(), b.objectName())
+            if v.hud.isVisible():
+                assert not panel.intersects(_in_view(v.hud, v)), (size, panel, v.hud.geometry())
+    finally:
+        for b in e.buttons.values():
+            b.setStyle(None)
+        _settle(win, app, (1280, 800))

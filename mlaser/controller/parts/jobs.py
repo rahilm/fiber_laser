@@ -589,13 +589,19 @@ class JobRunnerPart:
         """Stop motion, PWM 0, process outputs off, follower stop, FIFO stop + clear (each
         command independent), and stop the worker without waiting for it."""
         self._invalidate_starts("safe_halt")
+        st = self._streamer
+        busy = self._busy()
+        if busy and st is not None and hasattr(st, "set_cancel"):
+            # the streaming child first (a shared-memory flag, no wait): its re-send check reads
+            # it, so a FIFO frame waiting for its reply is never sent again after this halt has
+            # reached the card (raise_fault and the Hold do the same)
+            st.set_cancel()
         if self._sup.connected:
             self._halt_now(reason or "safe_halt")
         self._jogging = None
         self._jog_active = False
-        if self._busy():
+        if busy or self._busy():
             self._stop_reason = reason or "safe_halt"
-            st = self._streamer
             if st is not None and hasattr(st, "set_cancel"):
                 st.set_cancel()
             self._cancel.set()
