@@ -192,7 +192,16 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
         sa = _scroll_ancestor(w)
         if w.objectName() == "qt_toolbar_ext_button":
             # the tool bar did not fit: some of its actions are hidden behind the chevron
-            add("clipped", w.parentWidget() or w, "tool bar overflows: actions hidden behind its extension button")
+            tb = w.parentWidget()
+            detail = ""
+            if tb is not None:
+                from PySide6.QtCore import Qt as _Qt
+                from PySide6.QtWidgets import QToolButton as _TB
+                btns = [b for b in tb.findChildren(_TB) if b is not w and b.isVisibleTo(tb)]
+                labelled = sum(1 for b in btns if b.toolButtonStyle() != _Qt.ToolButtonIconOnly)
+                detail = (f" (tool bar {tb.width()} px, its hint {tb.sizeHint().width()}, "
+                          f"{len(btns)} buttons shown, {labelled} with labels)")
+            add("clipped", tb or w, "tool bar overflows: actions hidden behind its extension button" + detail)
             continue
         if w.objectName() in QT_SUBCONTROLS:
             if sa is None and (vis.width() < w.width() - TOL or vis.height() < w.height() - TOL):

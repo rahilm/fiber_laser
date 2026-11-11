@@ -60,17 +60,39 @@ def safe(sim) -> bool:
 
 
 class Watch:
-    """Head travel and time from a reference moment until the card is safe."""
+    """Head travel and time from a reference moment until the card is safe.
 
-    def __init__(self, sim):
+    ``from_halt``: the travel is measured from where the head was when the card received the
+    halt's stop command (the halt's own evidence), not from where the simulator's motion thread
+    last left it when the Watch was made: under load (Windows CI) that thread or the test
+    thread can be descheduled for a few hundred ms, and the motion of that gap was counted as
+    travel "after" the call under test (46 mm once).  ``halt_delay_s`` is the time from the
+    Watch to the halt's arrival (perf_counter, not the 15.6 ms Windows monotonic clock)."""
+
+    def __init__(self, sim, from_halt: bool = False):
         self.sim = sim
+        self.halt_at: tuple[float, tuple[float, float]] | None = None
+        if from_halt:
+            real = sim._mailbox
+
+            def spy(words, real=real):
+                if self.halt_at is None and list(words[:2]) == [1, 0x1F]:     # stop motion
+                    self.halt_at = (time.perf_counter(), head_mm(sim))
+                return real(words)
+            sim._mailbox = spy
         self.p0 = head_mm(sim)
         self.t0 = time.monotonic()
+        self.pc0 = time.perf_counter()
+
+    @property
+    def halt_delay_s(self) -> float | None:
+        return None if self.halt_at is None else self.halt_at[0] - self.pc0
 
     def until_safe(self, timeout: float) -> tuple[float | None, float]:
         dt = wait_until(lambda: safe(self.sim), timeout)
         p1 = head_mm(self.sim)
-        return dt, math.dist(self.p0, p1)
+        p0 = self.halt_at[1] if self.halt_at is not None else self.p0
+        return dt, math.dist(p0, p1)
 
 
 def start_and_run(ctl, doc=None, run_s: float = 0.6):
