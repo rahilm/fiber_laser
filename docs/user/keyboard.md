@@ -15,6 +15,7 @@ press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) work
 | Design | Copy | `Ctrl+C` | `⌘C` | main window |
 | Design | Cut | `Ctrl+X` | `⌘X` | main window |
 | Design | Delete | `Del` | `⌫ / ⌦` | main window |
+| Design | Design | `Ctrl+1` | `⌘1` | main window |
 | Design | Find part… | `Ctrl+F` | `⌘F` | main window |
 | Design | Import | `Ctrl+I` | `⌘I` | main window |
 | Design | Invert selection | `Ctrl+Shift+I` | `⇧⌘I` | main window |
@@ -29,16 +30,15 @@ press Start, Frame, Dry run or Resume. Stop (F12, and Esc while a job runs) work
 | Design | Select mode | `V` | `V` | canvas focused |
 | Design | Undo | `Ctrl+Z / Alt+Backspace` | `⌘Z` | main window |
 | Design | Vertex edit | `N` | `N` | canvas focused |
-| Design | Workspace: Design | `Ctrl+1` | `⌘1` | main window |
 | Design | Zoom in | `Ctrl+=` | `⌘=` | main window |
 | Design | Zoom out | `Ctrl+-` | `⌘-` | main window |
 | Design | Zoom to fit | `F` | `F` | main window |
-| Machine | Workspace: Machine | `Ctrl+6` | `⌘6` | main window |
+| Machine | Machine | `Ctrl+6` | `⌘6` | main window |
 | Process | Compensate | `K` | `K` | canvas focused |
 | Process | Lead line | `L` | `L` | canvas focused |
 | Process | Micro joint | `J` | `J` | canvas focused |
+| Process | Process | `Ctrl+2` | `⌘2` | main window |
 | Process | Sort | `S` | `S` | canvas focused |
-| Process | Workspace: Process | `Ctrl+2` | `⌘2` | main window |
 | Run | Dry run | `Shift+F6` | `⇧⌘R / ⇧F6` | Run workspace, not while typing |
 | Run | Frame | `F6` | `⇧⌘F / F6` | Run workspace, not while typing |
 | Run | Simulate (preview) | `P` | `P` | canvas focused |
