@@ -200,7 +200,10 @@ def derive_mode(st: PhaseState, *, connected: bool, worker_alive: bool, breakpoi
         return "offline"
     if st.starting or (st.worker and worker_alive):
         return "pause" if st.hold else (st.mode or "process")
-    if breakpoint:
+    if breakpoint or st.phase is P.PAUSING:
+        # PAUSING after the worker's end: the Hold is taking the breakpoint (the FIFO is
+        # cleared, the resume point stored).  Never "ready" in between: the Run screen showed
+        # READY for that moment (CI, a slow runner: for more than 0.3 s)
         return "pause"
     if poll_failing:
         return "offline"            # the card stopped answering the status poll (not a job)
