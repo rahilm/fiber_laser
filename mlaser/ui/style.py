@@ -75,8 +75,9 @@ TYPE_SCALE: dict[str, tuple[float, QFont.Weight]] = {
     "display_run": (2.0, QFont.Bold),      # the Run screen's machine state and STOP
 }
 
-#: fixed icon tints for state icons (Start, Hold, STOP, alarms): mid tones that read on a light and
-#: a dark background alike (an icon is never the only cue: it has its text)
+#: fixed mid tones of the state colours for drawings that are not icons (canvas overlays).  An
+#: icon names a colour role instead (``icons.icon(name, "warning")``), resolved from the theme
+#: when it is painted; an icon given one of these values gets its role (mlaser.ui.icons)
 ICON_TINTS = {"success": "#2f9e44", "warning": "#e67700", "danger": "#e03131", "info": "#1c7ed6",
               "neutral": "#333333"}
 
@@ -429,7 +430,7 @@ def run_button(kind: str, tr=None, on_click: Optional[Callable[[], Any]] = None,
     tint = "on_danger" if kind == "stop" else k.role
 
     def paint() -> str:
-        b.setIcon(_icon(k.icon, css(tint) if tint else None))
+        b.setIcon(_icon(k.icon, tint or None))           # the role: follows a theme switch
         if kind == "stop":
             return (f"QPushButton{{background:{css('danger_fill')};color:{css('on_danger')};font-weight:bold;"
                     f"border-radius:{SP1 + 2}px;padding:{SP1}px {SP3}px;}}"

@@ -174,11 +174,14 @@ class TopBar(QWidget):
         self.interlocks.setObjectName("chip_interlocks")
         self.interlocks.setProperty("chip", True)
         self.interlocks.setToolButtonStyle(Qt.ToolButtonTextBesideIcon)
-        self.interlocks.setIcon(icon(STATE_ICONS["interlock"], style.css("on_warning")))
+        # a configuration notice, not a hazard: neutral (text colour on a muted outline), so the
+        # amber of ARMED and of a tripped interlock is not on screen all the time (UI review
+        # 2026-11-09 finding 6); the icon in the text colour of the theme shown now (finding 9)
+        self.interlocks.setIcon(icon(STATE_ICONS["interlock"], "text"))
         self.interlocks.setFocusPolicy(Qt.StrongFocus)
         style.styled(self.interlocks, lambda: (
-            f"QToolButton#chip_interlocks{{background:{style.css('warning_fill')};color:{style.css('on_warning')};"
-            f"border:1px solid {style.css('warning')};border-radius:{style.SP2}px;padding:0 {style.SP2}px;"
+            f"QToolButton#chip_interlocks{{background:{style.css('base')};color:{style.css('text')};"
+            f"border:1px solid {style.css('muted')};border-radius:{style.SP2}px;padding:0 {style.SP2}px;"
             f"font-weight:bold;}}"))
         tr.bind(self.interlocks, "shell.chip.interlocks.tip", self.interlocks.setToolTip)
         self.interlocks.clicked.connect(self._open_safety_io)

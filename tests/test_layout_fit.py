@@ -109,8 +109,9 @@ os._exit(0)
 #: 1280 x 800 is the smallest supported screen (docs/dev/RESPONSIVE.md); 48 px is a Windows
 #: taskbar at 100 %, 80 px a taskbar and a title bar (the offscreen platform has no frame);
 #: 1512 x 982 at 2x is a 14" MacBook Pro.  1366 x 768 is below the supported size and not here.
+#: 10 pt and 12 pt: a larger application font on the smallest screen with a taskbar.
 SCREENS = [(1280, 800, 0, 1, 0), (1280, 800, 48, 1, 0), (1280, 800, 80, 1, 0), (1512, 982, 0, 2, 0),
-           (1280, 800, 48, 1, 10)]
+           (1280, 800, 48, 1, 10), (1280, 800, 48, 1, 12)]
 
 
 @pytest.mark.sim          # one worker with the timing tests: a whole app in a subprocess
