@@ -37,8 +37,11 @@ After the import, check the step scale with a short jog in dry-run mode (see [Sa
 
 **Back up / restore parameters** (Machine menu) are separate: *Back up parameters to the motion
 card…* / *to a file…* store this PC's parameters there; *Restore parameters from the motion
-card…* / *from a file…* replace this PC's parameters with that copy. A restore asks first (Cancel
-the default) and saves the current parameters as `File/params-before-restore-<date>-<time>.xml`.
+card…* / *from a file…* replace this PC's parameters with that copy. A restore first shows what
+changes (the same review as the import: every value now and restored, the values that change how
+the machine moves marked and listed first), then asks (Cancel the default) and saves the current
+parameters as `File/params-before-restore-<date>-<time>.xml`.  What was reviewed is what is
+stored: the card is not read a second time.
 
 ## Card address
 
