@@ -20,7 +20,28 @@ from __future__ import annotations
 
 import threading
 import time
-from typing import Optional
+from typing import Callable, Optional, Protocol, TypeGuard
+
+
+class Clock(Protocol):
+    """What the controller needs of a time source (:class:`SystemClock`, :class:`ManualClock`)."""
+
+    @property
+    def virtual(self) -> bool: ...
+    def monotonic(self) -> float: ...
+    def sleep(self, seconds: float) -> None: ...
+
+
+class VirtualClock(Clock, Protocol):
+    """A clock whose time moves only when told to (:class:`ManualClock`): it calls listeners."""
+
+    def add_listener(self, fn: Callable[[float], None]) -> None: ...
+    def remove_listener(self, fn: Callable[[float], None]) -> None: ...
+
+
+def is_virtual(clock: Clock) -> TypeGuard[VirtualClock]:
+    """``clock.virtual`` (for the type checker: a virtual clock takes listeners)."""
+    return bool(clock.virtual)
 
 
 class SystemClock:

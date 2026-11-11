@@ -12,13 +12,15 @@ from typing import Optional
 
 from ...protocol import frames as F
 from ..commands import card_command
+from ._shared import PartBase
 
 
-class IOPart:
+class IOPart(PartBase):
     def _out(self, port: int, on: bool) -> None:
         """CNCModule +0x13c (FUN_10030620): one output; ports < 1 send nothing."""
-        if port and port >= 1:
-            self._safe("output", self._mc.set_output, int(port), bool(on))
+        mc = self._mc
+        if port and port >= 1 and mc is not None:          # None: disconnected, nothing to send
+            self._safe("output", mc.set_output, int(port), bool(on))
 
     def _port_guarded(self, port: int) -> bool:
         return bool(port and 1 <= port <= F.N_OUTPUTS and self._sup.guarded_outputs >> (port - 1) & 1)
@@ -86,7 +88,7 @@ class IOPart:
         valves, the process laser DO and the configured laser outputs (shutter/gate, laser DOs);
         never the heartbeat output.  Outputs 11..26 go out with sub 13 (supervisor.halt_steps)."""
         pc = getattr(self.machine, "process", None)
-        ports = set()
+        ports: set[int] = set()
         if pc is not None:
             ports.update(p for p in getattr(pc, "gas_valves", ()) if p)
             if getattr(pc, "do_laser", 0):
@@ -129,8 +131,9 @@ class IOPart:
         self._gate_open = False
 
     def _da_off(self, port: int) -> None:
-        if port in (1, 2):
-            self._safe("DA", self._mc.set_da, port, 0)
+        mc = self._mc
+        if port in (1, 2) and mc is not None:              # None: disconnected, nothing to send
+            self._safe("DA", mc.set_da, port, 0)
 
     def _red_light_off(self) -> None:
         """CNCModule +0x178 (FUN_1002ddb0): red light of the current laser type off
@@ -195,6 +198,9 @@ class IOPart:
         LGP.CO2DOLaser on, same timing rule.  Needs the machine armed."""
         if not self._ok() or self._busy() or self._laser_on:
             return
+        mc = self._mc
+        if mc is None:                       # disconnected since the check
+            return
         self._laser_on = True        # held: the release always sends the laser-off (FUN_005b0630)
         if not self._armed_for("laser"):
             return
@@ -209,17 +215,17 @@ class IOPart:
             if not ct:
                 return
             sub = F.SYS_PWM_BUS if ct == 2 else F.SYS_PWM
-            self._safe("laser", self._mc.command, F.mailbox_sys(sub, freq, power, 1))
+            self._safe("laser", mc.command, F.mailbox_sys(sub, freq, power, 1))
             self._out(m.iparam("LGP.CO2DOLaser", 0), True)
         elif lt == 0 and freq > 0:
-            self._safe("laser", self._mc.command, F.mailbox_sys(F.SYS_PWM, freq, power, 1))
+            self._safe("laser", mc.command, F.mailbox_sys(F.SYS_PWM, freq, power, 1))
             if m.iparam("LGP.LaserControlType", 0) == 3:
                 port = m.iparam("LGP.LaserDAPort", 0)
                 if port in (1, 2):
-                    self._safe("DA", self._mc.set_da, port, m.iparam("LC.PtLaserPeakCurrent", 100) * 100)
+                    self._safe("DA", mc.set_da, port, m.iparam("LC.PtLaserPeakCurrent", 100) * 100)
                 self._out(m.iparam("LGP.DOLaser", 0), True)
             if t_ms <= 0:
-                self._safe("laser", self._mc.command, F.mailbox_sys(F.SYS_PWM, freq, power, 1))
+                self._safe("laser", mc.command, F.mailbox_sys(F.SYS_PWM, freq, power, 1))
         else:
             return
         with self._slock:
@@ -247,13 +253,16 @@ class IOPart:
             raise KeyError(name)
         if not self._ok():
             return
+        mc = self._mc
+        if mc is None:                       # disconnected since the check
+            return
         if name == "laser":
             # mp51 is a push button in the original: press = laser on, release = laser off
             (self.laser_press if on else self.laser_release)()
             return
         if name == "follow":
             # [118, 4, on, value] follower on/off via the MC (FUN_10041740, INFERRED)
-            self._safe("follow", self._mc.command, [F.OP_FOLLOW, 4, int(bool(on)), 0])
+            self._safe("follow", mc.command, [F.OP_FOLLOW, 4, int(bool(on)), 0])
             with self._slock:
                 self._s.outputs["follow"] = bool(on)
             self._log("mp41: follower command sent ([118,4,...], INFERRED)")
@@ -264,7 +273,7 @@ class IOPart:
             return
         if on and self._port_guarded(int(n)) and not self._armed_for(f"output {name}"):
             return
-        if not self._try(f"output {name}", self._mc.set_output, int(n), bool(on)):
+        if not self._try(f"output {name}", mc.set_output, int(n), bool(on)):
             return
         with self._slock:
             self._s.outputs[name] = bool(on)

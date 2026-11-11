@@ -19,12 +19,13 @@ when a serial transport is opened).
 """
 from __future__ import annotations
 
+import errno
 import select
 import socket
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 SERIAL_BAUDS = (9600, 19200, 38400, 57600, 115200)   # FUN_100068a0 local table
 
@@ -95,6 +96,8 @@ class DeviceSettings:
                 key = {"zf": "ZF", "laser": "Laser", "serial": "Serial", "af": "AF", "ec": "EC"}.get(prefix)
                 if prefix == "zf" and rest.startswith("serial"):
                     k = "ZFSerialTimeout"
+                elif key is None:            # (every such field has a section above)
+                    continue
                 else:
                     k = key + {"timeout_ms": "Timeout", "max_send": "MaxSendTime", "max_recv": "MaxRecvTime",
                                "send_interval_ms": "SendInterval"}[rest]
@@ -162,29 +165,35 @@ class NetTransport(Transport):
 
     def _drain(self) -> None:
         """FUN_100061f0: discard one stale datagram before a request (UDP)."""
-        if self.access != "udp":
+        s = self.sock
+        if self.access != "udp" or s is None:
             return
-        r, _, _ = select.select([self.sock], [], [], 0)
+        r, _, _ = select.select([s], [], [], 0)
         if r:
             try:
-                self.sock.recv(4096)
+                s.recv(4096)
             except OSError:
                 pass
 
     def send_only(self, data: bytes) -> None:
         with self.lock:
-            self.open()
+            s = self.open().sock
+            if s is None:                    # (open() sets it or raises)
+                raise OSError(errno.ENOTCONN, "transport closed")
             if self.access == "tcp":
-                self.sock.sendall(data)
+                s.sendall(data)
             else:
-                self.sock.sendto(data, (self.host, self.port))
+                s.sendto(data, (self.host, self.port))
 
     def _recv(self) -> Optional[bytes]:
-        r, _, _ = select.select([self.sock], [], [], self.timeout_ms / 1000)
+        s = self.sock
+        if s is None:                        # closed: no reply
+            return None
+        r, _, _ = select.select([s], [], [], self.timeout_ms / 1000)
         if not r:
             return None
         try:
-            return self.sock.recv(4096)
+            return s.recv(4096)
         except OSError:
             return None
 
@@ -223,7 +232,7 @@ class SerialTransport(Transport):
         self.port_name, self.baud = port, SERIAL_BAUDS[baud_index]
         self.timeout_ms, self.max_send, self.interval_ms = timeout_ms, max_send, interval_ms
         self.no_reply = no_reply       # FUN_10006a30 sets HAL+0x28: return right after the write
-        self.ser = None
+        self.ser: Optional[Any] = None          # serial.Serial (pyserial, no type information)
         self.lock = threading.RLock()
 
     def open(self) -> "SerialTransport":
@@ -244,9 +253,11 @@ class SerialTransport(Transport):
 
     def send_only(self, data: bytes) -> None:
         with self.lock:
-            self.open()
-            self.ser.reset_input_buffer()          # PurgeComm(0xc) before every write
-            self.ser.write(data)
+            ser = self.open().ser
+            if ser is None:                        # (open() sets it or raises)
+                raise OSError(errno.ENOTCONN, "serial port closed")
+            ser.reset_input_buffer()               # PurgeComm(0xc) before every write
+            ser.write(data)
 
     def exchange(self, data: bytes, expect_len: Optional[int] = None,
                  validator: Optional[Validator] = None, delay_ms: int = 0) -> Optional[bytes]:
@@ -257,7 +268,10 @@ class SerialTransport(Transport):
                     return b""
                 if delay_ms:
                     time.sleep(delay_ms / 1000)
-                rx = self.ser.read(expect_len or 256)
+                ser = self.ser
+                if ser is None:                    # closed meanwhile: no reply
+                    return None
+                rx = ser.read(expect_len or 256)
                 if rx and (validator is None or validator(rx)):
                     return rx
                 time.sleep(self.interval_ms / 1000)
@@ -320,6 +334,8 @@ class UdpServer:
 
     def _serve(self) -> None:
         s = self._sock
+        if s is None:                        # stopped before the thread ran
+            return
         while not self._stop.is_set():
             try:
                 if self.transport == "tcp":

@@ -34,10 +34,11 @@ runs without it.
 from __future__ import annotations
 
 import datetime as _dt
+import errno
 import threading
 import time
 from dataclasses import dataclass
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 VID = 0x10CE
 PIDS = {  # PID -> model code returned by XGetVersion (XOpen 0x100018c0)
@@ -214,7 +215,9 @@ class Pendant:
         self.on_error: Optional[Callable[[Exception], None]] = None
         self.on_tick: Optional[Callable[[], None]] = None
         self.read_errors = 0
-        self.input = self.control = None
+        # hidapi devices (no type information), None while closed
+        self.input: Optional[Any] = None
+        self.control: Optional[Any] = None
         self.model = 0
         self.status = PendantStatus()
         self._injected = devices
@@ -295,7 +298,10 @@ class Pendant:
 
     # input
     def poll(self, timeout_ms: int = 100) -> Optional[PendantEvent]:
-        data = self.input.read(INPUT_LEN, timeout_ms)
+        dev = self.input
+        if dev is None:                      # not open: a read error (the reader reports it)
+            raise OSError(errno.ENODEV, "pendant: not open")
+        data = dev.read(INPUT_LEN, timeout_ms)
         if not data:
             return None
         ev = decode_input(bytes(data))

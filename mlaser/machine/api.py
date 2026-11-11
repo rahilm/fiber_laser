@@ -34,13 +34,16 @@ import logging
 import threading
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Callable, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Callable, Optional, Protocol, runtime_checkable
 
 from .. import i18n as _i18n
 from . import events as EV
 from . import preflight as PF
 from .jobphase import JobPhase
 from .safety import SafetyFSM, SafetyState, SafetyStatus
+
+if TYPE_CHECKING:
+    from ..nc.resume import Breakpoint
 
 OUTPUTS = ("follow", "gas", "shutter", "red_light", "laser", "dedust", "lube")
 
@@ -212,10 +215,10 @@ class ControllerFacade(ABC):
     def __init__(self) -> None:
         self.events = EV.EventBus()
         self.active_alarms: list = []
-        self.breakpoint = None
+        self.breakpoint: Optional[Breakpoint] = None
         #: the resume point a Stop while held kept (UX audit W17): restore_kept_breakpoint()
         #: brings it back, discard_kept_breakpoint() drops it; a new breakpoint replaces it
-        self.kept_breakpoint = None
+        self.kept_breakpoint: Optional[Breakpoint] = None
         self.connect_hooks: list = []
         self.job_start_hooks: list = []
         self.coords = None
