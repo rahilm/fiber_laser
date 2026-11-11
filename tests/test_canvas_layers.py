@@ -4,8 +4,8 @@ The canvas paints the drawing, the toolpath and the other scene items once into 
 draws the live items (head marker, cut track, simulation trail, tool previews) over a copy of it
 (``mlaser/ui/canvas.py``, "live layer").  The decisive check is pixel equality with the way
 the canvas painted before: every item in the one scene, the whole scene on every paint.  It is
-made at several zooms and pan positions, with the grid on, at device pixel ratio 1 here and 2
-in a child process (``QT_SCALE_FACTOR=2``)."""
+made at several zooms and pan positions, with the grid on, at device pixel ratio 1 here and 2,
+1.25 and 1.5 in a child process (``QT_SCALE_FACTOR``)."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def make_canvas(n: int = 48, inside: bool = False):
         win = QWidget()
         win.resize(663, 501)
         v = CanvasView(win)
-        v.move(7, 5)
+        v.move(7, 6)                         # (+ the frame: 8, 7; at 150 % y = 10.5)
         v.resize(640, 480)
         win.show()
         v._test_window = win                     # kept alive with the canvas
@@ -203,8 +203,11 @@ print(json.dumps(out))
 """
 
 
-def test_cached_paint_is_pixel_identical_at_device_pixel_ratio_2(tmp_path):
-    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_SCALE_FACTOR="2",
+@pytest.mark.parametrize("scale", ["2", "1.25", "1.5"])
+def test_cached_paint_is_pixel_identical_at_device_pixel_ratio_2(tmp_path, scale):
+    """At 200 % and at the fractional ratios of Windows' 125 % and 150 % (where the viewport,
+    in a window, begins inside a device pixel: the picture is drawn back in device pixels)."""
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", QT_SCALE_FACTOR=scale,
                MLASER_CONFIG_DIR=str(tmp_path / "cfg"), MLASER_APP_DIR=str(tmp_path / "app"),
                MLASER_DATA_DIR=str(tmp_path / "data"))
     env.pop("_MLASER_CONFIG_AUTO", None)
@@ -213,7 +216,7 @@ def test_cached_paint_is_pixel_identical_at_device_pixel_ratio_2(tmp_path):
     assert r.returncode == 0, r.stderr[-3000:]
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert all(x[0] for x in res.values()), res
-    assert all(x[2] == 2.0 for x in res.values()), res
+    assert all(x[2] == float(scale) for x in res.values()), res
 
 
 def test_a_head_move_draws_from_the_cached_picture():
