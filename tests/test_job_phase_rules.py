@@ -190,7 +190,7 @@ def test_pulse_jog_refused_while_the_machine_homes():
     for mode, refused in (("origin", True), ("jog", True), ("ready", False)):
         text: list = []
         sent: list = []
-        fake = NS(ext=NS(w=NS(ctl=Ctl(P.IDLE, mode=mode), tr_=None)), _writable=lambda: True,
+        fake = NS(ext=NS(ctx=NS(controller=Ctl(P.IDLE, mode=mode))), _writable=lambda: True,
                   status=NS(setText=text.append),
                   pulse_speed=NS(value=lambda: 1.0), axis=NS(currentIndex=lambda: 0),
                   pulses=NS(value=lambda: 10))
@@ -200,7 +200,8 @@ def test_pulse_jog_refused_while_the_machine_homes():
             cls.send_pulses(fake)
         finally:
             ext_diag._mc = orig
-        assert (text == ["System is moving"]) == refused, mode
+        # (the catalogue's text of "ss2": the extensions use the application translator)
+        assert (len(text) == 1 and "moving" in text[0]) == refused, (mode, text)
         assert bool(sent) == (not refused), mode
 
 
