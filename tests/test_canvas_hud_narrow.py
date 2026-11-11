@@ -65,3 +65,58 @@ def test_fit_buttons_fold_to_icons_rather_than_wrap_the_row(app):
         assert hud.fit_drawing.toolButtonStyle() == Qt.ToolButtonTextOnly        # words again
     finally:
         dispose(w)
+
+
+
+def test_the_bar_holds_its_widest_control_in_any_view(app):
+    """Where even the icon-only row does not fit the view beside the ruler (Windows' metrics at
+    the window's minimum width: *Fit table* was cut by 4 px), the bar takes the width its widest
+    control needs and moves over the ruler; no control is ever narrower than it needs or cut.
+    Simulated with a style whose tool buttons are wider than the room beside the ruler (and
+    narrower than the view)."""
+    from PySide6.QtWidgets import QProxyStyle, QStyle, QToolButton, QWidget
+
+    from mlaser.ops import demo_document
+    from wiring import dispose, real_window
+
+    class _Wide(QProxyStyle):
+        extra = 0
+
+        def sizeFromContents(self, ct, opt, size, widget=None):  # noqa: N802 - Qt API
+            s = super().sizeFromContents(ct, opt, size, widget)
+            if ct == QStyle.CT_ToolButton:
+                s.setWidth(s.width() + self.extra)
+            return s
+
+    w = real_window()
+    w.show()
+    wide = _Wide("Fusion")
+    hud = w.canvas.hud
+    try:
+        w.set_document(demo_document())
+        w.shell.host.activate("process")
+        w.resize(527, 648)
+        _settle(app)
+        v = w.canvas
+        inset = v.ruler_px() + 4 if v.options.show_rulers else 8
+        room = v.width() - inset - 8                     # beside the ruler
+        b0 = hud.fit_table
+        b0.setToolButtonStyle(Qt.ToolButtonIconOnly)
+        lm, fm = hud.layout().contentsMargins(), hud.contentsMargins()
+        pad = lm.left() + lm.right() + fm.left() + fm.right()
+        # each tool button alone needs more than the room beside the ruler, less than the view
+        wide.extra = room - b0.sizeHint().width() - pad + 6
+        for b in hud.findChildren(QToolButton):
+            b.setStyle(wide)
+        hud.place()
+        assert pad + b0.sizeHint().width() > room and pad + b0.sizeHint().width() <= v.width() - 2
+        assert v.rect().contains(hud.geometry()), (v.size(), hud.geometry())
+        for c in hud.findChildren(QWidget):
+            if not c.isVisibleTo(hud) or c.parentWidget() is not hud:
+                continue
+            assert hud.rect().contains(c.geometry()), (c.objectName(), c.geometry(), hud.size())
+            assert c.width() >= c.minimumSizeHint().width(), (c.objectName(), c.width())
+    finally:
+        for b in hud.findChildren(QToolButton):
+            b.setStyle(None)
+        dispose(w)

@@ -237,6 +237,10 @@ class WorkspacePage(QWidget):
         tr.bind(self.toolbar2, spec.title or spec.id, lambda t: self.toolbar2.setAccessibleName(
             tr.format("a11y.ws.toolbar2", workspace=t)))
         v.addWidget(self.toolbar2)
+        # the second row's too: its buttons may be laid out wider than measured as well
+        ext2 = self.toolbar2.findChild(QToolButton, "qt_toolbar_ext_button")
+        if ext2 is not None:
+            ext2.installEventFilter(self)
         self._acts: list = []             # the tool bar's actions in order (both rows)
         self._split = 0                   # how many of them the first row holds
         self.body = QWidget()
@@ -682,39 +686,66 @@ class WorkspacePage(QWidget):
 
     def eventFilter(self, obj, ev) -> bool:  # noqa: N802 - Qt API
         if ev.type() == QEvent.Show and obj.objectName() == "qt_toolbar_ext_button" \
-                and obj.parent() is self.toolbar and not self._overflow_check:
+                and obj.parent() in (self.toolbar, self.toolbar2) and not self._overflow_check:
             self._overflow_check = True
             QTimer.singleShot(0, self, self._no_overflow)
         return False
 
     def _no_overflow(self) -> None:
-        """Once the tool bar is laid out: if its extension button shows after all (a style lays
-        it out wider than its size hint said: macOS), a label goes, then the second row is
-        used, until every command is in a row.  Bounded by the number of commands."""
+        """Once the tool bars are laid out: if an extension button shows after all (a style lays
+        the buttons out wider than their size hints said: macOS, Windows), a label goes, then
+        the second row is used, then the row break moves one command at a time towards the
+        row that has room and the page's minimum takes both rows' widths, until every command
+        is in a row.  Bounded by the number of commands."""
         self._overflow_check = False
-        tb = self.toolbar
-        for _ in range(len(self._acts) + 1):
-            ext = tb.findChild(QToolButton, "qt_toolbar_ext_button")
-            if ext is None or not ext.isVisible():
+        tb, tb2 = self.toolbar, self.toolbar2
+
+        def over(t) -> bool:
+            if not t.isVisibleTo(self):
+                return False
+            ext = t.findChild(QToolButton, "qt_toolbar_ext_button")
+            return ext is not None and ext.isVisible()
+        tried = {self._split}
+        for _ in range(2 * len(self._acts) + 2):
+            o1, o2 = over(tb), over(tb2)
+            if not o1 and not o2:
                 return
-            labelled = [tb.widgetForAction(a) for a in reversed(self._label_order())
-                        if isinstance(tb.widgetForAction(a), QToolButton) and not a.icon().isNull()
-                        and tb.widgetForAction(a).toolButtonStyle() != Qt.ToolButtonIconOnly]
+            labelled = [t.widgetForAction(a) for t, o in ((tb, o1), (tb2, o2)) if o
+                        for a in reversed(self._label_order())
+                        if isinstance(t.widgetForAction(a), QToolButton) and not a.icon().isNull()
+                        and t.widgetForAction(a).toolButtonStyle() != Qt.ToolButtonIconOnly]
             if labelled:
                 labelled[0].setToolButtonStyle(Qt.ToolButtonIconOnly)
-            elif self._split == len(self._acts) and len(self._acts) > 2:
+            elif o1 and self._split == len(self._acts) and len(self._acts) > 2:
                 ws = [tb.widgetForAction(a).sizeHint().width() if tb.widgetForAction(a) is not None else 0
                       for a in self._acts]
                 total = sum(ws)
                 mid = min(range(1, len(ws)), key=lambda i: abs(sum(ws[:i]) - total / 2))
                 self._place(mid)
+                tried.add(mid)
                 self._toolbar_need = max(self._toolbar_need, tb.sizeHint().width(), self.toolbar2.sizeHint().width())
                 self.updateGeometry()
+            elif self._split < len(self._acts):
+                # two rows and one still overflows (Windows CI: the Process tool bar at 1100 px):
+                # the break moves one command towards the other row, and the page's minimum
+                # takes both rows as they are now, so the page widens if neither has room
+                k = self._split + (1 if o2 and not o1 else -1)
+                moved = 0 < k < len(self._acts) and k not in tried
+                if moved:
+                    tried.add(k)
+                    self._place(k)
+                need = max(self._toolbar_need, tb.sizeHint().width(), tb2.sizeHint().width())
+                if need != self._toolbar_need:
+                    self._toolbar_need = need
+                    self.updateGeometry()
+                if not moved:
+                    return
             else:
                 return
-            if tb.layout() is not None:
-                tb.layout().invalidate()
-                tb.layout().activate()
+            for t in (tb, tb2):
+                if t.layout() is not None:
+                    t.layout().invalidate()
+                    t.layout().activate()
 
     def minimumSizeHint(self) -> QSize:  # noqa: N802 - Qt API
         return super().minimumSizeHint().expandedTo(QSize(self._toolbar_need, 0))
