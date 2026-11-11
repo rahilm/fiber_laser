@@ -1111,12 +1111,28 @@ idle(1.0)
 assert w.connect_simulator(time_scale=1.0)
 w.set_document(docops.demo_document())
 idle(1.0)
-out = {}
+import collections
+from PySide6.QtCore import QEvent, QObject
+class Count(QObject):
+    # after the measurement: what the GUI thread handled in one more idle second (shown when
+    # the test fails; the filter's own cost is not in the measurement)
+    def __init__(self):
+        super().__init__()
+        self.n = collections.Counter()
+    def eventFilter(self, o, e):
+        self.n[f"{type(o).__name__}/{o.objectName()}/{QEvent.Type(e.type()).name}"] += 1
+        return False
+out, events = {}, {}
 for ws in ("machine", "run", "design"):
     w.show_workspace(ws)
     idle(1.0)
     out[ws] = idle(2.0)
-print(json.dumps({"size": [w.width(), w.height()], "cpu": out}))
+    c = Count()
+    app.installEventFilter(c)
+    idle(1.0)
+    app.removeEventFilter(c)
+    events[ws] = c.n.most_common(12)
+print(json.dumps({"size": [w.width(), w.height()], "cpu": out, "events": events}))
 sys.stdout.flush()
 dispose(w)
 del w
