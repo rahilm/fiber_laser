@@ -33,6 +33,7 @@ from mlaser.services.jobs import InlineExecutor, JobRequest, JobService, plan_nb
 from mlaser.services.undo import SegmentsEdit
 
 from test_large_drawing import big_document, runner_budget, timed
+from stall_probe import StallProbe
 
 
 # --------------------------------------------------------------------------- helpers
@@ -548,12 +549,14 @@ def test_import_review_runs_in_a_child_and_the_gui_keeps_the_interpreter(win, ap
     # hand-overs of the interpreter while the child analyses: 100 x sleep(0) per batch
     worst = 0.0
     batches = 0
-    while not task.done.is_set() and batches < 400:
-        t0 = time.perf_counter()
-        for _ in range(100):
-            time.sleep(0)
-        worst = max(worst, time.perf_counter() - t0)
-        batches += 1
+    with StallProbe() as probe:               # diagnostics for the failure message only
+        while not task.done.is_set() and batches < 400:
+            t0 = time.perf_counter()
+            for _ in range(100):
+                time.sleep(0)
+                probe.beat()
+            worst = max(worst, time.perf_counter() - t0)
+            batches += 1
     t_end = time.time() + 60
     while not shown and time.time() < t_end:
         app.processEvents()
@@ -561,4 +564,5 @@ def test_import_review_runs_in_a_child_and_the_gui_keeps_the_interpreter(win, ap
     assert shown and reports and reports[0] == expected
     assert here == []                                        # nothing analysed in this process
     # a CPU-bound thread makes 100 hand-overs cost about 100 x the switch interval (0.5 s)
-    assert batches >= 1 and worst < runner_budget(100 * sys.getswitchinterval() / 5), (worst, batches)
+    assert batches >= 1 and worst < runner_budget(100 * sys.getswitchinterval() / 5), (
+        worst, batches, probe.report())

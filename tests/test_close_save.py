@@ -18,6 +18,7 @@ pytest.importorskip("PySide6")
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from mlaser.model import Contour, Craft, Document, Line, Part  # noqa: E402
+from stall_probe import StallProbe  # noqa: E402
 
 # Qt widgets; the two GUI-latency bounds (``timing``) run in a timing group (tests/conftest.py)
 pytestmark = pytest.mark.ui
@@ -340,13 +341,14 @@ def _big_document(n: int = 2700) -> Document:
     return Document([_square((i % cols) * 12.0, (i // cols) * 12.0, n=24) for i in range(n)])
 
 
-def _max_gap_while(qapp, busy, timeout_s: float = 60.0) -> float:
-    """The longest the GUI thread went without running a 5 ms timer while ``busy()``."""
+def _max_gap_while(qapp, busy, timeout_s: float = 60.0, probe=None) -> float:
+    """The longest the GUI thread went without running a 5 ms timer while ``busy()``
+    (``probe``: a :class:`stall_probe.StallProbe` given the timer's beats, diagnostics only)."""
     from PySide6.QtCore import QTimer
     stamps = [time.perf_counter()]
     t = QTimer()
     t.setInterval(5)
-    t.timeout.connect(lambda: stamps.append(time.perf_counter()))
+    t.timeout.connect(lambda: (stamps.append(time.perf_counter()), probe and probe.beat()))
     t.start()
     t_end = time.monotonic() + timeout_s
     while busy() and time.monotonic() < t_end:
@@ -395,13 +397,17 @@ def test_autosave_does_not_block_the_gui_thread(qapp):
     proj = w.extension("ext_project")
     proj._dirty = True
     assert proj.autosave_async() is True
-    gap = _max_gap_while(qapp, lambda: proj._autosave_busy)
+    with StallProbe() as probe:
+        gap = _max_gap_while(qapp, lambda: proj._autosave_busy, probe=probe)
     assert not proj._autosave_busy, "the autosave did not finish"
     if gap >= 0.2:                            # the best of two (see the Save test)
         proj._dirty = True
         assert proj.autosave_async() is True
-        gap = min(gap, _max_gap_while(qapp, lambda: proj._autosave_busy))
-    assert gap < 0.2, f"the GUI thread stalled {gap * 1000:.0f} ms during the autosave"
+        with StallProbe() as probe2:
+            gap2 = _max_gap_while(qapp, lambda: proj._autosave_busy, probe=probe2)
+        if gap2 < gap:
+            gap, probe = gap2, probe2
+    assert gap < 0.2, f"the GUI thread stalled {gap * 1000:.0f} ms during the autosave\n{probe.report()}"
     assert not proj._dirty
     rec = proj.autosave_store().recover()                    # crash recovery reads it back
     assert rec is not None and len(rec.document.parts) == 2700
@@ -428,17 +434,19 @@ def test_save_mlz_does_not_block_the_gui_thread(qapp, tmp_path):
         stamps: list = []
         t = QTimer()
         t.setInterval(5)
-        t.timeout.connect(lambda: stamps.append(time.perf_counter()))
-        t.start()
-        t0 = time.perf_counter()
-        assert proj.save(str(tmp_path / name))
-        stamps = [t0] + stamps + [time.perf_counter()]
-        t.stop()
-        return max(b - a for a, b in zip(stamps, stamps[1:]))
+        probe = StallProbe()
+        t.timeout.connect(lambda: (stamps.append(time.perf_counter()), probe.beat()))
+        with probe:
+            t.start()
+            t0 = time.perf_counter()
+            assert proj.save(str(tmp_path / name))
+            stamps = [t0] + stamps + [time.perf_counter()]
+            t.stop()
+        return max(b - a for a, b in zip(stamps, stamps[1:])), probe
     # the best of two: a loaded CI machine can stall any process for a moment; a Save that
     # serialised on the GUI thread stalls it 0.8 s every time
-    gap = min(save_gap("big.mlz"), save_gap("big2.mlz"))
-    assert gap < 0.2, f"the GUI thread stalled {gap * 1000:.0f} ms during Save"
+    gap, probe = min(save_gap("big.mlz"), save_gap("big2.mlz"), key=lambda r: r[0])
+    assert gap < 0.2, f"the GUI thread stalled {gap * 1000:.0f} ms during Save\n{probe.report()}"
     assert len(load_project(tmp_path / "big.mlz").document.parts) == 2700
     assert not w.shell.dirty
     w.close()
