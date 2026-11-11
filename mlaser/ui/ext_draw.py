@@ -216,7 +216,6 @@ def _ispin(lo, hi, v):
 class DrawExtension:
     def __init__(self, ctx, exec_dialogs: bool = True):
         self.ctx = ctx
-        self.w = window = ctx.window
         self.exec_dialogs = exec_dialogs
         self.text = TextParams()
         self.qr = QRParams()
@@ -224,7 +223,7 @@ class DrawExtension:
         self.merge = MergeParams()
         self.adv = AdvTextParams()
         # the arrow-key step is a preference (Settings > Design & CAM defaults > Editing)
-        cfg = window.config
+        cfg = ctx.config
         self._extent_cache: list = []      # [(segment lists, segment count, (w, h))] of selections
         self.fine = FineTuneParams(step=float(cfg.get("design.nudge_step", 1.0)),
                                    auto=bool(cfg.get("design.nudge_auto", True)))
@@ -239,16 +238,14 @@ class DrawExtension:
 
     # ------------------------------------------------------------ helpers
     def log(self, msg: str) -> None:
-        lp = getattr(self.w, "log_panel", None)
-        if lp is not None:
-            lp.log(msg)
+        self.ctx.log(msg)
 
     def t(self, key, default=None):
-        return self.w.tr_.tr(key, default)
+        return self.ctx.tr.tr(key, default)
 
     def tf(self, key: str, **values) -> str:
         """The text of ``key`` with its ``{placeholders}`` filled."""
-        return self.w.tr_.format(key, **values)
+        return self.ctx.tr.format(key, **values)
 
     def edit(self, fn, label: str = "draw", parts=None, coalesce: bool = False):
         """One undoable transaction.  ``parts`` is its scope: the parts ``fn`` changes in place
@@ -260,14 +257,12 @@ class DrawExtension:
         return self.ctx.edit(fn, label, parts=parts)
 
     def _sync_selection(self):
-        self.w.canvas.refresh_styles()
-        pl = getattr(self.w, "part_list", None)
-        if pl is not None:
-            pl.sync_selection()
-        self.w.canvas.selectionChanged.emit()
+        self.ctx.canvas.refresh_styles()
+        self.ctx.part_list.sync_selection()
+        self.ctx.canvas.selectionChanged.emit()
 
     def _selected(self, doc=None) -> list[Part]:
-        d = doc or self.w.document
+        d = doc or self.ctx.document
         return [p for p in d.parts if p.selected]
 
     def _run_dialog(self, dlg) -> bool:
@@ -277,13 +272,13 @@ class DrawExtension:
     def start(self, tool: T.Tool, on_done: Callable[[T.Tool], None], snap: bool = True) -> None:
         self.end_tool()
         self.driver = CanvasToolDriver(self, tool, on_done, snap)
-        self.w.canvas.set_tool(self.driver)
-        self.w.canvas.setFocus()
+        self.ctx.canvas.set_tool(self.driver)
+        self.ctx.canvas.setFocus()
         self.log(self.tf("draw.log.tool_keys", tool=tool.name, finish=self.t("mv2"), end=self.t("mv3")))
 
     def end_tool(self) -> None:
-        if self.driver is not None and self.w.canvas.tool is self.driver:
-            self.w.canvas.set_tool(None)
+        if self.driver is not None and self.ctx.canvas.tool is self.driver:
+            self.ctx.canvas.set_tool(None)
         self.driver = None
 
     def add_contours(self, contours: list[Contour], name: str, one_part: bool = True) -> None:
@@ -324,7 +319,7 @@ class DrawExtension:
     def text_dialog(self) -> None:
         from mlaser.cad.text import resolve_family, text_contours
         p = self.text
-        d = _Dialog(self.w.tr_, "mf55", self.w)
+        d = _Dialog(self.ctx.tr, "mf55", self.ctx.parent)
         ed = QPlainTextEdit(p.text)
         ed.setFixedHeight(70)
         d.add_row(self.t("mv20"), ed)
@@ -357,7 +352,7 @@ class DrawExtension:
     def qr_dialog(self) -> None:
         from mlaser.cad.qr import qr_contours
         p = self.qr
-        d = _Dialog(self.w.tr_, "A260420_1", self.w)
+        d = _Dialog(self.ctx.tr, "A260420_1", self.ctx.parent)
         ed = d.add("mv20", QLineEdit(p.text))
         sz = d.add("A260420_2", _lspin(10, 100, p.size, 2))
         dn = d.add("A260420_4", _ispin(3, 30, p.density))
@@ -386,7 +381,7 @@ class DrawExtension:
         selected contour a kerf-offset copy (FUN_100738b0, mode 2 + type) is added."""
         from mlaser.cam.kerf import compensate
         p = self.adv
-        d = _Dialog(self.w.tr_, "mf251", self.w)
+        d = _Dialog(self.ctx.tr, "mf251", self.ctx.parent)
         kd = d.add("pd1810", QComboBox())
         kd.addItems([d.label("pd503"), d.label("pd504")])
         kd.setCurrentIndex(p.kind)
@@ -418,7 +413,7 @@ class DrawExtension:
         from mlaser.cam.array import fill_circles
         from mlaser.cam.ordering import build_tree
         p = self.fill
-        d = _Dialog(self.w.tr_, "mf254", self.w)
+        d = _Dialog(self.ctx.tr, "mf254", self.ctx.parent)
         ft = d.add("pd725", QComboBox())
         ft.addItems([d.label("pd720"), d.label("pd721"), d.label("pd722")])
         ft.setCurrentIndex(p.fill_type if p.fill_type < 3 else 0)
@@ -450,13 +445,13 @@ class DrawExtension:
             doc.parts.extend(new)
             return len(new)
         n = self.edit(do, parts=sel)
-        self.log(self.w.tr_.plural("draw.log.fill_parts", n) if n else self.t("A251103_0"))
+        self.log(self.ctx.tr.plural("draw.log.fill_parts", n) if n else self.t("A251103_0"))
 
     # ------------------------------------------------------------ trim / extend / split
     def pick(self, name: str, op: Callable[[list, tuple, float], bool]) -> None:
         def action(pt) -> bool:
-            tol = PICK_PX * self.w.canvas.pixel_size()
-            trial = copy.deepcopy(self.w.document.parts)
+            tol = PICK_PX * self.ctx.canvas.pixel_size()
+            trial = copy.deepcopy(self.ctx.document.parts)
             if not op(trial, pt, tol):
                 return False
             self.edit(lambda doc: doc.parts.__setitem__(slice(None), trial))
@@ -494,7 +489,7 @@ class DrawExtension:
 
     def merge_dialog(self):
         p = self.merge
-        d = _Dialog(self.w.tr_, "mf84", self.w)
+        d = _Dialog(self.ctx.tr, "mf84", self.ctx.parent)
         tol = d.add("pd368", _lspin(0.01, 100, p.tolerance, 3, "small_length"))
         d.finish()
         if not self._run_dialog(d):
@@ -521,13 +516,13 @@ class DrawExtension:
             self.edit(lambda doc: AR.align(self._selected(doc), 0), parts=self._selected())
 
     def size_dialog(self):
-        sel = self._selected() or list(self.w.document.parts)
+        sel = self._selected() or list(self.ctx.document.parts)
         if not any(q.contours for q in sel):
             return
         x0, y0, x1, y1 = AR.bbox(sel)
         p = self.size
         p.width, p.height = x1 - x0, y1 - y0
-        d = _Dialog(self.w.tr_, "mf591", self.w)
+        d = _Dialog(self.ctx.tr, "mf591", self.ctx.parent)
         wv = d.add("gp64", _lspin(0.001, 1e6, p.width))
         hv = d.add("gp63", _lspin(0.001, 1e6, p.height))
         lk = d.add("pd659", QCheckBox())
@@ -548,12 +543,12 @@ class DrawExtension:
 
     # ------------------------------------------------------------ selection
     def select_similar(self):
-        n = AR.select_similar(self.w.document)
+        n = AR.select_similar(self.ctx.document)
         self._sync_selection()
-        self.log(self.w.tr_.plural("draw.log.similar", n))
+        self.log(self.ctx.tr.plural("draw.log.similar", n))
 
     def select_depth(self, sub: int):
-        AR.select_by_topology(self.w.document, sub)
+        AR.select_by_topology(self.ctx.document, sub)
         self._sync_selection()
 
     # ------------------------------------------------------------ groups
@@ -562,13 +557,13 @@ class DrawExtension:
             self.edit(AR.group, parts=self._selected())
 
     def explode_group(self, selected_only: bool):
-        doc = self.w.document
+        doc = self.ctx.document
         groups = [q for q in doc.parts if AR.is_group(q) and (q.selected or not selected_only)]
         if groups:
             self.edit(lambda d: AR.explode_group(d, selected_only), parts=groups)
 
     def select_groups(self):
-        AR.select_groups(self.w.document)
+        AR.select_groups(self.ctx.document)
         self._sync_selection()
 
     # ------------------------------------------------------------ measure
@@ -581,11 +576,11 @@ class DrawExtension:
             dx, dy, L = t.measurement
             u = units.current()
             # a measurement: the fine resolution (3 decimals in mm, 4 in inches)
-            msg = self.w.tr_.format("mv17", u.fmt(dx, "small_length"), u.fmt(dy, "small_length"),
+            msg = self.ctx.tr.format("mv17", u.fmt(dx, "small_length"), u.fmt(dy, "small_length"),
                                     u.fmt(L, "small_length"))   # view.measure_result
             self.log(msg)
             try:
-                self.w.statusBar().showMessage(msg, 15000)
+                self.ctx.status_message(msg, 15000)
             except Exception:  # noqa: BLE001
                 pass
         self.start(T.MeasureTool(), done)
@@ -593,17 +588,16 @@ class DrawExtension:
     # ------------------------------------------------------------ fine-tune
     def _config_changed(self, key: str) -> None:
         if key in ("*", "design.nudge_step", "design.nudge_auto"):
-            cfg = self.w.config
+            cfg = self.ctx.config
             self.fine.step = float(cfg.get("design.nudge_step", 1.0))
             self.fine.auto = bool(cfg.get("design.nudge_auto", True))
 
     def fine_tune_dialog(self):
         """mf445 keyboard fine-tuning: the arrow-key step's one home is Settings › Canvas
         (``design.nudge_step`` / ``design.nudge_auto``); the command opens that page."""
-        opener = getattr(self.w, "settings_dialog", None)
-        if self.exec_dialogs and opener is not None:
-            opener().show_page("canvas")
-        act = self.w.ribbon.actions.get("draw.fine_tune")
+        if self.exec_dialogs:
+            self.ctx.settings_dialog().show_page("canvas")
+        act = self.ctx.ribbon.actions.get("draw.fine_tune")
         if act is not None:
             act.blockSignals(True)
             act.setChecked(self.fine.auto)
@@ -621,13 +615,10 @@ class DrawExtension:
                 if k:
                     self._extent_cache.insert(0, self._extent_cache.pop(k))
                 return ext
-        box = getattr(getattr(self.w, "part_list", None), "part_bbox", None)
-        if callable(box):                   # the part boxes the part list measured already
-            bs = [box(p) for p in sel if p.contours]
-            x0, y0, x1, y1 = ((min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs),
-                               max(b[3] for b in bs)) if bs else (0.0, 0.0, 0.0, 0.0))
-        else:
-            x0, y0, x1, y1 = AR.bbox(sel)
+        box = self.ctx.part_list.part_bbox  # the part boxes the part list measured already
+        bs = [box(p) for p in sel if p.contours]
+        x0, y0, x1, y1 = ((min(b[0] for b in bs), min(b[1] for b in bs), max(b[2] for b in bs),
+                           max(b[3] for b in bs)) if bs else (0.0, 0.0, 0.0, 0.0))
         ext = (x1 - x0, y1 - y0)
         self._remember_extent(lists, n, ext)
         return ext

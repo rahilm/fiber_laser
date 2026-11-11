@@ -32,34 +32,30 @@ from ..nest.engine import NestEngineUnavailable
 from ..nest.apply import layout_parts
 from . import style as S
 from .dialogs import split_unit
+from .extension_context import ExtensionContext
+from .i18n import translator
 from .style import Dialog
 from .units_qt import VALUE_ROLE, QuantitySpinBox, cell_value, on_units_changed, set_cell
 
 PROJECT_FILTER = "Nest project (*.nestproj);;All (*)"
 
 
-def _trf(window, key: str, **values) -> str:
+def _trf(key: str, **values) -> str:
     """Catalogue text of the readable id ``key`` with its ``{placeholders}`` filled."""
-    tr = getattr(window, "tr_", None)
-    if tr is None:
-        from mlaser import i18n
-        return i18n.tr(key, **values)
-    return tr.format(key, **values)
+    return translator().format(key, **values)
 
 
-def _tr(window, key: str, default: str = "") -> str:
-    tr = getattr(window, "tr_", None)
-    if tr is None:
-        return default or key
+def _tr(key: str, default: str = "") -> str:
+    tr = translator()
     try:
         return tr.tr(key, default or None)
     except TypeError:
         return tr.tr(key)
 
 
-def _label(window, key: str, default: str = "") -> str:
+def _label(key: str, default: str = "") -> str:
     """``pd_Nest_*`` keys read "Group.Name"; show the part after the dot."""
-    t = _tr(window, key, default)
+    t = _tr(key, default)
     return t.split(".", 1)[1] if "." in t else t
 
 
@@ -81,9 +77,9 @@ class SheetDialog(Dialog):
     """Standard sheet (``mf473``/``np_StdSheet``): width ``pd769``, height ``pd768``,
     count ``pd767``, on the one dialog frame (sizes in the display units)."""
 
-    def __init__(self, window, sheet: Optional[NestSheet] = None, parent=None):
+    def __init__(self, parent=None, sheet: Optional[NestSheet] = None):
         sheet = sheet or NestSheet()
-        super().__init__(parent, _tr(window, "np_StdSheet", "Std Sheet"))
+        super().__init__(parent, _tr("np_StdSheet", "Std Sheet"))
         f = self.form()
         self.name = QLineEdit(sheet.name)
         self.width_spin = _len(1, 100000, sheet.width)
@@ -91,10 +87,10 @@ class SheetDialog(Dialog):
         self.count = QSpinBox()
         self.count.setRange(1, 9999)
         self.count.setValue(sheet.quantity)
-        S.form_row(f, _tr(window, "np_SheetName", "Sheet Name"), self.name)
-        S.form_row(f, split_unit(_label(window, "pd769", "Sheet Width"))[0], self.width_spin, unit_kind="length")
-        S.form_row(f, split_unit(_label(window, "pd768", "Sheet Height"))[0], self.height_spin, unit_kind="length")
-        S.form_row(f, split_unit(_label(window, "pd767", "Sheet Number"))[0], self.count)
+        S.form_row(f, _tr("np_SheetName", "Sheet Name"), self.name)
+        S.form_row(f, split_unit(_label("pd769", "Sheet Width"))[0], self.width_spin, unit_kind="length")
+        S.form_row(f, split_unit(_label("pd768", "Sheet Height"))[0], self.height_spin, unit_kind="length")
+        S.form_row(f, split_unit(_label("pd767", "Sheet Number"))[0], self.count)
         self.adjustSize()
 
     def sheet(self) -> NestSheet:
@@ -110,29 +106,28 @@ class NestPanel(QWidget):
     def __init__(self, ext: "NestExtension"):
         super().__init__()
         self.ext = ext
-        w = ext.window
         v = QVBoxLayout(self)
-        v.addWidget(QLabel(_tr(w, "np_Part", "Part")))
+        v.addWidget(QLabel(_tr("np_Part", "Part")))
         self.parts = S.table_look(QTableWidget(0, 5))
-        self.parts.setHorizontalHeaderLabels([_tr(w, "np_PartName", "Part Name"), _tr(w, "np_PartNum", "Part Num"),
-                                              _trf(w, "nest.col.max"), _trf(w, "nest.col.priority"),
-                                              _trf(w, "nest.col.mirror")])
+        self.parts.setHorizontalHeaderLabels([_tr("np_PartName", "Part Name"), _tr("np_PartNum", "Part Num"),
+                                              _trf("nest.col.max"), _trf("nest.col.priority"),
+                                              _trf("nest.col.mirror")])
         self.parts.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.parts.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.parts.itemChanged.connect(self._part_edited)
         v.addWidget(self.parts)
-        v.addWidget(QLabel(_tr(w, "np_Sheet", "Sheet")))
+        v.addWidget(QLabel(_tr("np_Sheet", "Sheet")))
         self.sheets = S.table_look(QTableWidget(0, 4))
         on_units_changed(self.sheets, lambda u: (self.sheets.setHorizontalHeaderLabels(
-            [_tr(w, "np_SheetName", "Sheet Name"), u.header("W", "length"), u.header("H", "length"),
-             _tr(w, "np_SheetNum", "Sheet Num")]), self.refresh() if hasattr(self, "_sync") else None))
+            [_tr("np_SheetName", "Sheet Name"), u.header("W", "length"), u.header("H", "length"),
+             _tr("np_SheetNum", "Sheet Num")]), self.refresh() if hasattr(self, "_sync") else None))
         self.sheets.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.sheets.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         self.sheets.itemChanged.connect(self._sheet_edited)
         v.addWidget(self.sheets)
-        v.addWidget(QLabel(_tr(w, "np_Result", "Nest Result")))
+        v.addWidget(QLabel(_tr("np_Result", "Nest Result")))
         self.results = S.table_look(QTableWidget(0, 3))
-        self.results.setHorizontalHeaderLabels([_tr(w, "np_Sheet", "Sheet"), _tr(w, "np_NestPartCount", "Nested Part Num"), "%"])
+        self.results.setHorizontalHeaderLabels([_tr("np_Sheet", "Sheet"), _tr("np_NestPartCount", "Nested Part Num"), "%"])
         self.results.setSelectionBehavior(QAbstractItemView.SelectRows)
         self.results.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeToContents)
         v.addWidget(self.results)
@@ -142,7 +137,7 @@ class NestPanel(QWidget):
                               ("mf412", "Nest Parameters", ext.params_dialog),
                               ("mf464", "Advanced Nest", ext.run),
                               ("nset_UI_Result2MainView", "Copy to main", ext.to_main)):
-            b = S.button(_tr(w, key, dflt))
+            b = S.button(_tr(key, dflt))
             b.clicked.connect(fn)
             row.addWidget(b)
         v.addLayout(row)
@@ -170,7 +165,7 @@ class NestPanel(QWidget):
         self.results.setRowCount(len(lays))
         for r, lay in enumerate(lays):
             sh = job.sheet(lay.sheet_id)
-            for c, val in enumerate([_trf(self.ext.window, "nest.result_row", n=r + 1, sheet=sh.name),
+            for c, val in enumerate([_trf("nest.result_row", n=r + 1, sheet=sh.name),
                                      str(len(lay.placements)), f"{100 * lay.utilisation:.1f}"]):
                 it = QTableWidgetItem(val)
                 it.setFlags(it.flags() & ~Qt.ItemIsEditable)
@@ -248,35 +243,31 @@ def new_job(cfg) -> NestJob:
 
 # ---------------------------------------------------------------------------- extension
 class NestExtension:
-    def __init__(self, ctx):
+    def __init__(self, ctx: ExtensionContext):
         self.ctx = ctx
-        self.window = window = ctx.window
-        self.job = new_job(getattr(window, "config", None))
+        self.job = new_job(ctx.config)
         self.path: Optional[str] = None
         self.dirty = False
         self.panel = NestPanel(self)
-        dock = ctx.add_dock(self.panel, _tr(window, "mf460", "Nest"), "left", "mf460")
+        dock = ctx.add_dock(self.panel, _tr("mf460", "Nest"), "left", "mf460")
         dock.hide()
         self.dock = dock
 
     def log(self, msg: str) -> None:
-        lp = getattr(self.window, "log_panel", None)
-        if lp is not None:
-            lp.log(msg)
+        self.ctx.log(msg)
 
     def show(self) -> None:
         """Show the classic Nest dock, except while the Nest workspace is active: it shows the
         same nest project, and the dock used to stay open in Run and Report afterwards."""
-        shell = getattr(self.window, "shell", None)
-        host = getattr(shell, "host", None)
-        if host is None or host.resolve(host.current) != "nest":
+        host = self.ctx.shell.host
+        if host.resolve(host.current) != "nest":
             self.dock.show()
             self.dock.raise_()
         self.panel.refresh()
 
     # -------------------------------------------------- project
     def new_project(self) -> None:
-        self.job = new_job(getattr(self.window, "config", None))
+        self.job = new_job(self.ctx.config)
         self.path = None
         self.dirty = False
         self.show()
@@ -284,13 +275,13 @@ class NestExtension:
     def open_project(self, path: Optional[str] = None) -> bool:
         from ..nest.project import load_project
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(self.window, _tr(self.window, "FileTitle_OpenNestProjFile"), "", PROJECT_FILTER)
+            path, _ = QFileDialog.getOpenFileName(self.ctx.parent, _tr("FileTitle_OpenNestProjFile"), "", PROJECT_FILTER)
         if not path:
             return False
         try:
             self.job = load_project(path)
         except Exception as exc:  # noqa: BLE001 - report bad files to the user
-            self.log(_trf(self.window, "nest.invalid_file_error", error=exc))
+            self.log(_trf("nest.invalid_file_error", error=exc))
             return False
         self.path = path
         self.dirty = False
@@ -301,19 +292,19 @@ class NestExtension:
         from ..nest.project import save_project
         path = path or (None if save_as else self.path)
         if not path:
-            path, _ = QFileDialog.getSaveFileName(self.window, _tr(self.window, "FileTitle_SaveNestProjFile"), "", PROJECT_FILTER)
+            path, _ = QFileDialog.getSaveFileName(self.ctx.parent, _tr("FileTitle_SaveNestProjFile"), "", PROJECT_FILTER)
         if not path:
             return False
         save_project(self.job, path)
         self.path = path
         self.dirty = False
-        self.log(_trf(self.window, "nest.file_saved_path", path=path))
+        self.log(_trf("nest.file_saved_path", path=path))
         return True
 
     # -------------------------------------------------- parts / sheets
     def add_part_from_selection(self) -> int:
         """``mf465`` Add Part: every selected part of the main view (all if none selected)."""
-        doc: Document = self.window.document
+        doc: Document = self.ctx.document
         src = [p for p in doc.parts if p.selected] or list(doc.parts)
         n = 0
         for p in src:
@@ -329,7 +320,7 @@ class NestExtension:
     def import_part(self, path: Optional[str] = None) -> int:
         """``mf461`` Import Part: a DXF/chf file becomes one nest part (all its parts)."""
         if path is None:
-            path, _ = QFileDialog.getOpenFileName(self.window, _tr(self.window, "mf461"), "",
+            path, _ = QFileDialog.getOpenFileName(self.ctx.parent, _tr("mf461"), "",
                                                   "Parts (*.dxf *.chf *.svg);;All (*)")
         if not path:
             return 0
@@ -343,7 +334,7 @@ class NestExtension:
         return 1
 
     def add_std_sheet(self) -> Optional[NestSheet]:
-        d = SheetDialog(self.window, None, self.window)
+        d = SheetDialog(self.ctx.parent)
         if not d.exec():
             return None
         sh = self.job.add_sheet(d.sheet())
@@ -353,7 +344,7 @@ class NestExtension:
 
     def add_sheet_from_selection(self) -> Optional[NestSheet]:
         """``mf466`` Add Sheet: selected main-view geometry becomes a remnant sheet."""
-        sel = [copy.deepcopy(p) for p in self.window.document.parts if p.selected]
+        sel = [copy.deepcopy(p) for p in self.ctx.document.parts if p.selected]
         if not sel:
             return None
         from ..nest.shapes import parts_geometry
@@ -368,8 +359,8 @@ class NestExtension:
         """``nest.params``: the Nest workspace's job panel is the one editor of the nest
         parameters (WORK_ITEMS R-5): open it with its options shown."""
         from . import homes
-        homes.edit_in(self.window, "nest.spacing")
-        ws = self.window.findChild(QWidget, "nest_workspace")
+        homes.edit_in(self.ctx.parent, "nest.spacing")
+        ws = self.ctx.find_child(QWidget, "nest_workspace")
         if ws is not None and hasattr(ws, "show_options"):
             ws.show_options(True)
 
@@ -378,11 +369,11 @@ class NestExtension:
         if not self.job.parts:
             self.add_part_from_selection()
         if not self.job.sheets:
-            self.job.add_sheet(default_sheet(getattr(self.window, "config", None)))
+            self.job.add_sheet(default_sheet(self.ctx.config))
         dlg = None
         if interactive:
-            dlg = QProgressDialog(_tr(self.window, "mf464", "Advanced Nest"), _tr(self.window, "ap0", "Cancel"),
-                                  0, 1000, self.window)
+            dlg = QProgressDialog(_tr("mf464", "Advanced Nest"), _tr("ap0", "Cancel"),
+                                  0, 1000, self.ctx.parent)
             dlg.setWindowModality(Qt.WindowModal)
             dlg.setMinimumDuration(300)
 
@@ -401,7 +392,7 @@ class NestExtension:
                 dlg.close()
             self.log(f"nest: {e}")
             if interactive:
-                QMessageBox.warning(self.window, _tr(self.window, "mf464", "Advanced Nest"), str(e))
+                QMessageBox.warning(self.ctx.parent, _tr("mf464", "Advanced Nest"), str(e))
             return None
         if dlg is not None:
             dlg.setValue(1000)
@@ -423,7 +414,7 @@ class NestExtension:
         if self.job.result is None or not self.job.result.layouts:
             return False
         idx = self.panel.selected_layout() or 0
-        base = self.window.document
+        base = self.ctx.document
         doc = self.result_document(idx, include_sheet=False)
         doc.layers = copy.deepcopy(base.layers)
         self.ctx.replace_document(doc, "nest result")
@@ -439,14 +430,14 @@ class NestExtension:
             self.log("mf420: .chf writer not available")
             return []
         if directory is None:
-            directory = QFileDialog.getExistingDirectory(self.window, _tr(self.window, "FileTitle_ExportNestFile"))
+            directory = QFileDialog.getExistingDirectory(self.ctx.parent, _tr("FileTitle_ExportNestFile"))
         if not directory:
             return []
         out = []
-        base = self.window.document
+        base = self.ctx.document
         for k, lay in enumerate(self.job.result.layouts):
             doc = Document(parts=layout_parts(self.job, lay), layers=copy.deepcopy(base.layers))
-            path = os.path.join(directory, _trf(self.window, "nest.result_file", n=k + 1))
+            path = os.path.join(directory, _trf("nest.result_file", n=k + 1))
             from ..cam.raster_engraving import expand_document
             save_chf(expand_document(doc), path)
             out.append(path)
@@ -482,9 +473,8 @@ class SortExtension:
     10/11 (stable partition of the graph list), mf111 manual sort = tool 9; mv15/mv16 move one
     part last/first.  Each changes the part order and switches to mode 0 (keep)."""
 
-    def __init__(self, ctx):
+    def __init__(self, ctx: ExtensionContext):
         self.ctx = ctx
-        self.window = ctx.window
         self.manual_active = False
         self.step = 0
 
@@ -492,7 +482,7 @@ class SortExtension:
         self.ctx.log(msg)
 
     def set_mode(self, mode: int, **flags) -> None:
-        self.window.set_sort_mode(mode, **flags)
+        self.ctx.set_sort_mode(mode, **flags)
 
     def _order_edit(self, fn, label: str):
         """An edit that only reorders parts (scope: no part changes in place)."""
@@ -522,11 +512,11 @@ class SortExtension:
             return False
         self.manual_active = True
         self.step = 1
-        cv = self.window.canvas
+        cv = self.ctx.canvas
         cv.select_parts([])
         cv.selectionChanged.connect(self._picked)
         self.set_mode(O.MODE_KEEP)
-        self.log(_trf(self.window, "view.manual_sort_started_step", n=0))
+        self.log(_trf("view.manual_sort_started_step", n=0))
         return True
 
     def pick(self, index: int) -> None:
@@ -538,7 +528,7 @@ class SortExtension:
         step = self.step
         nxt = self._order_edit(lambda doc: O.manual_pick(doc, index, step), "manual sort")
         if nxt != self.step:
-            self.log(_trf(self.window, "view.manual_sort_step_n", n=self.step))
+            self.log(_trf("view.manual_sort_step_n", n=self.step))
             self.step = nxt
         if self.step == 0:
             self.finish_manual()
@@ -549,7 +539,7 @@ class SortExtension:
             self.step -= 1
 
     def _picked(self) -> None:
-        sel = self.window.canvas.selected_indices()
+        sel = self.ctx.canvas.selected_indices()
         if sel:
             self.pick(sel[0])
 
@@ -557,12 +547,12 @@ class SortExtension:
         if not self.manual_active:
             return
         try:
-            self.window.canvas.selectionChanged.disconnect(self._picked)
+            self.ctx.canvas.selectionChanged.disconnect(self._picked)
         except (RuntimeError, TypeError):
             pass
         self.manual_active = False
         self.step = 0
-        self.log(_tr(self.window, "mv18", "Manual Sort: End"))
+        self.log(_tr("mv18", "Manual Sort: End"))
 
     def move_selected(self, last: bool) -> bool:
         """mv16 / mv15: the single selected part becomes first / last."""
@@ -580,17 +570,16 @@ SORT_MENU = ["sort.keep", "sort.shortest", "sort.grid", "sort.avoid", "sort.manu
              "sort.manual_end", "sort.first", "sort.last"]
 
 
-def _sort_button_menu(window) -> Optional[QMenu]:
-    act = window.ribbon.actions.get("sort.run")
-    for tb in window.ribbon.findChildren(QToolButton):
+def _sort_button_menu(ctx: ExtensionContext) -> Optional[QMenu]:
+    act = ctx.action("sort.run")
+    for tb in ctx.ribbon.findChildren(QToolButton):
         if tb.defaultAction() is act and tb.menu() is not None:
             return tb.menu()
     return None
 
 
-def register(ctx) -> tuple[NestExtension, SortExtension]:
-    """Bind the Nest commands and the ordering edits (``ctx``: PluginContext)."""
-    window = ctx.window
+def register(ctx: ExtensionContext) -> tuple[NestExtension, SortExtension]:
+    """Bind the Nest commands and the ordering edits (``ctx``: ExtensionContext)."""
     nx = NestExtension(ctx)
     sx = SortExtension(ctx)
     keys = {"nest.open": "mf_S_File_OpenProject", "nest.add_sheet": "mf466", "nest.params": "mf412",
@@ -603,8 +592,8 @@ def register(ctx) -> tuple[NestExtension, SortExtension]:
                     "nest.to_main": nx.to_main, "nest.export": nx.export_sheets,
                     "nest.show": nx.show}.items():
         ctx.register_command(cmd, fn, label=keys.get(cmd, cmd))
-    menu = _sort_button_menu(window)
-    ctx.register_command("sort.avoid", lambda on: sx.set_mode(window.cam_params.sort_mode, avoid_cut=bool(on)),
+    menu = _sort_button_menu(ctx)
+    ctx.register_command("sort.avoid", lambda on: sx.set_mode(ctx.cam_params.sort_mode, avoid_cut=bool(on)),
                          label="Avoid cut holes (rapids)", checkable=True)
     for cmd, key, fn in (("sort.manual_prev", "mv13", sx.previous_step),
                          ("sort.manual_end", "mv23", sx.finish_manual),
@@ -617,7 +606,7 @@ def register(ctx) -> tuple[NestExtension, SortExtension]:
     if menu is not None:
         have = set(menu.actions())
         for cmd in SORT_MENU:
-            act = window.ribbon.actions.get(cmd)
+            act = ctx.action(cmd)
             if act is not None and act not in have:
                 menu.addAction(act)
     return nx, sx

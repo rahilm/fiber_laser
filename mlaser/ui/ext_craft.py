@@ -1,6 +1,6 @@
 """Manual craft and engraving commands (agent G, phase 3).
 
-``register(ctx)`` (PluginContext) binds these ribbon commands (MainApp handler / command id / CAD view tool
+``register(ctx)`` (:class:`mlaser.ui.extension_context.ExtensionContext`) binds these ribbon commands (MainApp handler / command id / CAD view tool
 in brackets, evidence in docs/re/craft.md):
 
 * lead: ``craft.lead_manual`` (FUN_004b5520 0x3459, tool 5), ``craft.lead_check`` (0x345a, CCAD
@@ -247,7 +247,6 @@ class CraftExtension:
 
     def __init__(self, ctx, exec_dialogs: bool = True):
         self.ctx = ctx
-        self.w = window = ctx.window
         self.exec_dialogs = exec_dialogs
         self.gap_p = GapParams()
         self.mj_p = ManualJointParams()
@@ -258,26 +257,24 @@ class CraftExtension:
         self.engrave_p = EngraveScanParams()
         # the one-shot tools' last-used values survive a restart (cam.tool.*, Settings › CAM tools)
         from . import tool_memory
-        tool_memory.bind(self, window.config, CRAFT_TOOLS)
+        tool_memory.bind(self, ctx.config, CRAFT_TOOLS)
         import tempfile
         self.bitmap_dir = os.path.join(tempfile.gettempdir(), "mlaser_bitmap")   # original: <app>\\Bitmap
-        self.host = ToolHost(window.canvas)
+        self.host = ToolHost(ctx.canvas)
         self.tool_name: Optional[str] = None
         self.last_message = ""
 
     # ---------------------------------------------------------------- infrastructure
     def log(self, msg: str) -> None:
         self.last_message = msg
-        lp = getattr(self.w, "log_panel", None)
-        if lp is not None:
-            lp.log(msg)
+        self.ctx.log(msg)
 
     def t(self, key: str, default: Optional[str] = None) -> str:
-        return self.w.tr_.tr(key, default)
+        return self.ctx.tr.tr(key, default)
 
     def count(self, base: str, title_key: str, n: int) -> str:
         """``<title>: <n> <things>`` (the plural text ``base``)."""
-        return self.w.tr_.plural(base, n, title=self.t(title_key))
+        return self.ctx.tr.plural(base, n, title=self.t(title_key))
 
     def edit(self, fn: Callable[[Document], Any], label: str = "craft") -> Any:
         """Undoable edit; the views are rebuilt without zoom-fit (keeps the view while a click
@@ -286,10 +283,10 @@ class CraftExtension:
 
     def refresh(self) -> None:
         """Views after a change that is deliberately not an undo step (mf91 clear marks)."""
-        self.w.refresh_views()
+        self.ctx.refresh_views()
 
     def ask(self, title_key: str, obj, fields) -> bool:
-        d = FieldDialog(self.w.tr_, title_key, obj, fields, self.w)
+        d = FieldDialog(self.ctx.tr, title_key, obj, fields, self.ctx.parent)
         if not self.exec_dialogs:
             d.store()
             ok = True
@@ -299,13 +296,13 @@ class CraftExtension:
             from . import tool_memory
             tool = next((t for t, a in CRAFT_TOOLS.items() if getattr(self, a, None) is obj), None)
             if tool is not None:
-                tool_memory.remember(self.w.config, tool, obj)
+                tool_memory.remember(self.ctx.config, tool, obj)
         return ok
 
     # ---------------------------------------------------------------- canvas tools
     def start_tool(self, name: str, on_click, status_key: str, hover: bool = True) -> PickTool:
         def hov(p):
-            h = M.hit_test(self.w.document, p, self.host.tolerance())
+            h = M.hit_test(self.ctx.document, p, self.host.tolerance())
             return h.point if h else None
         tool = PickTool(on_click, hov if hover else None, self._tool_done, name)
         self.tool_name = name
@@ -326,7 +323,7 @@ class CraftExtension:
             self.host.tool.press(x, y, "right" if button in ("right", Qt.RightButton) else "left", set())
 
     def _hit(self, p, closed_only: bool = False) -> Optional[M.Hit]:
-        doc = self.w.document
+        doc = self.ctx.document
         h = M.hit_test(doc, p, self.host.tolerance())
         if h is not None and closed_only and not doc.parts[h.part].contours[h.contour].closed:
             h = None
@@ -370,7 +367,7 @@ class CraftExtension:
 
             def do(d):
                 depth = M.contour_depths(d).get((h.part, h.contour), 1)
-                inv = bool(getattr(self.w.cam_params, "invert_lead_side", False))
+                inv = bool(getattr(self.ctx.cam_params, "invert_lead_side", False))
                 return M.manual_lead(d.parts[h.part], h.contour, q, h.dist, depth, inv)
             lp = self.edit(do)
             self.log(f"mf88: {units.current().fmt(lp.length, 'small_length')}" if lp is not None and lp.kind
@@ -464,13 +461,11 @@ class CraftExtension:
         """CCAD 0x100c46a0(mode, value): selected graphs only (groups expanded); a contour is
         changed when |v - current| > 0.02 and |v| < 0.33 * length.  With nothing selected it
         says so (it used to log "mf97: 0" and do nothing)."""
-        if not any(p.selected for p in self.w.document.parts):
+        if not any(p.selected for p in self.ctx.document.parts):
             self.log(self.t("craft.msg.select_first"))
-            sb = getattr(self.w, "statusBar", None)
-            if sb is not None:
-                sb().showMessage(self.t("craft.msg.select_first"), 6000)
+            self.ctx.status_message(self.t("craft.msg.select_first"), 6000)
             from mlaser.ui.homes import edit_in
-            edit_in(self.w, "craft.overcut")       # the value lives in Process › Properties
+            edit_in(self.ctx.parent, "craft.overcut")       # the value lives in Process › Properties
             return
         # the length is the Properties' Overcut / gap field (its one editor; gap_p holds it)
         val = self.gap_p.value
@@ -519,7 +514,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- α corner (circle cut)
     def circle_cut(self) -> None:
-        cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
+        cam = self.ctx.extension("ext_cam")
         if cam is not None and hasattr(cam, "alpha"):
             cam.alpha()
         else:
@@ -544,18 +539,18 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- lead check / marks
     def lead_check(self) -> None:
-        inv = bool(getattr(self.w.cam_params, "invert_lead_side", False))
+        inv = bool(getattr(self.ctx.cam_params, "invert_lead_side", False))
         marked = self.edit(lambda d: M.check_leads(d, inv))
         for pi, _ci in marked:
-            self.w.document.parts[pi].selected = True
-        self.w.canvas.refresh_styles()
+            self.ctx.document.parts[pi].selected = True
+        self.ctx.canvas.refresh_styles()
         self.log(self.count("craft.log.contours_marked", "mf89", len(marked)))
-        if not any(c.lead_in.kind for p in self.w.document.parts
+        if not any(c.lead_in.kind for p in self.ctx.document.parts
                    for c in [p.craft] + [k.craft for k in p.contours if k.craft is not None]):
             self.log(self.t("craft.msg.no_leads"))
 
     def lead_clear_mark(self) -> None:
-        n = M.clear_lead_marks(self.w.document)          # no undo step in the original
+        n = M.clear_lead_marks(self.ctx.document)          # no undo step in the original
         self.refresh()
         self.log(self.count("craft.log.marks_cleared", "mf91", n))
 
@@ -588,7 +583,7 @@ class CraftExtension:
         per file (<= 100 MB, .g/.nc/.cnc) the mode-2 dialog, load, then the type-5 scan."""
         if paths is None:
             flt = self.t("craft.filter.gcode")
-            paths, _ = QFileDialog.getOpenFileNames(self.w, self.t("A251104_0"), "", flt)
+            paths, _ = QFileDialog.getOpenFileNames(self.ctx.parent, self.t("A251104_0"), "", flt)
         paths = [p for p in (paths or []) if p]
         if not paths:
             return 0
@@ -622,10 +617,10 @@ class CraftExtension:
         try:
             from mlaser.ui.engrave_dialog import BitmapDialog
         except Exception as exc:  # noqa: BLE001
-            self.log(self.w.tr_.format("craft.log.engrave_unavailable", title=self.t("A250622_0"), error=exc))
+            self.log(self.ctx.tr.format("craft.log.engrave_unavailable", title=self.t("A250622_0"), error=exc))
             return None
         os.makedirs(self.bitmap_dir, exist_ok=True)
-        d = BitmapDialog(self.w.tr_, self.w, out_dir=self.bitmap_dir)
+        d = BitmapDialog(self.ctx.tr, self.ctx.parent, out_dir=self.bitmap_dir)
         self.bitmap_dialog = d
         if self.exec_dialogs and not d.exec():
             return None
@@ -654,7 +649,7 @@ class CraftExtension:
 
     # ---------------------------------------------------------------- dock point (home ref)
     def home_ref(self) -> None:
-        d = DockDialog(self.w.tr_, self.dock_p.mode, self.w)
+        d = DockDialog(self.ctx.tr, self.dock_p.mode, self.ctx.parent)
         if self.exec_dialogs and not d.exec():
             return
         if self.exec_dialogs:
@@ -665,7 +660,7 @@ class CraftExtension:
                 return False
             self.start_tool("home_ref", click, "mf92", hover=False)
             return
-        doc = self.w.document
+        doc = self.ctx.document
         if not doc.parts:
             return
         x0, y0, x1, y1 = doc.bbox()
@@ -673,7 +668,7 @@ class CraftExtension:
         x = (x1, x0, (x0 + x1) / 2)[k % 3]
         y = y1 if k < 4 else ((y0 + y1) / 2 if k < 7 else y0)
         try:
-            st = self.w.ctl.state()
+            st = self.ctx.controller.state()
             head = (float(st.x), float(st.y))
         except Exception:  # noqa: BLE001 - no controller state: machine origin
             head = (0.0, 0.0)
@@ -684,9 +679,9 @@ class CraftExtension:
         self.set_dock(head)
 
     def set_dock(self, p) -> None:
-        self.w.settings["SP.DockPoint"] = (float(p[0]), float(p[1]))
-        self.w.document.extra["dock_point"] = (float(p[0]), float(p[1]))
-        self.w.settings["SP.DockMode"] = self.dock_p.mode
+        self.ctx.config_values["SP.DockPoint"] = (float(p[0]), float(p[1]))
+        self.ctx.document.extra["dock_point"] = (float(p[0]), float(p[1]))
+        self.ctx.config_values["SP.DockMode"] = self.dock_p.mode
         self.log("mp68: " + units.current().fmt_xy(p[0], p[1], "small_length"))
 
     def _effective_leads(self):
@@ -696,9 +691,9 @@ class CraftExtension:
         from mlaser.ops.craft import default_lead_params
         from mlaser.services import inheritance as I
 
-        doc = self.w.document
+        doc = self.ctx.document
         parts = _targets(doc)
-        ext = self.w.extension("ext_process") if hasattr(self.w, "extension") else None
+        ext = self.ctx.extension("ext_process")
         store = getattr(ext, "store", None)
         if parts:
             out = []
@@ -719,15 +714,15 @@ class CraftExtension:
             return
         q = self.onekey_p
         from mlaser.ops.craft import one_key
-        cam = self.w.extension("ext_cam") if hasattr(self.w, "extension") else None
+        cam = self.ctx.extension("ext_cam")
         lead_in, lead_out = self._effective_leads()
         self.edit(lambda doc: one_key(doc, mirror_h=q.mirror_h, mirror_v=q.mirror_v, optimize=q.optimize,
                                       cleanup_params=getattr(cam, "cleanup", None), lead=q.lead,
                                       lead_in=lead_in, lead_out=lead_out,
-                                      micro_joint=q.micro_joint, mj_params=self.w.mj_params),
+                                      micro_joint=q.micro_joint, mj_params=self.ctx.mj_params),
                   "one-key planning")
         if q.sort:
-            self.w.sort("nearest")
+            self.ctx.sort("nearest")
         self.log(self.t("mf209"))
 
 
@@ -773,7 +768,7 @@ REWIRE = {
 
 
 def register(ctx, exec_dialogs: bool = True) -> CraftExtension:
-    """Bind the manual craft / engraving commands (``ctx``: PluginContext)."""
+    """Bind the manual craft / engraving commands (``ctx``: ExtensionContext)."""
     ext = CraftExtension(ctx, exec_dialogs)
     for cmd, name in REWIRE.items():
         ctx.register_command(cmd, getattr(ext, name))
