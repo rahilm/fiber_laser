@@ -188,3 +188,63 @@ def test_start_without_a_stop_still_asks_and_runs(sim_win, app, dialogs):
     assert [d["kind"] for d in dialogs] == ["box"]
     assert _armed(ctl)
     ctl.stop(wait=True)
+
+
+def test_a_press_while_the_head_still_moves_is_checked_again_from_its_rest(sim_win, app, dialogs, monkeypatch):
+    """Start pressed before the polled head position is the position of rest (right after a
+    Stop: the axes run out): the job was planned from where the head no longer is, the check
+    reported it translated by the difference ("outside the travel" for a job that fits; macOS
+    CI: "Cut remaining parts" 11.5 mm off, refused).  Now the worker sees that the head moved,
+    waits for it to rest and the check begins again from there: one question, the job runs."""
+    import dataclasses
+
+    from mlaser.services import jobs as J
+    w, ctl = sim_win, sim_win.ctl
+    w.set_document(_edge_doc(kerf=False))
+    w._test_no_dialogs = False
+    real = J.build_request
+    stale = []
+
+    def build(*a, **k):
+        req = real(*a, **k)
+        if not stale:                               # the press: the poll's head, 11.5 mm behind
+            stale.append(req.start)
+            req = dataclasses.replace(req, start=(req.start[0], req.start[1] + 11.5))
+        return req
+    monkeypatch.setattr(J, "build_request", build)
+    w.safety_ui.start()
+    assert w.safety_ui.wait_preflight(30)           # waits for the second check too
+    assert stale, "the stale request was never built"
+    rep = w.safety_ui.last_report
+    assert rep is None or "out_of_travel" not in rep.codes(), rep.summary()
+    assert _until(app, lambda: ctl.job_active() or ctl.state().mode == "process", 20)
+    assert [d["kind"] for d in dialogs] == ["box"]          # the one arming question, no refusal
+    assert _armed(ctl)
+    ctl.stop(wait=True)
+
+
+def test_a_head_that_never_rests_ends_in_a_report_not_in_a_loop(sim_win, app, dialogs, monkeypatch):
+    """The check begins again a bounded number of times; then the report stands (and the
+    controller's start gate has the last word anyway)."""
+    import dataclasses
+
+    from mlaser.services import jobs as J
+    from mlaser.ui.safety_ui import SafetyUI
+    w, ctl = sim_win, sim_win.ctl
+    w.set_document(_edge_doc(kerf=False))
+    w._test_no_dialogs = False
+    real = J.build_request
+    built = []
+
+    def build(*a, **k):
+        req = real(*a, **k)
+        built.append(req.start)
+        return dataclasses.replace(req, start=(req.start[0], req.start[1] + 11.5))
+    monkeypatch.setattr(J, "build_request", build)
+    monkeypatch.setattr(SafetyUI, "_head_settled", staticmethod(lambda ctl, alive, timeout_s=2.0: None))
+    w.safety_ui.start()
+    assert w.safety_ui.wait_preflight(30)
+    _pump(app, 0.3)
+    assert len(built) == SafetyUI.PREFLIGHT_HEAD_RETRIES + 1, built
+    assert not _armed(ctl) and not ctl.job_active(), "a job planned from another place was started"
+    assert [d["kind"] for d in dialogs] == ["PreflightDialog"]      # refused once, before any arming

@@ -71,6 +71,11 @@ class MachineState:
     link_ok: bool = False     # last status read succeeded in time
 
 
+# a servo at rest reads back within a few counts of its target: 0.05 mm is well above that and
+# far below anything an operator would notice as an offset cut
+START_POSITION_TOL_MM = 0.05
+
+
 @runtime_checkable
 class MachineAPI(Protocol):
     """The complete controller interface (typed).  Every implementation provides every member;
@@ -87,6 +92,7 @@ class MachineAPI(Protocol):
     stream_process: Optional[bool]
     scaling: Any                     # controller.client.CardScaling read from the card, or None
     last_preflight: Optional[PF.PreflightReport]   # report of the last checked action
+    start_position_tol_mm: float     # a job starts where it was planned from, within this
 
     @property
     def laser_enabled(self) -> bool: ...     # False: dry-run mode (--laser-off), arming impossible; read-only
@@ -194,6 +200,7 @@ PLUGIN_PRIVILEGED = ("arm", "reset_fault", "operator_action", "configure_safety"
 class ControllerFacade(ABC):
     """Shared base of the controllers (MCC + FTC + laser): events, listeners, safety FSM."""
 
+    start_position_tol_mm: float = START_POSITION_TOL_MM
     _laser_enabled: bool = True
     _require_homed: bool = True
     _plugin_policy: Optional[Callable[[str, str, str], Optional[str]]] = None
@@ -619,4 +626,5 @@ class ControllerFacade(ABC):
     def clear_alarms(self) -> None: ...
 
 
-__all__ = ["OUTPUTS", "MachineState", "MachineAPI", "ControllerFacade", "api_members"]
+__all__ = ["OUTPUTS", "MachineState", "MachineAPI", "ControllerFacade", "api_members",
+           "START_POSITION_TOL_MM"]
