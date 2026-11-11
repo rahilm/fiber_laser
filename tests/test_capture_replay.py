@@ -374,10 +374,10 @@ def _record(scenario, **sim_kw) -> list:
     orig = sim.handle
 
     def handle(data: bytes):
-        t0 = time.time()
+        t0 = time.perf_counter()        # the fine clock (time.time() ticks 15 ms on Windows)
         out = orig(data)
         with lock:
-            log.append(S.Record(t0, bytes(data), out, time.time()))
+            log.append(S.Record(t0, bytes(data), out, time.perf_counter()))
         return out
 
     sim.handle = handle
