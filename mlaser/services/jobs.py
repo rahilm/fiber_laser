@@ -17,6 +17,9 @@ placement applied, so the preview could differ from the cut, and a large compile
   it, or when Start / Dry Cut / Frame needs a plan of the same inputs (the start path computes
   the inputs hash itself and compiles whatever it does not find, so a stale plan is never
   started).  In the plan process the toolpath of the first stage is kept and compiled as it is.
+  The first stage also plans the time estimate (``JobTicket.estimate``, ``on_estimate``; perf
+  review finding 8): the numbers the compile's ``PlannedJob.estimate`` gives, without waiting
+  for the compile.  A Start or a ``settle`` that waits skips it (the compile gives it).
 * **Bounded by bytes** (``cache_bytes``, perf review finding 7): the cache drops its oldest
   plans beyond about ``cache_bytes`` of compiled job (packed wire, toolpath, bookkeeping), and
   beyond ``cache_size`` plans; the newest plan and the current preview plan always stay.
@@ -275,6 +278,8 @@ class JobTicket:
         self.toolpath: Optional[list] = None
         self.placed: Optional[Document] = None
         self.plan: Optional[PlannedJob] = None
+        # the time estimate of the toolpath stage of a two-stage preview (None: not planned)
+        self.estimate: Optional[dict] = None
         self.error: Optional[BaseException] = None
         self.progress = 0.0
         self.cached = False
@@ -336,7 +341,7 @@ class JobService:
     """Plan, compile, cache and hand jobs to the controller (see the module docstring).
 
     Listeners (called through ``post``, i.e. on the GUI thread in the application):
-    ``on_toolpath(ticket)``, ``on_planned(plan, ticket)``, ``on_failed(ticket, exc)``,
+    ``on_toolpath(ticket)``, ``on_estimate(ticket)``, ``on_planned(plan, ticket)``, ``on_failed(ticket, exc)``,
     ``on_progress(ticket, fraction)``."""
 
     def __init__(
@@ -367,6 +372,10 @@ class JobService:
         self.last_run: Optional[JobTicket] = None  # the ticket of the last run() (Start/Frame)
         self.current: Optional[PlannedJob] = None  # the last completed preview plan
         self.on_toolpath: list[Callable[[JobTicket], None]] = []
+        self.on_estimate: list[Callable[[JobTicket], None]] = []
+        # plan requests that wait for the worker (Start, a settle): the estimate of a toolpath
+        # stage in progress gives way to them
+        self._waiting = 0
         self.on_planned: list[Callable[[PlannedJob, JobTicket], None]] = []
         self.on_failed: list[Callable[[JobTicket, BaseException], None]] = []
         self.on_progress: list[Callable[[JobTicket, float], None]] = []
@@ -453,8 +462,30 @@ class JobService:
             t.done_event.set()
             return t
         two = _preview and self.compile_idle_s is not None and req.mode != "frame"
-        self.executor.submit(self._work, t, True, "toolpath" if two else "full")
+        if _preview:
+            self.executor.submit(self._work, t, True, "toolpath" if two else "full")
+        else:
+            self._submit_waiting(t, "full")
         return t
+
+    def _submit_waiting(self, t: JobTicket, stage: str) -> None:
+        """Queue ``_work`` for a request someone waits for (counted in ``_waiting`` until it runs)."""
+        with self._lock:
+            self._waiting += 1
+        try:
+            self.executor.submit(self._work_waited, t, stage)
+        except BaseException:
+            with self._lock:
+                self._waiting -= 1
+            raise
+
+    def _work_waited(self, t: JobTicket, stage: str) -> None:
+        with self._lock:
+            self._waiting -= 1
+        self._work(t, True, stage)
+
+    def _hurry(self) -> bool:
+        return self._waiting > 0
 
     def plan_sync(self, req: JobRequest) -> PlannedJob:
         """Plan in the calling thread (CLI, tests, tools); uses and fills the cache."""
@@ -528,17 +559,18 @@ class JobService:
                 cancelled = True
             else:
                 cancelled = False
-                t._idle_cancel = _timer_schedule(delay, lambda: self.compile_now(t)) if delay > 0 else None
+                t._idle_cancel = _timer_schedule(delay, lambda: self.compile_now(t, idle=True)) if delay > 0 else None
         if cancelled:
             if t.cancelled or self._closed:
                 self._drop_deferred(t)
             return
         if delay <= 0:
-            self.compile_now(t)
+            self.compile_now(t, idle=True)
 
-    def compile_now(self, t: Optional[JobTicket] = None) -> None:
+    def compile_now(self, t: Optional[JobTicket] = None, idle: bool = False) -> None:
         """Queue the compile of a two-stage preview whose toolpath is done (default: the
-        current preview); nothing when it is queued already, finished or cancelled."""
+        current preview); nothing when it is queued already, finished or cancelled.  ``idle``:
+        the idle timer asked (nobody waits for it: the estimate in progress is finished first)."""
         t = t if t is not None else self.preview
         if t is None:
             return
@@ -553,7 +585,10 @@ class JobService:
             self._drop_deferred(t)
             return
         try:
-            self.executor.submit(self._work, t, True, "resume")
+            if idle:
+                self.executor.submit(self._work, t, True, "resume")
+            else:
+                self._submit_waiting(t, "resume")
         except RuntimeError:                       # the executor was shut down
             self._drop_deferred(t)
 
@@ -692,6 +727,11 @@ class JobService:
         if t.cancelled:
             raise Cancelled()
 
+    def _set_estimate(self, t: JobTicket, est: dict, deliver: bool) -> None:
+        t.estimate = dict(est)
+        if deliver:
+            self._deliver_estimate(t)
+
     def _finish(self, t: JobTicket, job, start, placed: Document, t0: float, bounds=None,
                 cut_bounds=None) -> PlannedJob:
         req = t.request
@@ -717,7 +757,7 @@ class JobService:
     def _compile_thread(self, t: JobTicket, deliver: bool, t0: float, stage: str = "full") -> Optional[PlannedJob]:
         from mlaser._sched import responsive_gil
 
-        from .planproc import run_compile, run_job, run_toolpath
+        from .planproc import run_compile, run_estimate, run_job, run_toolpath
 
         req = t.request
         kept = t._kept
@@ -748,6 +788,12 @@ class JobService:
                 items, placed_r, start = run_toolpath(r)
             on_toolpath(items, placed_r)
             t._kept = ("thread", r, items, placed_r, start)
+            with responsive_gil():
+                est = run_estimate(r, items, lambda: t.cancelled or self._hurry())
+            if t.cancelled:
+                raise Cancelled()
+            if est is not None:
+                self._set_estimate(t, est, deliver)
             return None
         with responsive_gil():
             items, _placed, start, job = run_compile(r, self._progress_fn(t, deliver), on_toolpath)
@@ -782,7 +828,9 @@ class JobService:
                 msg["stage"], msg["key"] = "toolpath", t.key
             if t.cancelled:
                 raise Cancelled()
-            info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath)
+            info, job = pp.compile(msg, lambda: t.cancelled, self._progress_fn(t, deliver), on_toolpath,
+                                   on_estimate=lambda est: self._set_estimate(t, est, deliver),
+                                   hurry=self._hurry)
             if stage == "toolpath":
                 t._kept = ("child",)
                 return None
@@ -802,6 +850,15 @@ class JobService:
             if t.cancelled or not t._once("toolpath"):
                 return
             for fn in list(self.on_toolpath):
+                fn(t)
+
+        self.post(run)
+
+    def _deliver_estimate(self, t: JobTicket) -> None:
+        def run():
+            if t.cancelled or not t._once("estimate"):
+                return
+            for fn in list(self.on_estimate):
                 fn(t)
 
         self.post(run)
@@ -833,9 +890,15 @@ class JobService:
         if not toolpath_only and t is self.preview and self.compile_idle_s is not None:
             # a two-stage preview: its compile now, once its toolpath stage has ended
             end = time.monotonic() + timeout
-            while (not t.done_event.is_set() and t._kept is None and not t.cancelled
-                   and time.monotonic() < end):
-                t.done_event.wait(0.005)
+            with self._lock:
+                self._waiting += 1            # its estimate gives way (the compile gives it)
+            try:
+                while (not t.done_event.is_set() and t._kept is None and not t.cancelled
+                       and time.monotonic() < end):
+                    t.done_event.wait(0.005)
+            finally:
+                with self._lock:
+                    self._waiting -= 1
             self.compile_now(t)
         if toolpath_only:
             t.wait_toolpath(timeout)
