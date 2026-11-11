@@ -76,6 +76,40 @@ def test_balanced_panes_need_the_least_height(app):
         app.processEvents()
 
 
+def test_a_giving_pane_lends_width_only_while_it_lowers_the_height(app):
+    """``give``: a pane without rows that wrap lends the balanced pair width, down to its own
+    minimum, when one of them would wrap a row more (a font with wider text: macOS, the Nest
+    page at 12 pt), and takes it back in a wider window."""
+    from mlaser.ui.responsive import TabsWhenNarrow
+    top = QWidget()
+    split = TabsWhenNarrow(balance=(0, 1), give=2, parent=top)
+    left, mid, right = _pane(3, 100), _pane(3, 100), _pane(1, 100)
+    for p in (left, mid, right):
+        split.addWidget(p, "pane")
+    split.set_sizes([310, 310, 290])
+    top.resize(920, 600)
+    split.resize(920, 600)
+    top.show()
+    try:
+        for _ in range(5):
+            app.processEvents()
+        row = left.layout().minimumHeightForWidth(1000)            # one row of three buttons
+        sizes = split.splitter.sizes()
+        assert _tallest(split) == row, sizes                         # neither wraps
+        assert 100 <= sizes[2] < 290, sizes                          # lent from the giving pane
+        top.resize(1400, 600)
+        split.resize(1400, 600)
+        for _ in range(5):
+            app.processEvents()
+        split.balance_panes()
+        assert split.splitter.sizes()[2] >= 290, split.splitter.sizes()   # taken back
+        assert _tallest(split) == row
+    finally:
+        top.close()
+        top.deleteLater()
+        app.processEvents()
+
+
 def test_a_width_the_user_chose_is_kept(app):
     top, split = _split(app, (0, 1))
     try:
