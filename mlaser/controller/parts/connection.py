@@ -358,8 +358,9 @@ class ConnectionPart:
             mc = self._mc
             if mc is None:
                 break
-            if self._sup.streaming:
-                # a job streams: the streamer owns the link and relays the status
+            if self._sup.polling_streamer():
+                # a job streams: the streamer owns the link and relays the status (a streaming
+                # process from its hello on: until then this poller keeps watching the card)
                 self._poll_stop.wait(self.poll_s)
                 self._deadman_tick()
                 continue
