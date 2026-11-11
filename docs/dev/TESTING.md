@@ -116,6 +116,10 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
 * `uvx ruff@0.17.1 check` on the changed files (CI's `lint` job runs ruff on the whole tree but
   is informative, `continue-on-error`, until the 112 findings already in the tree are cleared;
   pre-commit lints the changed files);
+* a broad handler (`except Exception`) states its reason: `# noqa: BLE001 - why`; code that only
+  ignores a failure uses `mlaser._swallow.swallow(log, what)`, which logs it
+  (`tests/test_broad_excepts.py`: every reason in `mlaser/services` and the run screens, and the
+  reasonless ones elsewhere only become fewer);
 * `tests/test_docs_links.py`: documentation links resolve.
 
 ## Coverage

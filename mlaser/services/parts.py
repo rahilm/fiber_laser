@@ -309,7 +309,7 @@ def group_signature(doc: Document, g: PartGroup, tol: float = 0.05) -> tuple:
         geo = _shape(doc, g.members)
         _cx, _cy, i1, i2, _a = _moments(geo)
         area = float(geo.area)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - open or degenerate geometry: no moments (classification only)
         i1 = i2 = area = 0.0
     return (n_closed, len(cs) - n_closed, area, sum(c.length() for c in cs), i1, i2)
 

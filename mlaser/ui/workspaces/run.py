@@ -178,6 +178,9 @@ class LoadSheetCard(QFrame):
     sheet does not match the technology (Import & orders track,
     :func:`mlaser.services.material_check.load_card`)."""
 
+    #: the picture's size (shown while the Queue tab hides the live view, which shows the sheet)
+    PICTURE = (160, 100)
+
     def __init__(self, window: Any) -> None:
         super().__init__()
         self.window_ = window
@@ -188,7 +191,7 @@ class LoadSheetCard(QFrame):
         lay = style.hbox(self, "dense")
         self.picture = QLabel()
         self.picture.setObjectName("run_load_picture")
-        self.picture.setFixedSize(220, 140)
+        self.picture.setFixedSize(*self.PICTURE)
         self.picture.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.picture)
         col = QVBoxLayout()
@@ -250,7 +253,8 @@ class LoadSheetCard(QFrame):
         self.warning.setText("⚠ " + "\n⚠ ".join(mm) if mm else "")
         from .orders import parts_pixmap
         parts = [p for p in getattr(doc, "parts", []) if p.contours] if doc is not None else []
-        self.picture.setPixmap(parts_pixmap(parts, QSize(216, 136), self.palette(), data.get("rings")))
+        pw, ph = self.PICTURE
+        self.picture.setPixmap(parts_pixmap(parts, QSize(pw - 4, ph - 4), self.palette(), data.get("rings")))
 
 
 # ============================================================================== readout
@@ -329,9 +333,14 @@ class RunCanvas(QWidget):
     each part's number in the last job's cut order; a click on a part picks it (:attr:`pick`,
     "Start from part")."""
 
+    #: minimum height: as the shared canvas (CANVAS_MIN, a half-screen window); while the load
+    #: card above it asks for the next sheet (:class:`LoadSheetCard`)
+    MIN_H = 220
+    MIN_H_WAITING = 100
+
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(260, 220)          # as the shared canvas (CANVAS_MIN): a half-screen window
+        self.setMinimumSize(260, self.MIN_H)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.document: Any = None
         self.sheet: Optional[tuple[float, float, float, float]] = None
@@ -572,6 +581,9 @@ class QueuePanel(QWidget):
         self.ws = ws
         w = ws.window
         v = QVBoxLayout(self)
+        # the tab pane's frame is the border: the default margins made the Queue tab taller
+        # than a short screen's room for it
+        v.setContentsMargins(style.SP1, style.SP1, style.SP1, style.SP1)
         from .approval import ApprovalPanel
         self.approval = ApprovalPanel(ws)            # submitted jobs waiting for the operator
         v.addWidget(self.approval)
@@ -591,7 +603,9 @@ class QueuePanel(QWidget):
         v.addWidget(self.totals)
         # the key column (Job) stretches; the others hide by priority when the view is narrow
         ColumnFitter(self.table, {0: 2, 2: 3, 3: 3, 4: 4, 5: 1, 6: 1, 7: 0, 8: 0, 9: -1}, stretch=1)
-        g = FlowLayout(uniform=True)
+        # each button at its own width: the uniform width of the widest item (the quantity box)
+        # put one button per row in a half-screen window, seven rows of them
+        g = FlowLayout(uniform=False)
         self.buttons: dict[str, QPushButton] = {}
         specs = (("add", "queue.btn.add", "Add job...", self.add_file),
                  ("up", "queue.btn.up", "Move up", lambda: self._move(-1)),
@@ -864,6 +878,12 @@ class OperatorScreen(QWidget):
         self.values = ReadoutRow(w)
         left.addWidget(self.values)
         body.addLayout(left, 1)
+        # only the page on top counts for the page's minimum height: the queue table's controls,
+        # wrapped at a narrow width, made the live view's column taller than a short screen
+        # (a QStackedWidget's minimum is its tallest page's)
+        self._tab_policies = {id(p): p.sizePolicy() for p in (self.canvas, self.queue_panel)}
+        self.tabs.currentChanged.connect(lambda _i: self._tab_minimums())
+        self._tab_minimums()
 
         # --- right: the big targets (ui/responsive.py ColumnsPanel): STOP, Hold / Start,
         # Frame / Dry run and Arm always shown in full; the breakpoint resume and the queue card
@@ -970,6 +990,17 @@ class OperatorScreen(QWidget):
         self._kind = ""
         self.status = RunStatus()
 
+    def _tab_minimums(self) -> None:
+        cur = self.tabs.currentWidget()
+        # the load card's picture of the sheet only when the live view (the same sheet and its
+        # nest, larger) is not on top: the card fits a half-screen window beside the controls
+        self.load_card.picture.setVisible(cur is not self.canvas)
+        for i in range(self.tabs.count()):
+            page = self.tabs.widget(i)
+            pol = self._tab_policies.get(id(page))
+            if pol is not None:
+                page.setSizePolicy(pol if page is cur else QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored))
+
     # ------------------------------------------------------------------ actions
     def _ui(self, name: str) -> None:
         """Run a SafetyUI action (the run bar's: pre-flight, arming, planned job)."""
@@ -1042,12 +1073,32 @@ class OperatorScreen(QWidget):
         self.timer.stop()
 
     def refresh(self) -> None:
-        w = self.ws.window
+        """Bring the screen up to the controller's state (every 150 ms while shown): one
+        :class:`RunStatus`, then one updater per region of the screen (review 2026-11-09, arch
+        A15): the state block, the counters and progress, the process values, the alarms, the
+        run buttons, the queue card, the readiness strip, the chips, the live view."""
         s = self.ws.status()
         self.status = s
+        ms = self.ws.machine_state()
+        connected = bool(ms is not None and ms.connected)
+        running = s.kind in ("running", "hold") or s.mode != ""
+        self._refresh_state(s, ms)
+        self._refresh_progress(s, running)
+        self._refresh_values(s, connected)
+        self._alarms(s)
+        job = self.ws.job_running()
+        self._refresh_buttons(s, ms, job)
+        self._refresh_queue(job, connected, s.kind == "fault")
+        self._readiness(job)
+        self._refresh_chips()
+        self._refresh_canvas(s, running, connected)
+
+    def _refresh_state(self, s: RunStatus, ms: Any) -> None:
+        """The state block: the machine state with its icon and colours, the reason, and the
+        safety I/O notice."""
+        w = self.ws.window
         # state: the machine axis (state_display), with its icon, on the state colours
         from .. import state_display as SD
-        ms = self.ws.machine_state()
         ctl = w.ctl
         ui = getattr(w, "safety_ui", None)
         kind = SD.machine_state(ctl.safety(), ms, list(ctl.active_alarms or []), ctl,
@@ -1078,6 +1129,11 @@ class OperatorScreen(QWidget):
             self.safety_notice.setText(note)
         if bool(note) != self.safety_notice.isVisibleTo(self):
             self.safety_notice.setVisible(bool(note))
+
+    def _refresh_progress(self, s: RunStatus, running: bool) -> None:
+        """The counters (sheet, part, contour; idle: what Start runs), the last job, progress
+        and times."""
+        w = self.ws.window
         # counters
         bits = []
         ent = self.ws.runner.current
@@ -1088,7 +1144,6 @@ class OperatorScreen(QWidget):
             bits.append(tr(w, "run.count.part", "part {n}/{total}", n=s.part, total=s.parts))
         if s.contours:
             bits.append(tr(w, "run.count.contour", "contour {n}/{total}", n=s.contour, total=s.contours))
-        running = s.kind in ("running", "hold") or s.mode != ""
         # idle: what Start will run (UX audit W18)
         self.counters.setText("  ·  ".join(bits) or tr(w, "run.start_target", "Start: {name}", name=self.ws.job_name()))
         self._last_job(running)
@@ -1099,6 +1154,10 @@ class OperatorScreen(QWidget):
         self.times.setText(tr(w, "run.times", "Elapsed {elapsed}   ETA {eta}",
                               elapsed=fmt_duration(s.elapsed_s) if running else "-",
                               eta=fmt_duration(s.eta_s) if running else "-"))
+
+    def _refresh_values(self, s: RunStatus, connected: bool) -> None:
+        """The process values (greyed and marked when the link is lost)."""
+        w = self.ws.window
         # process values
         dash = "-"
         u = U.current()
@@ -1111,14 +1170,15 @@ class OperatorScreen(QWidget):
                 "gas": gas or dash,
                 "height": u.fmt(s.height_mm, "length", missing=dash),
                 "x": u.fmt(s.x, "length"), "y": u.fmt(s.y, "length"), "z": u.fmt(s.z, "length")}
-        connected = bool(ms is not None and ms.connected)
         # the link is lost: the last values the card reported, greyed and marked (W2)
         self.values.set_values(vals, stale=not connected and self.ws.ever_connected)
-        # alarms
-        self._alarms(s)
+
+    def _refresh_buttons(self, s: RunStatus, ms: Any, job: bool) -> None:
+        """The run buttons (the run bar's rules and reasons), the resume and "cut the rest"
+        buttons."""
+        w = self.ws.window
         # buttons (the same rules as the run bar)
         fault = s.kind == "fault"
-        job = self.ws.job_running()
         paused = ms is not None and ms.mode == "pause"
         b = self.buttons
         # the run bar's rules and reasons (safety_ui.run_enabled); on this screen Start is the
@@ -1141,6 +1201,11 @@ class OperatorScreen(QWidget):
         style.set_enabled(b["resume_here"], not why_bp, why_bp)
         style.set_enabled(b["resume_contour"], not why_bp, why_bp)
         self._rest_buttons(b["start"].isEnabled(), str(b["start"].property("disabled_reason") or ""))
+
+    def _refresh_queue(self, job: bool, connected: bool, fault: bool) -> None:
+        """The queue card: its title and message, "Load this sheet", "Sheet loaded: start"."""
+        w = self.ws.window
+        b = self.buttons
         # queue card
         r = self.ws.runner
         title = trn(w, "run.queue.title", len(self.ws.queue),
@@ -1167,6 +1232,9 @@ class OperatorScreen(QWidget):
             self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)), ent)
         if waiting != self.load_card.isVisibleTo(self):
             self.load_card.setVisible(waiting)
+            # while the card asks for the sheet, the live view below it (the same sheet) may be
+            # shorter: card and view fit a short screen beside the run controls
+            self.canvas.setMinimumHeight(RunCanvas.MIN_H_WAITING if waiting else RunCanvas.MIN_H)
         asking = r.state in ("confirm", "starting")
         b["confirm_sheet"].setVisible(asking)
         prio = 10 if asking else 1             # the operator must see "Sheet loaded: start"
@@ -1181,7 +1249,10 @@ class OperatorScreen(QWidget):
                                 else tr(w, "run.btn.queue_run", "Run queue"))
         style.set_enabled(b["queue_mode"], r.state != "idle" or self.ws.queue.next_entry() is not None,
                           tr(w, "run.why.queue_empty", "The queue has no job left to run"))
-        self._readiness(job)
+
+    def _refresh_chips(self) -> None:
+        """The LAN monitor and automation API chips."""
+        w = self.ws.window
         # monitor chip
         mon = self.ws.monitor
         self.monitor_chip.setVisible(mon is not None and mon.running)
@@ -1196,6 +1267,9 @@ class OperatorScreen(QWidget):
         if on:
             h, port = api.address
             self.api_chip.setText(tr(w, "run.api_on", "Automation API ON {host}:{port}", host=h, port=port))
+
+    def _refresh_canvas(self, s: RunStatus, running: bool, connected: bool) -> None:
+        """The live view: the sheet, the progress or, after a job, the parts left."""
         # canvas
         doc, sheet = self.ws.view_document()
         self.canvas.set_document(doc, sheet)
@@ -1505,7 +1579,7 @@ class RunWorkspace:
     def machine_state(self) -> Any:
         try:
             return self.window.ctl.state()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot read the state: shown as offline, run controls off
             return None
 
     def job_running(self) -> bool:
@@ -1759,18 +1833,35 @@ class RunWorkspace:
         self._sheet_doc = self.window.document
         return True
 
-    def _start_sheet(self) -> bool:
-        """Start the loaded sheet through the run bar's path (arming, pre-flight, planned job).
-        False when it was refused before reaching the job service."""
+    def _start_sheet(self) -> Optional[bool]:
+        """Start the loaded sheet through the run bar's path (pre-flight, the one arming
+        question, planned job).  The check runs off the GUI thread, as for Start (perf review
+        2026-11-09, finding 10): None, and the runner learns later through
+        ``QueueRunner.start_result`` whether the start reached the job service; True / False
+        when that was decided at once.  A queue left meanwhile drops the start."""
         ui = getattr(self.window, "safety_ui", None)
         if ui is None:
             return False
         jobs = self.window.jobs
         before = getattr(jobs, "last_run", None)
-        ui.start()
-        ui.wait_preflight()             # the queue needs the answer now (pre-flight, arming)
-        after = getattr(jobs, "last_run", None)
-        return after is not None and after is not before
+        runner, entry = self.runner, self.runner.current
+        box: dict = {}
+
+        def handled() -> None:
+            after = getattr(jobs, "last_run", None)
+            started = after is not None and after is not before
+            if "pending" in box:
+                runner.start_result(started)
+            else:
+                box["started"] = started
+
+        def wanted() -> bool:
+            return runner.state == "starting" and runner.current is entry
+        ui.start(then=handled, proceed=wanted)
+        if "started" in box:
+            return box["started"]
+        box["pending"] = True
+        return None
 
     def _sheet_done(self, e: QueueEntry, ok: bool) -> None:
         if not ok:

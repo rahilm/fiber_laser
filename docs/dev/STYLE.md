@@ -138,7 +138,7 @@ switches) only in its own row below, one step choice (Continuous · 0.1 · 1 · 
 in imperial) and Fast, hold-to-jog with the dead-man.
 
 The run bar and the Run screen build their controls with `style.run_button`, and their enable
-rules and reasons come from `safety_ui.run_enabled`.
+rules and reasons come from `run_rules.run_enabled` (Qt-free; re-exported by `safety_ui`).
 
 ## The lint
 

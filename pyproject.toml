@@ -242,6 +242,7 @@ source_modules = [
     "mlaser.nc", "mlaser.ops", "mlaser.machine", "mlaser.devices", "mlaser.controller",
     "mlaser.services", "mlaser.project", "mlaser.web",
     "mlaser.cli", "mlaser.api", "mlaser.notify", "mlaser.labels",
+    "mlaser.ui.run_rules",            # the run controls' rules (review arch A15)
 ]
 forbidden_modules = ["PySide6", "shiboken6"]
 # no ignores left: cad / io text without Qt (Wave 2 performance track), the UI adapter's Qt

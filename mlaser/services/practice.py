@@ -153,7 +153,7 @@ def practice_document() -> Document:
 def is_practice_document(doc: Any) -> bool:
     try:
         return bool(doc is not None and doc.extra.get("practice") and doc.parts)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - not a practice document
         return False
 
 
@@ -239,7 +239,7 @@ class Lesson(Procedure):
         try:
             fn = getattr(machine, "is_simulator", None)
             return bool(callable(fn) and fn())
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot tell: never a lesson on a real card
             return False
 
     @staticmethod
@@ -404,7 +404,7 @@ class FirstCutLesson(Lesson):
     def _armed(self) -> bool:
         try:
             return bool(self.machine.safety().armed)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot tell: not armed (the lesson waits)
             return False
 
 
@@ -572,7 +572,7 @@ class PracticeService:
         for fn in list(self.listeners):
             try:
                 fn()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - a listener must not stop the lesson (logged)
                 log.exception("practice listener failed")
 
 

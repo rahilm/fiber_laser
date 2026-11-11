@@ -263,6 +263,7 @@ class MainWindow(QMainWindow):
         # stopped (or at Start: services/jobs.py)
         self.jobs = JobService(post=self._bridge.call.emit, schedule=self._schedule, compile_idle_s=COMPILE_IDLE_S)
         self.jobs.on_toolpath.append(self._plan_toolpath_ready)
+        self.jobs.on_estimate.append(self._plan_estimate_ready)
         self.jobs.on_planned.append(self._plan_ready)
         self.jobs.on_failed.append(self._plan_failed)
         self.plan = None                          # the current preview PlannedJob
@@ -1073,6 +1074,12 @@ class MainWindow(QMainWindow):
             self._set_toolpath(ticket.toolpath or [])
             if not self.jobs.pending:
                 self.canvas.set_plan_state("ready")
+
+    def _plan_estimate_ready(self, ticket) -> None:
+        """The time estimate of the preview's toolpath stage (before its compile; the same
+        numbers as the plan's, perf review finding 8)."""
+        if ticket is self.jobs.preview and ticket.estimate is not None:
+            self.estimate = dict(ticket.estimate)
 
     def _plan_failed(self, ticket, exc) -> None:
         self.log_panel.log(f"toolpath: {exc}")

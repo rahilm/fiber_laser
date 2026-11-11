@@ -27,6 +27,9 @@ same; the parent only moves data:
   (``stage="toolpath"``); the child keeps that toolpath, keyed by the request's inputs hash, and
   compiles it when the JobService asks for the job of the same key (``("compile", rid, key)``),
   so an edit costs the toolpath and the compile runs once the edits stopped (or at Start).
+  After the toolpath it plans the time estimate (:func:`run_estimate`, ``("estimate", rid,
+  dict)``: the numbers ``Job.estimate`` of the compile gives), so the estimate does not wait for
+  the compile; the parent skips it (``cancel = -rid``) when a Start or a ``settle`` waits.
 
 When the child cannot be started or dies, or cannot reproduce the parent's state (a ParityProfile
 registered at run time), the JobService compiles in its thread as before, with the GIL switch
@@ -75,7 +78,7 @@ class ProtocolMismatch(ChildLost):
 #: it at spawn, the child answers ``("ready", {"proto": ..., "pid": ...})`` and ends at once
 #: when they differ; the parent refuses a child that answers another version (or the old
 #: ``("ready", pid)``).  Raise it on any change of the request / event tuples below.
-PLAN_PROTO = 2
+PLAN_PROTO = 3
 
 
 # =============================================================================== codec
@@ -316,6 +319,33 @@ def run_toolpath(r: dict) -> tuple:
     return items, placed, start
 
 
+def run_estimate(r: dict, items: list, stop: Callable[[], bool]) -> Optional[dict]:
+    """The planner's time estimate of the toolpath :func:`run_toolpath` gave for ``r``, before
+    the compile: the same numbers as ``Job.estimate`` of its compile (``estimate_time(items,
+    cfg)``, the chains planned with ``plan_path`` one by one and summed by ``estimate_time`` in
+    its own order; ``{}`` when planning a chain raises, as the compile gives).  None for a
+    Frame, or when ``stop()`` (checked before every chain) said to give up."""
+    if r["mode"] == "frame":
+        return None
+    from mlaser.motion import interp
+
+    with _profile_ctx(r):
+        cfg = r["machine"].motion_config()
+        vals: list = []
+        for chain in interp.estimate_chains(items):
+            if stop():
+                return None
+            try:
+                p = interp.plan_path(chain, cfg)
+            except Exception:  # noqa: BLE001 - as the compile's estimate: none
+                return {}
+            vals.append((p.duration, p.length))
+        try:
+            return interp.estimate_time(items, cfg, chain_plans=vals)
+        except Exception:  # noqa: BLE001 - the estimate is informative only (as the compile's)
+            return {}
+
+
 def run_job(r: dict, items: list, placed: Document, start, progress: Callable[[float], None]):
     """The compile stage: the job of the toolpath :func:`run_toolpath` gave for ``r``."""
     from mlaser.nc.compiler import compile_items
@@ -403,7 +433,7 @@ def _child_loop(conn, cancel) -> None:
     from mlaser.nc import parallel
     try:
         os.nice(5)            # below the GUI and the streaming child
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no lower priority on this OS: the child runs as it is
         pass
     part_cache: dict[int, bytes] = {}
     blob_cache: dict[int, Any] = {}
@@ -488,6 +518,12 @@ def _child_loop(conn, cancel) -> None:
                 if payload.get("stage") == "toolpath":
                     # the compile waits for the JobService's "compile" of this key (or a new request)
                     kept[payload.get("key")] = (r, items, placed, start)
+                    # the time estimate before the compile; -rid: a Start waits, skip it
+                    est = run_estimate(r, items, lambda: cancel.value >= rid or cancel.value == -rid)
+                    if cancel.value >= rid:
+                        raise Cancelled()
+                    if est is not None:
+                        conn.send(("estimate", rid, est))
                     conn.send(("tpdone", rid))
                     continue
             job = run_job(r, items, placed, start, progress)
@@ -551,7 +587,7 @@ def _close_all() -> None:
     for pp in list(_LIVE):
         try:
             pp.close()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - at exit: the next process is ended regardless
             pass
 
 
@@ -620,7 +656,7 @@ class PlanProcess:
                         self.failures = max(self.failures, self.MAX_FAILURES)
                         try:
                             self._kill(self.proc)
-                        except Exception:  # noqa: BLE001
+                        except Exception:  # noqa: BLE001 - the mismatched child is dropped either way
                             pass
                         self.proc = None
                         raise ProtocolMismatch(why)
@@ -653,7 +689,7 @@ class PlanProcess:
         if c is not None:
             try:
                 c.send(("quit",))
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - the child is gone already: joined and killed below
                 pass
         if p is not None:
             p.join(5.0)                    # it shuts its compile pool down first
@@ -675,7 +711,7 @@ class PlanProcess:
         except (OSError, ProcessLookupError):
             try:
                 p.kill()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - nothing more to kill: it is joined next
                 pass
         p.join(2.0)
 
@@ -683,7 +719,7 @@ class PlanProcess:
         self.failures += 1
         try:
             self._kill(self.proc)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - a lost child: it is dropped either way
             pass
         self.proc = None
         return ChildLost(why)
@@ -700,10 +736,14 @@ class PlanProcess:
                 pass
 
     def compile(self, msg: Optional[dict], cancelled: Callable[[], bool], progress: Callable[[float], None],
-                on_toolpath: Callable[[list, dict], None], kept: Optional[str] = None) -> tuple[Any, Any]:
+                on_toolpath: Callable[[list, dict], None], kept: Optional[str] = None,
+                on_estimate: Optional[Callable[[dict], None]] = None,
+                hurry: Optional[Callable[[], bool]] = None) -> tuple[Any, Any]:
         """Run one encoded request.  Calls ``on_toolpath(items, placed_info)`` when the toolpath
         stage is done and ``progress(frac)`` while compiling (both on this thread; they may
-        raise ``Cancelled``).  Returns ``(info, job)``; ``(None, None)`` when ``msg`` asked for
+        raise ``Cancelled``).  A toolpath stage also plans the time estimate and calls
+        ``on_estimate(estimate)``, unless ``hurry()`` became true first (a Start waits: the
+        compile gives the estimate).  Returns ``(info, job)``; ``(None, None)`` when ``msg`` asked for
         the toolpath stage only (``msg["stage"] == "toolpath"``: the child keeps that toolpath
         under ``msg["key"]``).  ``msg`` None and ``kept`` a key: compile the toolpath the child
         kept for that key (``ChildSetupError`` when it has none: send the request again)."""
@@ -724,10 +764,14 @@ class PlanProcess:
         if msg is not None:
             self.have = set(msg["keep"]) & (self.have | set(msg["part_data"]) | set(msg["blob_data"]))
         cancel_sent: Optional[float] = None
+        hurried = False
         while True:
             if cancel_sent is None and cancelled():
                 self.cancel.value = rid
                 cancel_sent = time.monotonic()
+            if hurry is not None and not hurried and cancel_sent is None and hurry():
+                hurried = True
+                self.cancel.value = -rid       # the child skips the rest of the estimate
             if cancel_sent is not None and time.monotonic() - cancel_sent > self.CANCEL_GRACE_S:
                 raise self._lost("the plan process did not stop after a cancel")
             try:
@@ -762,6 +806,9 @@ class PlanProcess:
                     except Cancelled:
                         self.cancel.value = rid
                         cancel_sent = time.monotonic()
+            elif kind == "estimate":
+                if cancel_sent is None and on_estimate is not None:
+                    on_estimate(ev[2])
             elif kind == "tpdone":
                 if cancel_sent is not None:
                     raise Cancelled()
@@ -786,7 +833,7 @@ class PlanProcess:
                     finally:
                         try:
                             conn.send(("ack",))
-                        except Exception:  # noqa: BLE001
+                        except Exception:  # noqa: BLE001 - the child releases its blocks at the next request
                             pass
                 elif how == "packed":
                     job = Job(**meta)

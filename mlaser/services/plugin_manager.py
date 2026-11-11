@@ -1021,7 +1021,8 @@ class PluginManager:
                          "granted_hosts": self.granted_hosts(pid)}
         try:
             infos = discover((), entry_points=True)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - a broken entry point: listed without it (logged)
+            log.warning("plugin discovery failed", exc_info=True)
             infos = []
         site = str(self.site.resolve()) if self.site.exists() else ""
         for info in infos:
