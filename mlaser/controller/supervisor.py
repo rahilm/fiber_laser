@@ -189,8 +189,13 @@ class SafetySupervisor:
                  heartbeat_output: int = 0, heartbeat_hz: float = 5.0,
                  on_link_lost: Optional[Callable[[str], None]] = None,
                  on_link_restored: Optional[Callable[[], None]] = None,
-                 halt_params: Optional[Callable[[], HaltParams]] = None):
+                 halt_params: Optional[Callable[[], HaltParams]] = None, clock=None):
+        from .clock import SYSTEM
         self.fsm = fsm
+        # the time of the link watch and the heartbeat (controller.clock; tests: virtual time)
+        self.clock = clock or SYSTEM
+        # tests only: () -> an in-memory link per channel (controller.memlink) instead of a socket
+        self.link_factory: Optional[Callable[[], object]] = None
         self.halt_timeout_ms = int(halt_timeout_ms)
         self.halt_sends = max(1, int(halt_sends))
         self.link_deadline_ms = float(link_deadline_ms)
@@ -264,11 +269,15 @@ class SafetySupervisor:
     def open(self, cfg: TransportConfig, pulses_per_mm: float) -> MotionController:
         """Create the main channel (guarded) and the halt channel; does not send anything."""
         self.close()
-        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm, guard=self._guard)
+        lf = self.link_factory
+        mc = MotionController(config=cfg, pulses_per_mm=pulses_per_mm, guard=self._guard,
+                              clock=self.clock, link=lf() if lf is not None else None)
+        mc.resend_guard = self._resend_guard
         self._mc = mc
         hcfg = replace(cfg, timeout_ms=self.halt_timeout_ms,
                        fifo_time_ms=self.halt_timeout_ms * self.halt_sends, max_recv=1)
-        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm, guard=self._halt_guard)
+        self._halt = MotionController(config=hcfg, pulses_per_mm=pulses_per_mm, guard=self._halt_guard,
+                                      clock=self.clock, link=lf() if lf is not None else None)
         # the channels' frame rings outlive a disconnect (a bug report after a link loss)
         mc.recent, self._halt.recent = self._rings["main"], self._rings["halt"]
         self._latch = False
@@ -364,6 +373,28 @@ class SafetySupervisor:
             self.refused.append((time.time(), cls.name or str(int(cls)), why))
             del self.refused[:-100]
             raise CommandRefused(why, cls)
+
+    def _resend_guard(self, req: F.Request) -> Optional[Callable[[], None]]:
+        """The main channel's re-send check (``MotionController.transact``): a request that moves
+        or fires and found no reply is sent again only when no halt came since its first send
+        and the guard still allows it; otherwise it is refused (CommandRefused) and never goes
+        out again (the motion a halt stopped must not follow the halt).  Reads, halts and IO
+        are re-sent as before."""
+        n = self.halt_count
+
+        def check() -> None:
+            cls = classify_request(req, self.guarded_outputs)
+            if not cls & (Cmd.MOTION | Cmd.EMISSION):
+                return
+            why = (f"halted since it was sent ({self._latch_reason or 'halt'}): not sent again"
+                   if self.halt_count != n else self._check(req, cls))
+            if why:
+                audit("command", logging.WARNING, cls=cls.name or str(int(cls)), func=req.func, addr=req.addr,
+                      words=list(req.values[:8]), refused=why, resend=True)
+                self.refused.append((time.time(), cls.name or str(int(cls)), why))
+                del self.refused[:-100]
+                raise CommandRefused(why, cls)
+        return check
 
     def _ui_thread_request(self, req: F.Request) -> None:
         self.ui_thread_requests += 1
@@ -476,6 +507,12 @@ class SafetySupervisor:
 
     # ------------------------------------------------------------------ monitor
     def start_monitor(self) -> None:
+        if self.clock.virtual:
+            # tests (controller.clock.ManualClock): the ticks come with the clock, no thread
+            self._v_next_tick = self.clock.monotonic() + self.monitor_s
+            self._v_next_retry = 0.0
+            self.clock.add_listener(self._virtual_tick)
+            return
         if self._mon is not None and self._mon.is_alive():
             return
         self._mon_stop.clear()
@@ -483,6 +520,8 @@ class SafetySupervisor:
         self._mon.start()
 
     def stop_monitor(self) -> None:
+        if self.clock.virtual:
+            self.clock.remove_listener(self._virtual_tick)
         self._mon_stop.set()
         t = self._mon
         if t is not None and t is not threading.current_thread():
@@ -494,7 +533,7 @@ class SafetySupervisor:
     def link_age_s(self, now: Optional[float] = None) -> float:
         """Seconds without a reply (see deadline_s); ``now`` is the monitor's wake-up time, so
         that a host stall during the tick itself is judged on the next tick."""
-        now = time.monotonic() if now is None else now
+        now = self.clock.monotonic() if now is None else now
         if self.streaming == "process":
             return now - self.child_seen if self.child_seen else 0.0
         mc = self._mc
@@ -574,6 +613,27 @@ class SafetySupervisor:
                 self._tick_heartbeat(time.monotonic())
             except Exception:  # noqa: BLE001 - the monitor must keep running
                 log.exception("safety monitor")
+
+    _v_next_tick = 0.0
+    _v_next_retry = 0.0
+
+    def _virtual_tick(self, now: float) -> None:
+        """The monitor on an injected clock (tests, controller.clock.ManualClock): the link and
+        retry ticks and the heartbeat edges when that clock passes their time, in the thread
+        that moved it.  No host-stall allowance: virtual time does not stall."""
+        if self._mc is None:
+            return
+        try:
+            if now >= self._v_next_tick:
+                self._v_next_tick = now + self.monitor_s
+                self._tick_link(now)
+                if self._retry is not None and now >= self._v_next_retry:
+                    self._v_next_retry = now + self.halt_retry_s
+                    reason, pause = self._retry
+                    self.safe_halt(f"{reason} (repeat)", pause, latch=False)
+            self._tick_heartbeat(now)
+        except Exception:  # noqa: BLE001 - the monitor must keep running
+            log.exception("safety monitor")
 
     def _tick_link(self, now: Optional[float] = None) -> None:
         mc = self._mc

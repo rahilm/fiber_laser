@@ -522,7 +522,9 @@ def test_every_operator_command_is_queued_or_a_reviewed_direct_path():
             # no card I/O: the host's arm refusals (a config.json not loaded, review A3)
             "set_arm_hold", "arm_holds",
             # no card I/O: a flag the next job start consumes (arming across a queue's sheets)
-            "keep_armed_after_next_job"}
+            "keep_armed_after_next_job",
+            # no card I/O: reads the job lifecycle's phase (arch A1)
+            "job_phase"}
     api = {n for n, v in vars(ControllerFacade).items() if callable(v) and not n.startswith("_")}
     assert not api - queued - direct, f"MachineAPI commands neither queued nor reviewed: {api - queued - direct}"
 

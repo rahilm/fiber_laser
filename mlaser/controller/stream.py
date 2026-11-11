@@ -56,6 +56,7 @@ from typing import Any, Callable, Optional
 
 from ..protocol import frames as F
 from .client import ControllerError, FifoStreamer, MotionController, StreamStats, TransportConfig
+from .clock import SYSTEM as _SYSTEM_CLOCK
 
 FAULT_CODE = 9200
 DEFAULT_MAX_BUFFER_MS = 1200.0
@@ -330,8 +331,10 @@ class JobStreamer(FifoStreamer):
 
     def __init__(self, mc: MotionController, prefill_ms: Optional[float] = None,
                  watchdog_ms: Optional[float] = 40.0, max_buffer_ms: Optional[float] = DEFAULT_MAX_BUFFER_MS,
-                 pwm_freq: int = 5000, keep_samples: bool = False, **kw):
+                 pwm_freq: int = 5000, keep_samples: bool = False, clock=None, **kw):
         super().__init__(mc, **kw)
+        # the job's time (controller.clock): the wall clock, or a test's virtual time
+        self.clock = clock if clock is not None else getattr(mc, "clock", None) or _SYSTEM_CLOCK
         self.executed = 0.0
         #: axes of the step items (X|Y): the mask of the step-format command (0x66800003 observed)
         self.axis_mask = 0x3
@@ -467,14 +470,15 @@ class JobStreamer(FifoStreamer):
         self.stats = StreamStats(items=len(wj.wire))
         dur_s = wj.duration_s or total_ms / 1000.0
         limit = timeout_s if timeout_s is not None else max(60.0, 4 * dur_s + 30.0)
-        deadline = time.monotonic() + limit
+        clock = self.clock
+        deadline = clock.monotonic() + limit
         i = 0
         sent_bytes = 0
         started = False
         held = False
         grace = 0                   # polls to ignore "idle" after a FIFO start
         idle_polls = 0
-        t0 = time.monotonic()
+        t0 = clock.monotonic()
 
         def executed(st) -> tuple[int, int]:
             in_fifo = max(0, capacity - st.fifo_free)
@@ -488,7 +492,7 @@ class JobStreamer(FifoStreamer):
         while True:
             if cancel.is_set():
                 break
-            if time.monotonic() > deadline:
+            if clock.monotonic() > deadline:
                 raise ControllerError("job timeout", F.ERR_TIMEOUT)
             st = mc.read_status()
             self.buf.polls += 1
@@ -511,7 +515,7 @@ class JobStreamer(FifoStreamer):
                 if self.buf.min_free is None or st.fifo_free < self.buf.min_free:
                     self.buf.min_free = st.fifo_free
             if self.keep_samples:
-                self.buf.samples.append((time.monotonic() - t0, bms))
+                self.buf.samples.append((clock.monotonic() - t0, bms))
             self._emit("buffer", bms, st.fifo_free)
             # ---- watchdog: the card is about to run dry with frames left -> laser off + FAULT
             if (started and not h and self.watchdog_ms is not None and i < len(frames)
@@ -579,7 +583,7 @@ class JobStreamer(FifoStreamer):
             else:
                 idle_polls = 0
             if sent == 0:
-                time.sleep(poll_s)
+                clock.sleep(poll_s)
         if not cancel.is_set():
             self.executed = 1.0
             self.exec_index = len(wj.wire) - 1
@@ -674,6 +678,8 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     tcfg = TransportConfig(**cfg)
     mc = MotionController(config=tcfg, pulses_per_mm=position_ppm)
     mc.guard = _child_guard(policy, flags)
+    # a re-send (no reply in time) passes the guard again: never after the cancel or a halt
+    mc.resend_guard = lambda req, g=mc.guard: (lambda: g(req))
     hcfg = TransportConfig(**{**cfg, "timeout_ms": int(policy.get("halt_timeout_ms", 40)),
                               "fifo_time_ms": 2 * int(policy.get("halt_timeout_ms", 40)), "max_recv": 1})
     hmc = MotionController(config=hcfg, pulses_per_mm=position_ppm)
