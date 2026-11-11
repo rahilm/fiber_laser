@@ -703,8 +703,6 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     tcfg = TransportConfig(**cfg)
     mc = MotionController(config=tcfg, pulses_per_mm=position_ppm)
     mc.guard = _child_guard(policy, flags)
-    # a re-send (no reply in time) passes the guard again: never after the cancel or a halt
-    mc.resend_guard = lambda req, g=mc.guard: (lambda: g(req))
     hcfg = TransportConfig(**{**cfg, "timeout_ms": int(policy.get("halt_timeout_ms", 40)),
                               "fifo_time_ms": 2 * int(policy.get("halt_timeout_ms", 40)), "max_recv": 1})
     hmc = MotionController(config=hcfg, pulses_per_mm=position_ppm)
@@ -770,6 +768,28 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
             if got:
                 halt_lock.release()
     # --- ci-fixes (end) ------------------------------------------------------------------------
+
+    # A re-send (no reply in time) passes the guard again: never after the cancel or a halt.
+    # And never once the card has been silent for the parent's streaming deadline
+    # (child_deadline_ms): the parent latches "link lost" at that age and halts, but its watch
+    # runs in the GUI's process and can come late (CI, Windows: at 656 ms, after the 600 ms
+    # FIFO timeout, so the frame went out again before the halt).  The child halts the card
+    # itself then, as its own link watch does, and the frame is not sent again.
+    resend_limit = float(policy.get("child_deadline_ms", 500.0)) / 1000.0
+
+    def resend_guard(req, g=mc.guard):
+        def again() -> None:
+            g(req)                              # reads and the halt always pass
+            from ..machine.safety import Cmd, classify_request
+            from .supervisor import CommandRefused
+            cls = classify_request(req, int(policy.get("guarded", 0)))
+            age = time.monotonic() - mc.last_ok
+            if cls & (Cmd.MOTION | Cmd.EMISSION) and mc.last_ok and age >= resend_limit:
+                why = f"no reply from the card for {age * 1000:.0f} ms"
+                self_halt("link_lost", why)
+                raise CommandRefused(f"not sent again: {why}", cls)
+        return again
+    mc.resend_guard = resend_guard
 
     def watchdog() -> None:
         hb, hb_t = flags["hb"].value, time.monotonic()
