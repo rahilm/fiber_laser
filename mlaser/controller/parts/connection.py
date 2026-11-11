@@ -33,7 +33,7 @@ class ConnectionPart:
         (or the full ``MotionController.startup`` when ``card_params`` is set), read the card
         parameters (FUN_10039f20) and adopt the scaling.  The connection always starts
         **disarmed** (or in FAULT when a fault is still latched)."""
-        self.wait_commands(15.0)             # a queued disconnect (or command) ends first
+        self._settle_commands(15.0)          # a queued disconnect (or command) ends first
         self._invalidate_starts("disconnect")
         self._disconnect(True, True, None)   # here, before the new channel opens
         self._invalidate_starts("connect")
@@ -187,7 +187,7 @@ class ConnectionPart:
         from ..simulator import CardSimulator
         if link not in ("udp", "memory"):
             raise ValueError(f"link must be 'udp' or 'memory', not {link!r}")
-        self.wait_commands(15.0)
+        self._settle_commands(15.0)
         self._invalidate_starts("disconnect")
         self._disconnect(True, False, None)
         self._card_link_deadline_ms()                       # remember the configured value
@@ -212,6 +212,15 @@ class ConnectionPart:
         self._log(f"simulator started on 127.0.0.1:{self.sim.port} (UDP)")
         self.cfg.transport = "udp"
         return self.connect("127.0.0.1", self.sim.port)
+
+    def _settle_commands(self, timeout: float) -> None:
+        """Wait for the queued commands, again while the GUI events processed meanwhile queued
+        more: a disconnect queued by the last event pump ran on the command worker during the
+        connect and stopped the simulator just started (Windows CI: ``self.sim`` None)."""
+        end = time.monotonic() + timeout
+        while self.wait_commands(max(0.0, end - time.monotonic())) and self.commands_pending():
+            if time.monotonic() >= end:
+                break
 
     def _card_link_deadline_ms(self) -> float:
         """The deadline configured for a real card (captured once, before any simulator)."""
