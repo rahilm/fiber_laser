@@ -96,6 +96,17 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - Labels: part labels on roll and A4 sheet sizes, QR job tickets per queued sheet, remnant
   labels (PDF), part-ID etching on a marking layer (docs/user/labels.md).
 - Practice mode: six guided lessons on the simulator with progress (docs/user/practice.md).
+- Jog pads show the jog speed next to Fast (the slow one, or the fast one while Fast is on),
+  the same values as Machine › Setup.
+- Array and Circular array make their copies with a progress dialog and Cancel; the window
+  keeps responding, and the result is one undo step.
+- Canvas legend: folds behind an arrow unless the canvas is tall, and shows each part of the
+  toolpath in its real line style, now with the pierce ring. Hovering a part names its layer.
+- Plugins: `ctx.register_project_section` keeps a plugin's data in the `.mlz` project; the
+  plugin guide lists what the API does not cover yet.
+- Tests: job tests run on a virtual clock and an in-memory simulator, in milliseconds.
+- CI: a documentation-only change skips the test matrix's steps (the checks stay green under
+  their names) and still runs the docs checks.
 
 ### Changed
 
@@ -262,6 +273,53 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - README and docs/dev/PERFORMANCE.md: suite times re-measured; compile figures labelled
   "smoothing off" (the emitter in isolation) and "default profile" (smoothing on, what the
   application compiles).
+- **Safety**: a motion or laser command whose reply did not arrive is never sent again after a
+  Stop, halt or fault that came while it waited.
+- **Safety**: Restore parameters from the motion card or a file first shows what changes (the
+  import's review, motion values marked and first), then asks and backs up; what was reviewed
+  is what is stored.
+- A second Hold, or a Hold during Stop, is ignored. Resume waits until the Hold has finished
+  taking its breakpoint.
+- Run queue: "Sheet loaded: start" no longer freezes the window while a large sheet is checked
+  ("Checking the sheet's job…"); STOP or Leave queue meanwhile cancels the start.
+- The time estimate appears with the toolpath, without waiting for the full compile (same
+  numbers).
+- The Run workspace fits half a 1512 px screen and 1280 × 800 with a taskbar at a 12 pt font,
+  without scrolling; the "Load this sheet" card shows its picture while the Queue tab is open.
+- Nest and Report fit a 1280 × 800 screen with a taskbar also with a 10 pt or 12 pt font: Nest
+  balances its columns, Report's figures take one row, and the log under the page gives way
+  down to its tab bar.
+- Buttons come in two heights: mouse size at the PC, touch size (44 px) for controls that move
+  the machine or switch an output and on the shop-floor screens. One size per panel.
+- Tables share one look: left-aligned headers, numbers right-aligned, even row heights, and a
+  line saying what to do when a table is empty (Orders, Nest parts, alarm log).
+- Report and multi-page workspaces use the Run screen's touch tabs; docks and dialogs use the
+  platform's own tabs. Safety I/O uses plain section headings instead of frames.
+- Red and amber mean alarm, stop and hazard only: the canvas head marker and cut track are no
+  longer red, the simulation's stop icon is neutral, and "Interlocks: n not configured" is a
+  neutral notice.
+- Accessibility: layer colours as drawn, and the toolpath colours, stay apart for red-green
+  colour-blind users. Gaps are dotted grey and the pierce ring has its own colour. Colours in
+  files are unchanged.
+- Canvas: ruler numbers are readable in the light theme; the canvas bar sits past the rulers;
+  thin lines are one pixel on high-DPI displays; the kerf band shows only where the kerf is
+  visible; the Run live view has the canvas background.
+- Icons follow a live theme switch (the interlocks chip, the run buttons). In high contrast,
+  buttons have a visible edge. Disabled text is easier to read. Step lists, the import review
+  and Nest use the app's own icons instead of font symbols.
+- Machine › Connection starts on the network address once one is stored and shows what is
+  connected; a first connect is logged as a connect to that address, never "Hardware
+  reconnected".
+- Faster: a nudge of the whole selection moves the drawing instead of redrawing it (about 3× at
+  2,700 parts); resizing the window with a drawing open on Process (260 → 126 ms per step at
+  300 parts); the properties panel on large selections, and nothing while hidden.
+- Windows at 125 % / 150 %: the head marker and cut track draw over the cached canvas picture,
+  as at 100 %.
+- User guide: every menu path, workspace and folder describes the current window; a test checks
+  the guide's menu paths against the real menus.
+- macOS: README and release notes explain opening an unsigned build on macOS 15 (Open Anyway)
+  and the Local Network permission; the network self-test names that permission.
+- Python 3.14 classifier; PERFORMANCE.md re-measured with the machine and its load stated.
 
 ### Fixed
 
@@ -337,6 +395,12 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   machine `.ini` files) is replaced atomically, so a crash mid-write leaves the old file (the
   `.chf` bytes are unchanged). Save and the periodic autosave serialise and write in a worker:
   no more 1.2-1.6 s freezes every two minutes on large drawings (UI evaluation F3).
+- After a lost connection is restored and the fault reset, the machine state shows Ready again,
+  not Offline.
+- Diagnostics › Dedust switches the dust extractor through the controller like the other
+  outputs.
+- The empty-canvas panel no longer covers the canvas bar in a short window.
+- macOS: the safety banner's Connect… button is no longer cut at its top and bottom.
 
 ## [0.1.0rc1]
 
