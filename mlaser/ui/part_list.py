@@ -170,7 +170,7 @@ class PartListModel(QAbstractTableModel):
         self.sort_col, self.sort_desc = NUM, False
         self.filter = PartFilter()
         self.order_fn: Optional[Callable[[], list]] = None   # [(part index, contour index)] in cut order
-        self._swatches: dict[int, QIcon] = {}
+        self._swatches: dict[tuple[int, int], QIcon] = {}
         self._num_font: Optional[QFont] = None
         self._warn_icon: Optional[QIcon] = None
         self._texts: dict[str, str] = {}
@@ -305,10 +305,12 @@ class PartListModel(QAbstractTableModel):
         return self._num_font
 
     def swatch(self, layer: int) -> QIcon:
-        ic = self._swatches.get(layer)
+        from .canvas import swatch_layer_color
+        col = swatch_layer_color(layer)
+        key = (layer, col.rgba())          # the colour-blind palette may be switched on
+        ic = self._swatches.get(key)
         if ic is None:
-            from .canvas import layer_color
-            ic = self._swatches[layer] = _swatch(layer_color(layer))
+            ic = self._swatches[key] = _swatch(col)
         return ic
 
     def warn_icon(self) -> QIcon:

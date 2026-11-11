@@ -356,8 +356,10 @@ def test_live_view_colours_and_legend(app):
     from mlaser.ui import style
     from mlaser.ui.workspaces.run import RunCanvas
     c = RunCanvas()
-    assert c.current_color() == style.color("accent") and c.current_color() != style.color("danger")
-    assert c.done_color() == style.color("muted")
+    from mlaser.ui.canvas import CANVAS_COLORS
+    # the canvas's cut track and done colours (one meaning in both views; UI review 2026-11 #6)
+    assert c.current_color().name() == CANVAS_COLORS["track"] and c.current_color() != style.color("danger")
+    assert c.done_color().name() == CANVAS_COLORS["done"]
     assert len(c.legend_items()) == 3
     c.resize(400, 300)
     c.grab()                                               # paints (with the legend) without error

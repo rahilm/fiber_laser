@@ -664,12 +664,12 @@ class PropertiesPanel(QScrollArea):
             "props.sum.transform", w=u.fmt(x1 - x0, "length", trim=True), h=u.fmt(y1 - y0, "length", trim=True),
             x=u.fmt(x0, "length", trim=True), y=u.fmt(y0, "length", trim=True)))
         # layer
-        from mlaser.ui.canvas import layer_color
+        from mlaser.ui.canvas import swatch_layer_color
 
         layers = sorted({p.craft.layer for p in doc.parts} | set(doc.layers) | set(range(1, 17)))
         self.layer.clear()
         for li in layers:
-            self.layer.addItem(_swatch(layer_color(li)), f"{t('props.layer')} {li}", li)
+            self.layer.addItem(_swatch(swatch_layer_color(li)), f"{t('props.layer')} {li}", li)
         cur = {p.craft.layer for p in sel}
         if len(cur) == 1:
             li = next(iter(cur))

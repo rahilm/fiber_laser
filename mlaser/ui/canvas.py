@@ -67,14 +67,16 @@ def layer_color(index: int) -> QColor:
 # original's black drawing area, so a window without the shell looks as before.
 CANVAS_COLORS: dict[str, str] = {
     "background": "#000000", "table": "#606060", "axis_x": "#c04040", "axis_y": "#40c040",
-    "cut": "#d0d0d0", "gap": "#7b818b", "rapid": "#8080ff", "track": "#ff6060",
+    "cut": "#d0d0d0", "gap": "#997766", "rapid": "#5577ff", "track": "#4d8ff0",
     "unclosed": "#ff0000", "selected": "#ffffff", "start": "#ffffff", "index": "#ffd700",
-    "bbox": "#707070", "arrow": "#ffffff", "head": "#ff4040", "marker": "#00ffff",
-    "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#c4a6ff", "kerf": "#ffc53d",
-    "pierce": "#22d3ee", "preview": "#e6e600", "preview_alert": "#e53935", "ruler": "#a3aab4",
+    "bbox": "#707070", "arrow": "#ffffff", "head": "#ffffff", "marker": "#aaffcc",
+    "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#c4a6ff", "kerf": "#cccc55",
+    "pierce": "#33ccdd", "preview": "#e6e600", "preview_alert": "#e53935", "ruler": "#a3aab4",
+    "done": "#606060",
 }
 # style-lint: end
 _DISPLAY_LAYER_COLORS: Optional[list[str]] = None
+_SWATCH_LAYER_COLORS: Optional[list[str]] = None
 
 
 def set_display_layer_colors(colors: Optional[list[str]]) -> None:
@@ -86,6 +88,20 @@ def display_layer_color(index: int) -> QColor:
     """The layer colour as drawn on the canvas in the current theme."""
     cols = _DISPLAY_LAYER_COLORS or LAYER_COLORS
     return QColor(cols[index % len(cols)])
+
+
+def set_swatch_layer_colors(colors: Optional[list[str]]) -> None:
+    """The layer swatches' colours (the colour-blind-safe palette), None: the document's."""
+    global _SWATCH_LAYER_COLORS
+    _SWATCH_LAYER_COLORS = list(colors) if colors else None
+
+
+def swatch_layer_color(index: int) -> QColor:
+    """A layer's colour in a layer table or button: the document's colour (:func:`layer_color`),
+    or the colour-blind-safe palette's while that is shown (Preferences > Appearance), so the
+    tables name the colours the canvas draws.  Display only, never written to the document."""
+    cols = _SWATCH_LAYER_COLORS
+    return QColor(cols[index % len(cols)]) if cols else layer_color(index)
 
 
 def _cc(role: str) -> QColor:
@@ -107,15 +123,16 @@ def hair_pen(color, style=Qt.SolidLine, width: float = HAIRLINE) -> QPen:
 
 #: how the planned toolpath's roles are drawn: (stacking value, width in pixels, line style).
 #: Every role differs from the others by its line style or a marker too, never by colour alone
-#: (UI review 2026-11 #8): rapids dashed, micro-joint gaps (laser off) dotted, the kerf path
-#: over a translucent band, a ring at each pierce point; the canvas bar's legend draws these
-#: very pens (:class:`_LegendSwatch`).
+#: (UI review 2026-11 #8): rapids dashed, micro-joint gaps (laser off) dotted, lead-outs
+#: dash-dotted, the kerf path over a translucent band, a ring at each pierce point (the lead-in
+#: starts there), the live cut track :data:`TRACK_PX` wide, the head a ringed cross; the canvas
+#: bar's legend draws these very pens (:class:`_LegendSwatch`).
 TOOLPATH_STYLE: dict[str, tuple[float, float, Qt.PenStyle]] = {
     "rapid": (0.4, HAIRLINE, Qt.DashLine),
     "cut": (0.5, HAIRLINE, Qt.SolidLine),
     "kerf": (1.5, 1.5, Qt.SolidLine),
     "gap": (1.6, 2.0, Qt.DotLine),
-    "lead_out": (2.0, 2.0, Qt.SolidLine),
+    "lead_out": (2.0, 2.0, Qt.DashDotLine),
     "lead_in": (2.1, 2.0, Qt.SolidLine),
     "bad": (2.2, 2.0, Qt.SolidLine),
 }
@@ -126,6 +143,9 @@ KERF_BAND_PX = 6.0
 KERF_BAND_MIN_PX = 2.0
 #: the pierce ring's radius and pen width in pixels
 PIERCE_RING = (3.5, 1.6)
+#: the live cut track's width in pixels: wider than every planned-path pen, so the part being
+#: cut stands out by width too (the Run live view draws it 3 px wide)
+TRACK_PX = 2.5
 
 
 class SelectionBand(QWidget):
@@ -2043,7 +2063,7 @@ class CanvasView(QGraphicsView):
 
     @staticmethod
     def _track_pen() -> QPen:
-        pen = QPen(_cc("track"), 1.5)
+        pen = QPen(_cc("track"), TRACK_PX)
         pen.setCosmetic(True)
         return pen
 
