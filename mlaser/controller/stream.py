@@ -719,7 +719,7 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     # and reported as before.
     try:
         js.prepare(wj)
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - run_job prepares again and raises it there
         pass
     try:
         evt_q.put(("hello", hello))
