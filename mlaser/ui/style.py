@@ -693,11 +693,6 @@ def tabs(widget, kind: str = "dock"):
     if kind not in TAB_KINDS:
         raise ValueError(f"unknown tab kind {kind!r}")
     widget.setDocumentMode(True)
-    # a narrow window scrolls the tabs with the bar's arrows instead of taking the width of every
-    # tab: the macOS style prefers no arrows (SH_TabBar_PreferNoArrows), and Report's four touch
-    # tabs made its minimum 730 px there, wider than half a screen (683 px); Fusion and the
-    # Windows styles use the arrows already
-    widget.setUsesScrollButtons(True)
     if kind == "workspace":
         widget.setStyleSheet(touch_tab_qss())
     widget.setProperty("tab_kind", kind)
