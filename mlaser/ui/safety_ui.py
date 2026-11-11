@@ -464,6 +464,11 @@ class StateBanner(QWidget):
         self.details.hide()
         g.addWidget(racts, 1, 3, Qt.AlignBottom)
         g.setColumnStretch(1, 1)
+        # sized as widgets, not as the style's smaller "layout item" rectangles: the macOS style's
+        # button has layout item margins, and its box (as tall as the items, centred in the row)
+        # cut the 32 px button to 23 px (native-check, macOS; as responsive.FlowLayout.addWidget)
+        for b in (self.home_btn, self.btn, self.reset, self.details):
+            b.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
         self.kind = ""
         self.action = ""                # what the button does: disarm / arm / connect
         self.alarm = False              # an alarm or a fault is shown (the alarm block)
