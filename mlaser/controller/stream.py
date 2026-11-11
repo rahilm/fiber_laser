@@ -45,6 +45,7 @@ from __future__ import annotations
 
 import bisect
 import contextlib
+import functools
 import gc
 import multiprocessing as mp
 import os
@@ -80,6 +81,30 @@ _gc_saved: list = []
 #: generation-2 threshold while a job streams: no automatic full collection (CPython counts gen-1
 #: collections against it; 2**30 of them do not happen within any job)
 NO_FULL_GC_THRESHOLD = 1 << 30
+
+
+def full_gc_held_off() -> bool:
+    """True while no automatic full collection can pause the process.
+
+    With CPython's generational collector (3.12, 3.13, 3.14.5+) that is the generation-2
+    threshold raised by :func:`quiet_gc`.  CPython 3.14.0-3.14.4 shipped the incremental
+    collector instead: it has no generation-2 threshold (``gc.get_threshold()[2]`` reads 0 and a
+    set is ignored) and no automatic full collection at all: it scans the old generation in
+    bounded increments, so the goal holds there by construction."""
+    th2 = gc.get_threshold()[2]
+    return th2 >= NO_FULL_GC_THRESHOLD or (th2 == 0 and _incremental_gc())
+
+
+@functools.cache
+def _incremental_gc() -> bool:
+    """The interpreter's collector ignores the generation-2 threshold (CPython 3.14.0-3.14.4)."""
+    with _gc_lock:
+        th = gc.get_threshold()
+        gc.set_threshold(th[0], th[1], th[2] + 1)
+        try:
+            return gc.get_threshold()[2] == th[2]
+        finally:
+            gc.set_threshold(*th)
 
 
 @contextlib.contextmanager

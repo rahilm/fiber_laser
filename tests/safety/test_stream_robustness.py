@@ -24,7 +24,8 @@ import pytest
 
 from mlaser.controller.client import TransportConfig
 from mlaser.controller.simulator import CardSimulator
-from mlaser.controller.stream import (NO_FULL_GC_THRESHOLD, RESPONSIVE_SWITCH_S, ProcessStreamer,
+from mlaser.controller.stream import (RESPONSIVE_SWITCH_S, ProcessStreamer, _incremental_gc,
+                                      full_gc_held_off,
                                       StreamFault, WireJob, quiet_gc, responsive_gil)
 from mlaser.protocol import frames as F
 
@@ -52,10 +53,10 @@ def test_quiet_gc_stops_automatic_full_collections_only():
     try:
         with quiet_gc():
             assert gc.get_threshold()[:2] == th[:2]
-            assert gc.get_threshold()[2] >= NO_FULL_GC_THRESHOLD
+            assert full_gc_held_off()
             with quiet_gc():                      # nested: still quiet, restored only at the end
                 pass
-            assert gc.get_threshold()[2] >= NO_FULL_GC_THRESHOLD
+            assert full_gc_held_off()
             junk = None
             for _ in range(300_000):              # cyclic garbage: young collections reclaim it
                 a: list = []
@@ -65,7 +66,11 @@ def test_quiet_gc_stops_automatic_full_collections_only():
     finally:
         gc.callbacks.remove(cb)
     assert gc.get_threshold() == th
-    assert 0 in gens, "young collections must keep running during a job"
+    # young collections (generation 0; increments on 3.14.0-3.14.4's incremental collector,
+    # reported as generation 1) keep running and reclaim the cyclic garbage
+    young = 1 if _incremental_gc() else 0
+    assert young in gens, "young collections must keep running during a job"
+    assert full_gc_held_off() is _incremental_gc()   # restored: full collections allowed again
     assert 2 not in gens, "no automatic full collection while a job streams"
 
 
