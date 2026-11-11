@@ -191,7 +191,7 @@ The **Preview** panel plays the job that **Start** will send to the card. It is 
 planned job, not a separate simulation, so the times are those of the job itself.
 
 * the slider is the job's timeline; drag it, or press **▶** to play (speed ×1 to ×50);
-* **|◀ / ▶|** jump to the previous / next contour; *Contour* jumps to contour *n*;
+* The **previous / next contour** buttons (beside Play) jump to the previous / next contour; *Contour* jumps to contour *n*;
 * on the canvas, amber is the cut so far, dashed blue the rapids, small rings the pierces; the
   head marker is filled red while the beam is on;
 * the status line shows what the machine is doing (cutting, rapid, piercing…), the laser state,

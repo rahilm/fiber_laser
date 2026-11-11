@@ -12,20 +12,20 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 GLYPHS = set("▶◀⚠✓✗✔✘★○⏸⏵")
 
-#: catalogue strings still carrying a glyph (owners: the preview scrubber, the Run workspace,
-#: the settings import wizard, Machine)
-KNOWN_STRINGS = {"preview.lazy", "run.alarm.title.one", "run.alarm.title.other",
-                 "wizard.import.safety_count.one", "wizard.import.safety_count.other",
-                 "ws.machine.hw_applied_errors", "shell.palette.hint"}
+#: catalogue strings still carrying a glyph (owner: the Run workspace's alarm block)
+KNOWN_STRINGS = {"run.alarm.title.one", "run.alarm.title.other"}
 
 #: lines of UI code (comments left out) with a glyph, per file
 KNOWN_CODE = {
-    "preview_scrubber.py": 3, "ext_practice.py": 1, "wizards/settings_import.py": 6,
+    "ext_practice.py": 1,
     "shell/__init__.py": 1,            # a layout diagram in the docstring, not an icon
-    "workspaces/machine.py": 1, "shell/dialogs.py": 1, "wizards/base.py": 2,
-    "wizards/procedures.py": 4, "wizards/commissioning_live.py": 2, "workspaces/run.py": 1,
-    "shell/palette.py": 1,            # the command palette's "recently used" mark
 }
+
+#: the files moved to the SVG icons (style.IconLabel, icons.status_icon): no glyph may come back
+CLEAN = ("workspaces/nest.py", "workspaces/orders.py", "workspaces/report.py", "icons.py", "style.py",
+         "preview_scrubber.py", "wizards/settings_import.py", "wizards/base.py", "wizards/procedures.py",
+         "wizards/commissioning_live.py", "workspaces/run.py", "workspaces/machine.py", "shell/dialogs.py",
+         "shell/palette.py")
 
 
 def test_no_new_glyph_in_the_catalogue():
@@ -47,5 +47,5 @@ def test_no_new_glyph_in_the_ui_code():
             counts[f.relative_to(ui).as_posix()] = n
     over = {f: n for f, n in counts.items() if n > KNOWN_CODE.get(f, 0)}
     assert not over, over
-    for f in ("workspaces/nest.py", "workspaces/orders.py", "workspaces/report.py", "icons.py"):
+    for f in CLEAN:
         assert f not in counts, f
