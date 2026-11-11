@@ -16,6 +16,7 @@ from .. import alarms as A
 from ...machine.jobphase import derive_mode
 from .. import cardlock
 from ..client import ControllerError
+from ._shared import PartBase
 
 log = logging.getLogger("mlaser.controller.ui_adapter")
 
@@ -26,7 +27,7 @@ AXES = {"X": 0, "Y": 1, "Z": 2, "W": 3}
 # streaming link deadline while the in-process simulator is the card (connect_simulator)
 SIM_LINK_DEADLINE_MS = 1000.0
 
-class ConnectionPart:
+class ConnectionPart(PartBase):
     # ------------------------------------------------------------------ connection
     def connect(self, host: Optional[str] = None, port: Optional[int] = None) -> bool:
         """Open the socket, read RO[0..1] (checkMCStatus FUN_1004ed60), write 101 := [9999, 5, 0, 0]
@@ -124,7 +125,7 @@ class ConnectionPart:
     #: why the last connect() failed ("" after a success): the card in use elsewhere, no answer
     connect_error = ""
     card_busy = False                    # ... because another process holds the card (cardlock)
-    _card_lock = None
+    _card_lock: Optional[cardlock.FileLock] = None
 
     def _release_card_lock(self) -> None:
         lock, self._card_lock = self._card_lock, None
@@ -143,8 +144,11 @@ class ConnectionPart:
             raise _laser.LaserError("laser source emission refused: the machine is not armed")
 
     def _read_scaling(self) -> None:
+        mc = self._mc
+        if mc is None:                       # disconnected meanwhile: keep Machine scaling
+            return
         try:
-            sc = self._mc.read_scaling(AXES["X"], AXES["Y"])
+            sc = mc.read_scaling(AXES["X"], AXES["Y"])
         except (ControllerError, OSError) as e:
             self._log(f"card parameters not readable ({e}); keeping Machine scaling")
             return
@@ -156,7 +160,7 @@ class ConnectionPart:
             self._log("Hardware restore failed: the card reports 0 counts/mm (gp97); keeping "
                       "Machine scaling")
             return
-        self._mc.pulses_per_mm = sc.position_ppm
+        mc.pulses_per_mm = sc.position_ppm
         if self._sup._halt is not None:
             self._sup._halt.pulses_per_mm = sc.position_ppm
         self._log(f"card parameters: {sc.summary()}")
@@ -294,14 +298,11 @@ class ConnectionPart:
             self._log("disconnected")
 
     def state(self) -> MachineState:
-        """The live state object (the controller's own; fields refreshed here under the state
-        lock).  A reader on another thread that needs a consistent set of fields uses
-        :meth:`snapshot`."""
-        with self._slock:
-            s = self._s
-            self._fill_safety(s)
-            s.link_ok = self._sup.link_ok and s.connected
-        return s
+        """The current state, as a copy taken under the state lock (review A6): every field
+        from one moment, and ``outputs`` / ``alarms`` that no other thread changes while the
+        caller reads them.  A write made before the call (a command, the poll) is in it; the
+        copy does not follow later writes (call again).  Same as :meth:`snapshot`."""
+        return self.snapshot()
 
     def snapshot(self) -> MachineState:
         """Thread-safe copy of the current state: every field from one moment (the status

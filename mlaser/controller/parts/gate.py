@@ -35,12 +35,14 @@ from typing import Optional
 from ...machine import preflight as PF
 from ...machine.api import START_POSITION_TOL_MM
 from ...machine.audit import audit
+from ...protocol import frames as F
 from .. import alarms as A
 from ..client import ControllerError
 from .connection import AXES
+from ._shared import PartBase
 
 
-class StartGatePart:
+class StartGatePart(PartBase):
     start_position_tol_mm: float = START_POSITION_TOL_MM
 
     # ------------------------------------------------------------------ generation
@@ -49,7 +51,7 @@ class StartGatePart:
         connect and disconnect (ControllerFacade.start_generation plus the supervisor's halt
         count).  Read it when the operator asks for a start and pass it to :meth:`start_job`
         (``generation=``): a start whose generation is stale is refused."""
-        return super().start_generation() + int(self._sup.halt_count)  # type: ignore[misc]
+        return super().start_generation() + int(self._sup.halt_count)
 
     # ------------------------------------------------------------------ the gate
     def _gate_refuse(self, action: str, reason: str) -> bool:
@@ -63,7 +65,10 @@ class StartGatePart:
 
     def _card_idle_head(self):
         """(status, head (x, y) in mm) re-read from the card now."""
-        st = self._mc.read_status()
+        mc = self._mc
+        if mc is None:                       # disconnected since the check: the gate refuses
+            raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
+        st = mc.read_status()
         p = st.pulses_per_mm or self.position_ppm
         return st, (st.axes[AXES["X"]].position / p, st.axes[AXES["Y"]].position / p)
 

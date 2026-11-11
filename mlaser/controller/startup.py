@@ -198,10 +198,10 @@ class CardParameters:
     def from_machine_params(cls, mp, ppm: int = 1000, word4: float = 200000.0) -> "CardParameters":
         """Build from a :class:`mlaser.formats.params.MachineParams` by matching the ParaModule
         struct offsets of the parameter definitions (``ParamDef.struct_offset``)."""
-        from ..formats.params import param_defs
-        by_off: dict[int, object] = {}
+        from ..formats.params import ParamDef, param_defs
+        by_off: dict[int, ParamDef] = {}
         for d in param_defs():
-            if d.file in ("HardPara.xml", "ManuPara.xml") and "." in d.key:
+            if d.file in ("HardPara.xml", "ManuPara.xml") and "." in d.key and d.struct_offset is not None:
                 by_off.setdefault(d.struct_offset, d)
 
         def get(off: int, default):

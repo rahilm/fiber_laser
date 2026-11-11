@@ -9,6 +9,7 @@ from ..commands import card_command
 from ..client import (HOME_X, HOME_XY, HOME_XY_W, HOME_XY_ZF, HOME_Y, HOME_ZF, ControllerError,
                       stop_decel)
 from .connection import AXES
+from ._shared import PartBase
 
 # facade home() argument -> homing mode (cfg +0xbba8, MainApp FUN_004af3xx command handler)
 HOME_MODES = {"X": HOME_X, "Y": HOME_Y, "XY": HOME_XY, "XYZ": HOME_XY_ZF, "Z": HOME_ZF,
@@ -16,7 +17,7 @@ HOME_MODES = {"X": HOME_X, "Y": HOME_Y, "XY": HOME_XY, "XYZ": HOME_XY_ZF, "Z": H
 CANCEL_CMD = 101       # write(101, [101]): follower cancel (CNCModule +0xe8 = FUN_1002c460)
 
 
-class MotionPart:
+class MotionPart(PartBase):
     def _motion_ok(self, what: str) -> bool:
         """Connected, no job worker, no latched fault."""
         if not self._ok():
@@ -52,8 +53,11 @@ class MotionPart:
         if mode == HOME_ZF and not self._zf_type():
             self._log("mp30: no follower configured (ZF.ZFType = 0), nothing to home")
             return
+        mc = self._mc
+        if mc is None:                       # disconnected since the check
+            return
         self._sup.clear_latch("go origin")
-        mask = self._safe("Homing", self._mc.home_mode, mode, AXES["X"], AXES["Y"], AXES["W"])
+        mask = self._safe("Homing", mc.home_mode, mode, AXES["X"], AXES["Y"], AXES["W"])
         if mask:
             self._home_mask = mask
             self._homing = True
@@ -80,7 +84,8 @@ class MotionPart:
            to cfg +0x4448 (a statistics counter, U).
 
         ``confirm(key)`` answers the dialogs (default: OK).  Returns True when homing started."""
-        if not self._ok():
+        mc = self._mc
+        if not self._ok() or mc is None:     # (_ok() is False without a channel)
             return False
         ask = confirm or (lambda _k: True)
         self._gate_off()
@@ -94,7 +99,7 @@ class MotionPart:
         # apart in either order (two captures).  The rebuild sends the read first, the order of
         # the reference capture.
         try:
-            self._mc.read_regs(1050, 3)
+            mc.read_regs(1050, 3)
         except (ControllerError, OSError) as e:
             self._log(f"statistics read (1050) failed: {e}")
         if go:
@@ -153,7 +158,8 @@ class MotionPart:
         v = MC.JogFastSpeed (fast mode, cfg +0x4802) or MC.JogSlowSpeed,
         acc = ftol(MC.XFastMoveAcc), times 0.1 (DAT_0083d520) and truncated again for the slow
         jog -- not scaled by ppm -- and d from :meth:`_jog_distance`."""
-        if not self._motion_ok(what) or self._busy():
+        mc = self._mc
+        if not self._motion_ok(what) or self._busy() or mc is None:   # (no channel: not ok)
             return
         a = self._axis_number(axis)
         if a is None:
@@ -176,7 +182,7 @@ class MotionPart:
             self._jogging = axis.upper()
             self._jog_alive = time.monotonic()
             self._jog_active = True
-        self._safe(what, self._mc.jog, a, F.ftol(p * v), acc, F.ftol(p * d))
+        self._safe(what, mc.jog, a, F.ftol(p * v), acc, F.ftol(p * d))
         if length is None:
             with self._slock:
                 self._s.mode = "jog"
@@ -229,23 +235,29 @@ class MotionPart:
         (short timeouts, repeated by the monitor until the card answers): each main-channel
         request would wait out the retry policy (seconds) first.
         """
-        if self._sup._lost:
-            self._sup.safe_halt("stop (link lost)")
+        mc = self._mc
+        if self._sup._lost or mc is None:
+            # no main channel (disconnected meanwhile): the halt channel, as for a failed stop
+            self._sup.safe_halt("stop (link lost)" if mc is not None else
+                                "stop (fallback, main channel failed)")
             return
-        ok = self._try("stop", self._mc.stop_motion, self._decel_counts())
+        ok = self._try("stop", mc.stop_motion, self._decel_counts())
         if self._program_ran and self._laser_type() == 0 and self._zf_type():
-            self._try("stop", self._mc.command, [F.OP_FOLLOW, 5, 0])
+            self._try("stop", mc.command, [F.OP_FOLLOW, 5, 0])
         self._wait_axes_idle(2.0)
-        ok = self._try("stop", self._mc.fifo_stop) and ok
-        ok = self._try("stop", self._mc.fifo_clear) and ok
+        ok = self._try("stop", mc.fifo_stop) and ok
+        ok = self._try("stop", mc.fifo_clear) and ok
         if not ok:
             self._sup.safe_halt("stop (fallback, main channel failed)")
 
     def _wait_axes_idle(self, timeout_s: float) -> None:
         t_end = time.time() + timeout_s
         while time.time() < t_end and not self._sup._lost:
+            mc = self._mc
+            if mc is None:
+                return
             try:
-                st = self._mc.read_status()
+                st = mc.read_status()
             except (ControllerError, OSError, AttributeError):
                 return
             if st.machine_state() in (0, 4):
@@ -273,8 +285,11 @@ class MotionPart:
 
     def _current_xy(self) -> tuple[float, float]:
         """Fresh X/Y in mm (axis RO k2 / ppm, NC +0x1ac FUN_1002b900)."""
+        mc = self._mc
+        if mc is None:
+            return self._s.x, self._s.y
         try:
-            st = self._mc.read_status()
+            st = mc.read_status()
             p = st.pulses_per_mm or self.position_ppm
             return st.axes[AXES["X"]].position / p, st.axes[AXES["Y"]].position / p
         except Exception:  # noqa: BLE001
@@ -303,8 +318,11 @@ class MotionPart:
         p = self.position_ppm
         sp = self.machine.move_speed if speed is None else speed
         ac = self.machine.move_acc if acc is None else acc
+        mc = self._mc
+        if mc is None:                       # disconnected since the checks
+            return
         self._sup.clear_latch("move")
-        self._safe("move", self._mc.move, 0b11, F.ftol(sp * p), F.ftol(ac),
+        self._safe("move", mc.move, 0b11, F.ftol(sp * p), F.ftol(ac),
                    [F.ftol(dx * p), F.ftol(dy * p)])
 
     @card_command("return to zero", drop_if_stale=True)
@@ -346,8 +364,9 @@ class MotionPart:
     @card_command("set origin", drop_if_stale=True)
     def set_origin(self) -> None:
         """[9999, 8, 0] zero/reset coordinates (FUN_100314b0, INFERRED)."""
-        if self._motion_ok("set origin") and not self._busy():
-            self._safe("set origin", self._mc.zero_position, 0)
+        mc = self._mc
+        if self._motion_ok("set origin") and not self._busy() and mc is not None:
+            self._safe("set origin", mc.zero_position, 0)
             self._log("mf514: position zeroed ([9999,8,0], INFERRED)")
 
     def go_origin_point(self) -> None:

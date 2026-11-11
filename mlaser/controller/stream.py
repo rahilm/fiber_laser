@@ -199,14 +199,15 @@ class WireJob:
                 and g is not None and g[0] is wire and isinstance(g[2], str)):
             # Job.groups() is the wire's own grouping and covers every item: keep it packed
             return cls(wire, per, dur, None)
-        starts = None
+        starts: Optional[tuple[int, ...]] = None
         groups = getattr(job, "groups", None)           # nc.compiler.Job (list or packed wire)
         if callable(groups):
-            starts, k = [], 0
+            firsts: list[int] = []
+            k = 0
             for grp in groups():
-                starts.append(k)
+                firsts.append(k)
                 k += len(grp)
-            starts = tuple(starts) if k == len(job.wire) else None
+            starts = tuple(firsts) if k == len(job.wire) else None
         return cls([list(w) for w in job.wire], per, dur, starts)
 
     # ------------------------------------------------------------------ shared memory hand-off
@@ -467,6 +468,8 @@ class JobStreamer(FifoStreamer):
         if prep is None or prep[0] is not job:
             self.prepare(job)
             prep = self._prepared
+            if prep is None:                # (prepare() without a cancel always keeps it)
+                raise StreamFault("refused", "the job was not prepared")
         self._prepared = None
         _job, wj, cum, ctime, frames, frame_end, frame_bytes = prep
         cancel = cancel or threading.Event()
@@ -675,7 +678,7 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
                 flags: Optional[dict] = None, policy: Optional[dict] = None) -> None:
     """Entry point of the streaming process (spawned): own socket, own GIL, self-supervised."""
     from .supervisor import HaltParams, run_halt
-    hello = {"proto": STREAM_PROTO, "pid": os.getpid(), "ok": True}
+    hello: dict[str, object] = {"proto": STREAM_PROTO, "pid": os.getpid(), "ok": True}
     their = (policy or {}).get("proto")
     if their != STREAM_PROTO:
         hello.update(ok=False, error=f"the parent speaks streaming protocol {their!r}, "
@@ -933,9 +936,9 @@ class ProcessStreamer:
         self.startup_s = startup_s
         self.kw = streamer_kw
         self.ctx = mp.get_context("spawn")
-        self.proc = None
-        self.cmd_q = None
-        self.evt_q = None
+        self.proc: Optional[mp.process.BaseProcess] = None
+        self.cmd_q: Optional[mp.queues.Queue] = None
+        self.evt_q: Optional[mp.queues.Queue] = None
         self.flags: Optional[dict] = None
         self.executed = 0.0
         self.exec_index = -1

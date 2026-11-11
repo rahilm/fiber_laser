@@ -15,6 +15,7 @@ All addresses in docstrings refer to Module/NCModule.dll unless stated otherwise
 """
 from __future__ import annotations
 
+import errno
 import logging
 import math
 import select
@@ -23,7 +24,7 @@ import threading
 import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Iterable, Optional, Sequence
+from typing import TYPE_CHECKING, Callable, Iterable, Optional, Sequence
 
 from ..protocol import frames as F
 
@@ -409,7 +410,7 @@ class MotionController:
         # ``resend_guard(req)`` (the supervisor, set once with the guard): called before the
         # first send of a request, returns None or a check run before every re-send of it, which
         # raises (CommandRefused) when the request must not go out again (a halt since)
-        self.resend_guard = None
+        self.resend_guard: Optional[Callable[[F.Request], Optional[Callable[[], None]]]] = None
         # the time source (controller.clock; tests: virtual time) and an in-memory link that
         # replaces the socket (controller.memlink; tests only)
         self.clock = clock or SYSTEM
@@ -443,7 +444,7 @@ class MotionController:
         with self._lock:
             self.close()
             if self.link is not None:
-                self._sock = self.link          # type: ignore[assignment] - send/recv below
+                self._sock = self.link          # send/recv below use the link
                 self._rxbuf = b""
                 return self
             if self.cfg.transport == "tcp":
@@ -494,15 +495,21 @@ class MotionController:
     def _send(self, data: bytes) -> None:
         if self.link is not None:
             self.link.send(data)
-        elif self.cfg.transport == "tcp":
-            self._sock.sendall(data)
+            return
+        s = self._sock
+        if s is None:                   # closed (transact opens it under the same lock)
+            raise OSError(errno.ENOTCONN, "socket closed")
+        if self.cfg.transport == "tcp":
+            s.sendall(data)
         else:
-            self._sock.sendto(data, (self.cfg.host, self.cfg.port))
+            s.sendto(data, (self.cfg.host, self.cfg.port))
 
     def _recv(self, timeout_s: float) -> Optional[bytes]:
         s = self._sock
         if self.link is not None:
             return self.link.recv(timeout_s)
+        if s is None:                   # closed (transact opens it under the same lock)
+            raise OSError(errno.ENOTCONN, "socket closed")
         if self.cfg.transport != "tcp":
             r, _, _ = select.select([s], [], [], timeout_s)
             if not r:
@@ -655,7 +662,7 @@ class MotionController:
         self.write_reg(F.REG_CONTROL, F.CONTROL_APPLY)
 
     # ------------------------------------------------------------------ start-up (startup.py)
-    def download_parameters(self, params: "CardParameters" = None) -> int:
+    def download_parameters(self, params: "Optional[CardParameters]" = None) -> int:
         """Parameter download FUN_1002e500 (CNCModule +0x194) followed by VM +0x248
         (FUN_10054e70: clear FIFO, read the FIFO capacity at 1032).  Returns the capacity
         (65000 when register 1032 cannot be read, as the original)."""
@@ -711,7 +718,7 @@ class MotionController:
         axes = [AxisStatus(ax[i * 10:(i + 1) * 10]) for i in range(F.N_AXES)]
         return MCStatus(ro, axes, self.pulses_per_mm)
 
-    def startup(self, params: "CardParameters" = None) -> tuple[int, int]:
+    def startup(self, params: "Optional[CardParameters]" = None) -> tuple[int, int]:
         """The original's start-up sequence (parity capture ``app_startup``), licence gate
         excluded: connect, one status poll, parameter download (+ FIFO clear and capacity),
         fast-status map, FIFO clear, servo info.  Later :meth:`poll` calls use the fast read.  The original's 59500 hardware challenge between the

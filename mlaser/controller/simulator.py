@@ -341,6 +341,8 @@ class CardSimulator:
     # ------------------------------------------------------------------ network
     def _serve_udp(self):
         s = self._sock
+        if s is None:                        # closed before the thread ran
+            return
         while not self._stop.is_set():
             try:
                 r, _, _ = select.select([s], [], [], 0.05)
@@ -358,6 +360,8 @@ class CardSimulator:
 
     def _serve_tcp(self):
         s = self._sock
+        if s is None:                        # closed before the thread ran
+            return
         while not self._stop.is_set():
             try:
                 r, _, _ = select.select([s], [], [], 0.05)
@@ -978,7 +982,9 @@ class CardSimulator:
         the crossing in axis RO k7, set follower reg 15 = samples (0.25 ms) from the start of
         the move at the move-out speed, reg 14 = reg 15, reg 2 = 0x80000006.  The axes keep
         moving until the PC stops them (FUN_005b6b30 sends [1, 0x1f])."""
-        st, e = self.state, self.state.zf_edge
+        st, e, sheet = self.state, self.state.zf_edge, self.sheet
+        if e is None or sheet is None:       # (the caller checked both)
+            return
         x, y = st.axes[0], st.axes[1]
         cur = (x.pos, y.pos)
         moving = x.busy or y.busy
@@ -989,12 +995,12 @@ class CardSimulator:
         if e["start"] is None:
             e["start"] = prev
         p = self.ppm
-        if self.sheet.contains(prev[0] / p, prev[1] / p) and not self.sheet.contains(cur[0] / p, cur[1] / p):
+        if sheet.contains(prev[0] / p, prev[1] / p) and not sheet.contains(cur[0] / p, cur[1] / p):
             lo, hi = 0.0, 1.0
             for _ in range(40):
                 m = (lo + hi) / 2
                 q = (prev[0] + (cur[0] - prev[0]) * m, prev[1] + (cur[1] - prev[1]) * m)
-                if self.sheet.contains(q[0] / p, q[1] / p):
+                if sheet.contains(q[0] / p, q[1] / p):
                     lo = m
                 else:
                     hi = m
