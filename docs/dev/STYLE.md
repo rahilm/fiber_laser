@@ -1,8 +1,8 @@
 # Design system
 
 `mlaser/ui/style.py` holds the tokens and a helper for every rule of the UI, so code follows
-the rules by calling the helper instead of remembering them. `tests/test_style_lint.py` keeps
-the code on them. Layout rules that depend on the space a panel gets are in
+the rules by calling the helper instead of remembering them. `tests/test_style_lint.py` and
+`tests/test_ui_consistency.py` keep the code on them. Layout rules that depend on the space a panel gets are in
 [Responsive layout](RESPONSIVE.md); platform rules are in [Native platform](NATIVE.md).
 
 Three principles:
@@ -20,7 +20,7 @@ Three principles:
 |---|---|---|
 | `SP0`..`SP5` | 0, 4, 8, 16, 24, 32 px | spacing on an 8 px grid; `style.margins(w, "panel" / "dialog" / "dense" / "dock" / "tight" / "none")` |
 | `ICON_S`, `ICON_M`, `ICON_L` | 16, 20, 28 px | menus and inline / toolbars and buttons / touch, rail, Run screen |
-| `TARGET`, `TARGET_TOUCH`, `TARGET_RUN` | 32, 44, 56 px | mouse minimum / touch (jog pad, outputs, wizards) / run bar and Run screen (STOP wider) |
+| `TARGET`, `TARGET_TOUCH`, `TARGET_RUN` | 32, 44, 56 px | the control sizes `mouse` / `touch` / `run` (`style.SIZES`, see "Two control heights"; STOP wider) |
 
 `responsive.TARGET` / `TARGET_MIN`, `safety_ui.MIN_TARGET`, `workspaces.TOUCH` / `TOUCH_MIN` and
 `wizards.common.MIN_TARGET` are these constants.
@@ -70,6 +70,22 @@ rebuilds it when the theme changes; `style.chip(label, role)` is a notice chip.
 | Tool | `style.tool_button(text, icon)` | icon only, in toolbars and dense rows; the text is the accessible name and the tooltip |
 | Run | `style.run_button(kind, tr)` | Start, Hold/Continue, STOP, Frame, Dry run, Arm laser: the run bar and the Run screen |
 
+### Two control heights
+
+Every push button gets its height from `style.button(text, size=...)` (or
+`style.control_size(widget, size)` for a button made elsewhere, `style.size_buttons(box, size)`
+for a `QDialogButtonBox`, also for the buttons added to it later):
+
+| Size | Height | Where |
+|---|---|---|
+| `mouse` (default) | `TARGET` 32 px | at the PC: Design and Process panels and docks, dialogs, Settings, Safety I/O, diagnostics |
+| `touch` | `TARGET_TOUCH` 44 px | at the machine: the Control dock (Mark / Return, Follow, Gas, Shutter, Red light, Simulate, Backward / Forward: they move the machine or switch an output), the jog pad, the Run, Nest, Orders, Report and Machine workspaces and their dialogs, the wizards, the plugin manager |
+| `run` | `TARGET_RUN` 56 px | the run controls only (`style.run_button`) |
+
+One size per row and per panel. A push button is never made with `QPushButton(` outside
+`style.py`: `tests/test_ui_consistency.py` counts the files not migrated yet (their counts may
+only go down) and checks the Control dock, the Process and the Orders workspaces at run time.
+
 A button gets an icon if and only if every button of its group has one and the icons differ;
 inside a text row every button is text. Buttons in a row are equal width (a choice set) or
 content width aligned to the trailing edge (dialog actions), never a mix
@@ -90,8 +106,27 @@ tooltip and restores the normal tooltip when it is enabled again.
 * `style.Dialog` / `style.dialog(...)`: the one dialog frame: window title, optional heading and
   explanation, the body (`dialog.body`, `dialog.form()`), a `QDialogButtonBox` in the platform's
   order, SP3 margins, size from the content, a window-modal sheet on macOS.
-* `style.table(columns)`: a stretched key column that elides, the others hidden by priority when
-  narrow.
+* `style.table(columns, empty=...)`: a stretched key column that elides, the others hidden by
+  priority when narrow, and the table recipe below.
+
+## Sections, tabs, tables: one way each
+
+* **Section header**: `style.section(title)` (or the Control dock's and the forms'
+  `CollapsibleSection`): a `label_strong` heading, no frame. No `QGroupBox` in the UI.
+* **Tabs**, two looks, `style.tabs(widget, kind)` wraps the constructor:
+  `workspace` for a workspace's main views (Report, the Nest / Orders tabs of a workspace with
+  several pages): touch-height tabs, the selected one bold on the field colour with a bar in the
+  highlight colour (`style.touch_tab_qss()`, palette roles only); `dock` (the default) for docks,
+  monitors and dialogs: the platform's own tabs in document mode.
+* **Tables**: every table and tree goes through `style.table` or
+  `style.table_look(view, numeric=..., empty=...)`: headers left-aligned in sentence case; a
+  numeric column right-aligned, header included, with the unit in the header; one row height
+  (`ROW_RATIO` = 1.8 font heights); zebra rows only above `ZEBRA_COLUMNS` (6) columns; an
+  empty-state line (`empty`, `style.set_empty_text` on a language switch) while there are no
+  rows.
+
+`tests/test_ui_consistency.py` checks that every `QTabWidget(` / `QTabBar(`, table, tree and
+`QDialogButtonBox(` is wrapped by its helper on the same line, and that no `QGroupBox(` is made.
 
 ## The jog pad and the run controls
 
