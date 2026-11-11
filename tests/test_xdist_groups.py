@@ -19,10 +19,12 @@ BODY = '''
 import os, pathlib, pytest
 
 @pytest.mark.parametrize("i", range({n}))
-def test_x(i):
+def test_x(i, request):
     out = pathlib.Path(os.environ["GROUP_OUT"])
     out.mkdir(exist_ok=True)
-    (out / f"{tag}-{{i}}").write_text(os.environ.get("PYTEST_XDIST_WORKER", "none"))
+    mark = request.node.get_closest_marker("xdist_group")
+    group = (mark.args[0] if mark.args else mark.kwargs.get("name")) if mark else "-"
+    (out / f"{tag}-{{i}}").write_text(os.environ.get("PYTEST_XDIST_WORKER", "none") + " " + group)
 '''
 
 
@@ -31,10 +33,12 @@ import os, pathlib, pytest
 
 @pytest.mark.timing
 @pytest.mark.parametrize("i", range({n}))
-def test_t(i):
+def test_t(i, request):
     out = pathlib.Path(os.environ["GROUP_OUT"])
     out.mkdir(exist_ok=True)
-    (out / f"{tag}-{{i}}").write_text(os.environ.get("PYTEST_XDIST_WORKER", "none"))
+    mark = request.node.get_closest_marker("xdist_group")
+    group = (mark.args[0] if mark.args else mark.kwargs.get("name")) if mark else "-"
+    (out / f"{tag}-{{i}}").write_text(os.environ.get("PYTEST_XDIST_WORKER", "none") + " " + group)
 """
 
 
@@ -56,12 +60,20 @@ def test_each_timing_group_shares_one_worker(tmp_path):
                         "--dist", "loadgroup", "-W", "ignore::pytest.PytestUnknownMarkWarning"],
                        cwd=tmp_path, env=env, capture_output=True, text=True, timeout=300)
     assert r.returncode == 0, r.stdout + r.stderr
-    got = {p.name: p.read_text() for p in (tmp_path / "out").iterdir()}
+    # name -> (worker, xdist group the conftest gave the test, "-" for none)
+    got = {p.name: tuple(p.read_text().split(" ")) for p in (tmp_path / "out").iterdir()}
     assert len(got) == 6 + 6 + 6 + 3 + 24 + 24, got
 
     def workers(*tags):
-        return {w for k, w in got.items() if k.rsplit("-", 1)[0] in tags}
+        return {w for k, (w, _) in got.items() if k.rsplit("-", 1)[0] in tags}
+
+    def groups(*tags):
+        return {g for k, (_, g) in got.items() if k.rsplit("-", 1)[0] in tags}
     for group in (("safety",), ("sim",), ("gui", "gui-marked")):
         assert len(workers(*group)) == 1 and "none" not in workers(*group), (group, got)
-    # the rest (an untimed module of tests/safety/ too) is not pinned to one worker
-    assert len(workers("untimed")) > 1 and len(workers("unit")) > 1, got
+        assert len(groups(*group)) == 1 and "-" not in groups(*group), (group, got)
+    # the rest (an untimed module of tests/safety/ too) is not pinned to one worker: it carries no
+    # xdist group, so --dist loadgroup may hand each test to any worker (which worker a free test
+    # lands on is the scheduler's business and depends on the runner's load)
+    assert groups("untimed") == {"-"} and groups("unit") == {"-"}, got
+    assert "none" not in workers("untimed", "unit"), got
