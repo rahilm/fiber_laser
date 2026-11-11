@@ -529,15 +529,19 @@ def test_out_of_scope_registers_are_never_decoded(synthetic, tmp_path, monkeypat
 
     from mlaser.protocol import frames as F
     msgs = list(synthetic["end"])
-    n = next(i for i in range(len(msgs) // 3, len(msgs)) if msgs[i].dst[1] == CARD_PORT)
+    # a request with room before it: the capture is read back in time order (1 µs steps), so
+    # the injected frames must lie after the exchange before it (a fixed 0.5 ms before the
+    # request was earlier than that exchange when the simulator answered quickly)
+    n = next(i for i in range(len(msgs) // 3, len(msgs))
+             if msgs[i].dst[1] == CARD_PORT and msgs[i].ts - msgs[i - 1].ts > 20e-6)
     pc_tid = int.from_bytes(msgs[n].data[:2], "big")
     a = W.encode_request(pc_tid, W.WRITE, OUT_OF_SCOPE_REGS[0], [0, 0, 0, 0])
     b = bytearray(W.encode_request(pc_tid + 1, W.READ, OUT_OF_SCOPE_REGS[1], count=1))
     b[5] ^= 0x7F                                      # LEN no longer matches: not decodable
-    t = msgs[n].ts - 0.0005
-    inject = [P.Message(t, S.PC_ADDR, S.CARD_ADDR, a, "udp"),
-              P.Message(t + 0.0001, S.CARD_ADDR, S.PC_ADDR, bytes(a[:2]) + b"\xff" * 5, "udp"),
-              P.Message(t + 0.0002, S.PC_ADDR, S.CARD_ADDR, bytes(b), "udp")]
+    t, dt = msgs[n - 1].ts, (msgs[n].ts - msgs[n - 1].ts) / 4
+    inject = [P.Message(t + dt, S.PC_ADDR, S.CARD_ADDR, a, "udp"),
+              P.Message(t + 2 * dt, S.CARD_ADDR, S.PC_ADDR, bytes(a[:2]) + b"\xff" * 5, "udp"),
+              P.Message(t + 3 * dt, S.PC_ADDR, S.CARD_ADDR, bytes(b), "udp")]
     # the later requests of this client move up by the two skipped ids
     shifted = [replace(m, data=((int.from_bytes(m.data[:2], "big") + 2) & 0xFFFF).to_bytes(2, "big") + m.data[2:])
                for m in msgs[n:]]
