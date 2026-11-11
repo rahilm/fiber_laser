@@ -302,4 +302,5 @@ def used_icon_names() -> set[str]:
     for tab in ribbon_spec.TABS:
         for grp in tab.groups:
             names.update(b.icon for b in grp.buttons if b.icon)
-    return names
+    # a plugin's command may carry its own icon file (an absolute path), not a vendored name
+    return {n for n in names if not _is_file_icon(n)}

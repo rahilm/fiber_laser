@@ -495,8 +495,10 @@ class CardSimulator:
         if i == F.RO_FIFO_FREE:
             return max(0, self.fifo_capacity - st.fifo_bytes)
         if i == F.RO_RUNNING:
-            # the real card's bit field (owner's capture): 0x100 data, 0x200 executing, 1 active
-            return ((1 if st.program_active else 0) | (F.PROC_FIFO_DATA if st.fifo else 0)
+            # the real card's bit field (owner's capture): 0x100 data, 0x200 executing, 1 active.
+            # Executing implies data (the card never reports 0x201): the last item, popped and
+            # still being executed, is data until the FIFO is drained (fifo_running then ends)
+            return ((1 if st.program_active else 0) | (F.PROC_FIFO_DATA if st.fifo or st.fifo_running else 0)
                     | (F.PROC_EXECUTING if st.fifo_running else 0))
         if i == 6:
             return self.alarm_word1()
