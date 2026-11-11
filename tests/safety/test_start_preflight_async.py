@@ -161,24 +161,40 @@ def test_start_returns_at_once_and_stop_stays_live(sim_win, app, dialogs, monkey
     assert time.monotonic() - t0 < 1.0, "Start blocked the GUI thread"
     assert _until(app, entered.is_set, 30)
     # the event loop keeps turning while the pre-flight is in flight: 20 turns, a 10 ms timer
-    # due at each (every turn sleeps 10 ms), no turn held up.  Counted per turn, not per
+    # due at each (every turn sleeps 10 ms), no turn held up.  Measured per turn, not per
     # wall-clock time: a turn is 40+ ms on a macOS runner (its sleep overshoots), not 10 ms.
-    ticks = []
+    # What is asserted is the longest stretch without a beat: never more than two consecutive
+    # turns (a beat may fall just after one turn's processEvents, the count "one beat missing"
+    # allowed the same), measured with perf_counter.  A count of beats depended on the timer's
+    # granularity (Windows: 15.6 ms ticks, a 10 ms timer coalesced, 18 of 20 on a live loop).
+    ticks: list = []
     from PySide6.QtCore import Qt, QTimer
     tm = QTimer()
     tm.setTimerType(Qt.PreciseTimer)
-    tm.timeout.connect(lambda: ticks.append(time.monotonic()))
-    tm.start(10)
+    tm.timeout.connect(lambda: ticks.append(time.perf_counter()))
     turns, longest = 0, 0.0
+    bounds = []                                     # (start, end) of each turn's processEvents
+    tm.start(10)
+    t_start = time.perf_counter()
     while turns < 20:
-        t1 = time.monotonic()
+        t1 = time.perf_counter()
         app.processEvents()
-        longest = max(longest, time.monotonic() - t1)
+        t2 = time.perf_counter()
+        bounds.append((t1, t2))
+        longest = max(longest, t2 - t1)
         turns += 1
         time.sleep(0.01)
     assert entered.is_set() and not release.is_set()             # still in flight
     assert longest < 0.3, f"the event loop was frozen during the pre-flight ({longest:.3f} s)"
-    assert len(ticks) >= turns - 1, f"the event loop was frozen during the pre-flight {len(ticks), turns}"
+    # two consecutive turns: from the start of one turn to the end of the next (the first
+    # pair from the timer's start); the longest stretch of the loop without a beat, from the
+    # timer's start to the end of the last turn, stays within the longest such pair
+    pairs = [bounds[i + 1][1] - (bounds[i][0] if i else t_start) for i in range(len(bounds) - 1)]
+    beats = [t_start] + [t for t in ticks if t <= bounds[-1][1]] + [bounds[-1][1]]
+    gap = max(b - a for a, b in zip(beats, beats[1:]))
+    assert gap <= max(pairs), (f"the event loop was frozen during the pre-flight: no beat for "
+                               f"{gap * 1000:.0f} ms, two turns {max(pairs) * 1000:.0f} ms "
+                               f"({len(ticks)} beats in {turns} turns)")
     w.safety_ui.stop()                               # the on-screen Stop, while checking
     release.set()
     assert w.safety_ui.wait_preflight(30)
