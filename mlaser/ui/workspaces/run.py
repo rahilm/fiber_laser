@@ -1381,13 +1381,15 @@ class OperatorScreen(QWidget):
         w = self.ws.window
         # buttons (the same rules as the run bar)
         fault = s.kind == "fault"
-        paused = ms is not None and ms.mode == "pause"
+        from ..run_rules import job_view
+        view = job_view(w.ctl, ms)              # the job's phase (arch A1): one answer
+        paused = view.held
         b = self.buttons
         # the run bar's rules and reasons (safety_ui.run_enabled); on this screen Start is the
         # Continue of a held job, so Hold is off while held
         from ..safety_ui import run_enabled
         st = w.ctl.safety()
-        for k, on, why in run_enabled(w, st, ms, job):
+        for k, on, why in run_enabled(w, st, ms, view):
             if k == "hold" and on and paused:
                 on, why = False, tr(w, "run.why.held", "Held: Start continues the job")
             style.set_enabled(b[k], on, why)
@@ -1976,7 +1978,8 @@ class RunWorkspace:
             del self.alarm_since[c]
         if ms is not None and ms.connected:
             self.ever_connected = True
-        running = ms is not None and (ms.mode in ("process", "dry_run", "frame", "pause") or ctl.breakpoint is not None)
+        from ..run_rules import job_view
+        running = job_view(ctl, ms).running     # the job's phase (arch A1): one answer
         plan = self._run_plan if running and self._run_plan is not None else getattr(self.window, "plan", None)
         elapsed = now - self._job_t0 if running and self._job_t0 else 0.0
         # the safety UI's clock: the run bar and this screen show the same elapsed time and the
@@ -2001,7 +2004,8 @@ class RunWorkspace:
         """The document the live view shows: the running plan's placed document, else the
         preview plan's, else the open document."""
         ms = self.machine_state()
-        running = ms is not None and ms.mode in ("process", "dry_run", "frame", "pause")
+        from ..run_rules import job_view
+        running = job_view(self.window.ctl, ms).running
         plan = self._run_plan if running and self._run_plan is not None else getattr(self.window, "plan", None)
         doc = getattr(plan, "document", None) if plan is not None else None
         ent = self.runner.current
