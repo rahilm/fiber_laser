@@ -136,7 +136,7 @@ def test_start_during_a_stop_is_not_a_resume():
         def _dialogs(self):
             return False
 
-        def _preflight_async(self, *a):
+        def _preflight_async(self, *a, **kw):
             self.checked.append(a[0])
 
     for phase, bp, resumed in ((P.STOPPING, None, False), (P.HOLDING, None, True),

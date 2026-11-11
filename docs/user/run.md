@@ -67,7 +67,7 @@ When one contour did not cut through (a failed pierce, a hole that stayed in), c
 contour again:
 
 1. Pick it in the live view: click it (inside a hole picks the hole, not the plate around it),
-   or give the live view the focus and step through the job's contours with **←** / **→**. The
+   or give the live view the focus and step through the job's contours with `←` / `→`. The
    picked contour is drawn thick.
 2. Choose **Cut contour c of part n again** in the *Cut the rest* section, or open the contour's
    menu (right-click, Ctrl+click on macOS, a long press on a touch screen, the context-menu key
