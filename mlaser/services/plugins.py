@@ -822,7 +822,7 @@ class BackgroundTask:
             try:
                 assert self.on_progress is not None
                 self.on_progress(v)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - a plugin's callback must not stop the application (logged)
                 log.error("plugin %s: progress callback failed\n%s", self.ctx.name, traceback.format_exc())
 
         self.ctx._post(deliver)
@@ -1009,7 +1009,7 @@ def _location(dist: Any) -> str:
     try:
         base = str(Path(dist.locate_file("")).resolve())
         return "site" if Path(base) == site_dir().resolve() else "environment"
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - an unusual distribution: shown as from the environment
         return "environment"
 
 

@@ -304,7 +304,7 @@ class HttpClient:
             finally:
                 try:
                     resp.close()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001 - closing a finished response: the content is read
                     pass
             if status in RETRY_STATUSES and attempt < self.retries:
                 delay = _retry_after(rh.get("Retry-After"), time.time())

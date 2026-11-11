@@ -1175,6 +1175,6 @@ class InlineExecutor(Executor):
         f: Future = Future()
         try:
             f.set_result(fn(*args, **kwargs))
-        except BaseException as e:  # noqa: BLE001
+        except BaseException as e:  # noqa: BLE001 - carried by the Future, as a real executor does
             f.set_exception(e)
         return f

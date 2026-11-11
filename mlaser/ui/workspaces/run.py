@@ -1579,7 +1579,7 @@ class RunWorkspace:
     def machine_state(self) -> Any:
         try:
             return self.window.ctl.state()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot read the state: shown as offline, run controls off
             return None
 
     def job_running(self) -> bool:

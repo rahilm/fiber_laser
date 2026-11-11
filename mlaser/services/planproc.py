@@ -433,7 +433,7 @@ def _child_loop(conn, cancel) -> None:
     from mlaser.nc import parallel
     try:
         os.nice(5)            # below the GUI and the streaming child
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no lower priority on this OS: the child runs as it is
         pass
     part_cache: dict[int, bytes] = {}
     blob_cache: dict[int, Any] = {}
@@ -587,7 +587,7 @@ def _close_all() -> None:
     for pp in list(_LIVE):
         try:
             pp.close()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - at exit: the next process is ended regardless
             pass
 
 
@@ -656,7 +656,7 @@ class PlanProcess:
                         self.failures = max(self.failures, self.MAX_FAILURES)
                         try:
                             self._kill(self.proc)
-                        except Exception:  # noqa: BLE001
+                        except Exception:  # noqa: BLE001 - the mismatched child is dropped either way
                             pass
                         self.proc = None
                         raise ProtocolMismatch(why)
@@ -689,7 +689,7 @@ class PlanProcess:
         if c is not None:
             try:
                 c.send(("quit",))
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - the child is gone already: joined and killed below
                 pass
         if p is not None:
             p.join(5.0)                    # it shuts its compile pool down first
@@ -711,7 +711,7 @@ class PlanProcess:
         except (OSError, ProcessLookupError):
             try:
                 p.kill()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - nothing more to kill: it is joined next
                 pass
         p.join(2.0)
 
@@ -719,7 +719,7 @@ class PlanProcess:
         self.failures += 1
         try:
             self._kill(self.proc)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - a lost child: it is dropped either way
             pass
         self.proc = None
         return ChildLost(why)
@@ -833,7 +833,7 @@ class PlanProcess:
                     finally:
                         try:
                             conn.send(("ack",))
-                        except Exception:  # noqa: BLE001
+                        except Exception:  # noqa: BLE001 - the child releases its blocks at the next request
                             pass
                 elif how == "packed":
                     job = Job(**meta)

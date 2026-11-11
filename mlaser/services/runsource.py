@@ -48,7 +48,7 @@ def job_source(ctl: Any, mode: str = "process", practice: bool = False,
         fn = getattr(ctl, "is_simulator", None)
         if callable(fn) and fn():
             return SIMULATOR
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - cannot tell: treated as a real card (restrictive)
         pass
     return REAL
 
@@ -71,7 +71,7 @@ def window_job_source(window: Any, mode: str = "process") -> str:
     if plan is not None:
         try:
             dry = bool(plan.dry_run) if mode == "process" else None
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot tell from the plan: judged by the controller
             dry = None
     return job_source(getattr(window, "ctl", None), mode, practice_active(window), dry)
 

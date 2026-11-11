@@ -606,7 +606,7 @@ def bind(cfg: Any) -> None:
     if unsub is not None:
         try:
             unsub()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the old binding's unsubscribe: nothing left to undo
             pass
     _state["config"] = cfg
     _state["unsub"] = None

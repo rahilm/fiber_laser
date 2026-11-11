@@ -22,10 +22,13 @@ it.  ``blocking`` items stop a start; the others are information (the pre-flight
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
 from typing import Any, Optional
 
 from .. import i18n as _i18n
+
+log = logging.getLogger("mlaser.readiness")
 
 #: the item ids in display order
 ITEMS = ("connected", "alarms", "homed", "technology", "interlocks", "armed")
@@ -72,7 +75,8 @@ def undefined_layers(ctl: Any, document: Any) -> list[int]:
     table = None
     try:
         table = ctl.layer_table() if ctl is not None and callable(getattr(ctl, "layer_table", None)) else None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no card layer table: judged from the document (logged)
+        log.debug("readiness: the layer table cannot be read", exc_info=True)
         table = None
     return sorted(li for li in PF.used_layers(document) if not PF.layer_is_defined(document, li, table))
 
@@ -83,7 +87,7 @@ def readiness(ctl: Any, document: Any = None, safety_io: Optional[Any] = None) -
     out: list[ReadinessItem] = []
     try:
         ms = ctl.state() if ctl is not None else None
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - cannot read the state: shown as not connected (restrictive)
         ms = None
     connected = bool(ms is not None and ms.connected)
     out.append(ReadinessItem("connected", connected, _t("ready.connected"),
@@ -112,7 +116,8 @@ def readiness(ctl: Any, document: Any = None, safety_io: Optional[Any] = None) -
         try:
             from . import safety_io as S
             sio = S.current(ctl)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no interlock notices; the controller's pre-flight still checks them (logged)
+            log.debug("readiness: the safety I/O configuration cannot be read", exc_info=True)
             sio = None
     if sio is not None:
         from . import safety_io as S

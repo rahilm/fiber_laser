@@ -114,6 +114,10 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
   the `architecture` job of CI, about 30 s);
 * `lint-imports` (layer rules, [Architecture](ARCHITECTURE.md)) and `mypy` green;
 * `uvx ruff@0.17.1 check` on the changed files;
+* a broad handler (`except Exception`) states its reason: `# noqa: BLE001 - why`; code that only
+  ignores a failure uses `mlaser._swallow.swallow(log, what)`, which logs it
+  (`tests/test_broad_excepts.py`: every reason in `mlaser/services` and the run screens, and the
+  reasonless ones elsewhere only become fewer);
 * `tests/test_docs_links.py`: documentation links resolve.
 
 ## Coverage

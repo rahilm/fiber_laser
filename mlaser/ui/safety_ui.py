@@ -1247,7 +1247,7 @@ class SafetyUI(QObject):
         for un in self._subs:
             try:
                 un()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - an unsubscribe of the old controller: nothing left to undo
                 pass
         self._subs = []
         old = self._ctl
@@ -1338,7 +1338,8 @@ class SafetyUI(QObject):
             return run_status(ms if ms is not None else ctl.state(), st if st is not None else _safety(ctl),
                               list(alarms if alarms is not None else (ctl.active_alarms or [])),
                               getattr(self.w, "plan", None), 0.0, ctl.breakpoint, clock=self.clock)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no status yet: the screens show their idle state (logged)
+            log.debug("run status cannot be read", exc_info=True)
             return None
 
     def _current_workspace(self) -> str:
@@ -1401,7 +1402,7 @@ class SafetyUI(QObject):
                 return None
             entries = list(q)
             return entries.index(nxt) + 1, len(entries), nxt.name
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no queue to show in the Start menu
             return None
 
     def run_queue(self) -> None:
@@ -1440,7 +1441,7 @@ class SafetyUI(QObject):
         st = _safety(ctl)
         try:
             ms = ctl.state()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot read the state: shown as offline, run controls off
             ms = None
         alarms = active_alarms(self.w)          # the one alarm source (UX audit C2)
         from ..services.readiness import homing_needed
@@ -1568,7 +1569,7 @@ class SafetyUI(QObject):
         try:
             from ..nc.compiler import placed_document
             bb = placed_document(self.w.ctl.place(doc)).bbox()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no placement: the drawing's box (the controller checks the job)
             bb = doc.bbox() if hasattr(doc, "bbox") else None
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
@@ -1965,7 +1966,8 @@ class SafetyUI(QObject):
         if b is not None and hasattr(b, "config"):
             try:
                 sio = b.config()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - no safety I/O configuration: readiness without its notices (logged)
+                log.debug("readiness: the safety I/O configuration cannot be read", exc_info=True)
                 sio = None
         return readiness(self.w.ctl, self.w.document, sio)
 
