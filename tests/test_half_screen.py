@@ -326,11 +326,29 @@ def test_process_pages_fit_half_screen(win, app, size):
         scrolling = [a.objectName() for a in win.findChildren(QAbstractScrollArea)
                      if a.isVisible() and a.objectName() in ("techform_scroll", "shell_ws_scroll")
                      and a.verticalScrollBar().isVisible()]
-        # the numbers in a failure: viewport height, the content's minimum and preferred height
+        # the numbers in a failure: the scrolling area's viewport height, the content's minimum
+        # and preferred height, the area's own need at its width; the canvas/page splitter's
+        # mode, sizes, height and page_height(); the window's minimum; the dock policy's folds
+        # and the docks under the page with their heights
+        if scrolling:
+            from mlaser.ui.responsive import FitArea
+            sp = page.splitter
+            pol = win.shell.dock_policy
+            under = [(d.objectName(), d.height()) for d in win.shell.host.docks()
+                     if d.isVisible() and not d.isFloating() and win.dockWidgetArea(d) == Qt.BottomDockWidgetArea]
+            print("SCROLLING", b.objectName(), "splitter", sp.mode if sp is not None else None,
+                  sp.sizes() if sp is not None else None, sp.height() if sp is not None else None,
+                  sp.page_height() if sp is not None else None, "min", win.minimumSize().toTuple(),
+                  win.minimumSizeHint().toTuple(), "folded", pol.folded is not None,
+                  "vfolded", pol.vfolded is not None, "under", under)
         assert not scrolling, (size, b.objectName(), scrolling, [
             (a.objectName(), a.viewport().height(), a.widget().minimumSizeHint().height(),
-             a.widget().sizeHint().height()) for a in win.findChildren(QAbstractScrollArea)
-            if a.objectName() in scrolling and getattr(a, "widget", lambda: None)() is not None])
+             a.widget().sizeHint().height(),
+             a.need(a.viewport().width()).height() if isinstance(a, FitArea) else None,
+             (sp.mode, sp.sizes(), sp.page_height()) if sp is not None else None, under)
+            for a in win.findChildren(QAbstractScrollArea)
+            if a.isVisible() and a.verticalScrollBar().isVisible() and a.objectName() in scrolling
+            and getattr(a, "widget", lambda: None)() is not None])
         if win.size().toTuple() != size:
             # the details in full in the captured output (the assertion's repr is cut)
             print("HEIGHTS", b.objectName(), win.size().toTuple(), win.minimumSize().toTuple(),
