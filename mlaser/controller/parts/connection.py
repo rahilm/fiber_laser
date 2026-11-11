@@ -16,6 +16,7 @@ from .. import alarms as A
 from ...machine.jobphase import derive_mode
 from .. import cardlock
 from ..client import ControllerError
+from ._shared import PartBase
 
 log = logging.getLogger("mlaser.controller.ui_adapter")
 
@@ -26,7 +27,7 @@ AXES = {"X": 0, "Y": 1, "Z": 2, "W": 3}
 # streaming link deadline while the in-process simulator is the card (connect_simulator)
 SIM_LINK_DEADLINE_MS = 1000.0
 
-class ConnectionPart:
+class ConnectionPart(PartBase):
     # ------------------------------------------------------------------ connection
     def connect(self, host: Optional[str] = None, port: Optional[int] = None) -> bool:
         """Open the socket, read RO[0..1] (checkMCStatus FUN_1004ed60), write 101 := [9999, 5, 0, 0]
@@ -124,7 +125,7 @@ class ConnectionPart:
     #: why the last connect() failed ("" after a success): the card in use elsewhere, no answer
     connect_error = ""
     card_busy = False                    # ... because another process holds the card (cardlock)
-    _card_lock = None
+    _card_lock: Optional[cardlock.FileLock] = None
 
     def _release_card_lock(self) -> None:
         lock, self._card_lock = self._card_lock, None
@@ -143,8 +144,11 @@ class ConnectionPart:
             raise _laser.LaserError("laser source emission refused: the machine is not armed")
 
     def _read_scaling(self) -> None:
+        mc = self._mc
+        if mc is None:                       # disconnected meanwhile: keep Machine scaling
+            return
         try:
-            sc = self._mc.read_scaling(AXES["X"], AXES["Y"])
+            sc = mc.read_scaling(AXES["X"], AXES["Y"])
         except (ControllerError, OSError) as e:
             self._log(f"card parameters not readable ({e}); keeping Machine scaling")
             return
@@ -156,7 +160,7 @@ class ConnectionPart:
             self._log("Hardware restore failed: the card reports 0 counts/mm (gp97); keeping "
                       "Machine scaling")
             return
-        self._mc.pulses_per_mm = sc.position_ppm
+        mc.pulses_per_mm = sc.position_ppm
         if self._sup._halt is not None:
             self._sup._halt.pulses_per_mm = sc.position_ppm
         self._log(f"card parameters: {sc.summary()}")

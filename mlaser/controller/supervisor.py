@@ -42,6 +42,7 @@ from ..machine.audit import audit
 from ..machine.safety import Cmd, SafetyFSM, SafetyState, classify_request
 from ..protocol import frames as F
 from .client import FRAME_RING, ControllerError, MotionController, TransportConfig
+from .clock import Clock, is_virtual
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +92,11 @@ class HaltResult:
         return self.t1 - self.t0
 
 
+def _outputs_off_step(mc, sub: int, m16: int) -> Callable[[], None]:
+    """The halt step ``[9999, sub, m16, 0]`` (bound to this ``sub`` / ``m16``)."""
+    return lambda: mc.command(F.mailbox_sys(sub, m16, 0))
+
+
 def halt_steps(mc, p: HaltParams, pause: bool = False) -> list[tuple[str, Callable[[], None]]]:
     """The halt sequence as (name, thunk) pairs, original stop order first."""
     f = int(p.pwm_freq)
@@ -102,7 +108,7 @@ def halt_steps(mc, p: HaltParams, pause: bool = False) -> list[tuple[str, Callab
     for sub, m16 in F.sub_masks_of_ports(p.outputs_mask):
         # outputs 1..10: [9999, 2, mask, 0]; outputs 11..26 (extended IO): [9999, 13, mask, 0]
         steps.append(("process outputs off" if sub == F.SYS_OUTPUTS else "process outputs off (ext)",
-                      lambda sub=sub, m16=m16: mc.command(F.mailbox_sys(sub, m16, 0))))
+                      _outputs_off_step(mc, sub, m16)))
     if p.follower:
         steps.append(("follower stop", lambda: mc.command([F.OP_FOLLOW, 5, 0])))
     if not pause:
@@ -193,7 +199,7 @@ class SafetySupervisor:
         from .clock import SYSTEM
         self.fsm = fsm
         # the time of the link watch and the heartbeat (controller.clock; tests: virtual time)
-        self.clock = clock or SYSTEM
+        self.clock: Clock = clock or SYSTEM
         # tests only: () -> an in-memory link per channel (controller.memlink) instead of a socket
         self.link_factory: Optional[Callable[[], object]] = None
         self.halt_timeout_ms = int(halt_timeout_ms)
@@ -233,7 +239,7 @@ class SafetySupervisor:
         self.fifo_frames = 0
         self.fifo_emitting = 0
         self.refused: list[tuple[float, str, str]] = []
-        self._rings = {"main": deque(maxlen=FRAME_RING), "halt": deque(maxlen=FRAME_RING)}
+        self._rings: dict[str, deque] = {"main": deque(maxlen=FRAME_RING), "halt": deque(maxlen=FRAME_RING)}
         self._halt_lock = threading.RLock()
         self._soon: set = set()               # halts on their way (send_soon)
         self._soon_lock = threading.Lock()
@@ -507,7 +513,7 @@ class SafetySupervisor:
 
     # ------------------------------------------------------------------ monitor
     def start_monitor(self) -> None:
-        if self.clock.virtual:
+        if is_virtual(self.clock):
             # tests (controller.clock.ManualClock): the ticks come with the clock, no thread
             self._v_next_tick = self.clock.monotonic() + self.monitor_s
             self._v_next_retry = 0.0
@@ -520,7 +526,7 @@ class SafetySupervisor:
         self._mon.start()
 
     def stop_monitor(self) -> None:
-        if self.clock.virtual:
+        if is_virtual(self.clock):
             self.clock.remove_listener(self._virtual_tick)
         self._mon_stop.set()
         t = self._mon

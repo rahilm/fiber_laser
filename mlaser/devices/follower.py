@@ -46,6 +46,7 @@ Calibration table: ``Help/calib.csv`` (see :class:`CalibrationTable`).
 """
 from __future__ import annotations
 
+import errno
 import socket
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
@@ -289,9 +290,11 @@ class NetworkFollower:
             self.sock = None
 
     def _xfer(self, vec: list[int]) -> list[int]:
-        self.open()
-        self.sock.sendall(STD_MODBUS.encode(vec))
-        rx = self.sock.recv(1024)
+        s = self.open().sock
+        if s is None:                        # (open() sets it or raises)
+            raise OSError(errno.ENOTCONN, "follower: not connected")
+        s.sendall(STD_MODBUS.encode(vec))
+        rx = s.recv(1024)
         rep = STD_MODBUS.decode(rx)
         if rep[0] == vec[0] | 0x80:
             raise CodecError(f"exception {rep[1]}", 500 + rep[1])

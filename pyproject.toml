@@ -193,13 +193,21 @@ python_version = "3.12"
 files = ["mlaser/protocol", "mlaser/geom", "mlaser/parity_ports", "mlaser/_native", "mlaser/nc", "mlaser/services",
          "mlaser/ops", "mlaser/project", "mlaser/web", "mlaser/report/ledger.py",
          "mlaser/cli", "mlaser/api", "mlaser/notify", "mlaser/labels",
-         "mlaser/ui/plugin_manager.py"]   # the Plugin manager dialog (Review 2)
+         "mlaser/ui/plugin_manager.py",   # the Plugin manager dialog (Review 2)
+         # the machine-control core (review arch A7 / fw F6): the parts of UiController share
+         # one declared state (mlaser/controller/parts/_shared.py)
+         "mlaser/machine", "mlaser/devices", "mlaser/controller"]
 follow_imports = "silent"
 ignore_missing_imports = true
 warn_unused_configs = true
 warn_unused_ignores = true
 warn_redundant_casts = true
 show_error_codes = true
+
+[[tool.mypy.overrides]]
+# the control core: unannotated functions are checked too (nested halt / stop thunks, workers)
+module = ["mlaser.machine.*", "mlaser.devices.*", "mlaser.controller.*"]
+check_untyped_defs = true
 
 # ---------------------------------------------------------------------------- import-linter
 # Layering rules of docs/dev/ARCHITECTURE.md (architecture.md §6), checked in CI with
