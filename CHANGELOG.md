@@ -416,6 +416,19 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - macOS: the start buttons on the empty canvas no longer overlap.
 - Python 3.14.0-3.14.4: the "no full garbage collection while a job streams" check knows the
   incremental collector, which has no full collections to hold off.
+- At half-screen size the Process Library no longer scrolls when the side panels are folded: the
+  preview and machine-function panels move into the side tab group instead.
+- Quitting no longer risks a crash at exit (seen with Python 3.14): the application deletes its
+  windows itself after the main loop.
+- The Process tool bar's second row no longer hides commands behind an overflow button with
+  Windows' metrics.
+- The canvas bar keeps Fit drawing / Fit table whole in a very narrow canvas.
+- A second window opened right after a job shows the device counters the first one just saved (a
+  load waits for the background settings write).
+- Starting a long job with the process streamer no longer latches a spurious "link lost" on a busy
+  PC: the streaming process prepares the job before the link watch starts.
+- The test suite no longer writes into the user's own machine-parameter folder
+  (`~/.local/share/NexCut`, `%LOCALAPPDATA%\NexCut`): every test gets its own.
 
 ## [0.1.0rc1]
 
