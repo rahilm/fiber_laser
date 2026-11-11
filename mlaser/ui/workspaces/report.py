@@ -337,6 +337,12 @@ class ReportWorkspace(QWidget):
         v.addWidget(self.chart)
         self.tabs = style.tabs(QTabWidget(), "workspace")
         self.tabs.setObjectName("report_tabs")
+        # a narrow window scrolls the tabs with the bar's arrows instead of taking the width of
+        # all four touch tabs: the macOS style prefers no arrows (SH_TabBar_PreferNoArrows), and
+        # the workspace's minimum was 730 px there, wider than half a screen (683 px); Fusion and
+        # the Windows styles use the arrows already.  (Only here: elsewhere a tab bar's width is
+        # what decides side by side or tabs, e.g. the Process Library at 1440 x 649.)
+        self.tabs.setUsesScrollButtons(True)
         self.days = _table([tr(w, "report.col.day", "Day"), tr(w, "report.col.jobs", "Jobs"),
                             tr(w, "report.col.ok", "Done"), tr(w, "report.col.stopped", "Stopped"),
                             tr(w, "report.col.run", "Cutting time"), tr(w, "report.col.cut", "Cut"),
