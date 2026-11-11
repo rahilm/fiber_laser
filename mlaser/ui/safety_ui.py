@@ -26,6 +26,7 @@
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Mapping
 from typing import Callable, Optional
@@ -51,6 +52,10 @@ from .run_rules import (JOB_MODES, _ctl, _safety, _tr, _unknown_alarm, active_al
                         alarm_text, job_running, run_enabled, run_state)
 
 log = logging.getLogger("mlaser.ui.safety")
+
+#: result of a pre-flight worker whose plan no longer starts at the head (the check begins again)
+_HEAD_MOVED = object()
+
 
 class _StateColors(Mapping):
     """The safety colour table: (background, text) of every machine and laser state in the
@@ -1713,10 +1718,55 @@ class SafetyUI(QObject):
         """Block until the pre-flight of a Start / Dry run ended and its result was handled
         (tests, scripting)."""
         c = self._prep_call
-        return True if c is None else c.wait(timeout)
+        if c is None:
+            return True
+        end = time.monotonic() + timeout
+        while True:
+            if not c.wait(max(0.0, end - time.monotonic())):
+                return False
+            if not c.busy:                  # (busy again: the check began again, the head had moved)
+                return True
+
+    #: how often a check begins again because the head moved since the press (each after the
+    #: head came to rest, :meth:`_head_settled`)
+    PREFLIGHT_HEAD_RETRIES = 3
+
+    @staticmethod
+    def _head_moved(ctl, job) -> bool:
+        """The head is no longer where ``job`` starts (the controller's own tolerance): the
+        press came while the axes still ran out after a Stop or a jog, or before the status
+        poll had the position of rest."""
+        st = getattr(job, "start_mm", None)
+        if st is None:
+            return False
+        try:
+            s = ctl.state()
+            return not math.dist((float(st[0]), float(st[1])), (float(s.x), float(s.y))) <= float(
+                ctl.start_position_tol_mm)
+        except Exception:  # noqa: BLE001 - no position: the check reports what it finds
+            return False
+
+    @staticmethod
+    def _head_settled(ctl, alive: Callable[[], bool], timeout_s: float = 2.0) -> None:
+        """Wait (off the GUI thread, bounded) until the polled head position stays where it is
+        for 0.2 s, or ``alive()`` is False (a Stop meanwhile)."""
+        end = time.monotonic() + timeout_s
+        last, since = None, time.monotonic()
+        while alive() and time.monotonic() < end:
+            try:
+                s = ctl.state()
+                pos = (round(float(s.x), 3), round(float(s.y), 3))
+            except Exception:  # noqa: BLE001 - no position to wait for: the check runs as it is
+                return
+            now = time.monotonic()
+            if pos != last:
+                last, since = pos, now
+            elif now - since >= 0.2:
+                return
+            time.sleep(0.02)
 
     def _preflight_async(self, action: str, doc, emits: bool, selected_only: bool, assume_armed: bool,
-                         mode: str, then: Callable[[bool], None]) -> None:
+                         mode: str, then: Callable[[bool], None], _attempt: int = 0) -> None:
         """:meth:`preflight_ok` with its heavy part off the GUI thread (perf review 2026-11-09,
         finding 10: 2.8 s at 2,700 parts with the window and its Stop button frozen), on the
         job the controller will check (UX review 2026-11-09, finding 10: the extent with leads
@@ -1730,7 +1780,15 @@ class SafetyUI(QObject):
         plugins, the dialog) and ``then(ok)``.  A Stop or a halt meanwhile (the controller's
         start generation moved) drops the start without a question (``then(False)``), as does
         a press while the previous one is still being checked.  ``then`` is called exactly
-        once.  Without the services layer the check runs here, as before."""
+        once.  Without the services layer the check runs here, as before.
+
+        A press while the head still moves (right after a Stop: the axes run out; or the status
+        poll does not have the position of rest yet) plans the job from a position the head
+        then leaves: the check reported the job translated by that difference ("outside the
+        travel" on a job that fits), or the controller refused the start ("it moved since the
+        job was planned").  The worker sees it (:meth:`_head_moved`), waits for the head to
+        rest and the check begins again from there (at most ``PREFLIGHT_HEAD_RETRIES`` times;
+        after that the report stands)."""
         w, ctl = self.w, self.w.ctl
         jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
         gen_fn = ctl.start_generation
@@ -1764,6 +1822,9 @@ class SafetyUI(QObject):
             if gen_fn() != gen:
                 return None
             plan = ticket.plan
+            if plan is not None and _attempt < self.PREFLIGHT_HEAD_RETRIES and self._head_moved(ctl, plan.job):
+                self._head_settled(ctl, lambda: gen_fn() == gen)
+                return None if gen_fn() != gen else _HEAD_MOVED
             if plan is not None:
                 rep = ctl.preflight(action, src, selected_only, job=plan.job, emits=emits)
             else:                           # no plan (a compile error: the start reports it)
@@ -1791,6 +1852,11 @@ class SafetyUI(QObject):
                 return
             if res is None or gen_fn() != gen:
                 then(False)                 # stopped meanwhile: no start, no question
+                return
+            if res is _HEAD_MOVED:          # planned from a head that moved on: again, from its rest
+                log.info("pre-flight: the head moved since the press; checking again from where it rests")
+                self._preflight_async(action, doc, emits, selected_only, assume_armed, mode, then,
+                                      _attempt + 1)
                 return
             decide(res)
         if self._prep_call is None:

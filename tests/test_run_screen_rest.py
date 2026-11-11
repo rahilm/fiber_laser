@@ -225,6 +225,12 @@ def test_cut_remaining_on_the_simulator(win, app):
     su.stop()
     assert wait(app, lambda: ws.parts.last.outcome == "stopped", 20)
     assert wait(app, lambda: ctl.state().mode == "ready", 20)
+    # like an operator: the axes have run out and the status poll has the position of rest (a
+    # press before that is checked again from the rest by the pre-flight, or refused by the
+    # start gate: tests/safety/test_start_preflight_async.py)
+    axes = ctl.sim.state.axes
+    assert wait(app, lambda: all(abs(a.vel) < 1e-9 for a in axes[:2]), 10)
+    settle(app, 0.2)
     scr.refresh()
     last = ws.parts.last
     left = last.remaining()

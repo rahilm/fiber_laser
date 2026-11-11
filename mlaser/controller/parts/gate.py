@@ -33,14 +33,11 @@ import math
 from typing import Optional
 
 from ...machine import preflight as PF
+from ...machine.api import START_POSITION_TOL_MM
 from ...machine.audit import audit
 from .. import alarms as A
 from ..client import ControllerError
 from .connection import AXES
-
-# a servo at rest reads back within a few counts of its target: 0.05 mm is well above that and
-# far below anything an operator would notice as an offset cut
-START_POSITION_TOL_MM = 0.05
 
 
 class StartGatePart:
