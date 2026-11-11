@@ -259,7 +259,9 @@ class Shell:
         act = self.action(cid)
         if act is not None:
             title = spec.title or ws_id
-            self.tr.bind(act, title, lambda t, a=act: a.setText(self.tr.format("shell.ws.goto", workspace=t)))
+            # the plain name under the Workspace menu (as the plugins' workspaces and the rail
+            # read), not "Workspace: Design" next to "Nest"
+            self.tr.bind(act, title, act.setText)
         if act is not None and spec.icon:
             from ..icons import icon
             act.setIcon(icon(spec.icon))
