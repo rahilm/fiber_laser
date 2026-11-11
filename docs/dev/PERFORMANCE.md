@@ -398,8 +398,13 @@ select-all nudge driver) on the review's `doc2700.chf` / `doc300.chf`, offscreen
 | RSS after ten open / close cycles of 300 parts (idle 150 MB) | 563 MB, rising | 245 MB, flat from the second cycle |
 
 The select-all nudge keeps no part copies (`SegmentsEdit`), does not measure the selection
-extent or the part list's boxes again, and what is left is the canvas's rebuild of the moved
-items and the properties panel.  An edit plans the toolpath only; the compile follows 2 s after
+extent or the part list's boxes again.  The canvas moves its items instead of rebuilding them
+(`DocumentService.changed.shift`: the contours' display paths translated, their points shifted
+when first read, the markers moved along when every part moved, the toolpath overlay kept until
+the new plan arrives; `tests/test_canvas_nudge.py` checks the geometry and the pixels against a
+full rebuild): 34–42 ms instead of 95–145 ms plus the markers' rebuild (about 260–310 ms in
+all at 2,700 parts without a toolpath).  What is left is the properties panel and the one
+whole repaint.  An edit plans the toolpath only; the compile follows 2 s after
 the last edit (or at Start).  The import review of a drawing with more than 300 contours runs in
 a short-lived child process (`services/review_process.py`) and its messages are made in the GUI
 process (same language and units).
@@ -533,9 +538,10 @@ How (`mlaser/ui/canvas.py`, "live layer"):
   after a cached paint equals a whole paint with every item in the one scene (the old way), at
   four views (fitted, zoomed in, zoomed out and panned, with the grid) and after a resize, the
   canvas alone and inside a window at an odd offset, at device pixel ratio 1 and 2 (child
-  process, `QT_SCALE_FACTOR=2`); a track in chunks paints what one path painted. Exceptions:
-  at a fractional device pixel ratio (Windows at 125 / 150 %) the copy would not land on whole
-  device pixels, so every paint there is whole, as before; where the track crosses itself
+  process, `QT_SCALE_FACTOR=2`) and at the fractional ratios 1.25 and 1.5 (Windows at 125 /
+  150 %, the viewport in a window beginning inside a device pixel): the picture is kept in the
+  window's device pixels and drawn back 1:1 in device coordinates, never resampled. A track in
+  chunks paints what one path painted. Exception: where the track crosses itself
   across a chunk seam the two strokes are blended one after the other instead of filled as
   one path (sub-pixel, at the crossing only).
 * **Toolpath delivery** (issue #1): `set_toolpath` rebuilds only the overlay when the drawing
