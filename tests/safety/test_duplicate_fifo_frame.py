@@ -212,6 +212,8 @@ def test_lost_fifo_reply_during_a_job(make_ctl, process, model):
         assert ctl.fsm.state == SafetyState.FAULT, ctl.fsm.state
         assert "link lost" in ctl.fsm.fault or "child_stalled" in ctl.fsm.fault, ctl.fsm.fault
         assert ctl.breakpoint is not None
+        # and not before it either: past the parent's deadline the child does not re-send
+        assert spy.dups == 0, f"the child re-sent the frame before the halt ({ctl.fsm.fault})"
         _assert_no_resend_after_the_halt(ctl, rec, spy, model)
         return
     assert st.fifo_duplicates == 1, "the lost reply did not make the client send the frame again"
@@ -249,4 +251,33 @@ def test_lost_fifo_reply_with_the_real_deadline_is_a_link_loss(make_ctl, process
     assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 3.0) is not None
     assert "link lost" in ctl.fsm.fault, ctl.fsm.fault
     assert ctl.wait_job(10) and ctl.breakpoint is not None
+    if process:
+        assert spy.dups == 0, f"the child re-sent the frame before the halt ({ctl.fsm.fault})"
     _assert_no_resend_after_the_halt(ctl, rec, spy, DUP_FIFO_ACCEPT_TWICE)
+
+
+@pytest.mark.parametrize("model", DUP_FIFO_MODELS)
+def test_a_late_parent_watch_never_lets_the_child_send_the_frame_again(make_ctl, model):
+    """Process streamer, the parent's watch of the child late (it runs in the GUI's process; CI,
+    Windows: it latched at 656 ms, after the 600 ms FIFO timeout, and the frame had gone out
+    twice).  The child itself does not re-send a frame that moves or fires once the card has
+    been silent for the parent's deadline (500 ms, in its policy): it halts the card, reports
+    "link lost", and the card never sees the frame twice, under every model."""
+    ctl = make_ctl(process=True)
+    real = ctl._make_streamer
+
+    def make(emits):
+        st = real(emits)                         # the child's policy: the real deadline
+        ctl._sup.child_deadline_ms = 5000.0      # the parent's own watches (the link's age and
+        st.stall_s = 5.0                         # the child's silence): far too late
+        return st
+    ctl._make_streamer = make
+    sim = ctl.sim
+    sim.duplicate_fifo = model
+    rec = _Recorder(sim)
+    spy = _start_and_lose_one_reply(ctl, rect_doc(w=100.0, h=60.0), rec)
+    assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 3.0) is not None, "no fault"
+    assert "link lost" in ctl.fsm.fault, ctl.fsm.fault
+    assert ctl.wait_job(10) and ctl.breakpoint is not None
+    assert spy.dups == 0 and sim.state.fifo_duplicates == 0, ctl.fsm.fault
+    _assert_no_resend_after_the_halt(ctl, rec, spy, model)

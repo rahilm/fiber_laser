@@ -44,6 +44,42 @@ def wait_until(pred, timeout: float, step: float = 0.002) -> float | None:
     return None
 
 
+def loop_heartbeat(app, turns: int = 20) -> tuple[float, float, float, int]:
+    """Turn the event loop ``turns`` times (10 ms asleep after each) with a precise 10 ms timer
+    running: ``(longest turn, longest stretch without a beat, longest two consecutive turns,
+    beats)`` in seconds, measured with perf_counter.
+
+    A live loop gives a beat at every turn, so the longest stretch without one (from the timer's
+    start to the end of the last turn) is never longer than two consecutive turns: a beat may
+    fall just after one turn's processEvents.  Measured per turn, not per wall-clock time (a turn
+    is 40+ ms on a macOS runner, its sleep overshoots), and as a stretch, not as a count of beats:
+    the count depended on the timer's granularity (Windows: 15.6 ms ticks, a 10 ms timer
+    coalesced, 18 beats in 20 turns of a live loop)."""
+    from PySide6.QtCore import Qt, QTimer
+    ticks: list = []
+    tm = QTimer()
+    tm.setTimerType(Qt.PreciseTimer)
+    tm.timeout.connect(lambda: ticks.append(time.perf_counter()))
+    bounds = []                                     # (start, end) of each turn's processEvents
+    tm.start(10)
+    t_start = time.perf_counter()
+    try:
+        for _ in range(turns):
+            t1 = time.perf_counter()
+            app.processEvents()
+            bounds.append((t1, time.perf_counter()))
+            time.sleep(0.01)
+    finally:
+        tm.stop()
+    longest = max(b - a for a, b in bounds)
+    # two consecutive turns: from the start of one turn to the end of the next (the first pair
+    # from the timer's start)
+    pairs = [bounds[i + 1][1] - (bounds[i][0] if i else t_start) for i in range(len(bounds) - 1)]
+    beats = [t_start] + [t for t in ticks if t <= bounds[-1][1]] + [bounds[-1][1]]
+    gap = max(b - a for a, b in zip(beats, beats[1:]))
+    return longest, gap, max(pairs), len(ticks)
+
+
 def head_mm(sim) -> tuple[float, float]:
     return sim.position(0) / sim.ppm, sim.position(1) / sim.ppm
 

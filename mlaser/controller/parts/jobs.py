@@ -231,6 +231,7 @@ class JobRunnerPart:
         if self._use_process():
             policy = dict(armed=bool(emits and self.fsm.armed), guarded=self._sup.guarded_outputs,
                           halt=asdict(self._halt_params()), link_deadline_ms=self._sup.link_deadline_ms,
+                          child_deadline_ms=self._sup.child_deadline_ms,
                           halt_timeout_ms=self._sup.halt_timeout_ms, parent_timeout_s=self.child_parent_timeout_s,
                           follower_regs=(PF.REG_ONBZF, PF.N_ONBZF) if (self._zf_type() and self.interlocks.cfg.follower) else None)
             ps = S.ProcessStreamer(self.cfg, self.position_ppm, policy=policy, stall_s=self.child_stall_s, **kw)
