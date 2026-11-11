@@ -211,9 +211,22 @@ does not know makes that plan compile in the GUI process's worker thread instead
 
 ## 4. Typing and enums
 
-* `[tool.mypy]` checks `protocol`, `geom`, `parity_ports` and `nc` (the other packages are not
-  checked yet; `follow_imports = "silent"`). The remaining findings carry
+* `[tool.mypy]` checks the packages listed in its `files` (`follow_imports = "silent"`; the
+  others, `ui`, `cam`, `cad` among them, are not checked yet). The remaining findings carry
   `# type: ignore[code]` comments: the baseline to burn down (ROADMAP "Code health").
+* The machine-control core is checked: `machine`, `devices` and `controller`, with
+  `check_untyped_defs` (unannotated functions such as the halt and stop thunks are checked too).
+  `UiController` is assembled from the parts in `controller/parts/` over one `self`; the fields
+  and methods the parts use on each other are declared once, with their types, in
+  `controller/parts/_shared.py` (`PartBase`, a subclass of `ControllerFacade` for the checker).
+  Every part derives from `PartBase`, which is plain `object` at run time, so the class layout
+  and the method order are unchanged. A new shared field or a method one part calls on another
+  is added there. A value that can be None (the card's main channel `_mc` while disconnected, a
+  device that is not open) is narrowed into a local with a real check, never silenced.
+* `state()` of the card controller returns a copy taken under the state lock (`_slock`), like
+  `snapshot()`: every field from one moment, and `outputs` / `alarms` that no other thread
+  changes while the caller reads them. Every writer of the controller's `MachineState` holds
+  `_slock`; the lock is never held across card I/O.
 * `protocol.enums` names the protocol codes: `Func`, `Op`, `MailboxOp`, `SysCmd`, `WaitMode`,
   `ZfState`, `FifoCtrl`, `ManuClass`, `SysSub`, `PierceStage`, `AxisAlarmBit` / `AxisAlarm`
   (IntFlag), `AlarmWord1Bit`, `AlarmWord2Bit`; `model.GlyphKind` and `chf.GraphKind` the glyph

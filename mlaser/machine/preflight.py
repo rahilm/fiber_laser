@@ -371,7 +371,11 @@ def cutting_issues(document, cam_params=None, *, leads: bool = True, bed=None, s
     if leads:
         from ..cam.collision import analyse
         seen: set = set()
-        found = [i for i in analyse(doc, cam_params, sheet) if not (i.key in seen or seen.add(i.key))]
+        found = []
+        for i in analyse(doc, cam_params, sheet):
+            if i.key not in seen:
+                seen.add(i.key)
+                found.append(i)
         for i in found[:MAX_CUT_ISSUES]:
             out.append(Issue("lead_collision", WARNING, i.message, i.key))
         if len(found) > MAX_CUT_ISSUES:

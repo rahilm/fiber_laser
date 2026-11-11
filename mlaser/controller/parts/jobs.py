@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import logging
 import threading
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 
 from ...machine import events as EV
 from ...machine.audit import audit
@@ -31,11 +31,12 @@ from ..client import ControllerError
 from ..commands import card_command
 from ..supervisor import CommandRefused
 from .motion import CANCEL_CMD
+from ._shared import PartBase
 
 P = JobPhase
 
 
-class JobRunnerPart:
+class JobRunnerPart(PartBase):
     # ------------------------------------------------------------------ compile / pre-flight
     def _compile(self, document, selected_only: bool, dry_run: bool):
         from ...model import Document
@@ -239,7 +240,7 @@ class JobRunnerPart:
 
         from ...protocol import frames as PF
         from .. import stream as S
-        kw = dict(max_buffer_ms=self.max_buffer_ms, pwm_freq=int(self.machine.pt_laser_freq))
+        kw: dict[str, Any] = dict(max_buffer_ms=self.max_buffer_ms, pwm_freq=int(self.machine.pt_laser_freq))
         if self._use_process():
             policy = dict(armed=bool(emits and self.fsm.armed), guarded=self._sup.guarded_outputs,
                           halt=asdict(self._halt_params()), link_deadline_ms=self._sup.link_deadline_ms,
@@ -252,7 +253,10 @@ class JobRunnerPart:
             ps.on_fault = lambda kind, why: self.raise_fault(f"streaming child: {kind}: {why}"
                                                              if kind != "link_lost" else f"link lost: {why}")
             return ps
-        js = S.JobStreamer(self._mc, clock=self.clock, **kw)
+        mc = self._mc
+        if mc is None:                       # _start_worker refused this before the FSM moved
+            raise ControllerError("hardware is not connected", F.ERR_TIMEOUT)
+        js = S.JobStreamer(mc, clock=self.clock, **kw)
         js.on_status = self._stream_status
         return js
 
@@ -303,6 +307,12 @@ class JobRunnerPart:
     def _start_worker(self, job, mode, what, track, base_job, offset, after, emits, resume) -> bool:
         if emits is None:
             emits = self.job_emits(job)
+        if self._mc is None and not self._use_process():
+            # disconnected since the start gate: refused before the FSM moves (the in-thread
+            # streamer needs the main channel; it used to fail in the worker)
+            self._log(f"{mode} refused: the card is not connected", logging.WARNING)
+            audit("start_refused", logging.WARNING, mode=mode, reason="not connected")
+            return False
         why = self.fsm.job_started(bool(emits))
         if why:
             self._log(why, logging.WARNING)
@@ -563,10 +573,14 @@ class JobRunnerPart:
         if self._busy():
             self._log("fault reset refused: the job worker is still stopping")
             return False
+        mc = self._mc
         if self._sup.connected:
+            if mc is None:                   # disconnected since the check
+                self._log("fault reset refused: the card is not connected", logging.WARNING)
+                return False
             try:
-                self._mc.reset_alarms()
-                st = self._mc.read_status()
+                mc.reset_alarms()
+                st = mc.read_status()
             except (ControllerError, OSError) as e:
                 self._log(f"fault reset refused: the card does not answer ({e})", logging.WARNING)
                 return False
@@ -580,7 +594,7 @@ class JobRunnerPart:
             # them the follower alarm used to drop out of the active set and the reset passed
             # while it still held (timing-dependent: the evaluation is rate-limited)
             self._zf_read_t = 0.0
-            zf = self._read_follower(self._mc)
+            zf = self._read_follower(mc)
             self._apply_status(st, zf)
             self.interlocks.evaluate(st, zf, follower_present=bool(self._zf_type()),
                                      job_active=self.job_active(), emitting=False,
@@ -772,7 +786,7 @@ class JobRunnerPart:
         if self.active_alarms:
             self._log("cannot resume while alarms are active (Clear Alarm first)")
             return
-        if document is not None and getattr(bp, "doc_key", ""):
+        if document is not None and bp.doc_key:
             from ...nc.resume import document_key
             if document_key(document) != bp.doc_key:
                 self._gate_refuse("resume", "the open document is not the one the paused job was "
@@ -861,8 +875,9 @@ class JobRunnerPart:
                     if running:
                         self._sup.safe_halt("stop")
                     else:
-                        if self.breakpoint is None and self._s.connected:
-                            self._try("stop", self._mc.command, [CANCEL_CMD])
+                        mc = self._mc
+                        if self.breakpoint is None and self._s.connected and mc is not None:
+                            self._try("stop", mc.command, [CANCEL_CMD])
                         self._vm_stop_jog()
                 self._lc.wait_started(10.0)     # the starting job's worker, to join it below
                 w = self._worker

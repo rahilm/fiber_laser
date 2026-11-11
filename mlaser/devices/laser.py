@@ -58,9 +58,12 @@ ipAdd.ini ``LaserTimeout=100``, ``LaserMaxSendTime=5``, ``LaserMaxRecvTime=1``,
 """
 from __future__ import annotations
 
-from typing import Optional
+from typing import TYPE_CHECKING, Optional, Union
 
 from .transport import LoopbackTransport, NetTransport, Transport, UdpServer
+
+if TYPE_CHECKING:
+    from .transport import DeviceSettings
 
 ESC, CR = 0x1B, 0x0D
 
@@ -220,7 +223,7 @@ def ipg_emits(text: str, commands: tuple = IPG_EMISSION_COMMANDS) -> bool:
 class LaserClient:
     """Common pass-through client: send bytes, require a non-empty reply."""
 
-    commands = None
+    commands: Optional[Union[type[IpgCommands], type[RaycusCommands]]] = None
 
     def __init__(self, transport: Transport, guard=None):
         self.t = transport
@@ -261,7 +264,10 @@ class LaserClient:
     def emission(self, on: bool) -> bytes:
         """Emission on (needs the machine armed, :func:`check_emission`) / off (always)."""
         self.check_emission(on)
-        return self.send(self.commands.emission_on() if on else self.commands.emission_off())
+        cmds = self.commands
+        if cmds is None:
+            raise LaserError("laser: this client has no command set (IpgLaser / RaycusLaser)")
+        return self.send(cmds.emission_on() if on else cmds.emission_off())
 
 
 class IpgLaser(LaserClient):
@@ -326,7 +332,8 @@ class RaycusLaser(LaserClient):
         return self.send(RaycusCommands.set_power(round(percent)))
 
 
-def laser_for(laser_type: int, control_type: int, settings=None, access: str = "udp") -> Optional[LaserClient]:
+def laser_for(laser_type: int, control_type: int, settings: Optional[DeviceSettings] = None,
+              access: str = "udp") -> Optional[LaserClient]:
     """Pick the client like CNCModule FUN_1002d970 / FUN_10058b70: Raycus with control type 1
     (or 4 = PC serial: build ``RaycusLaser(SerialTransport(...))`` yourself), IPG with 2."""
     from .transport import DeviceSettings

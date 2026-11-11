@@ -142,12 +142,14 @@ def decode(word1: int, word2: int, axis_status: Sequence[int] = (),
                     out.append(Alarm(CODE_AXIS + 32 * b + k, AXIS_KEYS[k], AXIS_TEXT[k] % nm,
                                      axis=b, kind=_axis_kind(k)))
         else:
-            kind = {W1_ESTOP: "estop", W1_SERVO: "servo"}.get(b, "card")
+            kinds1: dict[int, str] = {W1_ESTOP: "estop", W1_SERVO: "servo"}
+            kind = kinds1.get(b, "card")
             out.append(Alarm(CODE_WORD1 + b, WORD1_KEYS.get(b, f"EtherCATErrorInfo_1_{b:02d}"),
                              WORD1_TEXT.get(b, f"Card alarm 1.{b}"), kind=kind))
     for b in range(8):
         if (w2 >> b) & 1:
-            kind = {W2_FIFO_STARVATION: "fifo", W2_OVERSPEED: "overspeed"}.get(b, "card")
+            kinds2: dict[int, str] = {W2_FIFO_STARVATION: "fifo", W2_OVERSPEED: "overspeed"}
+            kind = kinds2.get(b, "card")
             out.append(Alarm(CODE_WORD2 + b, WORD2_KEYS[b], WORD2_TEXT[b], kind=kind))
     return out
 
