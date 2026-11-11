@@ -12,6 +12,7 @@ import copy
 import gc
 import math
 import pathlib
+import sys
 import time
 
 import pytest
@@ -46,17 +47,24 @@ def timed(fn, n: int = 1, gc_off: bool = False) -> float:
     paused (after a collection), for a comparison of two copies of the whole drawing: a full
     collection of the worker's heap (whatever the tests before left) landing inside one side
     measured the runner, not the code (macOS CI: a cold snapshot at 0.70 of the old copy
-    instead of 0.30-0.35)."""
+    instead of 0.30-0.35).
+
+    The trace function of the coverage job is paused for the measurement: it costs per Python
+    call and line, so it doubled the share of the pure-Python snapshot against ``copy.deepcopy``
+    (0.20 of the old copy here, 0.40 under the tracer, 0.61 on the CI coverage job)."""
     best = math.inf
     for _ in range(n):
         if gc_off:
             gc.collect()
             gc.disable()
+        tracer = sys.gettrace()
+        sys.settrace(None)
         try:
             t0 = time.perf_counter()
             fn()
             best = min(best, time.perf_counter() - t0)
         finally:
+            sys.settrace(tracer)
             if gc_off:
                 gc.enable()
     return best

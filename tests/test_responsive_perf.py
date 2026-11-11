@@ -125,6 +125,8 @@ def test_a_layout_pass_measures_each_form_once_per_width(win, app, monkeypatch):
     assert outside[1] > 4 * outside[0], outside
 
 
+@pytest.mark.flaky(reruns=1)            # a timing ratio on a shared runner (one rerun, like the other timing tests:
+                                        # macOS CI once measured 4.7 times, 2.3 here and in its other run)
 def test_a_resize_step_with_a_drawing_costs_about_what_one_without_costs(win, app):
     _open_process(app, win, 0)
     _steps(app, win, 3)                                    # warm-up

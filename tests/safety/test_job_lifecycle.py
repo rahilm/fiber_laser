@@ -232,6 +232,7 @@ def test_a_held_follower_alarm_still_blocks_the_reset_when_the_read_fails(seam_c
     assert ctl.fsm.state == SafetyState.FAULT
 
 
+@pytest.mark.timing              # a job on the simulator (the rest of the module needs no clock)
 def test_a_hold_never_shows_ready_while_the_breakpoint_is_taken(make_ctl):
     """Between the worker's end and the stored breakpoint (the FIFO is cleared, the resume point
     written) the mode stays "pause": it fell back to "ready" for that moment, and the Run screen
