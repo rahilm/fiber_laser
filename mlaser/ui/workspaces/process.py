@@ -1203,7 +1203,7 @@ class ProcessWorkspace(QWidget):
         return sorted({p.craft.layer for p in doc.parts})
 
     def refresh_layers(self) -> None:
-        from mlaser.ui.canvas import layer_color
+        from mlaser.ui.canvas import swatch_layer_color
         from mlaser.ui.properties.panel import _swatch
 
         t = self.tr_.tr
@@ -1215,7 +1215,7 @@ class ProcessWorkspace(QWidget):
         for li in used:
             r = self.layers.rowCount()
             self.layers.insertRow(r)
-            it = QTableWidgetItem(_swatch(layer_color(li)), f"{t('props.layer')} {li}")
+            it = QTableWidgetItem(_swatch(swatch_layer_color(li)), f"{t('props.layer')} {li}")
             it.setData(Qt.UserRole, li)
             self.layers.setItem(r, 0, it)
             name, state = self.layer_state(li)

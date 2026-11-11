@@ -31,8 +31,9 @@ It disappears once everything is wired; a sensor declared "not fitted" stays lis
 ## Live view and process values
 
 The live view draws the job as it is placed on the machine: parts already cut grey and dashed,
-the part being cut thick in the accent colour, the others in their layer colour, the head as a
-red dot. The row underneath shows each value under its name: speed, the layer's power (%), gas
+the part being cut thick in the cut track's colour (as on the Design canvas), the others in their
+layer colour, the head as a ringed dot in the canvas's head colour. The legend sits in a corner
+clear of the head and wraps in a narrow view; the head is always drawn on top. The row underneath shows each value under its name: speed, the layer's power (%), gas
 and pressure, cut height and the X / Y / Z position, in the display units; the figures keep their
 width as they change, and in a narrow window the row wraps between two values, never inside one.
 When the link is lost the last values stay, greyed, marked *Last known values*.

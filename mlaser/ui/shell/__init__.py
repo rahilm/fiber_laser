@@ -47,6 +47,9 @@ from .workspace_host import WorkspaceHost
 SETTINGS = [
     Setting("shell.theme", "str", theme.DEFAULT_THEME, label="shell.theme", section="shell", source="app"),
     Setting("shell.classic_ribbon", "bool", False, label="shell.classic_ribbon", section="shell", source="app"),
+    # the colour-blind-safe layer palette (display only; theme.COLORBLIND_LAYERS)
+    Setting("shell.colorblind_palette", "bool", False, label="shell.colorblind_palette", section="shell",
+            source="app"),
     Setting("shell.recent_commands", "json", [], label="shell.recent", section="shell", source="app"),
     Setting("shell.welcome_done", "bool", False, label="shell.welcome.title", section="shell", source="app"),
     Setting("shell.layout", "str", "", label="shell.reset_layout", section="shell", source="app"),
@@ -187,6 +190,7 @@ class Shell:
         self._watch = _WindowWatch(self)
         w.installEventFilter(self._watch)
         w.setProperty("userMode", self.modes.mode)          # before the style sheet: one polish
+        theme.set_colorblind_palette(bool(self.config.get("shell.colorblind_palette", False)))
         self.set_theme(self.config.get("shell.theme", theme.DEFAULT_THEME), persist=False)
         self._apply_mode(self.modes.mode)
         self.set_classic(bool(self.config.get("shell.classic_ribbon", False)), persist=False)
@@ -508,6 +512,22 @@ class Shell:
         if persist:
             self.config.set("shell.theme", self.theme)
         return self.theme
+
+    def set_colorblind_palette(self, on: bool) -> None:
+        """Preferences > Appearance > Colour-blind-safe layer colours: applied live to the canvas,
+        the Run live view and the layer tables' swatches; the document's colours stay as they are."""
+        on = bool(on)
+        if on == theme.colorblind_palette():
+            return
+        theme.set_colorblind_palette(on)
+        theme.apply_canvas_theme(theme.effective(self.theme, QApplication.instance()), getattr(self.w, "canvas", None))
+        for child in self.w.findChildren(QWidget):
+            for name in ("refresh_swatches", "refresh_layers"):   # the layer tables' swatches
+                fn = getattr(child, name, None)
+                if callable(fn):
+                    fn()
+            if child.isVisible():
+                child.update()                                # the painted views (Run live view)
 
     def _contrast_changed(self, *_a) -> None:
         """The OS high-contrast setting changed: theme ``system`` follows it (F7)."""

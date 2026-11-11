@@ -54,21 +54,25 @@ THEMES: dict[str, dict[str, str]] = {
         # the boundary of a field / check box drawn by Fusion (>= 3:1 on base and window,
         # WCAG 1.4.11; :class:`FusionBoundaries`)
         "control_border": "#7d8590",
-        # canvas (red is alarm, STOP and emission only: the head marker is in the text colour
-        # and the cut track in the accent colour, as the Run view's part being cut; UI review
-        # 2026-11-09 finding 6)
+        # canvas (red and amber are alarm, STOP, hazard and emission only: the head marker is in
+        # the text colour and the cut track in the accent colour, as the Run view's part being
+        # cut (high contrast: a cyan head, white is the cut path, and a green track, its yellow
+        # is ARMED); the Run view's done parts in ``c_done``; UI review 2026-11-09 finding 6).  The toolpath roles (cut, rapid, leads, pierce,
+        # micro-joint gap, kerf, marker, track, done, head) are >= 12 ΔE apart for normal,
+        # deuteranope and protanope vision and >= 3:1 on the canvas in every theme
+        # (tests/test_canvas_roles.py), and each has its own line style or shape too
         "c_background": "#fbfbfa", "c_table": "#8b9099", "c_axis_x": "#c62828", "c_axis_y": "#2e7d32",
-        "c_cut": "#3a3f46", "c_gap": "#4b5563", "c_rapid": "#3b5bdb", "c_track": "#1b5fc1",
+        "c_cut": "#3a3f46", "c_gap": "#555544", "c_rapid": "#3355dd", "c_track": "#1b5fc1",
         "c_unclosed": "#d00000", "c_selected": "#101418", "c_start": "#101418", "c_index": "#5c3a00",
-        "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#101418", "c_marker": "#0b7285",
-        "c_sim": "#101418", "c_ruler": "#59616d",
+        "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#101418", "c_marker": "#004466",
+        "c_sim": "#101418", "c_ruler": "#59616d", "c_done": "#777777",
         # the toolpath preview (preview_scrubber, Orders' sheet preview)
         "c_preview_cut": "#d47200", "c_preview_rapid": "#1f6fd1", "c_preview_head": "#d62828",
         "c_preview_head_off": "#7b818b", "c_preview": "#8a6d00", "c_preview_alert": "#c62828",
         # the planned toolpath: leads, the kerf-compensated path, gaps and pierce points in their
         # own colours, every pair >= 10 ΔE apart for normal and red-green colour-blind vision
         # (tests/test_canvas_visual.py), and in their own line style too (the legend shows it)
-        "c_lead_in": "#c2187a", "c_lead_out": "#4c1d95", "c_kerf": "#8f5c00", "c_pierce": "#0e7490",
+        "c_lead_in": "#dd44aa", "c_lead_out": "#4c1d95", "c_kerf": "#666600", "c_pierce": "#1199bb",
     },
     DARK: {
         "danger": "#ef5350", "on_danger": "#ffffff", "danger_fill": "#c62828",
@@ -81,13 +85,13 @@ THEMES: dict[str, dict[str, str]] = {
         "disabled": "#7f8690", "rail": "#181a1d", "rail_checked": "#2f343b", "topbar": "#181a1d",
         "focus": "#7fb0ff", "link": "#7fb0ff", "placeholder": "#8b929c", "control_border": "#747c87",
         "c_background": "#000000", "c_table": "#606060", "c_axis_x": "#c04040", "c_axis_y": "#40c040",
-        "c_cut": "#d0d0d0", "c_gap": "#7b818b", "c_rapid": "#8080ff", "c_track": "#4d8ff0",
+        "c_cut": "#d0d0d0", "c_gap": "#997766", "c_rapid": "#5577ff", "c_track": "#4d8ff0",
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
-        "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ffffff", "c_marker": "#00ffff",
-        "c_sim": "#ffffff", "c_ruler": "#a3aab4",
+        "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ffffff", "c_marker": "#aaffcc",
+        "c_sim": "#ffffff", "c_ruler": "#a3aab4", "c_done": "#606060",
         "c_preview_cut": "#ff8a00", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
         "c_preview_head_off": "#c0c0c0", "c_preview": "#e6e600", "c_preview_alert": "#e53935",
-        "c_lead_in": "#ff4fa0", "c_lead_out": "#c4a6ff", "c_kerf": "#ffc53d", "c_pierce": "#22d3ee",
+        "c_lead_in": "#ff4fa0", "c_lead_out": "#c4a6ff", "c_kerf": "#cccc55", "c_pierce": "#33ccdd",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
         "danger": "#ff5252", "on_danger": "#ffffff", "danger_fill": "#c62828",
@@ -100,13 +104,13 @@ THEMES: dict[str, dict[str, str]] = {
         "disabled": "#b0b0b0", "rail": "#000000", "rail_checked": "#ffd400", "topbar": "#000000",
         "focus": "#00e5ff", "link": "#00e5ff", "placeholder": "#d0d0d0", "control_border": "#ffffff",
         "c_background": "#000000", "c_table": "#bdbdbd", "c_axis_x": "#ff5252", "c_axis_y": "#69f0ae",
-        "c_cut": "#ffffff", "c_gap": "#ffffff", "c_rapid": "#82b1ff", "c_track": "#00e5ff",
+        "c_cut": "#ffffff", "c_gap": "#999977", "c_rapid": "#82b1ff", "c_track": "#44cc33",
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
-        "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ffffff", "c_marker": "#00e5ff",
-        "c_sim": "#ffffff", "c_ruler": "#ffffff",
+        "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#00e5ff", "c_marker": "#69f0ae",
+        "c_sim": "#ffffff", "c_ruler": "#ffffff", "c_done": "#777777",
         "c_preview_cut": "#ff6d00", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
         "c_preview_head_off": "#ffffff", "c_preview": "#ffff00", "c_preview_alert": "#ff5252",
-        "c_lead_in": "#ff80ab", "c_lead_out": "#9e6bff", "c_kerf": "#ffd740", "c_pierce": "#00e5ff",
+        "c_lead_in": "#ff80ab", "c_lead_out": "#9e6bff", "c_kerf": "#eeee66", "c_pierce": "#cc55cc",
     },
 }
 #: the machine and laser state colours, (fill, text) per state and theme (ISA-101 style, UX audit
@@ -359,10 +363,51 @@ def layer_colors(theme: str, base: Optional[list[str]] = None) -> list[str]:
     return list(hit)
 
 
+#: the colour-blind-safe layer palette (Preferences > Appearance, ``shell.colorblind_palette``;
+#: UI review 2026-11 #8), per theme: the Okabe-Ito set (bluish green, sky blue, reddish purple,
+#: yellow, blue, orange, vermillion, grey) in the order of the original's hues (layer 0 green,
+#: 1 cyan, 2 pink, 3 yellow, 4 blue, ..., 8 red), each colour moved the least that keeps it
+#: >= 3:1 on the theme's canvas (4.5:1 high contrast) and every pair at least
+#: :data:`COLORBLIND_DELTA_E` apart for normal, deuteranope and protanope vision (the default
+#: palette reaches :data:`LAYER_CVD_DELTA_E`).  A display setting: the document's layer colours
+#: (data, the exported files) never change.
+COLORBLIND_LAYERS: dict[str, list[str]] = {
+    LIGHT: ["#009966", "#3399cc", "#bb6699", "#889900", "#0066aa", "#882255", "#1188ee", "#995500",
+            "#aa4433", "#443322", "#224477"],
+    DARK: ["#009966", "#55bbee", "#cc77aa", "#eedd33", "#0077bb", "#993377", "#99ddee", "#dd9922",
+           "#bb5500", "#bbbbaa", "#ffffee"],
+    HIGH_CONTRAST: ["#009966", "#55bbee", "#cc77aa", "#eedd33", "#4477bb", "#ff7788", "#99ddee", "#dd9900",
+                    "#cc5500", "#bbccbb", "#ffffff"],
+}
+COLORBLIND_DELTA_E = 15.0
+#: the colour-blind-safe layer palette is shown (:func:`set_colorblind_palette`)
+_COLORBLIND = False
+
+
+def colorblind_palette() -> bool:
+    return _COLORBLIND
+
+
+def set_colorblind_palette(on: bool) -> None:
+    """Show the layers in :data:`COLORBLIND_LAYERS` (from the next :func:`apply_canvas_theme`)."""
+    global _COLORBLIND
+    _COLORBLIND = bool(on)
+
+
+def display_layer_colors(theme: str) -> list[str]:
+    """The layer colours the canvas draws in ``theme``: the colour-blind-safe palette when it is
+    on, else the document's palette adjusted for the theme (:func:`layer_colors`)."""
+    if _COLORBLIND:
+        return list(COLORBLIND_LAYERS[effective(theme)])
+    return layer_colors(theme)
+
+
 def apply_canvas_theme(theme: str, view=None) -> None:
     from .. import canvas
     canvas.CANVAS_COLORS.update(canvas_colors(theme))
-    canvas.set_display_layer_colors(layer_colors(theme))
+    canvas.set_display_layer_colors(display_layer_colors(theme))
+    # the layer tables' swatches follow the colour-blind palette; else they show the document's
+    canvas.set_swatch_layer_colors(display_layer_colors(theme) if _COLORBLIND else None)
     if view is not None:
         view.apply_theme()
 
@@ -682,5 +727,6 @@ def contrast_report(theme: str) -> dict[str, float]:
 
 __all__ = ["THEME_IDS", "THEMES", "SYSTEM", "LIGHT", "DARK", "HIGH_CONTRAST", "DEFAULT_THEME", "apply",
            "palette", "style_sheet", "effective", "system_is_dark", "native_style_name", "scaled_font",
-           "TYPE_SCALE", "canvas_colors", "layer_colors", "apply_canvas_theme",
+           "TYPE_SCALE", "canvas_colors", "layer_colors", "apply_canvas_theme", "COLORBLIND_LAYERS",
+           "colorblind_palette", "set_colorblind_palette", "display_layer_colors",
            "contrast_report", "tokens", "boundary_color", "BOUNDARY_MIN_CONTRAST"]
