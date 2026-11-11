@@ -140,6 +140,10 @@ def test_start_returns_at_once_and_stop_stays_live(sim_win, app, dialogs, monkey
     not armed, no job."""
     w, ctl = sim_win, sim_win.ctl
     w.set_document(_edge_doc(kerf=False))
+    # the new document's own relayouts (docks, panels) are over before the event loop is
+    # timed: what is measured below is the pre-flight alone
+    from test_responsive_layout import at_rest
+    at_rest(w, app)
     w._test_no_dialogs = False
     from mlaser.ui.workspaces import cutting_strategy as CS
     entered, release = threading.Event(), threading.Event()
