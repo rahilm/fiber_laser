@@ -314,7 +314,7 @@ class PartListModel(QAbstractTableModel):
     def warn_icon(self) -> QIcon:
         if self._warn_icon is None:
             from .icons import icon
-            self._warn_icon = icon("alert-triangle", style.color("warning").name())
+            self._warn_icon = icon("alert-triangle", "warning")          # the role: follows the theme
         return self._warn_icon
 
     def theme_changed(self) -> None:
