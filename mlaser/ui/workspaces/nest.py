@@ -268,7 +268,8 @@ class NestWorkspace(QWidget):
         # window, so the parts table keeps its Qty / Max / Priority columns and the page its
         # height (the results column 157 px wide wrapped the page taller than a 14" screen)
         # the parts and the sheet columns share their width for the least height (a larger font)
-        split = TabsWhenNarrow(extra=240, balance=(0, 1))
+        # (and the results column gives them width, down to its minimum, when that helps)
+        split = TabsWhenNarrow(extra=240, balance=(0, 1), give=2)
         root.addWidget(split)
 
         # ---------------- left: parts, sheets, remnants
