@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parent.parent / "mlaser"
 #: every handler here states its reason
 STRICT = ("services", "ui/safety_ui.py", "ui/run_rules.py", "ui/workspaces/run.py", "_swallow.py")
 #: reasonless ``noqa: BLE001`` outside STRICT when this test was written (deep review 2026-11)
-RATCHET = 184
+RATCHET = 183
 
 _NOQA = re.compile(r"#\s*noqa:\s*((?:[A-Z]+\d+\s*,\s*)*BLE001(?:\s*,\s*[A-Z]+\d+)*)(.*)$")
 
