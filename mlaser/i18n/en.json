@@ -1110,6 +1110,13 @@
   "machine.mode_switch": "Switch to {mode} mode",
   "machine.params.restore_info": "The current parameters are saved first as {path}.",
   "machine.params.restore_yes": "Restore parameters",
+  "machine.params.c_restored": "Restored",
+  "machine.params.restore_review": "What restoring from {source} changes: every value now and restored, the values that change how the machine moves marked and first. Restore asks once more and saves the current parameters first.",
+  "machine.params.restore_count.one": "Restore {n} changed value?",
+  "machine.params.restore_count.other": "Restore {n} changed values?",
+  "machine.params.restored": "Restored. The parameters before the restore are in {path}.",
+  "machine.params.restore_failed": "Nothing was restored: {error}",
+  "machine.params.source_card": "the motion card",
   "machine.restart.confirm": "Restart the motion card now?",
   "machine.upgrade.explanation": "File: {file} ({size} bytes). A wrong file or an interrupted transfer can make the board unusable. Do not switch off the machine or disconnect the network until it has finished.",
   "machine.upgrade.first": "Type {word} first",
@@ -5242,6 +5249,21 @@
   "update.open_page": "Open release page"
  },
  "args": {
+  "machine.params.restore_review": [
+   "source"
+  ],
+  "machine.params.restore_count.one": [
+   "n"
+  ],
+  "machine.params.restore_count.other": [
+   "n"
+  ],
+  "machine.params.restored": [
+   "path"
+  ],
+  "machine.params.restore_failed": [
+   "error"
+  ],
   "ws.machine.log.connected": [
    "address"
   ],
