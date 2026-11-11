@@ -45,6 +45,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from . import style
 from .workspaces import TOUCH_MIN, tr, trn
 
 WARNING = ("A plugin is program code that runs inside mlaser with your user account's rights. mlaser holds "
@@ -134,7 +135,7 @@ class PluginManagerDialog(QDialog):
             note.setObjectName("plugin_manager_mode_note")
             note.setWordWrap(True)
             lay.addWidget(note)
-        self.tabs = QTabWidget()
+        self.tabs = style.tabs(QTabWidget())
         self.tabs.setObjectName("plugin_manager_tabs")
         self.tabs.addTab(self._installed_tab(), _tr(window, "plugin_manager.tab_installed", "Installed"))
         self.tabs.addTab(self._browse_tab(), _tr(window, "plugin_manager.tab_browse", "Browse"))
@@ -155,10 +156,8 @@ class PluginManagerDialog(QDialog):
         for b in (self.btn_file, self.btn_url, self.btn_check):
             row.addWidget(b)
         row.addStretch(1)
-        bb = QDialogButtonBox(QDialogButtonBox.StandardButton.Close)
+        bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.StandardButton.Close), "touch")
         bb.rejected.connect(self.reject)
-        for bt in bb.buttons():
-            bt.setMinimumHeight(TOUCH_MIN)
         row.addWidget(bb)
         lay.addLayout(row)
         self.refresh_installed()
@@ -167,8 +166,7 @@ class PluginManagerDialog(QDialog):
 
     # ------------------------------------------------------------------ building blocks
     def _button(self, text: str, slot: Callable[[], Any], mutating: bool = False) -> QPushButton:
-        b = QPushButton(text)
-        b.setMinimumHeight(TOUCH_MIN)
+        b = style.button(text, size="touch")
         b.clicked.connect(lambda _=False: slot())
         if mutating and not self.service:
             b.setEnabled(False)
@@ -177,7 +175,7 @@ class PluginManagerDialog(QDialog):
         return b
 
     def _table(self, cols: list[str]) -> QTableWidget:
-        t = QTableWidget(0, len(cols))
+        t = style.table_look(QTableWidget(0, len(cols)))
         t.setHorizontalHeaderLabels(cols)
         t.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         t.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
@@ -221,7 +219,7 @@ class PluginManagerDialog(QDialog):
         self.search = QLineEdit()
         self.search.setObjectName("plugin_manager_search")
         self.search.setPlaceholderText(_tr(self.w, "plugin_manager.search", "Search plugins"))
-        self.search.setMinimumHeight(TOUCH_MIN)
+        style.control_size(self.search, "touch")
         self.search.textChanged.connect(lambda _t: self._fill_browse())
         row.addWidget(self.search, 1)
         self.btn_refresh = self._button(_tr(self.w, "plugin_manager.refresh", "Refresh"),
@@ -259,7 +257,7 @@ class PluginManagerDialog(QDialog):
         self.repo_edit = QLineEdit()
         self.repo_edit.setObjectName("plugin_manager_repo_url")
         self.repo_edit.setPlaceholderText("github:owner/repo")      # i18n: ok (syntax example)
-        self.repo_edit.setMinimumHeight(TOUCH_MIN)
+        style.control_size(self.repo_edit, "touch")
         row.addWidget(self.repo_edit, 1)
         self.btn_repo_add = self._button(_tr(self.w, "plugin_manager.repo_add", "Add"), self.add_repository, True)
         self.btn_repo_remove = self._button(_tr(self.w, "plugin_manager.repo_remove", "Remove"),

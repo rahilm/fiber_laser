@@ -20,7 +20,7 @@ engravings, nest results, the queue). Use `.chf` to exchange drawings with the o
 
 Usually not. mlaser autosaves the project every two minutes when something changed, and when a
 job is prepared. At the next start it offers to recover the last state, also after the very first
-session, and says exactly what it restores; **System Recovery** does the same at any time.
+session, and says exactly what it restores; **Tools › System recovery** does the same at any time.
 
 If the machine was **held** (Hold, or a fault mid-job) when mlaser ended, the resume point comes
 back too, when it belongs to the recovered drawing: it is offered in the resume bar ("Recovered
@@ -44,7 +44,10 @@ example to compare with a drawing made by the original), start mlaser with
 
 ## Where are my settings and logs?
 
-In the data folder: `~/.mlaser/`, or the folder in `$MLASER_DATA_DIR`.
+In the operating system's usual folders (on Linux `~/.config/mlaser/`, `~/.local/share/mlaser/`
+and `~/.local/state/mlaser/log/`); the table in
+[Getting started](getting-started.md#where-mlaser-keeps-its-files) lists them for every system.
+**Tools › Diagnostics › Open log directory** opens the logs.
 
 ## The help is empty
 
@@ -58,5 +61,5 @@ out.zip` without the window) and attach it. It is one zip file on your computer,
 the version and commit, the settings (tokens, passwords, notification credentials, e-mail
 addresses and home-folder paths removed), the machine parameters, the alarm history, what the
 safety supervisor did, the last card messages and the logs. The window lists what goes in before
-you save; the drawing is included only when you tick it. The device report (**System Analysis →
+you save; the drawing is included only when you tick it. The device report (**Tools › Diagnostics ›
 Device report**) can go with it.

@@ -152,7 +152,7 @@ class FollowerDialog(Dialog):
 
         csec, cl = S.section(_tr(w, "devices.follower.cal_table", "Calibration table"))
         cal = S.hbox()
-        self.grid = QTableWidget(0, 2)
+        self.grid = S.table_look(QTableWidget(0, 2), numeric=(0, 1))
         self.grid.setHorizontalHeaderLabels([_tr(w, "devices.follower.col.height", "Height"),
                                              _tr(w, "devices.follower.col.raw", "Raw")])
         self.grid.horizontalHeader().setSectionResizeMode(QHeaderView.Stretch)

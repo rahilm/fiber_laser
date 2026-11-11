@@ -25,7 +25,7 @@ from mlaser.services.procedures import engine as PE
 from mlaser.ui import style
 from mlaser.ui.units_qt import on_units_changed
 
-from .workspaces import TOUCH_MIN, tr, trn
+from .workspaces import tr, trn
 
 #: the practice sheet (mlaser.services.practice.practice_document): 300 x 200 mm
 PRACTICE_SHEET_MM = (300.0, 200.0)
@@ -122,9 +122,7 @@ class CoachWindow(QWidget):
         on_units_changed(self, lambda _u: self.refresh(), now=False)
 
     def _button(self, name: str, text: str, fn: Callable[[], Any]) -> QPushButton:
-        b = QPushButton(text)
-        b.setObjectName(name)
-        b.setMinimumHeight(TOUCH_MIN)
+        b = style.button(text, size="touch", name=name)
         b.clicked.connect(lambda _=False: fn())
         return b
 

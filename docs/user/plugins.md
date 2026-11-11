@@ -28,8 +28,8 @@ plugin**.
   installing it. The machine's own hardware safety (E-stop, door and interlock wiring, the
   watchdog relay) does not depend on any software.
 
-Open the Plugin manager from **Settings › Plugins**, with **Tools › Plugins** (macOS: the **mlaser** menu › **Plugins…**; or the command palette, Ctrl+K,
-"Plugins"). Engineer mode can look; **installing, enabling, updating and removing need Service
+Open the Plugin manager with **Tools › Plugins** (macOS: the **mlaser** menu › **Plugins…**), from
+the *Plugins* page of Settings, or from the command palette (Ctrl+K, "Plugins"). Engineer mode can look; **installing, enabling, updating and removing need Service
 mode**.
 
 ## Installed
@@ -52,7 +52,7 @@ installed into the Python environment with pip), its **status** and its permissi
   machine is armed, arm it, reset faults, hold the "PC alive" heartbeat and change the safety
   settings, each through mlaser's checked and audited interface. Without it the plugin gets no
   controller at all. Answer no unless you know why the plugin needs it. Only you grant it,
-  here (or in **Options+ › Plugins**); a plugin cannot grant it to itself through its interface,
+  here (or in **Tools › Enabled third-party plugins**); a plugin cannot grant it to itself through its interface,
   but this is a safeguard for honest plugins, not a lock (see above).
 * **Disable** stops it at the next start.
 * **Update** appears after *Check for updates* finds a newer compatible version. If the new

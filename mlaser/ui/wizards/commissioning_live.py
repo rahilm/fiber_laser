@@ -183,9 +183,8 @@ class LiveRow(QWidget):
                 b.deleteLater()
             self.buttons = {}
             for fx in self._fixes:
-                b = QPushButton(fix_text(self.w, fx))
+                b = style.button(fix_text(self.w, fx))     # a Service-mode tool at the PC (mouse targets)
                 b.setObjectName(f"fix_{self.rid}_{fx.replace(':', '_')}")
-                b.setMinimumHeight(style.TARGET)     # a Service-mode tool at the PC (mouse targets)
                 b.clicked.connect(lambda _=False, f=fx: self.on_fix(self.rid, f))
                 self.fix_lay.addWidget(b)
                 self.buttons[fx] = b

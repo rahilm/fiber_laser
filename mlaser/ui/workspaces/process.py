@@ -27,7 +27,7 @@ from typing import Any, Callable, Optional
 from PySide6.QtCore import QSize, Qt, Signal
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialogButtonBox,
                                QFileDialog, QHBoxLayout, QHeaderView, QInputDialog, QLabel, QLineEdit,
-                               QMenu, QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
+                               QMenu, QMessageBox, QSizePolicy, QSpinBox, QSplitter, QTableWidget,
                                QTableWidgetItem, QTabWidget, QToolButton, QTreeWidget, QTreeWidgetItem,
                                QVBoxLayout, QWidget)
 
@@ -389,7 +389,7 @@ class TechCompareDialog(style.Dialog):
         self.only_diff.toggled.connect(lambda _v: self.refresh())
         row.addWidget(self.only_diff)
         lay.addLayout(row)
-        self.tree = QTreeWidget()
+        self.tree = style.table_look(QTreeWidget())
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels([t("process.diff.param"), "A", "B"])
         self.tree.header().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -515,7 +515,7 @@ class LibraryPage(QWidget):
         self.search.textChanged.connect(lambda _t: self.refresh_tree())
         bind_transient(self.search, "view.search")
         lv.addWidget(self.search)
-        self.tree = QTreeWidget()
+        self.tree = style.table_look(QTreeWidget())
         self.tree.setObjectName("library_tree")
         self.tree.setHeaderHidden(True)
         self.tree.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
@@ -526,7 +526,7 @@ class LibraryPage(QWidget):
         bfl = FlowLayout(brow, justify=False, hspacing=style.SP1, vspacing=style.SP1)
         for key, fn in (("tech.import", self.import_file), ("tech.export", self.export_file),
                         ("tech.compare", self.compare)):
-            b = QPushButton(t(key))
+            b = style.button(t(key))
             b.clicked.connect(lambda _c=False, f=fn: f())
             bfl.addWidget(b)
         lv.addWidget(brow)
@@ -545,7 +545,7 @@ class LibraryPage(QWidget):
         # Drawing page, or any layer of the drawing
         urow = QWidget()
         ufl = FlowLayout(urow, justify=False, hspacing=style.SP1, vspacing=style.SP1)
-        self.use_btn = QPushButton(t("library.use_for_layer_none"))
+        self.use_btn = style.button(t("library.use_for_layer_none"))
         self.use_btn.setObjectName("library_use_for_layer")
         self.use_btn.clicked.connect(lambda _c=False: self.use_for_current())
         ufl.addWidget(self.use_btn)
@@ -560,8 +560,7 @@ class LibraryPage(QWidget):
         self.assign_menu_btn.setMenu(self.assign_menu)
         ufl.addWidget(self.assign_menu_btn)
         rv.addWidget(urow)
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
+        tabs = style.tabs(QTabWidget())
         unit = int(ctx.config.get("UN.GasPressureUnit", 0) or 0) if getattr(ctx, "config", None) is not None else 0
         self.editor = TechnologyEditor(self.tr_, base_fn=self._factory_of, pressure_unit=unit)
         self.editor.changed.connect(self._editor_changed)
@@ -579,13 +578,13 @@ class LibraryPage(QWidget):
         arow = QWidget()
         afl = FlowLayout(arow, justify=True, hspacing=style.SP1, vspacing=style.SP1)
         afl.addWidget(self.comment)
-        self.save_btn = QPushButton(t("tech.save"))
+        self.save_btn = style.button(t("tech.save"))
         self.save_btn.setDefault(True)
         self.save_btn.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
         self.save_btn.clicked.connect(self.save_version)
         afl.addWidget(self.save_btn)
         for key, fn in (("tech.save_new", self.save_as_new), ("tech.revert", self.revert_factory)):
-            b = QPushButton(t(key))
+            b = style.button(t(key))
             b.setSizePolicy(QSizePolicy.Fixed, QSizePolicy.Fixed)
             b.clicked.connect(lambda _c=False, f=fn: f())
             afl.addWidget(b)
@@ -606,7 +605,7 @@ class LibraryPage(QWidget):
         bind_transient(self.diff_mode, "view.diff_mode")
         df.addRow(QLabel(t("process.diff.mode")), self.diff_mode)
         dl.addWidget(df)
-        self.diff = QTreeWidget()
+        self.diff = style.table_look(QTreeWidget())
         self.diff.setColumnCount(4)
         self.diff.setHeaderLabels([t("process.diff.param"), t("process.diff.unit"), t("process.diff.old"),
                                    t("process.diff.new")])
@@ -621,7 +620,7 @@ class LibraryPage(QWidget):
         hw = QWidget()
         hl = QVBoxLayout(hw)
         hl.setContentsMargins(0, style.SP1, 0, 0)
-        self.history = QTreeWidget()
+        self.history = style.table_look(QTreeWidget())
         self.history.setColumnCount(3)
         self.history.setHeaderLabels([t("tech.version"), t("tech.date"), t("tech.comment")])
         self.history.setRootIsDecorated(False)
@@ -629,7 +628,7 @@ class LibraryPage(QWidget):
         self.history.header().setStretchLastSection(False)
         self.history.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         hl.addWidget(self.history, 1)
-        bb = QPushButton(t("tech.restore_version"))
+        bb = style.button(t("tech.restore_version"))
         bb.clicked.connect(self.restore_version)
         rl = QHBoxLayout()
         rl.addStretch(1)
@@ -1014,7 +1013,7 @@ class ProcessWorkspace(QWidget):
         self.outdated_label = QLabel()
         self.outdated_label.setWordWrap(True)
         ol.addWidget(self.outdated_label, 1)
-        self.update_btn = QPushButton(t("process.update_layers"))
+        self.update_btn = style.button(t("process.update_layers"))
         self.update_btn.clicked.connect(self.update_outdated)
         ol.addWidget(self.update_btn)
         self.outdated.hide()
@@ -1031,7 +1030,7 @@ class ProcessWorkspace(QWidget):
         f.setBold(True)
         lt.setFont(f)
         ll.addWidget(lt)
-        self.layers = QTableWidget(0, 3)
+        self.layers = style.table_look(QTableWidget(0, 3))
         self.layers.setAccessibleName(t("process.layers"))
         self.layers.setHorizontalHeaderLabels([t("process.col.layer"), t("process.col.technology"),
                                                t("process.col.state")])
@@ -1053,8 +1052,7 @@ class ProcessWorkspace(QWidget):
         self.layers.itemSelectionChanged.connect(self._layer_selected)
         ll.addWidget(self.layers, 1)
         split.addWidget(lw)
-        tabs = QTabWidget()
-        tabs.setDocumentMode(True)
+        tabs = style.tabs(QTabWidget())
         self.inspector = LayerInspector(ctx, store)
         self.inspector.changed.connect(self._inspector_changed)
         tabs.addTab(self.inspector, t("process.tab.layer"))

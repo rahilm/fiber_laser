@@ -13,6 +13,7 @@ from ...machine.api import MachineState
 from ...machine.audit import audit
 from ...machine.safety import SafetyState
 from .. import alarms as A
+from ...machine.jobphase import derive_mode
 from .. import cardlock
 from ..client import ControllerError
 
@@ -47,8 +48,20 @@ class ConnectionPart:
         # one process drives a card at a time (controller/cardlock.py): an OS lock keyed by the
         # address, taken before any socket exists and released by disconnect() or the OS
         self.connect_error, self.card_busy = "", False
+        self._sup.link_factory = None
         try:
-            self._card_lock = cardlock.acquire(self.cfg.host, self.cfg.port, self.cfg.transport)
+            if self.cfg.transport == "memory":
+                # the in-process simulator without a socket (tests: connect_simulator(link=
+                # "memory")); private to this controller, so no card lock
+                sim, clock = self.sim, self.clock
+                if sim is None:
+                    self.connect_error = "no in-memory simulator (connect_simulator(link='memory'))"
+                    return False
+                from ..memlink import MemoryLink
+                self._sup.link_factory = lambda: MemoryLink(sim, clock)
+                self._card_lock = None
+            else:
+                self._card_lock = cardlock.acquire(self.cfg.host, self.cfg.port, self.cfg.transport)
         except cardlock.CardBusy as e:
             self.connect_error, self.card_busy = str(e), True
             self._log(f"mf166: {e}", logging.WARNING)
@@ -90,8 +103,9 @@ class ConnectionPart:
             self._log(f"warning: firmware version {ver} < MinHardwareVer 20177")
         self._read_scaling()
         self._poll_stop.clear()
-        self._poll_thread = threading.Thread(target=self._poll_loop, name="mlaser-poll", daemon=True)
-        self._poll_thread.start()
+        if not self.clock.virtual:          # virtual time (tests): the test polls (_poll_once)
+            self._poll_thread = threading.Thread(target=self._poll_loop, name="mlaser-poll", daemon=True)
+            self._poll_thread.start()
         self._sup.start_monitor()
         self._commands.start()               # before the first GUI command (no thread start there)
         lifecycle.register(self)
@@ -155,7 +169,7 @@ class ConnectionPart:
                     self.sim.period_ms = sc.period_ms
 
     def connect_simulator(self, time_scale: float = 1.0, require_homed: bool = False,
-                          link_deadline_ms: Optional[float] = None, **sim_kw) -> bool:
+                          link_deadline_ms: Optional[float] = None, link: str = "udp", **sim_kw) -> bool:
         """Start an in-process :class:`CardSimulator` on localhost UDP and connect to it.  The
         simulator's parameter image matches ``machine`` (period, pulses/mm).  The pre-flight
         homing requirement is off for the simulator unless ``require_homed``.
@@ -164,8 +178,15 @@ class ConnectionPart:
         card shares this Python process (and its GIL) with the streamer, so on a loaded PC a
         150 ms gap measures thread scheduling, not the link, and faulted demo jobs spuriously.  A
         real card keeps the configured deadline (150 ms default); pass ``link_deadline_ms`` to
-        test link-loss behaviour at the real value."""
+        test link-loss behaviour at the real value.
+
+        ``link="memory"`` (tests, docs/dev/TESTING.md): no socket; the requests go straight to
+        the simulator's ``handle()`` (:mod:`mlaser.controller.memlink`) and the simulator is
+        stepped by the controller's clock when it is a ``ManualClock`` (virtual time, no
+        simulator thread), else by its own motion thread.  The job streams in a thread."""
         from ..simulator import CardSimulator
+        if link not in ("udp", "memory"):
+            raise ValueError(f"link must be 'udp' or 'memory', not {link!r}")
         self.wait_commands(15.0)
         self._invalidate_starts("disconnect")
         self._disconnect(True, False, None)
@@ -176,8 +197,18 @@ class ConnectionPart:
         sim_kw.setdefault("ppm", m.pulses_per_mm_x)          # position counts = step pulses
         sim_kw.setdefault("step_ppm", m.pulses_per_mm_x)
         self.sim = CardSimulator("127.0.0.1", 0, period_ms=m.period_ms,
-                                 time_scale=time_scale, **sim_kw).start()
+                                 time_scale=time_scale, **sim_kw)
         self._require_homed = bool(require_homed)
+        if link == "memory":
+            attach = getattr(self.clock, "attach", None)
+            if callable(attach):
+                attach(self.sim)                # stepped by the clock: virtual time
+            else:
+                self.sim.start(network=False)
+            self._log("simulator started in memory (no socket)")
+            self.cfg.transport = "memory"
+            return self.connect("memory", 1)
+        self.sim.start()
         self._log(f"simulator started on 127.0.0.1:{self.sim.port} (UDP)")
         self.cfg.transport = "udp"
         return self.connect("127.0.0.1", self.sim.port)
@@ -226,6 +257,8 @@ class ConnectionPart:
             st.set_cancel()
         if self._worker is not None and self._worker is not threading.current_thread():
             self._worker.join(timeout=5.0)
+        if not self._busy() and self._lc.phase.value != "idle":
+            self._lc.reset("disconnect")        # the Stop / Hold that owned it cannot finish now
         self._poll_stop.set()
         if self._poll_thread is not None and self._poll_thread is not threading.current_thread():
             self._poll_thread.join(timeout=2.0)
@@ -238,6 +271,8 @@ class ConnectionPart:
         if self.sim is not None and not keep_sim:
             self.sim.stop()
             self.sim = None
+            if self.cfg.transport == "memory":
+                self.cfg.transport = "udp"      # a later connect() is to a card again
         with self._slock:
             self._s = MachineState(x=self._s.x, y=self._s.y)
         self.breakpoint = None
@@ -319,22 +354,32 @@ class ConnectionPart:
                 self._poll_stop.wait(self.poll_s)
                 self._deadman_tick()
                 continue
-            try:
-                # FUN_1004eab0: fast read once the fast-status map is written (startup)
-                st = mc.poll() if getattr(mc, "fast_len", 0) > 0 else mc.read_status()
-                zf = self._read_follower(mc)
-                self._errors = 0
-            except (ControllerError, OSError) as e:
-                self._errors += 1
-                if self._errors == 3:
-                    self._log(f"mf166: status polling failed ({e})", logging.WARNING)
-                    with self._slock:
-                        self._s.mode = "offline"
+            if not self._poll_once(mc):
                 self._poll_stop.wait(max(self.poll_s, 0.2))
                 continue
-            self._apply_status(st, zf)
             self._deadman_tick()
             self._poll_stop.wait(self.poll_s)
+
+    def _poll_once(self, mc=None) -> bool:
+        """One status read and its evaluation (the poll loop; tests on a virtual clock call it
+        themselves).  False when the card did not answer."""
+        mc = mc or self._mc
+        if mc is None:
+            return False
+        try:
+            # FUN_1004eab0: fast read once the fast-status map is written (startup)
+            st = mc.poll() if getattr(mc, "fast_len", 0) > 0 else mc.read_status()
+            zf = self._read_follower(mc)
+            self._errors = 0
+        except (ControllerError, OSError) as e:
+            self._errors += 1
+            if self._errors == 3:
+                self._log(f"mf166: status polling failed ({e})", logging.WARNING)
+                self._poll_failing = True
+                self._refresh_mode()        # "offline" until a status comes again
+            return False
+        self._apply_status(st, zf)
+        return True
 
     def _read_follower(self, mc) -> Optional[list]:
         """Follower status words (10000 x 18) for the interlock, when an on-board FTC exists."""
@@ -347,7 +392,10 @@ class ConnectionPart:
         from ...protocol import frames as F
         try:
             self._zf_words = mc.read_regs(F.REG_ONBZF, F.N_ONBZF)
-        except ControllerError:
+        except (ControllerError, OSError):
+            # not read: unknown, which the interlock never takes for clear (a follower alarm
+            # it holds keeps holding); an OSError (socket error) used to escape from here, out
+            # of the poll's status handling and the fault reset
             self._zf_words = None
         return self._zf_words
 
@@ -358,6 +406,7 @@ class ConnectionPart:
         self._apply_status(st, zf)
 
     def _apply_status(self, st, zf=None) -> None:
+        self._poll_failing = False           # the card answered
         ppm = st.pulses_per_mm or self.position_ppm
         new_alarms = A.from_status(st)
         raised, cleared = A.diff(self.active_alarms, new_alarms)
@@ -393,18 +442,9 @@ class ConnectionPart:
                 s.homed = not new_alarms and (st.homed_mask() & want) == want
             elif not self._homing and (self._homed_mask & 3) == 3:
                 s.homed = True
-            if self._job_starting or (self._job_live and self._busy()):
-                s.mode = "pause" if self._paused else (self._job_mode or "process")
-            elif self.breakpoint is not None:
-                s.mode = "pause"
-            elif ms == 1:
-                s.mode = "origin"
-            elif ms == 2:
-                s.mode = "jog"
-            elif ms == 4:
-                s.mode = "process"
-            elif s.mode != "offline":
-                s.mode = "ready"
+            # from the job phase and this status, never from the mode shown before (it kept
+            # "offline" after a link fault was reset, arch A1)
+            s.mode = self._derive_mode(ms)
         self.active_alarms = new_alarms
         for a in raised:
             self._log(f"card alarm: {a.text_en} (code {a.code})", logging.WARNING)
@@ -419,7 +459,7 @@ class ConnectionPart:
         if homing_done:
             self._log("Homing done" if not new_alarms else "Homing ended with alarms")
             self.events.publish(EV.HomingDone(not new_alarms))
-        if raised and self._busy() and (not self._paused or self.pause_mode == "fifo"):
+        if raised and self._busy() and (not self._held() or self.pause_mode == "fifo"):
             # MainApp FUN_00598280: any alarm during a job -> "Sys Pause" (FUN_005b9a60).  The
             # rebuild latches a FAULT (halt + breakpoint); reset, then Resume continues there.
             # A FIFO hold (pause_mode "fifo") keeps the worker alive: an alarm (e-stop) while
@@ -432,6 +472,20 @@ class ConnectionPart:
         for t in trips:
             audit("interlock", logging.ERROR, source=t.source, message=t.message)
             self.raise_fault(f"interlock {t.source}: {t.message}")
+
+    def _derive_mode(self, card_state: Optional[int] = None) -> str:
+        """``MachineState.mode`` (machine.jobphase.derive_mode); ``card_state``: the machine
+        state of the status just read, None between status reads.  Reads only (the caller may
+        hold the state lock)."""
+        return derive_mode(self._lc.state, connected=self._s.connected, worker_alive=self._busy(),
+                           breakpoint=self.breakpoint is not None, card_state=card_state,
+                           poll_failing=self._poll_failing)
+
+    def _refresh_mode(self) -> None:
+        """Show the mode of a phase change (no new card status: the card's own state is not
+        used, it may be from before the change)."""
+        with self._slock:
+            self._s.mode = self._derive_mode()
 
     def _disarm_on_alarm(self, raised) -> None:
         """An e-stop or servo alarm disarms the machine in every state, idle included (UX audit

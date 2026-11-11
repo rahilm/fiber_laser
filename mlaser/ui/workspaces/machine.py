@@ -171,7 +171,7 @@ def _big(label: QLabel, role: str = "display") -> QLabel:
 
 def _button(window: Any, key: str, fn: Callable, icon: str = "", color: Optional[str] = None,
             **fmt: Any) -> QPushButton:
-    b = QPushButton(T(window, key, **fmt))
+    b = style.button(T(window, key, **fmt), size="touch")
     if icon:
         b.setIcon(icons.icon(icon, color))
     b.setMinimumHeight(MIN_TARGET)
@@ -218,7 +218,7 @@ class SettingsPanel(QWidget):
         self.ro_note = QLabel(T(window, "ws.machine.hw_readonly"))
         self.ro_note.setWordWrap(True)
         lay.addWidget(self.ro_note)
-        self.tree = QTreeWidget()
+        self.tree = style.table_look(QTreeWidget())
         self.tree.setColumnCount(3)
         self.tree.setHeaderLabels([T(window, "ws.machine.hw_name"), T(window, "ws.machine.hw_value"),
                                    T(window, "ws.machine.hw_key")])
@@ -802,7 +802,7 @@ class MachineWorkspace(QWidget):
     def _monitors(self) -> QWidget:
         page = _ShownPage(lambda: QTimer.singleShot(0, self, self._fill_mon_tab))
         lay = QVBoxLayout(page)
-        self.mon_tabs = QTabWidget()
+        self.mon_tabs = style.tabs(QTabWidget())
         self._mon_index: dict[str, int] = {}
         for key, title in MONITORS:
             holder = QWidget()
@@ -860,7 +860,7 @@ class MachineWorkspace(QWidget):
                               "bell-off"))
         top.addWidget(_button(w, "ws.machine.alarm_clear_history", self._clear_history, "trash"))
         lay.addLayout(top)
-        self.alarm_table = QTableWidget(0, 6)
+        self.alarm_table = style.table_look(QTableWidget(0, 6))
         self.alarm_table.setHorizontalHeaderLabels([T(w, k) for k in (
             "ws.machine.a_raised", "ws.machine.a_cleared", "ws.machine.a_duration", "ws.machine.a_code",
             "ws.machine.a_text", "ws.machine.a_remedy")])

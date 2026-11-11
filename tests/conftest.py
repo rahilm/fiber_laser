@@ -161,6 +161,9 @@ UNTIMED_MODULES = {
     "test_policy", "test_remedy_texts",                   # tests/safety/: classification, texts
     "test_plugin_trust", "test_touch_targets_mode_switch",  # tests/safety/: plugin loading, widgets
     "test_ui",                                            # the demo controller on an injected clock
+    # tests/safety/ on the unit seam (seam_helpers.py: in-memory simulator, virtual time) or
+    # with no card at all: the job lifecycle, the arming after a job, the re-send after a halt
+    "test_job_lifecycle", "test_disarm_after_job", "test_resend_after_halt",
 }
 PARITY_GROUP = "parity"
 

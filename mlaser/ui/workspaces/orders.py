@@ -31,7 +31,7 @@ from PySide6.QtGui import QColor, QIcon, QPainter, QPainterPath, QPalette, QPen,
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox,
                                QFileDialog, QFormLayout, QHBoxLayout, QHeaderView,
                                QInputDialog, QLabel, QListWidget, QListWidgetItem, QMessageBox,
-                               QPushButton, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
+                               QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.services import material_check as MC
 from mlaser.services import orders as O
@@ -168,7 +168,7 @@ class ImportReviewDialog(QDialog):
         self.result.setObjectName("import_review_result")
         self.result.setWordWrap(True)
         lay.addWidget(self.result)
-        bb = QDialogButtonBox()
+        bb = style.size_buttons(QDialogButtonBox(), "touch")
         self.preview_btn = bb.addButton(tr(w, "review.btn.preview", "Preview"), QDialogButtonBox.ActionRole)
         self.fix_btn = bb.addButton(tr(w, "review.btn.fix", "Fix all safe issues"), QDialogButtonBox.AcceptRole)
         self.fix_btn.setObjectName("import_review_fix")
@@ -176,8 +176,6 @@ class ImportReviewDialog(QDialog):
         self.preview_btn.clicked.connect(self.preview)
         self.fix_btn.clicked.connect(self.fix)
         bb.rejected.connect(self.close)
-        for b in (self.preview_btn, self.fix_btn):
-            b.setMinimumHeight(TOUCH_MIN)
         lay.addWidget(bb)
         self.report: R.RepairReport = R.RepairReport()
         self.resize(640, 460)
@@ -286,12 +284,11 @@ class PartsDialog(QDialog):
         lay.addWidget(self.list, 1)
         row = QHBoxLayout()
         for key, text, fn in (("parts.btn.merge", "Merge", self.merge), ("parts.btn.split", "Split", self.split)):
-            b = QPushButton(tr(w, key, text))
-            b.setMinimumHeight(TOUCH_MIN)
+            b = style.button(tr(w, key, text), size="touch")
             b.clicked.connect(lambda _=False, f=fn: f())
             row.addWidget(b)
         lay.addLayout(row)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = style.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel), "touch")
         bb.button(QDialogButtonBox.Ok).setText(tr(w, "parts.btn.nest", "Nest these"))
         bb.accepted.connect(self.accept)
         bb.rejected.connect(self.reject)
@@ -352,13 +349,12 @@ class OrdersWorkspace(QWidget):
                               ("orders.btn.files", "Add drawings...", plugin.add_files),
                               ("orders.btn.template", "Template...", plugin.save_template),
                               ("orders.btn.remove", "Remove", self.remove)):
-            b = QPushButton(tr(w, key, text))
-            b.setMinimumHeight(TOUCH_MIN)
+            b = style.button(tr(w, key, text), size="touch")
             b.clicked.connect(lambda _=False, f=fn: f())
             bar.addWidget(b)
         bar.addStretch(1)
         lay.addLayout(bar)
-        self.table = QTableWidget(0, len(self.COLS))
+        self.table = style.table_look(QTableWidget(0, len(self.COLS)), numeric=(1, 3, 7))
         self.table.setObjectName("orders_table")
         self._headers()
         self.table.verticalHeader().setVisible(False)
@@ -382,9 +378,8 @@ class OrdersWorkspace(QWidget):
         self.group.setMinimumHeight(TOUCH_MIN - 8)
         nest.addWidget(QLabel(tr(w, "orders.group", "Material × thickness")))
         nest.addWidget(self.group, 2)
-        self.to_nest_btn = QPushButton(tr(w, "orders.btn.nest", "Load into Nest ▶"))
+        self.to_nest_btn = style.button(tr(w, "orders.btn.nest", "Load into Nest ▶"), size="touch")
         self.to_nest_btn.setObjectName("orders_to_nest")
-        self.to_nest_btn.setMinimumHeight(TOUCH_MIN + 8)
         self.to_nest_btn.clicked.connect(lambda _=False: plugin.to_nest())
         nest.addWidget(self.to_nest_btn, 1)
         lay.addLayout(nest)
@@ -402,6 +397,7 @@ class OrdersWorkspace(QWidget):
         self.table.setHorizontalHeaderLabels(
             [U.current().header(tr(w, k, d), "length") if k == "orders.col.thickness" else tr(w, k, d)
              for k, d in self.COLS])
+        style.set_empty_text(self.table, tr(w, "orders.empty", "No orders yet"))
 
     def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().showEvent(ev)

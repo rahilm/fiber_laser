@@ -29,7 +29,6 @@ from typing import Any, Callable, Optional
 from PySide6.QtWidgets import (
     QLabel,
     QListWidget,
-    QPushButton,
     QVBoxLayout,
     QWidget,
 )
@@ -148,7 +147,7 @@ class CuttingStrategyPanel(QWidget):
             ("cutstrat.fix_leads", "Fix", self.fix_leads, "cutstrat_fix_leads"),
             ("cutstrat.place_leads", "Place starts", self.place_leads, "cutstrat_place_leads"),
         ):
-            b = QPushButton(tr(w, key, text))
+            b = style.button(tr(w, key, text))
             b.setObjectName(name)
             b.clicked.connect(lambda _=False, f=fn: f())
             buttons.append(b)
@@ -177,7 +176,7 @@ class CuttingStrategyPanel(QWidget):
             ("cutstrat.check_tip", "Check", self.check_tipping, "cutstrat_check_tip"),
             ("cutstrat.fix_tip", "Fix", self.fix_tipping, "cutstrat_fix_tip"),
         ):
-            b = QPushButton(tr(w, key, text))
+            b = style.button(tr(w, key, text))
             b.setObjectName(name)
             b.clicked.connect(lambda _=False, f=fn: f())
             buttons.append(b)

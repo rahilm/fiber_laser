@@ -13,6 +13,7 @@ classifiers = [
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",   # CI: ubuntu / 3.14 on every push; cp314 wheels
 ]
 requires-python = ">=3.12"   # PySide6 6.12 crashes on 3.11 (none_dealloc); goldens pinned to 3.12
 # Floors (review F7): the lowest versions a clean Python 3.12 environment was started and tested
@@ -21,7 +22,8 @@ requires-python = ">=3.12"   # PySide6 6.12 crashes on 3.11 (none_dealloc); gold
 # QtPrintSupport, QtNetwork; QtDBus, QtTest in tests), so not the PySide6 meta-package (+Addons,
 # WebEngine, Pdf: ~440 MB never imported); 6.9 lays the docks out differently
 # (tests/test_half_screen.py), 6.10 passes.  numpy 1.26 / shapely 2.0.2: the first with
-# CPython 3.12 wheels.  platformdirs: the configuration, data and log folders (required at start).
+# CPython 3.12 wheels; the code uses no numpy 2 API, and with numpy 1.26.4 the goldens are
+# bit-identical and the unit suite passes (2026-11-11).  platformdirs: the configuration, data and log folders (required at start).
 dependencies = [
     "PySide6-Essentials>=6.10",
     "ezdxf>=1.1",

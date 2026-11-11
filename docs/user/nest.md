@@ -1,6 +1,7 @@
 # Nest workspace and remnant stock
 
-Open it with `workspace.nest`. It edits the same nest project as the Nest dock.
+Open it with **Nest** in the rail, **Workspace › Nest** or `Ctrl+3`. It edits the same nest
+project as the Nest panel (**Window › Panels › Nest**) and the commands of **Process › Nesting**.
 
 * **Parts**: name, quantity, maximum (fill up to) and priority (higher is placed first), the
   **rotation** of each part and **mirror** (mirrored copies allowed). Rotation: *sheet setting*

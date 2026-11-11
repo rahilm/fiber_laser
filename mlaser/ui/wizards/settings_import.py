@@ -12,11 +12,12 @@ from typing import Any, Optional
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QHBoxLayout, QLabel,
-                               QLineEdit, QPushButton, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
+                               QLineEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget)
 
 from mlaser.services import settings_import as SI
 
-from .common import MIN_TARGET, T
+from .. import style
+from .common import T
 
 AREA_KEYS = {"params": "wizard.import.area_params", "layers": "wizard.import.area_layers",
              "ip": "wizard.import.area_ip", "jump": "wizard.import.area_jump",
@@ -71,18 +72,18 @@ class SettingsImportDialog(QDialog):
             row = QHBoxLayout()
             edit.setMinimumHeight(32)
             row.addWidget(edit, 1)
-            b = QPushButton(T(window, "wizard.import.browse"))
+            b = style.button(T(window, "wizard.import.browse"), size="touch")
             b.clicked.connect(pick)
             row.addWidget(b)
             f.addRow(T(window, key), row)
         nex = SI.localappdata_nexcut()
         if nex is not None:
-            b = QPushButton(T(window, "wizard.import.use_localappdata", path=str(nex)))
+            b = style.button(T(window, "wizard.import.use_localappdata", path=str(nex)), size="touch")
             b.clicked.connect(lambda: self.params.setText(str(nex)))
             f.addRow("", b)
         lay.addLayout(f)
         # the list of changes is the one part that scrolls (its rows); the form around it does not
-        self.tree = QTreeWidget()
+        self.tree = style.table_look(QTreeWidget())
         self.tree.setColumnCount(5)
         self.tree.setHeaderLabels([T(window, "wizard.import.c_setting"), T(window, "wizard.import.c_label"),
                                    T(window, "wizard.import.c_current"), T(window, "wizard.import.c_new"),
@@ -93,7 +94,7 @@ class SettingsImportDialog(QDialog):
         self.status.setWordWrap(True)
         self.status.setTextInteractionFlags(Qt.TextSelectableByMouse)
         lay.addWidget(self.status)
-        bb = QDialogButtonBox()
+        bb = style.size_buttons(QDialogButtonBox(), "touch")
         self.b_compare = bb.addButton(T(window, "wizard.import.compare"), QDialogButtonBox.ActionRole)
         self.b_compare.setToolTip(T(window, "wizard.import.compare_tip"))
         self.b_preview = bb.addButton(T(window, "wizard.import.preview"), QDialogButtonBox.ActionRole)
@@ -101,8 +102,6 @@ class SettingsImportDialog(QDialog):
         self.b_reconnect.setVisible(False)
         self.b_apply = bb.addButton(T(window, "wizard.import.apply"), QDialogButtonBox.ActionRole)
         bb.addButton(QDialogButtonBox.Close)
-        for b in (self.b_compare, self.b_preview, self.b_reconnect, self.b_apply):
-            b.setMinimumHeight(MIN_TARGET)
         self.b_compare.clicked.connect(lambda: self.compare())
         self.b_preview.clicked.connect(self.preview)
         self.b_reconnect.clicked.connect(self.reconnect)

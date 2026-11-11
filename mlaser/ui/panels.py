@@ -77,7 +77,7 @@ class LayerPanel(QWidget):
             row.addWidget(b)
             self.color_buttons.append(b)
         v.addWidget(roww)
-        self.table = QTableWidget(0, len(self.COLS))
+        self.table = style.table_look(QTableWidget(0, len(self.COLS)), numeric=(1, 2, 3, 5, 6))
         tr.bind(self.table, "a11y.layers.table", self.table.setAccessibleName)
         self.table.verticalHeader().hide()
         self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
@@ -98,7 +98,7 @@ class LayerPanel(QWidget):
         self.table.cellDoubleClicked.connect(lambda r, c: self.editLayer.emit(self._row_layer(r)))
         v.addWidget(self.table)
         btns = QHBoxLayout()
-        self.btn_params = QPushButton()
+        self.btn_params = style.button()
         tr.bind(self.btn_params, "layers.edit_in", self.btn_params.setText)
         self.btn_params.clicked.connect(self._edit_current)
         btns.addWidget(self.btn_params)
@@ -260,6 +260,7 @@ class HoldToFireButton(QPushButton):
         self.setIconSize(QSize(style.ICON_M, style.ICON_M))
         from .responsive import keep_min_size
         keep_min_size(self, QSize(0, style.TARGET_TOUCH))
+        self.setProperty("control_size", "touch")
         self._timer = QTimer(self)
         self._timer.setInterval(20)
         self._timer.timeout.connect(self._tick)
@@ -559,9 +560,8 @@ class ControlPanel(QWidget):
         return sec
 
     def _text_button(self, key: str, fn: Optional[Callable], checkable: bool = False) -> QPushButton:
-        b = QPushButton()
+        b = style.button(size="touch", checkable=checkable)    # machine-moving and output controls
         self.tr_.bind(b, key, b.setText)
-        b.setCheckable(checkable)
         if fn is not None:
             b.clicked.connect(lambda _=False: fn())
         b.setObjectName(key)
@@ -708,11 +708,13 @@ class LogPanel(QTabWidget):
 
     def __init__(self, tr: Translator, parent=None):
         super().__init__(parent)
+        style.tabs(self, "dock")
         self.tr_ = tr
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(5000)
-        self.alarms = QTableWidget(0, 2)
+        self.alarms = style.table_look(QTableWidget(0, 2))
+        tr.bind(self.alarms, "panel.alarms.empty", lambda t: style.set_empty_text(self.alarms, t))
         self.alarms.horizontalHeader().setStretchLastSection(True)
         self.alarms.verticalHeader().hide()
         self.addTab(self.text, "")

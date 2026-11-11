@@ -125,7 +125,7 @@ class ParamGridDialog(QDialog):
         self.setWindowTitle(tr.tr(title_key))
         self.resize(640, 560)
         lay = QVBoxLayout(self)
-        tabs = QTabWidget()
+        tabs = S.tabs(QTabWidget())
         lay.addWidget(tabs)
         self._editors: dict[str, QWidget] = {}
         self._settings: dict = {}
@@ -134,7 +134,7 @@ class ParamGridDialog(QDialog):
             defs = P.section(sec)
             if not defs:
                 continue
-            tree = QTreeWidget()
+            tree = S.table_look(QTreeWidget())
             tree.setColumnCount(2)
             tree.setHeaderLabels([tr.tr("hp40", "Name"), tr.tr("gv2", "Value")])
             tree.header().setSectionResizeMode(0, QHeaderView.ResizeToContents)
@@ -155,7 +155,7 @@ class ParamGridDialog(QDialog):
                     self._initial[d.key] = self._read(ed)
                 g.setExpanded(True)
             tabs.addTab(tree, sec)
-        bb = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        bb = S.size_buttons(QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel))
         bb.accepted.connect(self._ok)
         bb.rejected.connect(self.reject)
         lay.addWidget(bb)

@@ -19,6 +19,8 @@ detected instead of depending on load order (architecture.md §1.3, P1-5):
 * hooks of the shell: ``ctx.on_workspace_changed(fn)``, ``ctx.on_user_mode_changed(fn)``.
 * ``ctx.settings_schema([...Setting])``: typed, validated, persisted plugin settings under
   ``plugin.<name>.<key>`` (:class:`mlaser.services.config.ConfigService`).
+* ``ctx.register_project_section(name, get, set)``: the plugin's job data in the ``.mlz``
+  project and its autosave.
 * services: ``ctx.docs``, ``ctx.config`` (third-party: :class:`PluginConfigView`), ``ctx.jobs``,
   ``ctx.commands``; ``ctx.controller``,
   ``ctx.document``, ``ctx.window`` (Qt parent for dialogs), ``ctx.tr``, ``ctx.log(msg)``.
@@ -540,6 +542,28 @@ class PluginContext:
 
     def provide(self, name: str, fn: Callable[..., Any]) -> None:
         self.host.hooks.provide(name, fn, self.name)
+
+    # ------------------------------------------------------------------ project data
+    def register_project_section(self, name: str, get: Callable[[], Any], set: Callable[[Any], None]) -> bool:
+        """Keep the plugin's job data in the ``.mlz`` project and its autosave
+        (docs/dev/project-format.md, "Plugin sections"): ``get()`` returns JSON-able data to save,
+        ``set(value)`` receives it when a project is opened or recovered.  A plugin that is not
+        built in names its section after itself (``name`` is its id, or starts with ``"<id>."``)
+        so it cannot take over another part's data (``technology``, ``queue``, ``orders``), and
+        needs ``permissions.document``.  Returns False when the application has no project
+        support (the ``project.register_section`` provider of ``ext_project``)."""
+        name = str(name)
+        if self.origin != "builtin":
+            self._need("document")
+            if name != self.name and not name.startswith(self.name + "."):
+                raise PermissionError(f"plugin {self.name!r}: a project section is named {self.name!r} "
+                                      f"or {self.name + '.<part>'!r}, not {name!r}")
+        hooks = getattr(self.host, "hooks", None)
+        reg = hooks.provider("project.register_section") if hooks is not None else None
+        if not callable(reg):
+            return False
+        reg(name, get, set)
+        return True
 
     # ------------------------------------------------------------------ UI
     def add_dock(self, widget: Any, title: str, area: str = "right", key: str = "") -> Any:

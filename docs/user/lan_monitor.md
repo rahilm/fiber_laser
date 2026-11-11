@@ -12,7 +12,7 @@ sent to any cloud.
 
 ## Enable
 
-Command `monitor.toggle` (or the setting `plugin.run.monitor_enabled`). A warning explains who
+**Machine › Monitors › LAN monitor (read-only)** (or the setting `plugin.run.monitor_enabled`). A warning explains who
 can see the page before it starts; while it runs, the Run screen shows **LAN monitor ON** with
 the address, and the log has the full link.
 

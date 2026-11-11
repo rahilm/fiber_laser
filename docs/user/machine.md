@@ -1,11 +1,9 @@
 # The Machine workspace and the guided procedures
 
-The **Machine** workspace (command `machine.workspace`) gathers everything about the machine
-itself: connecting, homing and jogging, origins, the guided procedures, the device monitors,
-the hardware settings and the alarm history.  Until the workspace switcher of the new shell is
-in place it opens as its own window.
-
-Screens: `work/w3/machine/ws_*.png` and `wiz_*.png` (offscreen captures).
+The **Machine** workspace (**Machine** in the rail, **Workspace › Machine**, **Machine › Machine**
+or `Ctrl+6`) gathers everything about the machine itself: connecting, homing and jogging,
+origins, the guided procedures, the device monitors, the machine parameters and the alarm
+history.  Its pages are listed on the left; the **Machine** menu has the same commands.
 
 ## Sections
 
@@ -13,18 +11,18 @@ Screens: `work/w3/machine/ws_*.png` and `wiz_*.png` (offscreen captures).
 |---|---|---|
 | Connection | Built-in simulator or a network address (a motion card or the network simulator `mlaser-cardsim`: IP address, port; the card does not say which, so it is shown as "not identified"), Connect / Disconnect, the live status (connection, safety state, address, link, homed) and the network self-test (`mlaser --selftest`), optionally with one status request to the card | Operator |
 | Homing and jog | Position in mm, Home X/Y, X, Y, X/Y/Z, focus homing; **hold-to-jog** X± Y± Z± (release stops; a step size of 0.1 / 1 / 10 mm makes one click one step; the jog stops when the window loses focus or is hidden, docs/SAFETY.md §8); coordinate system, set origin, go to origin (in a tool coordinate system or Manual; disabled, with the reason, in Float, where the job starts at the head), clear the sheet rotation | Operator |
-| Procedures | The guided procedures below, each with the mode it needs | per procedure |
-| Monitors | Controller, follower (FTC), autofocus and EtherCAT monitors as panels (they poll only while visible); the ribbon's monitor commands open them here | Engineer |
-| Hardware settings | The hardware parameter sections with readable names, a search box, typed editors with units and ranges; Apply validates every value; read-only below Service mode.  Changes reach the card at the next connect.  **Safety I/O...** opens the interlock and heartbeat settings ([below](#safety-io-interlocks-and-the-pc-alive-heartbeat)) | Engineer (view), Service (edit); Safety I/O: Engineer |
-| Alarms | Every card alarm and latched fault with raise and clear time, duration, code, text and **what to do**; Reset alarms; Clear history (asks first; Cancel is the default).  Kept in `alarm_history.jsonl` in the data folder | Operator |
+| Procedures | The guided procedures below and *Import from my Mlaser installation*, each with the mode it needs (also **Machine › Procedures**) | per procedure |
+| Monitors | Controller, follower (FTC), autofocus and EtherCAT monitors as panels (they poll only while visible); **Machine › Monitors** opens them here | Engineer |
+| Setup | The machine parameter sections (*Section* list) with readable names, a search box, typed editors with units and ranges; **Apply** validates every value, asks first and backs up the configuration; **Revert** drops unapplied edits; read-only below Service mode.  Changes reach the card at the next connect.  **Safety I/O...** opens the interlock and heartbeat settings ([below](#safety-io-interlocks-and-the-pc-alive-heartbeat)) | Engineer (view), Service (edit); Safety I/O: Engineer |
+| Alarms | Every card alarm and latched fault with raise and clear time, duration, code, text and **what to do**; **Reset alarm**; Clear history (asks first; Cancel is the default).  Kept in `alarm_history.jsonl` in the data folder | Operator |
 
 User modes (Operator / Engineer / Service) come from the shell.  Without them every section is
 open.  A command above the current mode says which mode it needs instead of running.
 
 ## Safety I/O: interlocks and the PC-alive heartbeat
 
-**Machine > Hardware settings > Safety I/O...** (command `machine.safety_io`, Engineer and
-Service mode; also offered by the commissioning checklist) sets which card inputs the
+**Machine › Safety I/O** (also **Safety I/O...** on the *Setup* page; Engineer and Service mode;
+also offered by the commissioning checklist) sets which card inputs the
 interlocks read and which card output drives the watchdog relay (docs/SAFETY.md §8 and §11):
 
 | Setting | Meaning |
@@ -102,7 +100,9 @@ per pulse on the Results page.
 
 ### Commissioning checklist (first connection)
 
-Run it once when a machine is connected for the first time, and after wiring changes.  Switch
+**Machine › Procedures › Commissioning checklist** (Service mode; also from the welcome sheet's
+*Connect your machine*). Run it once when a machine is connected for the first time, and after
+wiring changes.  Switch
 the laser source off (key switch) first.
 
 | Check | Pass when | Fix offered |
@@ -135,13 +135,14 @@ it ("Open the door now"): the row passes when the input changes and the guard re
 interlock blocks (cutting jobs, arming...), then asks you to release it.  Testing every wired
 interlock this way completes the Interlocks check like the wiring test.  A failing row carries
 the button that fixes it, which opens the one place that does (Safety I/O at that input, the
-network check, the parameter import, Clear Alarm).  In a dry run the rows offer **Simulate the
+network check, the parameter import, Reset alarm).  In a dry run the rows offer **Simulate the
 sensor** instead, and never change the parameters.  Sections with nothing to fix fold first
 when the window is short.
 
 ## Import from my Mlaser installation
 
-Procedures › Import (Service mode) takes the settings of an existing Mlaser installation:
+**Machine › Import from my Mlaser installation** (or the *Procedures* page; Service mode) takes
+the settings of an existing Mlaser installation:
 
 1. choose the install folder, and the parameter folder (`%LOCALAPPDATA%\NexCut` or a copy of
    it; it is found automatically when it sits in the install folder as `dat` or `NexCut`);
@@ -152,7 +153,8 @@ Procedures › Import (Service mode) takes the settings of an existing Mlaser in
    backs up the configuration (`config.json.<date>-<time>.bak`) and, with the card connected,
    offers **Reconnect now** (the card takes the new values when it connects).
    **Compare with backup or file…** shows the difference to a backup and restores it.
-   File › Import parameters from an Mlaser installation… opens this same window in every mode.
+   **File › Parameters › Import parameters from an Mlaser installation…** opens this same window
+   in every mode ([Importing your Mlaser setup](importing-mlaser-setup.md)).
 
 | Area | From | To |
 |---|---|---|

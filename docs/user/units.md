@@ -9,7 +9,7 @@ the wizards, Report (cut length, areas, rates), Orders, labels and plugin window
 
 ## Switching
 
-**Settings → General → Units → Unit system**: *Metric* or *Imperial*. The change applies at
+**Settings › General**, *Unit system*: *Metric* or *Imperial*. The change applies at
 once to every open window; nothing needs a restart.
 
 Stored values never change. Drawings, projects, settings and the technology database are always
@@ -40,7 +40,7 @@ The conversion factors are exact: 1 in = 25.4 mm, 1 ft = 304.8 mm, 1 lb = 0.4535
 
 ### Per-quantity overrides
 
-Under **Settings → Units** you can override single quantities and keep the rest of the system,
+On the same page (**Settings › General**) you can override single quantities and keep the rest of the system,
 for example imperial with speeds in in/s, or metric with speeds in m/min:
 
 | Setting | Choices (empty = follow the system) |
