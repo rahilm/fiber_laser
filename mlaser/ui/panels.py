@@ -633,8 +633,13 @@ class ControlPanel(QWidget):
             # the fire button shows the ARMED hazard look while it can fire; disabled, it says why
             if not armed and getattr(b, "fired", False):
                 b.cancel()                   # disarmed while held: the beam goes off
-            style.set_enabled(b, armed, self.tr_.tr("panel.laser_needs_arm"))
-            style.set_tooltip(b, self.tr_.tr("panel.laser_fires") if armed else "")
+            # only on a change (this runs per poll; each tooltip set sends events)
+            reason = "" if armed else self.tr_.tr("panel.laser_needs_arm")
+            tip = self.tr_.tr("panel.laser_fires") if armed else ""
+            if (b.isEnabled() != armed or (b.property("disabled_reason") or "") != reason
+                    or b.property("tooltip_enabled") != tip):
+                style.set_enabled(b, armed, self.tr_.tr("panel.laser_needs_arm"))
+                style.set_tooltip(b, tip)
             if bool(b.property("armed_look")) != armed:
                 b.setProperty("armed_look", armed)
                 style.styled(b, (lambda: "QPushButton{{background:{0};color:{1};font-weight:bold;border-radius:{2}px;"

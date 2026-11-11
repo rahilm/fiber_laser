@@ -78,8 +78,15 @@ def main(argv: list[str] | None = None) -> int:
         if app is None:
             native.before_qapplication()
             app = native.create_application(sys.argv[:1])
-        # the UI's main() reuses this QApplication; exit(0) ends its app.exec()
-        QTimer.singleShot(int(own.smoke_test * 1000), lambda: app.exit(0))
+        # the UI's main() reuses this QApplication; exit(0) ends its app.exec().  On a slow
+        # start the time is up before that loop runs: exit() then does nothing (or ends a nested
+        # wait) and the main loop never ended (Windows / macOS CI); so wait for the main loop
+        def smoke_end() -> None:
+            if app.property("mlaser_main_loop"):
+                app.exit(0)
+            else:
+                QTimer.singleShot(50, smoke_end)
+        QTimer.singleShot(int(own.smoke_test * 1000), smoke_end)
 
     from mlaser.ui.__main__ import main as ui_main
     rc = ui_main(rest)
