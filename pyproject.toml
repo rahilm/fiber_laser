@@ -183,6 +183,11 @@ extend-exclude = ["tests/data", "tests/golden/*.json"]
 select = ["E4", "E7", "E9", "F"]
 ignore = ["E702", "E731", "E741"]
 
+[tool.ruff.lint.per-file-ignores]
+# the benchmark scripts put the repo on sys.path (some also set QT_QPA_PLATFORM or create the
+# QApplication, and time the imports) before they import mlaser: moving the imports up breaks them
+"tools/bench/*.py" = ["E402"]
+
 # ---------------------------------------------------------------------------- mypy
 # Typed core, checked in CI: `mypy` (files below).  The other packages are not checked yet
 # (follow_imports = "silent": their errors are not reported); add them here as they are cleaned

@@ -51,11 +51,10 @@ import os
 import shutil
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Optional, Sequence, Union
+from typing import Optional, Sequence, Union
 
 from .._atomic import atomic_write
-from .params import (FILES, MachineParams, ParamDef, ParamStore, defs_for, layer_category,
-                     layer_defs, N_LAYERS)
+from .params import FILES, MachineParams, ParamDef, ParamStore, defs_for
 
 PathLike = Union[str, Path]
 

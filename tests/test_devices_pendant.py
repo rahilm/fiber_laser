@@ -37,7 +37,6 @@ def test_pendant_to_jog_mapping():
     homes = []
     pend = P.Pendant(devices=(dev, dev))
     assert pend.open() and dev.features[0][:3] == bytes([6, 0xFE, 0xFD])
-    leds = []
     mapper = P.PendantJogMapper(ctl, {"home": lambda: homes.append(1)}, leds=pend.set_leds,
                                 dev_id=lambda: pend.status.dev_id)
     pend.on_event = mapper.handle

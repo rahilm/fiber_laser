@@ -1,5 +1,4 @@
 """Cutting-order modes 0, 5, 6/7, 20 (shortest), 21 (grid), rapid avoidance and doc reorders."""
-import math
 import random
 
 import pytest

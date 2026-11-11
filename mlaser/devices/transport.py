@@ -23,7 +23,7 @@ import select
 import socket
 import threading
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Callable, Optional
 
 SERIAL_BAUDS = (9600, 19200, 38400, 57600, 115200)   # FUN_100068a0 local table

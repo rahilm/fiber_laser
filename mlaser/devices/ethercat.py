@@ -39,8 +39,6 @@ Observed (Module/NCModule.dll):
 """
 from __future__ import annotations
 
-from typing import Optional
-
 from .codecs import EXT_CARD_MODBUS, join_u32
 from .modbus_rtu import RtuClient, RtuSimulator
 from .transport import NetTransport, Transport

@@ -14,7 +14,6 @@ import random
 from array import array
 from types import SimpleNamespace
 
-import numpy as np
 import pytest
 
 import mlaser.parity_ports.profiles.native as N

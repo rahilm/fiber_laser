@@ -2,7 +2,6 @@
 import pytest
 from vendor_samples import requires, vendor_file
 
-from mlaser.protocol import frames as F
 from mlaser.controller.client import MotionController, TransportConfig
 from mlaser.controller.follower_sim import make_follower_card_simulator
 from mlaser.devices.follower import CalibrationTable, OnBoardFollower

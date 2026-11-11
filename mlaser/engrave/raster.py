@@ -21,11 +21,10 @@ its arithmetic with ``numpy.float32``.
 from __future__ import annotations
 
 import math
-import os
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
-from typing import Iterable, List, Optional, Sequence, Tuple, Union
+from typing import Iterable, List, Optional, Tuple, Union
 
 import numpy as np
 
@@ -362,7 +361,7 @@ def raster_from_bitmap(bmp: np.ndarray, rho: int, power: int, params: Optional[R
     dy = 1.0 / float(rho)
     x = _F32(_F32(0.0) - over)
     y = _F32(0.0)
-    xs0, xs1, rr, ys, pws = [], [], [], [], []
+    xs0, xs1, rr, ys = [], [], [], []
     reverse = False
     nrow = 0
     for r in range(rows - 1, -1, -1):

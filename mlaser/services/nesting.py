@@ -305,7 +305,6 @@ def send_to_queue(job: NestJob, queue: Any, directory: str, name: str = "nest", 
     ``.mlz`` (the .chf format cannot hold them).  ``strategy``: keyword arguments of
     :func:`sheet_document` (``bed``, ``lead_params``, ``tip_strategy``, ``cam_params``).
     Returns the queue entries."""
-    custom_save = save is not None
     if save is None:
         from mlaser.cam.raster_engraving import expand_document
         from mlaser.formats.chf import save_chf

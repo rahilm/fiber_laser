@@ -47,7 +47,7 @@ import math
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
 
-from ..model import Arc, Contour, Craft, Document, Line, Part, Point, Segment
+from ..model import Arc, Contour, Craft, Document, Line, Part, Point
 from ..geom.contour import contour_bbox, sub_path
 
 __all__ = ["SharedEdge", "find_shared_edges", "share_edge", "share_edge_document",
@@ -130,7 +130,7 @@ def _arc_overlap(s: Arc, t: Arc, tol: float, min_len: float):
     def rel(ang):
         x = (ang - a0) * sg
         return x % (2 * math.pi)
-    tb0, tb1 = rel(b0), rel(b0 + tw)
+    tb0 = rel(b0)
     lo, hi = sorted((tb0, tb0 + tw * sg)) if abs(tw) < 2 * math.pi - 1e-9 else (0.0, 2 * math.pi)
     if lo < 0:
         lo, hi = lo + 2 * math.pi, hi + 2 * math.pi

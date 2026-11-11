@@ -2,7 +2,7 @@
 from mlaser.diag.jobwatch import JobEvent, JobWatcher
 from mlaser.model import Contour, Document, Line, Part
 from mlaser.report.recorder import StatsRecorder, record_for
-from mlaser.report.records import (JobRecord, ReportStore, cost, parse_duration, parse_line,
+from mlaser.report.records import (ReportStore, cost, parse_duration, parse_line,
                                    parse_statistic_line, read_records, totals)
 
 # lines copied from the shipped Report/*.txt and File/ProcessesStatistic.txt

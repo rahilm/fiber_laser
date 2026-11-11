@@ -14,7 +14,7 @@ from .curves import flatten_cached, flatten_points, reverse_contour, signed_area
 __all__ = ["seg_point", "seg_tangent", "split_seg", "sub_seg", "locate", "point_at",
            "tangent_at", "rotate_start", "sub_path", "is_ccw", "signed_area",
            "reverse_contour", "point_in_contour", "polyline", "contour_bbox", "rot", "turn",
-           "stored_length"]
+           "stored_length", "flatten_points"]
 
 
 def rot(v, a):

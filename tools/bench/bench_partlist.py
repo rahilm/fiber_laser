@@ -1,5 +1,8 @@
 """Part list refresh at 2,000 parts (docs/dev/PERFORMANCE.md, "Part list")."""
-import os, sys, time, statistics
+import os
+import sys
+import time
+import statistics
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 from PySide6.QtWidgets import QApplication
@@ -8,7 +11,6 @@ from mlaser import ops
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft
 from mlaser.ui.i18n import translator
 from mlaser.ui.part_list import PartListPanel
-import copy, math
 def part(i):
     x, y = (i % 50) * 60.0, (i // 50) * 60.0
     sq = Contour([Line((x, y), (x + 50, y)), Line((x + 50, y), (x + 50, y + 50)), Line((x + 50, y + 50), (x, y + 50)), Line((x, y + 50), (x, y))], True)

@@ -17,8 +17,6 @@ Reconstructed from LangModule.dll:
 """
 from __future__ import annotations
 
-import configparser
-import io
 from pathlib import Path
 from typing import Optional, Union
 

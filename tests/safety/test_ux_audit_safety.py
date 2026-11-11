@@ -161,7 +161,7 @@ def test_ask_defaults_to_cancel(app, dialogs):
 
 # ----------------------------------------------------------------------------------- C2 / W5
 def test_reset_with_the_cause_present_is_refused_and_never_ready(sim_win, app, dialogs):
-    w, ctl, su = sim_win, sim_win.ctl, sim_win.safety_ui
+    ctl, su = sim_win.ctl, sim_win.safety_ui
     _estop(app, ctl, True)
     su.refresh()
     assert su.run_bar.pill.text().strip() == "E-STOP"
@@ -215,7 +215,7 @@ def test_one_reset_alarm_name_and_one_banner(sim_win, app):
 
 # ----------------------------------------------------------------------------------- C3
 def test_estop_while_idle_and_armed_disarms_and_rearm_is_required(sim_win, app):
-    w, ctl, su = sim_win, sim_win.ctl, sim_win.safety_ui
+    ctl, su = sim_win.ctl, sim_win.safety_ui
     assert ctl.arm() and _armed(ctl)
     _estop(app, ctl, True)
     assert _until(app, lambda: not _armed(ctl), 2.0), "an e-stop disarms an idle armed machine"
@@ -421,7 +421,7 @@ def test_connection_page_texts(app):
 
 def test_stop_and_halt_unchanged(sim_win, app, caplog):
     """Hard rules: Stop stays immediate with no question; a disarm on an alarm never blocks a halt."""
-    w, ctl, su = sim_win, sim_win.ctl, sim_win.safety_ui
+    w, su = sim_win, sim_win.safety_ui
     w._test_no_dialogs = False
     caplog.set_level(logging.WARNING)
     t0 = time.monotonic()

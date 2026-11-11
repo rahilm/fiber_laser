@@ -1,5 +1,7 @@
 """Engraving-scan document (many 1-segment parts from raster G-code): canvas load/paint, toolpath, compile, at K parts."""
-import sys, time, gc
+import sys
+import time
+import gc
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 import numpy as np
 from mlaser.engrave.raster import generate_gcode, RasterParams

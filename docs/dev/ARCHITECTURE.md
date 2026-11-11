@@ -9,6 +9,7 @@ The rules below are checked, not just written down:
 |---|---|---|
 | layering and Qt-free domain | `lint-imports` (import-linter, `[tool.importlinter]` in pyproject.toml) | CI job *architecture*, and `tests/test_architecture.py` in the default suite |
 | typed core | `mypy` (`[tool.mypy]`) | CI job *architecture* |
+| pyflakes and syntax lint, 0 findings | `uvx ruff@0.17.1 check .` (`[tool.ruff]`) | CI job *lint* |
 | ports reachable through the profile | `tests/test_parity_ports.py` | default suite |
 | old import paths still work | `tests/test_compat_shims.py` | default suite |
 | enum values unchanged | `tests/test_protocol_enums.py` | default suite |

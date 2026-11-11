@@ -1,5 +1,8 @@
 """compile_job on N synthetic parts, smooth off/on, with and without the _locate patch; memory."""
-import sys, time, math, tracemalloc
+import sys
+import time
+import math
+import tracemalloc
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft, LeadParams
 from mlaser.nc import compile_job
@@ -13,7 +16,8 @@ doc = Document(parts=[Part([circ((k % cols) * 30 + 12, (k // cols) * 30 + 12, 5)
                            Craft(layer=1, lead_in=LeadParams(kind=1, length=2.0))) for k in range(N)])
 for sm in (False, True):
     import resource
-    if 0: tracemalloc.start()
+    if 0:
+        tracemalloc.start()
     t = time.perf_counter(); job = compile_job(doc, None, Machine(smooth=sm)); dt = time.perf_counter() - t
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss*1024
     print(f"N={N} smooth={sm}: compile {dt:.2f}s, steps {job.steps}, wire {len(job.wire)}, replay {job.duration_s:.0f}s ({job.duration_s/dt:.0f}x real time), "
