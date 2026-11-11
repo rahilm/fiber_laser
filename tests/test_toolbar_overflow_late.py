@@ -89,3 +89,52 @@ def test_a_second_row_that_overflows_late_is_stepped_down(app, monkeypatch, tmp_
                             page.width())
     finally:
         dispose(w)
+
+
+def _hidden(page):
+    return [(t.objectName(), t.width(), t.sizeHint().width()) for t in (page.toolbar, page.toolbar2)
+            if t.isVisible() and t.findChild(QToolButton, "qt_toolbar_ext_button").isVisible()]
+
+
+def test_narrow_then_wide_leaves_no_command_hidden(app, monkeypatch, tmp_path):
+    """Design at the window's minimum width (two rows), the second row overflowing for a
+    moment (a layout pass at a narrower width: Windows), then wider in the sweep's 40 px steps
+    to 800 px: at rest after each step neither row shows its extension button.  (Windows CI,
+    design-800: the first row 260-460 px wide, its hint 246, the button shown; the step-down
+    had moved commands into the first row for the passing overflow of the second, and nothing
+    moved them back.)"""
+    from wiring import dispose, real_window
+
+    monkeypatch.setenv("MLASER_DATA_DIR", str(tmp_path / "data"))
+    monkeypatch.setattr(QDialog, "exec", lambda self, *a: 0)
+    for n in ("information", "warning", "critical", "question"):
+        monkeypatch.setattr(QMessageBox, n, staticmethod(lambda *a, **k: QMessageBox.No))
+    w = real_window()
+    try:
+        w.resize(1280, 800)
+        w.show()
+        w.shell.host.activate("design")
+        _pump(app)
+        page = w.shell.host.pages["design"]
+        w.resize(w.minimumSizeHint().expandedTo(w.minimumSize()).width(), 800)
+        _pump(app, 30)
+        assert page.toolbar2.isVisible() and not _hidden(page)
+        before = (w.width(), page._split, page.toolbar.actions())
+        # the second row overflows for a moment
+        page.toolbar2.setMaximumWidth(page.toolbar2.sizeHint().width() // 2)
+        _pump(app, 30)
+        page.toolbar2.setMaximumWidth(16777215)
+        _pump(app, 30)
+        # at rest the rows are as before: no command was moved for the passing overflow
+        assert (w.width(), page._split, page.toolbar.actions()) == before
+        bad = []
+        if _hidden(page):
+            bad.append((w.width(), _hidden(page)))
+        for width in range(w.width(), 801, 40):
+            w.resize(width, 800)
+            _pump(app, 30)
+            if _hidden(page):
+                bad.append((w.width(), _hidden(page)))
+        assert not bad, bad
+    finally:
+        dispose(w)

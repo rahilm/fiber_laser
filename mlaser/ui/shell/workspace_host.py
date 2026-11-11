@@ -694,9 +694,9 @@ class WorkspacePage(QWidget):
     def _no_overflow(self) -> None:
         """Once the tool bars are laid out: if an extension button shows after all (a style lays
         the buttons out wider than their size hints said: macOS, Windows), a label goes, then
-        the second row is used, then the row break moves one command at a time towards the
-        row that has room and the page's minimum takes both rows' widths, until every command
-        is in a row.  Bounded by the number of commands."""
+        the second row is used, then the rows are laid out again and the page's minimum takes
+        both rows' widths, until every command is in a row.  Bounded by the number of
+        commands; fit_toolbar runs it again after every resize."""
         self._overflow_check = False
         tb, tb2 = self.toolbar, self.toolbar2
 
@@ -705,8 +705,8 @@ class WorkspacePage(QWidget):
                 return False
             ext = t.findChild(QToolButton, "qt_toolbar_ext_button")
             return ext is not None and ext.isVisible()
-        tried = {self._split}
-        for _ in range(2 * len(self._acts) + 2):
+        relaid = False
+        for _ in range(len(self._acts) + 3):
             o1, o2 = over(tb), over(tb2)
             if not o1 and not o2:
                 return
@@ -722,23 +722,28 @@ class WorkspacePage(QWidget):
                 total = sum(ws)
                 mid = min(range(1, len(ws)), key=lambda i: abs(sum(ws[:i]) - total / 2))
                 self._place(mid)
-                tried.add(mid)
                 self._toolbar_need = max(self._toolbar_need, tb.sizeHint().width(), self.toolbar2.sizeHint().width())
                 self.updateGeometry()
             elif self._split < len(self._acts):
-                # two rows and one still overflows (Windows CI: the Process tool bar at 1100 px):
-                # the break moves one command towards the other row, and the page's minimum
-                # takes both rows as they are now, so the page widens if neither has room
-                k = self._split + (1 if o2 and not o1 else -1)
-                moved = 0 < k < len(self._acts) and k not in tried
-                if moved:
-                    tried.add(k)
-                    self._place(k)
-                need = max(self._toolbar_need, tb.sizeHint().width(), tb2.sizeHint().width())
-                if need != self._toolbar_need:
-                    self._toolbar_need = need
-                    self.updateGeometry()
-                if not moved:
+                # two rows and one still shows its extension button.  First Qt's own layout
+                # pass (the button can stay from a narrower moment); if it still shows, the
+                # page's minimum takes both rows' size hints as they are now, so the page
+                # widens.  The row break is not moved here: fit_toolbar sets it at every
+                # resize, and a break moved here stayed wrong at the next size (Windows CI,
+                # design-800: the first row 260-460 px wide, its hint 246, the button shown)
+                if not relaid:
+                    relaid = True
+                    for t in (tb, tb2):
+                        t.updateGeometry()
+                else:
+                    for t in (tb, tb2):
+                        if t.layout() is not None:
+                            t.layout().invalidate()
+                    need = max(self._toolbar_need, tb.sizeHint().width(),
+                               tb2.sizeHint().width() if tb2.isVisibleTo(self) else 0)
+                    if need != self._toolbar_need:
+                        self._toolbar_need = need
+                        self.updateGeometry()
                     return
             else:
                 return
