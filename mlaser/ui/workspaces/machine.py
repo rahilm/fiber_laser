@@ -610,11 +610,15 @@ class MachineWorkspace(QWidget):
         self.r_sim.setToolTip(T(w, "ws.machine.sim_builtin.tip"))
         self.r_real = QRadioButton(T(w, "ws.machine.network_addr"))
         self.r_real.setToolTip(T(w, "ws.machine.network_addr.tip"))
-        self.r_sim.setChecked(True)
         g.addWidget(self.r_sim, 0, 0)
         g.addWidget(self.r_real, 0, 1)
         from mlaser.services import endpoint
-        tc = endpoint.transport_config(endpoint.record_of(self.ctx.config))   # the one endpoint record
+        rec = endpoint.record_of(self.ctx.config)
+        tc = endpoint.transport_config(rec)                                  # the one endpoint record
+        # the choice follows what this PC uses: a card address stored (imported or typed) means
+        # the card, not the simulator; while connected it follows the controller (tick)
+        (self.r_real if str(rec.get(endpoint.HOST_KEY, "") or "").strip() else self.r_sim).setChecked(True)
+        self._conn_kind: Optional[str] = None
         self.host = QLineEdit(tc.host)
         self.host.setMinimumHeight(32)
         self.host.setAccessibleName(T(w, "ws.machine.host"))
@@ -695,8 +699,13 @@ class MachineWorkspace(QWidget):
             from mlaser.ui.qtbridge import BackgroundCall
             self._connecting = BackgroundCall(self, "mlaser-connect")
         host, port = self.host.text().strip(), self.port.value()
-        return self._connecting.start(lambda: bool(ctl.connect(host, port)),
-                                      lambda ok, err: self.ctx.log("mf165" if ok and err is None else "mf166"))
+        # a first connect, to an address that may be a card or mlaser-cardsim: never "Hardware
+        # reconnected" (UX review 2026-11 #9)
+        where = f"{host}:{port}"
+        return self._connecting.start(
+            lambda: bool(ctl.connect(host, port)),
+            lambda ok, err: self.ctx.log(T(self.w, "ws.machine.log.connected", address=where) if ok and err is None
+                                         else T(self.w, "ws.machine.log.connect_failed", address=where)))
 
     def disconnect(self) -> None:
         self.ctx.controller.disconnect()
@@ -939,6 +948,7 @@ class MachineWorkspace(QWidget):
         y, n = T(self.w, "wizard.yes"), T(self.w, "wizard.no")
         self.lbl["conn"].setText(T(self.w, "ws.machine.connected") if st.connected else T(self.w, "ws.machine.offline"))
         self.lbl["kind"].setText(controller_kind_text(self.w, ctl, st))
+        self._follow_controller(ctl, st)
         self.lbl["safety"].setText(safety_state_text(self.w, saf))
         self.lbl["safety"].setToolTip(saf.fault or "")
         # Connect while not connected, Disconnect while connected (UX audit O9)
@@ -958,6 +968,17 @@ class MachineWorkspace(QWidget):
             self.coord.setCurrentIndex(c.kind)
         self.origins.setText(T(self.w, "ws.machine.origins", unit=u.suffix("length"), tools="  ".join(
             f"{i + 1}: ({u.number(x, 'length')}, {u.number(y_, 'length')})" for i, (x, y_) in enumerate(c.tools))))
+
+    def _follow_controller(self, ctl: Any, st: Any) -> None:
+        """While connected the Controller choice shows what is connected: the built-in
+        simulator or a network address (set when the connection changes, so a choice made while
+        disconnected is not overridden)."""
+        kind = None if not st.connected or ctl.is_demo() else ("sim" if ctl.is_simulator() else "network")
+        if kind == self._conn_kind:
+            return
+        self._conn_kind = kind
+        if kind is not None:
+            (self.r_sim if kind == "sim" else self.r_real).setChecked(True)
 
     #: the commands that set / return to the origin of a tool coordinate system (or Manual)
     ORIGIN_COMMANDS = ("coord.set_origin", "coord.return_origin")

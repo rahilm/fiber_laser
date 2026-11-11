@@ -65,7 +65,7 @@ class ConnectionPart:
             else:
                 cfgw, ver = mc.connect()
         except (ControllerError, OSError) as e:
-            self._log(f"mf166: cannot connect to {self.cfg.host}:{self.cfg.port} ({e})", logging.WARNING)
+            self._log(f"cannot connect to the motion card at {self.cfg.host}:{self.cfg.port} ({e})", logging.WARNING)
             self.connect_error = f"no answer from the motion card at {self.cfg.host}:{self.cfg.port} ({e})"
             self._sup.close()
             self._release_card_lock()
@@ -80,7 +80,7 @@ class ConnectionPart:
         self._sync_dry_run()
         self.fsm.connected()
         self._sup.link_ok = True
-        self._log(f"mf165: connected to MCC {self.cfg.host}:{self.cfg.port} ({self.cfg.transport}), "
+        self._log(f"connected to MCC {self.cfg.host}:{self.cfg.port} ({self.cfg.transport}), "
                   f"version {ver} (V{ver // 100}.{ver % 100:02d}), config 0x{cfgw:08x}; "
                   f"{'SIMULATOR, ' if self.sim is not None else ''}"
                   f"{'DRY-RUN (laser disabled)' if not self.laser_enabled else 'DISARMED'}")

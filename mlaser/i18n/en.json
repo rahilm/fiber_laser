@@ -5225,6 +5225,8 @@
   "undo.import": "Import",
   "ws.machine.kind_network": "Card at {address}: not identified (a real card or mlaser-cardsim)",
   "ws.machine.kind_sim": "Built-in simulator (not a machine)",
+  "ws.machine.log.connected": "Connected to the card at {address} (not identified: a real card or mlaser-cardsim)",
+  "ws.machine.log.connect_failed": "Could not connect to {address}",
   "ws.machine.network_addr": "Network address",
   "ws.machine.network_addr.tip": "A motion card at an IP address, or the network simulator (mlaser-cardsim): the card does not say which",
   "ws.machine.sim_builtin": "Built-in simulator",
@@ -5237,6 +5239,12 @@
   "update.open_page": "Open release page"
  },
  "args": {
+  "ws.machine.log.connected": [
+   "address"
+  ],
+  "ws.machine.log.connect_failed": [
+   "address"
+  ],
   "machine.log.history_damaged": [
    "error",
    "path"
