@@ -148,7 +148,7 @@ TIMING_GROUPS = {
     "timing-gui": {
         "test_canvas_perf", "test_card_ui", "test_close_save", "test_devices_ui", "test_diag_monitors",
         "test_idle_timers", "test_integration", "test_large_drawing", "test_machine_workspace",
-        "test_pipeline_perf", "test_plan_process", "test_responsive_layout", "test_services_jobs",
+        "test_pipeline_perf", "test_plan_process", "test_responsive_layout", "test_responsive_perf", "test_services_jobs",
         "test_ws_cutting_strategy", "test_ws_run",
     },
 }

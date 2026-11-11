@@ -264,6 +264,7 @@ class ReportWorkspace(QWidget):
         top_w = QWidget()
         top_w.setObjectName("report_controls")
         top = FlowLayout(top_w, justify=False)
+        top.setContentsMargins(0, 0, 0, 0)            # the page's margins are the row's
 
         def pair(label: QLabel, field: QWidget) -> QWidget:
             # the label names the field for assistive tech on every platform (Windows does not
@@ -305,7 +306,11 @@ class ReportWorkspace(QWidget):
         # tiles
         tiles = QFrame()
         tiles.setObjectName("report_tiles")
-        g = FlowLayout(tiles, uniform=True)
+        # in as few rows as their own widths allow, stretched to the row (a uniform grid of the
+        # widest tile's columns put the eighth tile on a row of its own: 62 px of a 1280 x 800
+        # screen with a 12 pt font)
+        g = FlowLayout(tiles, justify=True)
+        g.setContentsMargins(0, 0, 0, 0)
         self.tiles: dict[str, QLabel] = {}
         for n, (key, tid, text) in enumerate((("jobs", "report.tile.jobs", "Jobs"),
                                               ("run", "report.tile.run", "Cutting time"),

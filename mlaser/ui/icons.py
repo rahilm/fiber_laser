@@ -3,8 +3,10 @@
 Icons are rendered from the vendored SVGs in ``resources/icons/tabler/`` at whatever size and
 device-pixel ratio Qt asks for, so they stay crisp at 125 %, 150 % and 200 % scaling. Tabler's
 outline icons draw with ``stroke="currentColor"``; :class:`SvgIconEngine` substitutes the
-palette's text colour at paint time (so a dark theme gets light icons) or a fixed accent colour
-(Start green, Stop red, ...).
+palette's text colour at paint time (so a dark theme gets light icons) or a colour role of the
+theme (``success``, ``warning``, ``danger``, ``info``, ``on_danger`` and so on: Start green,
+STOP's white on red), also looked up at paint time, so an icon follows a live theme switch and
+reads on every theme's background (UI review 2026-11-09 finding 9).
 
 ``COMMAND_ICONS`` maps every command id that has a fitting icon to a Tabler name. Commands not
 listed get no icon and appear as text-only buttons. Ribbon buttons may also name their icon
@@ -24,8 +26,12 @@ from .style import ICON_TINTS
 
 ICON_DIR = os.path.join(os.path.dirname(__file__), "resources", "icons", "tabler")
 
-# Semantic accent colours (also readable on a dark background).
+# The fixed mid tones of style.ICON_TINTS (for drawings that are not icons). An icon tinted with
+# one of them gets its colour role instead (:func:`tint_color`): one fixed value cannot read on
+# the light, the dark and the high-contrast window alike (warning 2.7:1 on light, neutral 1.3:1
+# on dark).
 GREEN, AMBER, RED, BLUE = (ICON_TINTS[k] for k in ("success", "warning", "danger", "info"))
+_TINT_ROLE = {ICON_TINTS[k].lower(): k for k in ("success", "warning", "danger", "info")}
 
 #: command id -> Tabler icon name. Menu entries, extension commands and the control panel use
 #: this table; top-level ribbon buttons carry their icon in ribbon_spec.
@@ -129,11 +135,28 @@ COMMAND_ICONS: dict[str, str] = {
     "run.start": "player-play", "run.pause": "player-pause", "run.stop": "player-stop",
 }
 
-#: fixed colours for icons whose meaning is a state (run controls)
+#: the colour roles of icons whose meaning is a state (run controls).  Red is the machine's STOP
+#: and alarms only: stopping the canvas simulation is not, its icon is neutral (finding 6)
 COMMAND_COLORS: dict[str, str] = {
-    "run.start": GREEN, "run.pause": AMBER, "run.stop": RED, "sim.stop": RED,
-    "card.alarms": AMBER,
+    "run.start": "success", "run.pause": "warning", "run.stop": "danger", "card.alarms": "warning",
 }
+
+
+def tint_color(tint: Optional[str]) -> Optional[QColor]:
+    """The colour of an icon tint now: a colour role of the current theme (``warning``, also
+    for one of the fixed :data:`GREEN` / :data:`AMBER` / :data:`RED` / :data:`BLUE`), else a
+    literal colour; None for no tint (the palette's text colour)."""
+    if not tint:
+        return None
+    role = _TINT_ROLE.get(tint.lower(), tint)
+    if not role.startswith("#"):
+        try:
+            from .style import css
+            return QColor(css(role))
+        except KeyError:
+            pass
+    col = QColor(tint)
+    return col if col.isValid() else None
 
 
 #: the machine and laser states (state banner, run bar pill, top-bar chips, Run screen): an SVG
@@ -147,6 +170,23 @@ STATE_ICONS: dict[str, str] = {
     # the axes moving without a job (homing, a go-to move or a jog), a fault from a lost link
     "homing": "home-dot", "moving": "arrows-move", "link_lost": "unlink",
 }
+
+
+#: the result of a step or a check (wizard step lists, lists of findings): (icon, colour role),
+#: an SVG icon beside the words, never a font glyph ("✓ ! ✗ – … ▶ ⚠" took the platform font's
+#: shape and weight, a colour emoji on Windows; UI review 2026-11-09 finding 12)
+STATUS_ICONS: dict[str, tuple[str, str]] = {
+    "pass": ("circle-check", "success"), "done": ("circle-check", "success"),
+    "warn": ("alert-triangle", "warning"), "fail": ("circle-x", "danger"),
+    "skipped": ("circle-minus", "muted"), "todo": ("circle-dashed", "muted"),
+    "current": ("arrow-right", "accent"), "fixable": ("circle-check", "success"),
+}
+
+
+def status_icon(status: str) -> QIcon:
+    """The icon of a step's or a check's ``status`` (:data:`STATUS_ICONS`), tinted by role."""
+    name, role = STATUS_ICONS.get(status, STATUS_ICONS["todo"])
+    return icon(name, role)
 
 
 #: an icon file of a plugin (the manifest's ``icon``, ``ctx.icon``) is read up to this size
@@ -191,7 +231,7 @@ class SvgIconEngine(QIconEngine):
             if self.color:
                 col.setAlpha(140)
         else:
-            col = QColor(self.color) if self.color else self._palette_color(QPalette.Active)
+            col = tint_color(self.color) or self._palette_color(QPalette.Active)
         data = (_svg_source(self.name) or b"").replace(b"currentColor", col.name().encode())
         if px >= 28:   # Tabler's 2 px stroke is drawn on a 24 px grid; keep large icons light
             data = data.replace(b'stroke-width="2"', b'stroke-width="1.6"')
@@ -237,7 +277,8 @@ class SvgIconEngine(QIconEngine):
 
 def icon(name: Optional[str], color: Optional[str] = None) -> QIcon:
     """A crisp, palette-aware QIcon for the Tabler icon ``name`` (empty icon if unknown), or for an
-    absolute ``.svg`` / ``.png`` file path (a plugin's icon; SVG ``currentColor`` is tinted)."""
+    absolute ``.svg`` / ``.png`` file path (a plugin's icon; SVG ``currentColor`` is tinted).
+    ``color``: a colour role (``warning``: follows the theme) or a literal colour."""
     if name and _is_file_icon(name) and name.lower().endswith(".png"):
         try:
             ok = os.path.isfile(name) and os.path.getsize(name) <= MAX_ICON_FILE
@@ -257,7 +298,7 @@ def command_icon(cmd: str, name: Optional[str] = None) -> QIcon:
 def used_icon_names() -> set[str]:
     """Every icon name referenced by the UI (the set vendored in resources/icons/tabler)."""
     from . import ribbon_spec
-    names = set(COMMAND_ICONS.values()) | set(STATE_ICONS.values())
+    names = set(COMMAND_ICONS.values()) | set(STATE_ICONS.values()) | {n for n, _r in STATUS_ICONS.values()}
     for tab in ribbon_spec.TABS:
         for grp in tab.groups:
             names.update(b.icon for b in grp.buttons if b.icon)

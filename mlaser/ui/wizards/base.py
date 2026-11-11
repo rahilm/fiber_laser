@@ -1,7 +1,7 @@
 """The wizard dialog: shows a :class:`mlaser.services.procedures.Procedure` one step at a time.
 
-Layout: the step list on the left (each step's real status: ✓ passed or done, ! warning, ✗ failed,
-– skipped, … to do; ▶ and bold the current one), the step title, instructions
+Layout: the step list on the left (each step's real status as an icon: passed or done, warning,
+failed, skipped, to do; an arrow and bold for the current one), the step title, instructions
 and safety notes, a step page (form, plot, jog pad: :meth:`WizardDialog.page`), the result line,
 and the buttons Back · Run · Yes / No · Next / Finish · **Abort** (red, always enabled; Esc and
 F12 abort too).  Abort sends ``safe_halt`` in every state (the engine does it).  A "Dry run on
@@ -28,8 +28,9 @@ from ..units_qt import on_units_changed
 from .common import MIN_TARGET, Bridge, JogPad, SafetyNotes, T, unit_values
 
 
-#: the step list's mark per step status (:meth:`Procedure.step_status`)
-STEP_MARKS = {"pass": "✓", "done": "✓", "warn": "!", "fail": "✗", "skipped": "–", "todo": "…"}
+#: the data role of a step list item's mark: its status (:meth:`Procedure.step_status`) or
+#: "current" (the icon: :data:`mlaser.ui.icons.STATUS_ICONS`)
+MARK_ROLE = Qt.UserRole + 1
 
 
 class WizardDialog(QDialog):
@@ -220,11 +221,13 @@ class WizardDialog(QDialog):
         for st in vis:
             status = p.step_status(st)
             current = s is not None and st.id == s.id and p.state not in PE.FINAL
-            # the step's real status (UX audit O4): ✓ passed, ! warning, ✗ failed, – skipped,
-            # … to do; ▶ marks the current step
-            mark = "▶" if current and status == "todo" else STEP_MARKS.get(status, "…")
+            # the step's real status (UX audit O4) as an icon: passed, warning, failed, skipped,
+            # to do; an arrow marks the current step (an SVG icon, never a font glyph: UI
+            # review 2026-11-09 finding 12); the word is the tooltip and the accessible text
+            mark = "current" if current and status == "todo" else status
             title = T(self.w, st.title)
-            it = QListWidgetItem(f"{mark} {title}")
+            it = QListWidgetItem(icons.status_icon(mark), title)
+            it.setData(MARK_ROLE, mark)
             said = T(self.w, f"wizard.status.{status}")
             it.setToolTip(said)
             it.setData(Qt.AccessibleTextRole, T(self.w, "wizard.status.item", title=title, status=said))

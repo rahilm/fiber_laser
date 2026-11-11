@@ -55,7 +55,16 @@ violet mode marker (never red, amber or grey). STOP is the only red control. Eve
 high-contrast themes (`tests/test_state_display.py`). The states are one vocabulary on two named
 axes, Machine and Laser (`mlaser/ui/state_display.py`): the banner, the chips, the run bar's
 pill and the Run screen draw them with `StateBadge` (an SVG icon, the axis name and the word),
-never by colour alone.
+never by colour alone. Red and amber are reserved: red for alarm, STOP and emission, amber for
+hazard (ARMED, a tripped interlock); a configuration notice ("Interlocks: 4 not configured")
+is neutral, and the canvas head marker and cut track are not red.
+
+**Icons** are the vendored SVG set (`mlaser/ui/icons.py`), never a font glyph ("▶", "⚠", "✓"
+take the platform font's shape, a colour emoji on Windows; `tests/test_glyph_icons.py`). A
+tinted icon names a colour role, `icons.icon("alert-triangle", "warning")`, looked up when the
+icon is painted, so it follows a live theme switch; a step's or a check's result is
+`icons.status_icon(status)` beside its word. Disabled text reads at 3.5:1 or more on the window
+and on a button; in high contrast push buttons have a border-coloured edge.
 
 A domain widget's style sheet is built from roles with `style.styled(widget, build)`, which
 rebuilds it when the theme changes; `style.chip(label, role)` is a notice chip.

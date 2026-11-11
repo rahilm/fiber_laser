@@ -267,14 +267,18 @@ class NestWorkspace(QWidget):
         # the parts, the sheet and the results side by side; in tabs in a narrow (half-screen)
         # window, so the parts table keeps its Qty / Max / Priority columns and the page its
         # height (the results column 157 px wide wrapped the page taller than a 14" screen)
-        split = TabsWhenNarrow(extra=240)
+        # the parts and the sheet columns share their width for the least height (a larger font)
+        split = TabsWhenNarrow(extra=240, balance=(0, 1))
         root.addWidget(split)
 
         # ---------------- left: parts, sheets, remnants
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
-        lv.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
+        # the heading and the parts' actions in one row above the table (wraps when narrow)
+        row = FlowLayout(justify=False)
+        row.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
+        lv.addLayout(row)
         self.parts = style.table_look(QTableWidget(0, len(self.PART_COLS)), numeric=(1, 2, 3), empty=tr(w, "nestws.parts.empty", "No parts yet"))
         self.parts.setObjectName("nestws_parts")
         self.parts.setAccessibleName(tr(w, "a11y.nest.parts", "Parts to nest"))
@@ -288,11 +292,9 @@ class NestWorkspace(QWidget):
         ColumnFitter(self.parts, {1: 5, 2: 1, 3: 2, 4: 3, 5: 0}, stretch=0)    # no sideways scrolling
         self.parts.itemChanged.connect(self._part_edited)
         lv.addWidget(self.parts, 2)
-        row = FlowLayout(justify=True)          # wraps in a narrow column
         row.addWidget(self._button("nestws.btn.add_drawing", "+ From drawing", self.add_from_drawing))
         row.addWidget(self._button("nestws.btn.import", "Import file...", self.import_part))
         row.addWidget(self._button("nestws.btn.remove", "Remove", self.remove_part))
-        lv.addLayout(row)
         lv.addWidget(self._heading(tr(w, "nestws.stock", "SHEETS / REMNANTS")))
         mat = FlowLayout(justify=True)
         self.material = QLineEdit()
@@ -399,7 +401,7 @@ class NestWorkspace(QWidget):
         self.options.setVisible(False)
         mv.addWidget(self.options)
         run = FlowLayout(justify=True)
-        self.nest_btn = self._button("nestws.btn.nest", "Nest ▶", self.start, TOUCH_MIN + 8)
+        self.nest_btn = self._button("nestws.btn.nest", "Nest", self.start, TOUCH_MIN + 8)
         self.nest_btn.setObjectName("nestws_nest")
         style.set_font(self.nest_btn, "title")
         self.cancel_btn = self._button("nestws.btn.cancel", "Cancel", self.service.cancel, TOUCH_MIN + 8)
@@ -451,7 +453,7 @@ class NestWorkspace(QWidget):
         # the hand-off (deep review 2026-11, UX 13): one primary way to cut a sheet, "Open sheet
         # n of N in Run" (the sheet becomes the drawing, the Run workspace is shown with Start
         # naming it); the queue is the second way, for all the sheets, named as such
-        self.main_btn = self._button("nestws.btn.to_run", "Open sheet in Run ▶", self.to_run, TOUCH_MIN + 8)
+        self.main_btn = self._button("nestws.btn.to_run", "Open sheet in Run", self.to_run, TOUCH_MIN + 8)
         self.main_btn.setObjectName("nestws_to_run")
         style.set_font(self.main_btn, "title")
         rv.addWidget(self.main_btn)
@@ -664,6 +666,9 @@ class NestWorkspace(QWidget):
         return BedModel.from_config(cfg) if cfg is not None else BedModel()
 
     # ------------------------------------------------------------------ small widgets
+    def _on_off(self, on: bool) -> str:
+        return tr(self.window_, "nestws.tip.on", "on") if on else tr(self.window_, "nestws.tip.off", "off")
+
     def _heading(self, text: str) -> QLabel:
         lb = QLabel(text)
         f = lb.font()
@@ -1156,18 +1161,24 @@ class NestWorkspace(QWidget):
         self.compare.setRowCount(len(runs))
         best = self.service.best()
         for r, run in enumerate(runs):
-            vals = [f"{run.number}{' ★' if run is best else ''}", str(run.sheets),
+            vals = [str(run.number), str(run.sheets),
                     f"{util_pct(run.utilisation):.1f} %", U.current().number(run.cut_length_mm, "long_length", 1),
                     str(run.pierces),
                     str(run.unplaced)]
             p = run.job.params
             tip = tr(self.window_, "nestws.run_tip",
                      "{engine}, spacing {spacing}, common line {cl}, part in part {pip}",
-                     engine=run.engine, spacing=U.current().fmt(p.spacing, "length", trim=True), cl="✓" if p.common_line else "–",
-                     pip="✓" if p.part_in_part else "–")
+                     engine=run.engine, spacing=U.current().fmt(p.spacing, "length", trim=True),
+                     cl=self._on_off(p.common_line), pip=self._on_off(p.part_in_part))
             for c, v in enumerate(vals):
                 it = QTableWidgetItem(v)
                 it.setToolTip(tip)
+                if c == 0 and run is best:
+                    # the best run: an SVG star and its words, never a font glyph ("★")
+                    from ..icons import icon
+                    it.setIcon(icon("star", "accent"))
+                    it.setData(Qt.AccessibleTextRole, tr(self.window_, "nestws.best_run", "Run {n}, the best",
+                                                         n=run.number))
                 self.compare.setItem(r, c, it)
             if run is self.run:
                 self.compare.selectRow(r)
@@ -1225,9 +1236,9 @@ class NestWorkspace(QWidget):
         lays = run.result.layouts if run is not None else []
         if lays:
             row = min(max(0, self.results.currentRow()), len(lays) - 1)
-            text = tr(w, "nestws.btn.to_run_n", "Open sheet {n} of {total} in Run ▶", n=row + 1, total=len(lays))
+            text = tr(w, "nestws.btn.to_run_n", "Open sheet {n} of {total} in Run", n=row + 1, total=len(lays))
         else:
-            text = tr(w, "nestws.btn.to_run", "Open sheet in Run ▶")
+            text = tr(w, "nestws.btn.to_run", "Open sheet in Run")
         if self.main_btn.text() != text:
             self.main_btn.setText(text)
             self.main_btn.setAccessibleName(text)
