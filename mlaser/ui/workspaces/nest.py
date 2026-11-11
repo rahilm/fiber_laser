@@ -267,14 +267,18 @@ class NestWorkspace(QWidget):
         # the parts, the sheet and the results side by side; in tabs in a narrow (half-screen)
         # window, so the parts table keeps its Qty / Max / Priority columns and the page its
         # height (the results column 157 px wide wrapped the page taller than a 14" screen)
-        split = TabsWhenNarrow(extra=240)
+        # the parts and the sheet columns share their width for the least height (a larger font)
+        split = TabsWhenNarrow(extra=240, balance=(0, 1))
         root.addWidget(split)
 
         # ---------------- left: parts, sheets, remnants
         left = QWidget()
         lv = QVBoxLayout(left)
         lv.setContentsMargins(0, 0, 0, 0)
-        lv.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
+        # the heading and the parts' actions in one row above the table (wraps when narrow)
+        row = FlowLayout(justify=False)
+        row.addWidget(self._heading(tr(w, "nestws.parts", "PARTS")))
+        lv.addLayout(row)
         self.parts = style.table_look(QTableWidget(0, len(self.PART_COLS)), numeric=(1, 2, 3), empty=tr(w, "nestws.parts.empty", "No parts yet"))
         self.parts.setObjectName("nestws_parts")
         self.parts.setAccessibleName(tr(w, "a11y.nest.parts", "Parts to nest"))
@@ -288,11 +292,9 @@ class NestWorkspace(QWidget):
         ColumnFitter(self.parts, {1: 5, 2: 1, 3: 2, 4: 3, 5: 0}, stretch=0)    # no sideways scrolling
         self.parts.itemChanged.connect(self._part_edited)
         lv.addWidget(self.parts, 2)
-        row = FlowLayout(justify=True)          # wraps in a narrow column
         row.addWidget(self._button("nestws.btn.add_drawing", "+ From drawing", self.add_from_drawing))
         row.addWidget(self._button("nestws.btn.import", "Import file...", self.import_part))
         row.addWidget(self._button("nestws.btn.remove", "Remove", self.remove_part))
-        lv.addLayout(row)
         lv.addWidget(self._heading(tr(w, "nestws.stock", "SHEETS / REMNANTS")))
         mat = FlowLayout(justify=True)
         self.material = QLineEdit()

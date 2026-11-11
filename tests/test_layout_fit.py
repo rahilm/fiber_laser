@@ -109,8 +109,9 @@ os._exit(0)
 #: 1280 x 800 is the smallest supported screen (docs/dev/RESPONSIVE.md); 48 px is a Windows
 #: taskbar at 100 %, 80 px a taskbar and a title bar (the offscreen platform has no frame);
 #: 1512 x 982 at 2x is a 14" MacBook Pro.  1366 x 768 is below the supported size and not here.
+#: 10 pt and 12 pt: a larger application font on the smallest screen with a taskbar.
 SCREENS = [(1280, 800, 0, 1, 0), (1280, 800, 48, 1, 0), (1280, 800, 80, 1, 0), (1512, 982, 0, 2, 0),
-           (1280, 800, 48, 1, 10)]
+           (1280, 800, 48, 1, 10), (1280, 800, 48, 1, 12)]
 
 
 @pytest.mark.sim          # one worker with the timing tests: a whole app in a subprocess
@@ -144,7 +145,16 @@ def test_every_workspace_fits_the_screen_from_the_start_path(tmp_path, screen):
     res = json.loads(r.stdout.strip().splitlines()[-1])
     assert res["avail"][3] == sh - inset, res["avail"]
     assert {s[0] for s in res["seen"]} >= {"design", "process", "nest", "nest/1", "run", "report", "machine"}, res
-    assert not res["violations"], "\n".join(res["violations"])
+    known = NOT_YET.get(screen, ())
+    left = [v for v in res["violations"] if v.split(":", 1)[0].split("/", 1)[0] not in known]
+    assert not left, "\n".join(left)
+
+
+#: workspaces that do not fit a screen yet, by screen: the Run workspace at 12 pt lacks 41 px
+#: (its state header repeats the top banner, the run bar keeps a row for the simulator chip
+#: alone; UI review 2026-11-09 findings 3 and 5, the Run workspace's own change).  Every other
+#: workspace and tab of that screen is checked.
+NOT_YET = {(1280, 800, 48, 1, 12): ("run",)}
 
 
 # ----------------------------------------------------------------------------- TabsWhenNarrow

@@ -1644,13 +1644,26 @@ class TabsWhenNarrow(QWidget):
     made from the width alone (the height follows it, never the reverse).  ``extra``: how much
     more than the panes' minimum widths side by side needs (the room their content wants, e.g.
     a table's important columns), so a narrow window gets whole panes in tabs instead of
-    squeezed ones side by side.  Its minimum width is the widest pane's."""
+    squeezed ones side by side.  Its minimum width is the widest pane's.
+
+    ``balance=(i, j)``: side by side, panes ``i`` and ``j`` share their width so that the taller
+    of the two needs the least height (rows that wrap in a narrower pane make it taller), the
+    default proportion among the widths that do (until the user moves the splitter): with a
+    larger font the Nest page's left column took the width its one-row fields wanted, the sheet
+    column's parameters wrapped one per row, and the page needed 100 px more than a 1280 x 800
+    screen with a taskbar has (12 pt)."""
+
+    #: the step (px) of the widths tried when balancing
+    BALANCE_STEP = 8
 
     def __init__(self, extra: int = 0, parent: Optional[QWidget] = None,
-                 need: Optional[Callable[[], int]] = None) -> None:
+                 need: Optional[Callable[[], int]] = None, balance: Optional[tuple[int, int]] = None) -> None:
         super().__init__(parent)
         from PySide6.QtWidgets import QSplitter, QTabWidget
         self.extra = extra
+        self.balance = balance
+        self._user_sized = False
+        self._balanced_for: Optional[tuple] = None
         #: ``need``: the width side by side needs, when the panes' minimums are not the measure
         self.need_fn = need
         self.splitter = QSplitter(Qt.Horizontal)
@@ -1665,6 +1678,17 @@ class TabsWhenNarrow(QWidget):
         self.tabbed = False
         # a pane's width sets its minimum height (rows that wrap): asked again when it changes
         self.splitter.splitterMoved.connect(lambda *_a: self.updateGeometry())
+        self.splitter.splitterMoved.connect(self._user_moved)
+
+    def _user_moved(self, *_a) -> None:
+        self._user_sized = True
+
+    def event(self, ev) -> bool:
+        if ev.type() == QEvent.LayoutRequest and self.balance is not None:
+            # a pane's content changed (a panel opened, a longer text): balance again
+            self._balanced_for = None
+            QTimer.singleShot(0, self, self.balance_panes)
+        return super().event(ev)
 
     def addWidget(self, w: QWidget, title: str = "") -> None:  # noqa: N802 - like QSplitter
         self.panes.append((w, title))
@@ -1746,6 +1770,47 @@ class TabsWhenNarrow(QWidget):
 
     def fit(self) -> None:
         self.set_tabbed(self.width() < self.side_by_side_need())
+        self.balance_panes()
+
+    def balance_panes(self) -> None:
+        """``balance``: share the two panes' width for the least height (class docstring)."""
+        if self.balance is None or self.tabbed or self._user_sized or not self.splitter.isVisible():
+            return
+        i, j = self.balance
+        sizes = self.splitter.sizes()
+        if max(i, j) >= len(sizes) or min(sizes) <= 0:
+            return
+        both = sizes[i] + sizes[j]
+        key = (both, self.font().key(), tuple(sizes[k] for k in range(len(sizes)) if k not in (i, j)))
+        if key == self._balanced_for:
+            return
+        pi, pj = self.panes[i][0], self.panes[j][0]
+        lo_i = pi.minimumSizeHint().expandedTo(pi.minimumSize()).width()
+        lo_j = pj.minimumSizeHint().expandedTo(pj.minimumSize()).width()
+        if lo_i + lo_j > both:
+            return
+        d = getattr(self, "_sizes", None) or sizes
+        ratio = d[i] / max(d[i] + d[j], 1)
+        best: Optional[tuple] = None
+        with measure_pass():
+            for wi in sorted({*range(lo_i, both - lo_j + 1, self.BALANCE_STEP), both - lo_j}):
+                tall = max(self._height_at(pi, wi), self._height_at(pj, both - wi))
+                cand = (tall, abs(wi - ratio * both), wi)
+                if best is None or cand < best:
+                    best = cand
+        self._balanced_for = key
+        if best is not None and best[2] != sizes[i]:
+            sizes[i], sizes[j] = best[2], both - best[2]
+            self.splitter.setSizes(sizes)
+            self.updateGeometry()
+
+    @staticmethod
+    def _height_at(p: QWidget, width: int) -> int:
+        """A pane's minimum height at ``width``."""
+        lay = p.layout()
+        if lay is not None and lay.hasHeightForWidth():
+            return max(lay.minimumHeightForWidth(width), p.minimumHeight())
+        return p.minimumSizeHint().expandedTo(p.minimumSize()).height()
 
     def resizeEvent(self, ev) -> None:  # noqa: N802 - Qt API
         super().resizeEvent(ev)
