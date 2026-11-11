@@ -13,7 +13,7 @@ from PySide6.QtWidgets import (QAbstractButton, QAbstractItemView, QComboBox, QH
 
 from mlaser.model import LayerParams
 
-from .canvas import LAYER_COLORS, layer_color
+from .canvas import LAYER_COLORS, layer_color, swatch_layer_color
 from ..machine.api import MachineAPI
 from . import homes
 from .i18n import Translator
@@ -69,7 +69,7 @@ class LayerPanel(QWidget):
         self.color_buttons = []
         for i in range(len(LAYER_COLORS)):
             b = QToolButton()
-            b.setIcon(_swatch(layer_color(i), 16))
+            b.setIcon(_swatch(swatch_layer_color(i), 16))
             b.setText(str(i))
             b.setToolTip(tr.format("layers.layer_n", n=i))
             b.setToolButtonStyle(Qt.ToolButtonIconOnly)
@@ -168,6 +168,12 @@ class LayerPanel(QWidget):
         self.document = doc
         self.refresh()
 
+    def refresh_swatches(self) -> None:
+        """The layer colours as the canvas shows them (the colour-blind palette switched)."""
+        for i, b in enumerate(self.color_buttons):
+            b.setIcon(_swatch(swatch_layer_color(i), 16))
+        self.refresh()
+
     def refresh(self) -> None:
         doc = self.document
         self.table.blockSignals(True)
@@ -182,7 +188,7 @@ class LayerPanel(QWidget):
                                                       extra={"placeholder": True})
                 r = self.table.rowCount()
                 self.table.insertRow(r)
-                head = QTableWidgetItem(_swatch(layer_color(li)), self.tr_.format("layers.layer_n", n=li))
+                head = QTableWidgetItem(_swatch(swatch_layer_color(li)), self.tr_.format("layers.layer_n", n=li))
                 head.setData(Qt.UserRole, li)
                 head.setFlags(head.flags() & ~Qt.ItemIsEditable)
                 ref = (lp.extra or {}).get("technology") if isinstance(lp.extra, dict) else None

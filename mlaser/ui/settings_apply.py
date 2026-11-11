@@ -75,7 +75,8 @@ def apply_language(w: Any) -> None:
 
 
 def apply_shell(w: Any) -> None:
-    """``shell.theme`` / ``shell.classic_ribbon`` changed outside the shell's own commands."""
+    """``shell.theme`` / ``shell.classic_ribbon`` / ``shell.colorblind_palette`` changed outside the
+    shell's own commands."""
     shell = getattr(w, "shell", None)
     if shell is None:
         return
@@ -85,10 +86,11 @@ def apply_shell(w: Any) -> None:
     on = bool(w.config.get("shell.classic_ribbon", False))
     if on != getattr(shell, "classic", on):
         shell.set_classic(on, persist=False)
+    shell.set_colorblind_palette(bool(w.config.get("shell.colorblind_palette", False)))
 
 
 def _changed(w: Any, key: str) -> None:
-    if key in ("*", "shell.theme", "shell.classic_ribbon"):
+    if key in ("*", "shell.theme", "shell.classic_ribbon", "shell.colorblind_palette"):
         apply_shell(w)
     if key == "*" or key.startswith("display."):
         apply_display(w)
