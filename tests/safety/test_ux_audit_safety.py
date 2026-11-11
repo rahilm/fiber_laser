@@ -287,6 +287,9 @@ def test_stop_while_held_keeps_the_resume_point(sim_win, app):
     assert time.monotonic() - t0 < 0.5
     assert _until(app, lambda: ctl.breakpoint is None and ctl.kept_breakpoint is not None, 10)
     assert ctl.kept_breakpoint is bp
+    # the Stop's thread ends the held job a few lines after it kept the point (until then the
+    # job counts as active and the bar waits for it; CI: the refresh came in between)
+    assert _until(app, lambda: not ctl.job_active(), 10)
     su.refresh()
     assert not su.kept_bar.isHidden() and "resume point kept" in su.kept.label.text()
     su.resume_kept()
