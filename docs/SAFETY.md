@@ -20,7 +20,7 @@ hardware watchdog relay (§11) and the machine's own e-stop chain are required.
 | streamer | `controller/stream.py` | buffered-motion cap, no auto-restart, child supervision |
 | exit paths | `machine/lifecycle.py` | atexit, SIGINT/SIGTERM, `sys.excepthook`, `threading.excepthook` |
 | audit and logs | `machine/audit.py`, `machine/logsetup.py` | rotating `mlaser.log`, JSON-lines `audit.log`, `crash.log` |
-| UI | `ui/safety_ui.py`, `ui/run_rules.py`, `ui/qtbridge.py`, `ui/safety_texts.py` | banners, run bar, global keys, dialogs; the run controls' rules without Qt (`run_rules`) |
+| UI | `ui/safety_ui.py`, `ui/run_rules.py`, `ui/qtbridge.py`, `ui/safety_texts.py` | banners, run bar, global keys, dialogs; the run controls' rules without Qt (`run_rules`; what the job is doing comes from `ctl.job_phase()` through `run_rules.JobView`, restrictive when the phase cannot be read) |
 | typed interface | `machine/api.py` (`MachineAPI`), `machine/events.py` (`EventBus`) | what the UI may call / receive |
 
 ## 2. State machine
