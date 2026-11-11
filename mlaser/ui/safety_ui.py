@@ -1733,29 +1733,28 @@ class SafetyUI(QObject):
 
     @staticmethod
     def _head_moved(ctl, job) -> bool:
-        """The head is no longer where ``job`` starts (the controller's own tolerance): the
-        press came while the axes still ran out after a Stop or a jog, or before the status
-        poll had the position of rest."""
+        """The head, read from the card now (off the GUI thread), is no longer where ``job``
+        starts (the controller's own tolerance): the press came while the axes still ran out
+        after a Stop or a jog, or before the status poll had the position of rest."""
         st = getattr(job, "start_mm", None)
         if st is None:
             return False
         try:
-            s = ctl.state()
-            return not math.dist((float(st[0]), float(st[1])), (float(s.x), float(s.y))) <= float(
+            return not math.dist((float(st[0]), float(st[1])), ctl.head_position(fresh=True)) <= float(
                 ctl.start_position_tol_mm)
         except Exception:  # noqa: BLE001 - no position: the check reports what it finds
             return False
 
     @staticmethod
     def _head_settled(ctl, alive: Callable[[], bool], timeout_s: float = 2.0) -> None:
-        """Wait (off the GUI thread, bounded) until the polled head position stays where it is
-        for 0.2 s, or ``alive()`` is False (a Stop meanwhile)."""
+        """Wait (off the GUI thread, bounded) until the head, read from the card, stays where
+        it is for 0.2 s, or ``alive()`` is False (a Stop meanwhile)."""
         end = time.monotonic() + timeout_s
         last, since = None, time.monotonic()
         while alive() and time.monotonic() < end:
             try:
-                s = ctl.state()
-                pos = (round(float(s.x), 3), round(float(s.y), 3))
+                x, y = ctl.head_position(fresh=True)
+                pos = (round(float(x), 3), round(float(y), 3))
             except Exception:  # noqa: BLE001 - no position to wait for: the check runs as it is
                 return
             now = time.monotonic()
