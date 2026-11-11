@@ -215,8 +215,12 @@ def test_network_hosts_and_icons(app, env):
         ctx.register_command("iconplug.x", lambda: None, label="X", icon=str(svg))
         from mlaser.ui.icons import COMMAND_ICONS
         assert COMMAND_ICONS["iconplug.x"] == str(svg)
+        from mlaser.ui.icons import used_icon_names
+        assert str(svg) not in used_icon_names()     # a plugin's file is not a vendored icon
     finally:
         w.close()
+        from mlaser.ui.icons import COMMAND_ICONS
+        COMMAND_ICONS.pop("iconplug.x", None)       # module state: later tests see the shipped table
 
 
 def _bundled_plugins():

@@ -58,9 +58,9 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
     orig = sim.handle
 
     def handle(data: bytes):
-        t0 = time.time()
+        t0 = time.perf_counter()        # the fine clock (time.time() ticks 15 ms on Windows)
         out = orig(data)
-        log.append(Record(t0, bytes(data), out, time.time()))
+        log.append(Record(t0, bytes(data), out, time.perf_counter()))
         return out
 
     sim.handle = handle
@@ -94,15 +94,26 @@ def record_job(job, start_mm: tuple[float, float] = (0.0, 0.0), time_scale: floa
 
 
 def to_messages(records: list[Record], pc=PC_ADDR, card=CARD_ADDR, t0: float = 1_760_000_000.0) -> list[Message]:
-    """Records -> request/reply messages with machine addresses and timestamps from ``t0``."""
+    """Records -> request/reply messages with machine addresses and timestamps from ``t0``.
+
+    The timestamps strictly increase in the order of the records (each at least 1 µs, the
+    capture's resolution, after the one before): a capture is read back in time order, and a
+    coarse clock (about 15 ms for ``time.time()`` on Windows) gives a run of exchanges the same
+    time, which would put a request before the reply to the request before it."""
     if not records:
         return []
     base = records[0].t_req
-    out = []
+    out: list[Message] = []
+    last = -1.0
+
+    def stamp(t: float) -> float:
+        nonlocal last
+        last = max(t - base, last + 1e-6)
+        return t0 + last
     for r in records:
-        out.append(Message(t0 + r.t_req - base, pc, card, r.request, "udp"))
+        out.append(Message(stamp(r.t_req), pc, card, r.request, "udp"))
         if r.reply is not None:
-            out.append(Message(t0 + max(r.t_rep, r.t_req + 1e-6) - base, card, pc, r.reply, "udp"))
+            out.append(Message(stamp(r.t_rep), card, pc, r.reply, "udp"))
     return out
 
 

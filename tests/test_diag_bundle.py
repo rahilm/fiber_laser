@@ -63,7 +63,8 @@ def test_paths_under_home_are_shortened():
     # another user's home (a value copied from another computer) and free text
     assert B.redact_path("/home/alice/cuts/x.dxf") == "~/…/x.dxf"
     assert B.redact_path("C:\\Users\\Bob\\Desktop\\y.dxf") == "~/…/y.dxf"
-    assert B.redact_text(f"opened {p} ok") == "opened ~/jobs/customer/part.dxf ok"
+    # free text keeps the platform's own separators after the "~" (a backslash on Windows)
+    assert B.redact_text(f"opened {p} ok") == f"opened {os.path.join('~', 'jobs', 'customer', 'part.dxf')} ok"
 
 
 def test_network_hosts_are_kept_but_marked_and_the_card_is_plain():
@@ -203,7 +204,7 @@ def test_cli_writes_a_bundle(tmp_path, capsys):
     from mlaser import cli
     logs = tmp_path / "logs"
     logs.mkdir()
-    (logs / "mlaser.log").write_text("hello\n", "utf-8")
+    (logs / "mlaser.log").write_bytes(b"hello\n")    # bytes: the bundle copies the file as it is
     out = tmp_path / "out" / "bundle.zip"
     assert cli.is_subcommand(["diag-bundle", str(out)])
     rc = cli.main(["diag-bundle", str(out), "--log-dir", str(logs), "--data-dir", str(tmp_path / "data"), "--json"])
