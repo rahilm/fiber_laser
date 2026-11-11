@@ -113,7 +113,8 @@ tests. `tests/vendor_samples.py` has the helpers (`requires("File/autosave.chf")
 * `tools/command_coverage.py`: no unimplemented, raising or duplicate command (also run by
   the `architecture` job of CI, about 30 s);
 * `lint-imports` (layer rules, [Architecture](ARCHITECTURE.md)) and `mypy` green;
-* `uvx ruff@0.17.1 check` on the changed files;
+* `uvx ruff@0.17.1 check .` reports 0 findings (the CI job *lint* fails otherwise; rule set and
+  per-file ignores in `pyproject.toml`);
 * `tests/test_docs_links.py`: documentation links resolve.
 
 ## Coverage
