@@ -8,9 +8,12 @@ the menu and tool bar, so the user mode's limits apply: a command the mode does 
 not shown).  It hides as soon as the document has a part and comes back when the last one goes.
 
 It never covers the canvas bar (the HUD: *Toolpath*, the legend, *Fit drawing*): it is centred
-in the space below the bar.  In a view too short for that (a 14" MacBook with the Dock shown:
-a window 649 px high leaves the canvas about 250 px) the bar, which has nothing to act on while
-there is no drawing, steps aside until there is one or the view grows.
+in the space below the bar.  In a short view it takes a smaller form rather than vanish: the
+explanation goes, then the title, then the buttons stand two side by side, then the margins
+narrow, and at last one row offers *Open drawing…* and *Try the sample* alone (Windows at a
+window of 683 x 649: the four buttons in a column did not fit and the canvas was blank).  Only
+where not even that row fits below the bar does the bar, which has nothing to act on while
+there is no drawing, step aside until there is one or the view grows.
 """
 from __future__ import annotations
 
@@ -18,7 +21,7 @@ from typing import Any, Callable, Optional
 
 from PySide6.QtCore import QEvent, QObject, Qt
 from PySide6.QtGui import QPalette
-from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QFrame, QGridLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 from . import style
 
@@ -28,6 +31,19 @@ ENTRIES: tuple[tuple[str, str], ...] = (
     ("file.import", "canvas.empty.import"),
     ("sample", "canvas.empty.sample"),
     ("practice.open", "canvas.empty.practice"),
+)
+
+#: the commands of the smallest form (one row), in this order, as far as they are offered
+ONE_ROW: tuple[str, ...] = ("file.open", "sample")
+
+#: the forms, largest first: (explanation shown, title shown, button columns, margin, one row only)
+FORMS: tuple[tuple[bool, bool, int, int, bool], ...] = (
+    (True, True, 1, style.SP3, False),
+    (False, True, 1, style.SP3, False),
+    (False, False, 1, style.SP3, False),
+    (False, False, 2, style.SP3, False),
+    (False, False, 2, style.SP1, False),
+    (False, False, 2, style.SP1, True),
 )
 
 
@@ -59,6 +75,11 @@ class CanvasEmptyState(QFrame):
         self.text.setWordWrap(True)
         tr.bind(self.text, "canvas.empty.text", self.text.setText)
         lay.addWidget(self.text)
+        self._grid = QGridLayout()
+        self._grid.setContentsMargins(0, 0, 0, 0)
+        self._grid.setSpacing(style.SP1)
+        lay.addLayout(self._grid)
+        self._offered: list[str] = []
         self.buttons: dict[str, QPushButton] = {}
         for cmd, key in ENTRIES:
             b = QPushButton()
@@ -73,7 +94,7 @@ class CanvasEmptyState(QFrame):
             # responsive.FlowLayout.addWidget)
             b.setAttribute(Qt.WA_LayoutUsesWidgetRect, True)
             b.clicked.connect(lambda _c=False, c=cmd: self.trigger(c))
-            lay.addWidget(b)
+            self._grid.addWidget(b, len(self.buttons), 0)
             self.buttons[cmd] = b
         self.buttons["file.open"].setDefault(True)
         tr.bind(self, "canvas.empty.title", self.setAccessibleName)
@@ -116,8 +137,9 @@ class CanvasEmptyState(QFrame):
         """Shown while ``document`` has no part (and the view is shown)."""
         self._doc = document
         empty = document is None or not getattr(document, "parts", None)
-        for cmd, b in self.buttons.items():
-            b.setVisible(cmd == "sample" and self._allowed("file.open") or self._allowed(cmd))
+        self._offered = [cmd for cmd in self.buttons
+                         if cmd == "sample" and self._allowed("file.open") or self._allowed(cmd)]
+        self._arrange(self._offered, 1)
         self.setVisible(empty)
         if empty:
             self.place()
@@ -134,9 +156,9 @@ class CanvasEmptyState(QFrame):
     def place(self) -> None:
         """Centred on the view below the canvas bar, as wide as its content wants (never wider
         than the view).  In a short view the explanation goes first, then the title; where not
-        even the buttons fit below the bar, the bar steps aside (it comes back with a drawing
-        or a taller view); a view too short for the buttons alone shows none of it (nothing is
-        ever drawn cut)."""
+        even its smallest form (one row of buttons) fits below the bar, the bar steps aside (it
+        comes back with a drawing or a taller view); a view too short for that row shows none
+        of it (nothing is ever drawn cut)."""
         v = self.view
         hud = self._hud()
         if self._hid_hud and hud is not None:
@@ -164,22 +186,42 @@ class CanvasEmptyState(QFrame):
             return
         self.hide()                      # not even the buttons fit: the menus and the tool bar remain
 
+    def _arrange(self, cmds: list[str], cols: int) -> None:
+        """The offered buttons ``cmds`` in ``cols`` columns (row by row, the tab order), the
+        others hidden."""
+        g = self._grid
+        for b in self.buttons.values():
+            g.removeWidget(b)
+        for cmd, b in self.buttons.items():
+            b.setVisible(cmd in cmds)
+        for i, cmd in enumerate(cmds):
+            g.addWidget(self.buttons[cmd], i // cols, i % cols)
+
     def _fit(self, width: int, height: int) -> Optional[tuple[int, int]]:
-        """(w, h) of the panel in a space of ``width`` x ``height`` (the explanation, then the
-        title left out as needed), or None when not even the buttons fit."""
+        """(w, h) of the panel in a space of ``width`` x ``height`` in the largest of
+        :data:`FORMS` that fits, or None when not even the smallest fits."""
         avail_w = max(1, width - 2 * style.SP3)
         avail_h = height - 2 * style.SP1
-        self.text.setVisible(True)
-        self.title.setVisible(True)
-        for drop in (None, self.text, self.title):
-            if drop is not None:
-                drop.setVisible(False)
-            lay = self.layout()
+        lay = self.layout()
+        for text, title, cols, margin, one_row in FORMS:
+            cmds = [c for c in ONE_ROW if c in self._offered] if one_row else list(self._offered)
+            if not cmds:
+                continue
+            self.text.setVisible(text)
+            self.title.setVisible(title)
+            lay.setContentsMargins(margin, margin, margin, margin)
+            self._arrange(cmds, len(cmds) if one_row else cols)
             lay.invalidate()
+            if cols > 1 and lay.totalMinimumSize().width() > avail_w:
+                continue                  # side by side the buttons would be cut
             w = min(max(self.sizeHint().width(), self.minimumSizeHint().width(), 280), avail_w)
             h = max(lay.totalHeightForWidth(w) if lay.hasHeightForWidth() else 0, lay.totalMinimumSize().height())
             if h <= avail_h:
                 return w, h
+        self.text.setVisible(True)
+        self.title.setVisible(True)
+        lay.setContentsMargins(style.SP3, style.SP3, style.SP3, style.SP3)
+        self._arrange(self._offered, 1)
         return None
 
     def event(self, ev: QEvent) -> bool:
