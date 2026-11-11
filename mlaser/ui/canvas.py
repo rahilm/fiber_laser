@@ -673,8 +673,10 @@ class CanvasHud(QFrame):
 #   items changed); a frame after a change of the scene or the view is painted whole, as before
 #   (making the picture costs about 15 % more than a whole paint, so a zoom, a pan or an edit
 #   keeps its old cost).  No picture is made while there are no live items.  A paint the picture does not fit (a stale picture without
-#   the window's update request, a grab, a fractional device pixel ratio such as Windows at
-#   125 %) paints the whole scene, as before.
+#   the window's update request, a grab) paints the whole scene, as before.  The picture is kept
+#   in the window's device pixels and drawn back 1:1 in device coordinates, so it fits at a
+#   fractional device pixel ratio too (Windows at 125 / 150 %: the viewport may begin inside a
+#   device pixel).
 # * The **live items** (:meth:`CanvasView.overlay_scene`): the head marker, the cut track, the
 #   simulation trail, the drawing tools' preview and the preview player's path.  They are drawn
 #   over the static picture on every paint, in their stacking order, as the scene would draw them.
@@ -759,6 +761,12 @@ class _Trail:
 
     def element_count(self) -> int:
         return sum(it.path().elementCount() for it in self.items)
+
+
+def _qround(x: float) -> int:
+    """``qRound``: to the nearest integer, halves away from zero (Python's ``round`` rounds
+    halves to even)."""
+    return int(math.floor(x + 0.5)) if x >= 0 else -int(math.floor(-x + 0.5))
 
 
 class _StaticView(QGraphicsView):
@@ -1019,11 +1027,10 @@ class CanvasView(QGraphicsView):
     def _static_key(self) -> Optional[tuple]:
         """What the static picture depends on besides the scene's items: the view (transform,
         scroll position, size, device pixel ratio) and what the background draws.  None: no
-        cached picture (a fractional device pixel ratio: the copy would not land on whole
-        device pixels)."""
+        cached picture (an empty view)."""
         vp = self.viewport()
         dpr = vp.devicePixelRatioF()
-        if dpr != int(dpr) or vp.width() <= 0 or vp.height() <= 0:
+        if vp.width() <= 0 or vp.height() <= 0:
             return None
         t = self.viewportTransform()
         from mlaser.services import units as U
@@ -1050,8 +1057,9 @@ class CanvasView(QGraphicsView):
         dpr = vp.devicePixelRatioF()
         win = self.window()
         off = vp.mapTo(win, QPoint(0, 0))
-        return (round(win.width() * dpr), round(win.height() * dpr), round(off.x() * dpr),
-                round(off.y() * dpr))
+        # rounded as Qt rounds (half up: 663 px at 150 % is a backing store 995 pixels wide)
+        return (_qround(win.width() * dpr), _qround(win.height() * dpr), _qround(off.x() * dpr),
+                _qround(off.y() * dpr))
 
     @staticmethod
     def _painter_geometry(p: QPainter) -> tuple:
@@ -1060,7 +1068,7 @@ class CanvasView(QGraphicsView):
         t = p.deviceTransform()
         if dev is None:
             return ()
-        return (dev.width(), dev.height(), round(t.dx()), round(t.dy()))
+        return (dev.width(), dev.height(), _qround(t.dx()), _qround(t.dy()))
 
     def _prepare_static(self) -> None:
         """Before the window paints: paint the static picture again when it is stale.
@@ -1105,9 +1113,18 @@ class CanvasView(QGraphicsView):
             painter.end()
         finally:
             self._painting_static = False
-        pm = whole.copy(geo[2], geo[3], round(vp.width() * dpr), round(vp.height() * dpr))
-        pm.setDevicePixelRatio(dpr)
-        self._static = (key, pm, geo)
+        # the viewport's device pixels, whole ones (at a fractional device pixel ratio, Windows
+        # at 125 / 150 %, the viewport may begin inside a device pixel): the picture is drawn
+        # back 1:1 in device coordinates (paintEvent), never resampled
+        x0, y0 = math.floor(off.x() * dpr), math.floor(off.y() * dpr)
+        x1 = min(geo[0], math.ceil((off.x() + vp.width()) * dpr))
+        y1 = min(geo[1], math.ceil((off.y() + vp.height()) * dpr))
+        pm = whole.copy(x0, y0, x1 - x0, y1 - y0)
+        pm.setDevicePixelRatio(1.0)
+        # viewport (logical) -> picture pixels: the scale, then the viewport's place on it
+        to_pm = QTransform.fromScale(dpr, dpr) * QTransform.fromTranslate(off.x() * dpr - x0,
+                                                                          off.y() * dpr - y0)
+        self._static = (key, pm, geo, (x0, y0), to_pm)
         self._under = None
         self.paint_stats["static"] += 1
 
@@ -1146,12 +1163,15 @@ class CanvasView(QGraphicsView):
     def _live_items(self) -> list:
         return [it for it in self._live.items(Qt.AscendingOrder) if it.isVisible()]
 
-    def _draw_live(self, painter: QPainter, items) -> None:
+    def _draw_live(self, painter: QPainter, items, base: Optional[QTransform] = None) -> None:
         """Paint overlay-scene items as the scene paints its items (device transform, style
-        option, opacity), in the given (stacking) order."""
+        option, opacity), in the given (stacking) order.  ``base``: viewport coordinates to the
+        painter's (the cached picture's device pixels)."""
         if not items:
             return
         vt = self.viewportTransform()
+        if base is not None:
+            vt = vt * base
         widget = self.viewport()
         painter.save()
         for it in items:
@@ -1187,7 +1207,7 @@ class CanvasView(QGraphicsView):
             p = QPainter(pm)
             p.setRenderHints(p.renderHints(), False)
             p.setRenderHints(self.renderHints(), True)
-            self._draw_live(p, under[len(done):])
+            self._draw_live(p, under[len(done):], self._static[4])
             p.end()
             done = list(under)
         self._under = (base, pm, done)
@@ -1214,7 +1234,11 @@ class CanvasView(QGraphicsView):
             return
         self.paint_stats["cached"] += 1
         pm, rest = self._live_base(self._live_items())
-        p.drawPixmap(0, 0, pm)
+        x0, y0 = self._static[3]
+        p.save()
+        p.setWorldTransform(p.deviceTransform().inverted()[0])   # device pixels, 1:1
+        p.drawPixmap(x0, y0, pm)
+        p.restore()
         p.setRenderHints(p.renderHints(), False)
         p.setRenderHints(self.renderHints(), True)
         self._draw_live(p, rest)

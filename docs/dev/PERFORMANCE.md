@@ -502,9 +502,10 @@ How (`mlaser/ui/canvas.py`, "live layer"):
   after a cached paint equals a whole paint with every item in the one scene (the old way), at
   four views (fitted, zoomed in, zoomed out and panned, with the grid) and after a resize, the
   canvas alone and inside a window at an odd offset, at device pixel ratio 1 and 2 (child
-  process, `QT_SCALE_FACTOR=2`); a track in chunks paints what one path painted. Exceptions:
-  at a fractional device pixel ratio (Windows at 125 / 150 %) the copy would not land on whole
-  device pixels, so every paint there is whole, as before; where the track crosses itself
+  process, `QT_SCALE_FACTOR=2`) and at the fractional ratios 1.25 and 1.5 (Windows at 125 /
+  150 %, the viewport in a window beginning inside a device pixel): the picture is kept in the
+  window's device pixels and drawn back 1:1 in device coordinates, never resampled. A track in
+  chunks paints what one path painted. Exception: where the track crosses itself
   across a chunk seam the two strokes are blended one after the other instead of filled as
   one path (sub-pixel, at the crossing only).
 * **Toolpath delivery** (issue #1): `set_toolpath` rebuilds only the overlay when the drawing
