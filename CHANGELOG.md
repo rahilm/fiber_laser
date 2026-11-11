@@ -429,6 +429,27 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   PC: the streaming process prepares the job before the link watch starts.
 - The test suite no longer writes into the user's own machine-parameter folder
   (`~/.local/share/NexCut`, `%LOCALAPPDATA%\NexCut`): every test gets its own.
+- An empty canvas in a short window now shows a smaller "No drawing yet" panel (buttons side by
+  side, or just Open drawing and Try the sample) instead of nothing.
+- Safety: when a job is halted from outside the job (for example on disconnect), the streaming
+  process is told before the halt goes out, so a frame waiting for its reply is never sent again
+  after the halt.
+- Safety: the streaming process never sends a frame again once the card has been silent for the
+  PC's link deadline; it halts the card itself, also when the PC's own watch comes late.
+- Hold shows HOLD while the resume point is being stored (the Run screen showed READY for a
+  moment).
+- Start (or "Cut remaining parts") pressed right after a Stop, while the axes still ran out, no
+  longer reports a job that fits as "outside the travel" or is refused after arming ("the head
+  moved since the job was planned"): the check reads the head from the card, waits until it rests
+  and plans the job from there.
+- Starting a job with the process streamer on a busy PC no longer latches "link lost" while the
+  streaming process starts: the PC keeps watching the card itself until that process is ready,
+  so a dead link during the start-up is also noticed at once.
+- A workspace tool bar no longer keeps commands behind its overflow button after a brief overflow
+  of its second row.
+- Fixed a crash (segmentation fault during garbage collection) on Python 3.14.0-3.14.4, the
+  system Python of Ubuntu 26.04: there mlaser runs garbage collection itself, without the
+  interpreter's incremental collector.
 
 ## [0.1.0rc1]
 

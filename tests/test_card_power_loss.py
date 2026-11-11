@@ -524,7 +524,10 @@ def test_every_operator_command_is_queued_or_a_reviewed_direct_path():
             # no card I/O: a flag the next job start consumes (arming across a queue's sheets)
             "keep_armed_after_next_job",
             # no card I/O: reads the job lifecycle's phase (arch A1)
-            "job_phase"}
+            "job_phase",
+            # the polled position; a card read (fresh=True) only off the GUI thread (the
+            # pre-flight worker of Start): tests/safety/test_start_preflight_async.py
+            "head_position"}
     api = {n for n, v in vars(ControllerFacade).items() if callable(v) and not n.startswith("_")}
     assert not api - queued - direct, f"MachineAPI commands neither queued nor reviewed: {api - queued - direct}"
 

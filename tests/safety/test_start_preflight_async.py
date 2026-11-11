@@ -260,8 +260,6 @@ def test_the_check_reads_the_head_from_the_card_not_from_the_last_poll(sim_win, 
     w.set_document(_edge_doc(kerf=False))
     w._test_no_dialogs = False
     assert ctl.wait_commands(10)
-    card = ctl.head_position(fresh=True)
-    assert card == pytest.approx((ctl.state().x, ctl.state().y), abs=1e-6)
     real_state, real_fresh = ctl.state, ctl._fresh_head
     behind, built = [True], []
 
@@ -284,3 +282,20 @@ def test_the_check_reads_the_head_from_the_card_not_from_the_last_poll(sim_win, 
     assert [d["kind"] for d in dialogs] == ["box"]          # armed once, and the job started
     assert len(built) == 2                                  # planned again, from the card's position
     ctl.stop(wait=True)
+
+
+def test_a_fresh_head_is_never_read_on_the_gui_thread(sim_win, app, monkeypatch):
+    """``head_position(fresh=True)`` is a card read (up to the link timeout with a silent
+    card): on the GUI thread it returns the polled position, off it the card's."""
+    ctl = sim_win.ctl
+    assert ctl.wait_commands(10)
+    reads = []
+    real = ctl._fresh_head
+    monkeypatch.setattr(ctl, "_fresh_head", lambda: reads.append(threading.current_thread().name) or real())
+    here = ctl.head_position(fresh=True)
+    assert not reads and here == pytest.approx((ctl.state().x, ctl.state().y), abs=1e-9)
+    got = []
+    t = threading.Thread(target=lambda: got.append(ctl.head_position(fresh=True)), name="pf-worker")
+    t.start()
+    t.join(10)
+    assert reads == ["pf-worker"] and got and got[0] == pytest.approx(here, abs=0.01)
