@@ -184,7 +184,7 @@ def timing_group(item) -> str | None:
 @pytest.fixture(autouse=True)
 def _isolated_config(tmp_path_factory, monkeypatch):
     """Every test gets its own ConfigService directory (mlaser.services.config): values a test
-    sets never leak into the next test's windows."""
+    sets never leak into the next test's windows, nor into the user's own folders."""
     if "MLASER_CONFIG_DIR" not in os.environ or os.environ.get("_MLASER_CONFIG_AUTO"):
         monkeypatch.setenv("MLASER_CONFIG_DIR", str(tmp_path_factory.mktemp("config")))
         monkeypatch.setenv("_MLASER_CONFIG_AUTO", "1")
@@ -193,6 +193,12 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     if "MLASER_APP_DIR" not in os.environ or os.environ.get("_MLASER_APP_AUTO"):
         monkeypatch.setenv("MLASER_APP_DIR", str(tmp_path_factory.mktemp("app")))
         monkeypatch.setenv("_MLASER_APP_AUTO", "1")
+    # the machine's parameter folder (formats.backup.default_param_dir: HardPara.xml ...): one per
+    # test, never the user's own (a test that restored parameters wrote its travel limit into
+    # ~/.local/share/NexCut, and the next run's test found "nothing differs")
+    if "MLASER_PARAM_DIR" not in os.environ or os.environ.get("_MLASER_PARAM_AUTO"):
+        monkeypatch.setenv("MLASER_PARAM_DIR", str(tmp_path_factory.mktemp("param")))
+        monkeypatch.setenv("_MLASER_PARAM_AUTO", "1")
     # display units are process-wide (mlaser.services.units): every test starts metric, unbound
     from mlaser.services import units as _units
     _units.reset()
