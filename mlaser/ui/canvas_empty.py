@@ -153,6 +153,9 @@ class CanvasEmptyState(QFrame):
                 self._hid_hud = True
             w, h = size
             self.setGeometry((v.width() - w) // 2, top + max(style.SP1, (v.height() - top - h) // 2), w, h)
+            # laid out now with the parts shown at last (a size the panel already had brings no
+            # resize, and its buttons kept the places of a pass with the explanation shown)
+            self.layout().activate()
             return
         self.hide()                      # not even the buttons fit: the menus and the tool bar remain
 
@@ -173,6 +176,18 @@ class CanvasEmptyState(QFrame):
             if h <= avail_h:
                 return w, h
         return None
+
+    def event(self, ev: QEvent) -> bool:
+        # the content's size changed without a resize of the view (a font or language change,
+        # a command offered or no longer offered): placed again when it no longer fits
+        if ev.type() == QEvent.LayoutRequest and self.isVisible() and self._too_short():
+            self.place()
+        return super().event(ev)
+
+    def _too_short(self) -> bool:
+        lay = self.layout()
+        need = lay.totalHeightForWidth(self.width()) if lay.hasHeightForWidth() else 0
+        return max(need, lay.totalMinimumSize().height()) > self.height()
 
     def eventFilter(self, obj: QObject, ev: QEvent) -> bool:  # noqa: N802 - Qt API
         if obj is self.view:

@@ -843,6 +843,7 @@ class CanvasHud(QFrame):
         avail = max(0, self.view.width() - inset - 8)
         self.legend_button.setVisible(self.view.options.show_toolpath and not self.collapsed)
         self.legend.setVisible(self.view.options.show_toolpath and not self.collapsed and self.legend_wanted())
+        self._legend_look()              # (its arrow is part of the button's size)
         lay = self.layout()
         lay.activate()
         # what surrounds the row: the layout's margins and the frame's own (the style sheet's
@@ -870,7 +871,11 @@ class CanvasHud(QFrame):
             lay.activate()
             h = height()
         self._legend_look()
-        self.setGeometry(inset, inset, w, max(h, self.minimumSizeHint().height()))
+        h = max(h, self.minimumSizeHint().height())
+        # past the rulers' corner while the view has room for that; a very short view keeps the
+        # whole bar inside it (over the ruler) instead of cutting it
+        y = max(0, min(inset, self.view.height() - h - 2))
+        self.setGeometry(inset, y, w, h)
         self.raise_()
 
 
