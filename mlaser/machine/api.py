@@ -30,7 +30,6 @@ Original behaviour referenced (observed in lang.txt, MainApp strings):
 """
 from __future__ import annotations
 
-import contextlib
 import logging
 import threading
 from abc import ABC, abstractmethod
@@ -40,6 +39,7 @@ from typing import Any, Callable, Optional, Protocol, runtime_checkable
 from .. import i18n as _i18n
 from . import events as EV
 from . import preflight as PF
+from .jobphase import JobPhase
 from .safety import SafetyFSM, SafetyState, SafetyStatus
 
 OUTPUTS = ("follow", "gas", "shutter", "red_light", "laser", "dedust", "lube")
@@ -165,6 +165,7 @@ class MachineAPI(Protocol):
     def discard_kept_breakpoint(self) -> None: ...
     def wait_job(self, timeout: float = 60.0) -> bool: ...
     def job_active(self) -> bool: ...
+    def job_phase(self) -> JobPhase: ...
     def clear_alarms(self) -> None: ...
 
     # -- queued operator commands (card I/O off the GUI thread, issue #5) --
@@ -431,12 +432,7 @@ class ControllerFacade(ABC):
             return False
         self.kept_breakpoint = None
         self.breakpoint = bp
-        s = getattr(self, "_s", None)
-        lock = getattr(self, "_slock", None)
-        if s is not None:
-            with lock if lock is not None else contextlib.nullcontext():
-                if s.connected:
-                    s.mode = "pause"    # the status poll keeps it while the breakpoint exists
+        self._refresh_mode()            # held at the breakpoint ("pause" while connected)
         self._log(_i18n.tr("log.resume_point_restored"))
         self.events.publish(EV.BreakpointChanged(bp))
         return True
@@ -462,6 +458,25 @@ class ControllerFacade(ABC):
 
     def job_active(self) -> bool:
         return self.fsm.state in (SafetyState.RUNNING, SafetyState.PAUSED)
+
+    def job_phase(self) -> JobPhase:
+        """The job lifecycle's phase (machine.jobphase).  This default knows only the safety
+        state and the breakpoint; the card controller reports every phase."""
+        if self.breakpoint is not None and not self.job_active():
+            return JobPhase.AT_BREAKPOINT
+        st = self.fsm.state
+        if st == SafetyState.RUNNING:
+            return JobPhase.RUNNING
+        if st == SafetyState.PAUSED:
+            return JobPhase.AT_BREAKPOINT if self.breakpoint is not None else JobPhase.HOLDING
+        return JobPhase.IDLE
+
+    def _refresh_mode(self) -> None:
+        """Show the state's mode after a job phase or breakpoint change (the card controller
+        derives it, machine.jobphase.derive_mode); this default: "pause" at a breakpoint."""
+        s = getattr(self, "_s", None)
+        if s is not None and s.connected and self.breakpoint is not None:
+            s.mode = "pause"
 
     def snapshot(self) -> MachineState:
         import copy

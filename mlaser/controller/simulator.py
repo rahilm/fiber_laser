@@ -293,7 +293,15 @@ class CardSimulator:
     def address(self) -> tuple[str, int]:
         return self.host, self.port
 
-    def start(self) -> "CardSimulator":
+    def start(self, network: bool = True) -> "CardSimulator":
+        """Serve the card on a socket and run the motion thread; ``network=False``: the motion
+        thread only (requests come through :meth:`handle`, e.g. controller.memlink)."""
+        if not network:
+            self._stop.clear()
+            mot = threading.Thread(target=self._motion_loop, name="mcc-sim-motion", daemon=True)
+            self._threads = [mot]
+            mot.start()
+            return self
         if self.transport == "tcp":
             s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
             s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)

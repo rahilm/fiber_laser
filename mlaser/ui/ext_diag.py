@@ -1634,16 +1634,20 @@ class DiagExtension:
             _log(self.w, _tr(self.w, "diag.log.no_dedust",
                              "Dust extraction: no dedust output configured (DO.ClearAsh pd1400)"))
             state = False
+        elif port == CIO.dedust_port({}, self.w.ctl):
+            # the controller's own dedust output: its command path (guard, its state under its
+            # lock, the log), never a write into ctl.state() (arch A6)
+            state = (not self.outputs.get(port)) if on is None else bool(on)
+            if self.w.ctl.card() is None:
+                self.outputs.set(port, state)    # no card: remembered and logged as before
+            else:
+                self.w.ctl.set_output("dedust", state)
         else:
             if on is None:
                 state = self.outputs.toggle(port)
             else:
                 self.outputs.set(port, bool(on))
                 state = bool(on)
-            try:
-                self.w.ctl.state().outputs["dedust"] = state
-            except Exception:  # noqa: BLE001
-                pass
         act = self.w.ribbon.actions.get("aux.dedust")
         if act is not None:
             act.blockSignals(True)

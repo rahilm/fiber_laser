@@ -51,8 +51,8 @@ other. Lazy (function-level) imports count like top-level ones.
 | `io`, `nest` | DXF/SVG/G-code import and export; nesting |
 | `nc` | `compiler` (document -> FIFO job), `process` (ProcessConfig, ProcessSequencer), `machine`, `offline`, `resume` |
 | `project` | the native `.mlz` project format: codec, schema, migrations, atomic save, `Autosave` ([project-format.md](project-format.md)) |
-| `machine`, `devices` | `machine.api` (`MachineAPI`, `ControllerFacade`), `events` (event bus), `safety` (FSM, command policy), `preflight`, `demo`, `audit`/`logsetup`/`lifecycle`; peripheral device clients |
-| `controller` | card client, simulator (+ `follower_sim`), `supervisor` (SafetySupervisor), `stream` (JobStreamer / ProcessStreamer), `interlocks`, alarms, startup, UI adapter (`ui_adapter` + `parts/`) |
+| `machine`, `devices` | `machine.api` (`MachineAPI`, `ControllerFacade`), `events` (event bus), `safety` (FSM, command policy), `jobphase` (the job lifecycle's phase: one lock, one transition table, `MachineState.mode` derived from it; `ctl.job_phase()`), `preflight`, `demo`, `audit`/`logsetup`/`lifecycle`; peripheral device clients |
+| `controller` | card client, simulator (+ `follower_sim`), `supervisor` (SafetySupervisor), `stream` (JobStreamer / ProcessStreamer), `interlocks`, alarms, startup, UI adapter (`ui_adapter` + `parts/`), `clock` and `memlink` (the test seam under the job runner: virtual time, the simulator without a socket, [TESTING.md](TESTING.md)) |
 | `diag`, `report`, `engrave` | diagnostics tools, production report window, bitmap engraving (they may use Qt) |
 | `services` | the application services, Qt-free (§7): `document` (DocumentService, undo), `undo`, `commands`, `plugins` (PluginContext), `config` (ConfigService), `jobs` (PlannedJob, JobService), `production` |
 | `ops` | Qt-free document operations the UI, services and diag share (`document`, `craft`, `cam`) |

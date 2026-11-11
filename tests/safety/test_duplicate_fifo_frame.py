@@ -1,7 +1,8 @@
 """A lost FIFO reply, the client's re-send and what the card may do with the duplicate (arch.md A5).
 
 The client re-sends a request whose reply did not come in time (the original's retry policy,
-``MotionController.transact``; not changed here).  For a FIFO frame (write 102) the card has
+``MotionController.transact``), but never a request that moves or fires after a halt that came
+while it waited (tests/safety/test_resend_after_halt.py).  For a FIFO frame (write 102) the card has
 already queued the first send, so it receives the same frame, with the same sequence number,
 twice.  What the real MCC100 does with it is UNKNOWN; the bench procedure that settles it is in
 docs/dev/BENCH_CHECKS.md.  The simulator models the three candidates (``duplicate_fifo``).
@@ -26,9 +27,9 @@ card model         what the host does (asserted here)     consequence
 The process streamer (what a real card gets) never reaches the re-send on a running card: the
 child waits for the lost reply (FIFO timeout 600 ms) without relaying, the parent's child
 deadline (500 ms) latches a FAULT and halts the card first, under every model.  With the real
-link deadline (150 ms) both streamers latch "link lost" first.  In both cases the re-send still
-goes out afterwards (the retry loop in ``transact`` does not look at the halt) and reaches a
-stopped, cleared FIFO, where it must never run.
+link deadline (150 ms) both streamers latch "link lost" first.  In both cases the re-send does
+not go out: the halt came first, so ``transact`` refuses to send the frame again (until wave 2
+of the 2026-11 review it went out and reached the stopped, cleared FIFO; it must never run).
 
 """
 from __future__ import annotations
@@ -124,19 +125,16 @@ def test_one_frame_sent_twice_on_the_wire(model):
         sim.stop()
 
 
-def _assert_resend_hits_a_halted_card(sim, rec) -> None:
-    """The re-send went out after the halt's FIFO clear and the frame never runs."""
+def _assert_no_resend_after_the_halt(sim, rec) -> None:
+    """The halt came while the frame waited for its reply: the frame is not sent again (the
+    client's retry would have sent it within the FIFO timeout, 600 ms), the card is safe and
+    nothing runs any more."""
     import time
-    assert wait_until(lambda: sim.state.fifo_duplicates == 1, 3.0) is not None, \
-        "the client did not re-send the frame"
     assert wait_until(lambda: safe(sim), 2.0) is not None
-    frames = rec.writes(F.REG_FIFO_DATA)
-    seqs = [r.values[0] for _t, r in frames]
-    dup_seq = next(s for i, s in enumerate(seqs) if i and seqs[i - 1] == s)
-    t_resend = [t for t, r in frames if r.values[0] == dup_seq][1]
-    clears = [t for t, r in rec.writes(F.REG_FIFO_CTRL) if r.values == [F.FIFO_CLEAR]]
-    assert any(t < t_resend for t in clears[1:]), "the halt's FIFO clear came after the re-send"
-    # accept-twice: the re-sent frame now sits in a stopped FIFO; it must never run
+    assert wait_until(lambda: sim.state.fifo_duplicates > 0, 1.5) is None, \
+        "the client re-sent the frame after the halt"
+    seqs = [r.values[0] for _t, r in rec.writes(F.REG_FIFO_DATA)]
+    assert not any(i and seqs[i - 1] == s for i, s in enumerate(seqs)), "a frame went out twice"
     x = sim.position(0), sim.position(1)
     time.sleep(0.3)
     assert (sim.position(0), sim.position(1)) == x and not sim.state.fifo_running
@@ -158,11 +156,11 @@ def test_lost_fifo_reply_during_a_job(make_ctl, process, model):
     if process:
         # the real card's streamer: the child waits for the lost reply (FIFO timeout 600 ms)
         # without relaying, and the parent's child deadline (500 ms) faults first, under every
-        # model; the halt goes out, then the child's re-send
+        # model; the halt goes out, and the child does not re-send the frame after it
         assert ctl.fsm.state == SafetyState.FAULT, ctl.fsm.state
         assert "link lost" in ctl.fsm.fault or "child_stalled" in ctl.fsm.fault, ctl.fsm.fault
         assert ctl.breakpoint is not None
-        _assert_resend_hits_a_halted_card(sim, rec)
+        _assert_no_resend_after_the_halt(sim, rec)
         return
     assert st.fifo_duplicates == 1, "the lost reply did not make the client send the frame again"
     assert wait_until(lambda: safe(sim), 2.0) is not None
@@ -190,7 +188,7 @@ def test_lost_fifo_reply_during_a_job(make_ctl, process, model):
 @pytest.mark.parametrize("process", STREAMERS)
 def test_lost_fifo_reply_with_the_real_deadline_is_a_link_loss(make_ctl, process):
     """With the real card's deadline (150 ms) the host halts before the client re-sends: FAULT
-    "link lost", halt first; the re-send then reaches a stopped, cleared FIFO."""
+    "link lost", halt first; the frame is then not sent again."""
     ctl = make_ctl(process=process, link_deadline_ms=150.0)
     sim = ctl.sim
     sim.duplicate_fifo = DUP_FIFO_ACCEPT_TWICE           # the worst case: queued again
@@ -199,4 +197,4 @@ def test_lost_fifo_reply_with_the_real_deadline_is_a_link_loss(make_ctl, process
     assert wait_until(lambda: ctl.fsm.state == SafetyState.FAULT, 3.0) is not None
     assert "link lost" in ctl.fsm.fault, ctl.fsm.fault
     assert ctl.wait_job(10) and ctl.breakpoint is not None
-    _assert_resend_hits_a_halted_card(sim, rec)
+    _assert_no_resend_after_the_halt(sim, rec)

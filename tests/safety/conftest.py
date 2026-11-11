@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import pytest
 
+from seam_helpers import seam_ctl  # noqa: F401 - the unit seam's fixture (seam_helpers.py)
+
 @pytest.fixture
 def make_ctl():
     """Factory: an armed UiController on a pessimistic simulator (thread or process streamer)."""

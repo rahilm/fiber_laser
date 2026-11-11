@@ -31,8 +31,8 @@ sequence number, twice. What it does then is unknown:
 
 What the host does in each case is pinned by `tests/safety/test_duplicate_fifo_frame.py`. On the
 real card's configuration (process streamer, 150 ms link deadline) a lost FIFO reply already
-latches a FAULT before the re-send (the FIFO timeout is 600 ms); the re-send then still goes out
-and reaches a stopped, cleared FIFO. With the in-thread streamer and the simulator's 1 s
+latches a FAULT before the re-send (the FIFO timeout is 600 ms), and after that halt the frame is
+not sent again (the client asks the supervisor before every re-send of a motion request). With the in-thread streamer and the simulator's 1 s
 deadline the re-send reaches a running card, which is where the model matters. The simulator
 default is `accept-twice`, the worst case, until this check is done.
 
