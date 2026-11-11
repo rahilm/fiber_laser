@@ -1,5 +1,8 @@
 """cProfile build_toolpath (sort 0 and 5) and MainWindow._refresh on N synthetic parts."""
-import sys, cProfile, pstats, io
+import sys
+import cProfile
+import pstats
+import io
 sys.argv = [sys.argv[0], sys.argv[1] if len(sys.argv) > 1 else "2000"]
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 import math
