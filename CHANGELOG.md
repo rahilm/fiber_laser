@@ -12,6 +12,45 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Added
 
+- Parts list (deep review 2026-11): its own dock in Design and Process, with find (Ctrl/⌘+F),
+  filters by layer and warnings, sorting, and selection kept in step with the canvas both
+  ways. "Assign technology…" gives selected parts another technology in one undo step, by
+  moving them to a layer that uses it. Arrow keys in the parts list move through the rows
+  instead of nudging the selected parts.
+- Help › Save diagnostic bundle… (also `mlaser-cli diag-bundle out.zip`): one zip on your
+  computer with versions, redacted settings, machine parameters, safety history, recent card
+  messages, alarms and logs, for a bug report. Nothing is sent; the drawing only if you tick it.
+- Help › Check for updates, and an optional check at start (Settings › Network & API ›
+  Updates, off by default): one request to GitHub with no identifiers, a notice with a link;
+  nothing is downloaded or installed. About, the first log line and the bundle show the
+  version and the commit the build came from.
+- Run: after STOP or a finished job, the Run screen shows where the job stopped (part k of n,
+  time, duration, document) and the live view numbers and marks the cut parts; "Cut the
+  remaining parts" and "Start from part n" start a new job of those parts with the usual
+  checks (withdrawn, with the reason, when the drawing changed).
+- Crash recovery: the first crash on a new installation is now detected, and the dialog says
+  exactly what it restores. The resume point of a held job comes back when it matches the
+  recovered drawing, offered in the resume bar without any motion; on a real machine you must
+  home before resuming.
+- Nest: "Open sheet n of N in Run" takes the sheet straight to the Run workspace, and Start
+  names the sheet and its parts.
+- Parameters: "Compare with backup or file…" shows the difference to a backup or another
+  `config.json` and can restore those values.
+- The machine state shows HOMING / MOVING while the axes home or move; the simulator is marked
+  with a violet SIMULATOR chip and "Simulator" on the run bar. The connection choices read
+  "Built-in simulator" / "Network address", and an address is never called a real card.
+- Tests: the client's wire traffic and the simulator are checked against an independent
+  decoder written from the protocol documentation; owners can replay their own card captures
+  (`MLASER_CAPTURE_DIR`; the licence registers 59500/59503 are skipped). The simulator's
+  answer to a re-sent FIFO frame is selectable (`--duplicate-fifo
+  accept-twice|dedupe|reject`); new bench check `tools/bench_duplicate_frame.py` and
+  `docs/dev/BENCH_CHECKS.md`.
+- CI: the parity guard and the native check also run on pushes to main; nightly runs show
+  every job's result in their summary; branch coverage is measured on the Linux 3.12 job;
+  wheels and CI for Python 3.14 (the 3.13 column on Windows and macOS moves to the nightly
+  run); actions pinned by commit SHA, Dependabot for actions and Python dependencies, build
+  provenance attestations for release artifacts (`gh attestation verify <file> --repo
+  rahilm/fiber_laser`).
 - Interactive commissioning checklist (issue #6): below the steps, a live status row per check
   (connection, card alarms, scaling against the parameters, soft limits, emergency stop, each
   interlock input, homing, heartbeat, jog directions) follows the status the controller already
@@ -60,6 +99,68 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 
 ### Changed
 
+- **Safety**: the machine is disarmed when a laser job ends, is stopped or fails; the next
+  Start asks to arm again. A hold at a breakpoint, Frame, Dry run, the job queue between
+  sheets and the laser-test series keep the arming. Reason: an armed machine left behind
+  after a cut was one key press away from the next one (deep review 2026-11, UX 1).
+- **Safety**: Start, Frame and Dry run keys (F5, F6, Shift+F6) act only on the Run workspace
+  and never while you type in a field. Pressed elsewhere they open the Run workspace and
+  focus the button, without starting anything. Space only holds a job; a second press no
+  longer continues it (continue with Start/Continue). Stop (F12, Esc) works everywhere as
+  before.
+- **Safety**: after Connect, "Home the machine" asks with "Home now" / "Not now"; Not now is
+  the default and the Escape answer, and there is no "Don't ask again" (reconnecting never
+  homes unasked). "Go to origin" asks the same way.
+- **Safety**: the commissioning checklist no longer homes or jogs while the card scaling
+  disagrees with the parameters, and no longer jogs before the emergency stop is tested; with
+  failures it ends "Not finished: N checks failed".
+- **Safety**: Start, Frame and Dry run wait while the axes home or move ("Homing in
+  progress"); STOP stops the move at once.
+- **Safety**: importing parameters always shows a preview with the motion-related values
+  (travel, scaling, homing, limit switches, axis direction) marked, asks before applying
+  (Cancel is the default), backs up the configuration first and offers to reconnect the
+  card. Machine › Setup › Apply and the parameter restores ask and back up too. Back-up and
+  restore are labelled by direction ("Back up parameters to the motion card…", "Restore
+  parameters from the motion card…").
+- **Safety**: plugins can no longer change the plugin grants, safety settings or another
+  plugin's settings through their configuration; only the operator grants machine authority
+  and network hosts, in the Plugin manager. A plugin needs machine authority to hold or
+  release the "PC alive" heartbeat and to get the machine controller at all, including old
+  plugins without a manifest. The Plugin manager says plainly that permissions catch mistakes
+  and record what you agreed to, but do not stop a plugin written to get round them.
+- An alarm, e-stop, fault or lost link is shown once, in the state banner, with its own icon,
+  the remedy, the laser state and one Reset alarm (the second alarm bar is gone).
+- Start and Dry run on large nests begin streaming within about a second of host work instead
+  of 10-40 s and use far less memory (1,000 parts: 27.6 s and +2.1 GB before, 0.2 s and
+  +138 MB now); the streaming process receives the job through shared memory. The window and
+  its Stop button stay responsive while Start / Dry run are checked (the status bar says
+  "Checking the job…" meanwhile). The wire words sent to
+  the card are unchanged (goldens and parity bit-identical).
+- Editing a large drawing no longer starts a full job compile after every change: the
+  toolpath updates at once, and the compile follows two seconds after the last edit, or at
+  Start. Moving a large selection with the arrow keys is about three times faster, and its
+  undo restores the exact positions.
+- mlaser keeps much less memory on large jobs (one compiled plan of a big job instead of
+  six) and gives it back when you open another drawing. Opening a drawing can still be
+  undone, but the previous drawing's edit history is cleared.
+- Run bar: the target is plain text, the progress is a thin line with percent / elapsed /
+  ETA, and on the Run workspace the bar is a single row. Process values are shown as
+  label/value pairs with steady figures; the "no technology" notice has its own action
+  button.
+- "Set origin here" / "Go to origin" are disabled, with the reason, in the Float coordinate
+  system (run from the command palette they say why in the status bar); "Clear history" for
+  alarms asks first; Preferences and Setup search find the travel
+  limit and jog speeds under everyday words ("travel", "soft limit", "jog speed").
+- The example-values warning of a technology recipe is asked once per recipe per session.
+- mlaser depends on PySide6-Essentials ≥ 6.10 instead of the full PySide6, which saves about
+  440 MB.
+- Tests: the responsive-layout sweeps, the practice lessons and the timing tests spread over
+  several workers; the affected tests take about half the time.
+- Canvas: the head marker, the cut track and the previews are drawn over a cached picture of
+  the drawing, so a status tick during a job costs about 1 ms whatever the drawing size or
+  job length (it was 32 ms at 300 parts and 260 ms at 2,700, and grew with the track).
+  Resizing the window with a large drawing open is up to twice as fast. On Windows at
+  125 % / 150 % scaling the canvas still paints whole, as before.
 - **Safety** (UX audit C1): Start while disarmed runs the pre-flight check first, as if armed;
   only when it passes one question follows with the arming safety text, *Arm and start* /
   *Cancel* (Cancel the default, warning icon). Before, the question defaulted to OK, skipped the
@@ -158,15 +259,53 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - LAN monitor: socket timeouts, a connection cap (per client too), a per-client rate limit; the
   sheet picture is cached and rebuilt only on change.
 - Command palette: "No command matches" instead of an empty list.
-
-### Changed
-
 - README and docs/dev/PERFORMANCE.md: suite times re-measured; compile figures labelled
   "smoothing off" (the emitter in isolation) and "default profile" (smoothing on, what the
   application compiles).
 
 ### Fixed
 
+- **Safety**: a rare race where a fault raised as a job ended or was held could be lost
+  without an operator reset: the safety state machine now decides and changes state under
+  one lock, and only a reset or going offline leaves FAULT (deep review 2026-11, arch A2).
+- **Safety**: a slow or stalled disk can no longer delay a halt or the window: log and audit
+  files are written in the background (a halt took 1.75 s with stalled audit writes, about
+  1 ms now; the last records can be lost if the program is killed).
+- **Safety**: if the planned-quantity or material check fails to load, cutting is blocked
+  with a clear message at start-up instead of running unchecked; an unreadable alarm state
+  disables Start ("Alarm state unknown").
+- **Safety**: a part whose cut path (leads, kerf) leaves the travel is refused before "Arm
+  and start", once, with "Show in Design".
+- **Safety**: Stop pressed while a job is still being prepared returns to Ready at once: no
+  streaming deadline, process signal or FIFO reset follows it (before, the worker finished
+  the preparation and talked to the card tens of seconds after the Stop). The worker still
+  halts once more and sends its "off" commands.
+- A damaged, unreadable or newer `config.json` is no longer replaced by the defaults without
+  a word. mlaser keeps a copy, shows a notice (restore the last good settings, continue with
+  defaults, or quit), and refuses arming until it is answered. A damaged alarm history or
+  technology database no longer removes the Machine or Process workspace; a built-in part
+  that fails to load is named in the status bar.
+- Importing an Mlaser install stores the card's port, link type and timeouts, plus the
+  follower and pierce timeouts. Every connection path and the network self-test use that one
+  address.
+- `pip install mlaser` works again (platformdirs is now a declared dependency).
+- Opening a large drawing no longer freezes the window for several seconds while the import
+  review runs. Copying hundreds of parts no longer freezes the window: the DXF copy for other
+  programs follows in the background, and copy, paste and arrays show a busy state.
+- After a crash, the compile workers no longer stay running.
+- The Nest page fits a 1280 × 800 screen again: its columns keep their widths instead of
+  collapsing to one field per row (issue #3). The window no longer grows past the screen
+  when you open Nest › Orders or another tall workspace on a small screen. The log under the
+  page gives way to the page on short screens (down to two lines). The welcome sheet fits a
+  1280 × 800 screen without scrolling.
+- Machine › Monitors shows its first monitor straight away instead of an empty frame. Log
+  viewer: long log file names are shortened in the middle, with the full name in the
+  tooltip; no sideways scrolling with large fonts.
+- Simulator: Resume after a pause is no longer refused by the pessimistic simulator.
+- A new toolpath no longer freezes the window for about 150 ms on large drawings: it is
+  built in slices and the old one stays visible until the new one is complete (issue #1).
+- Parts dock: at the window's minimum height "Assign technology…" was cut when the filter
+  row wrapped; the dock's minimum height now follows the wrapped row.
 - **Safety**: the heartbeat output (the external watchdog relay) keeps its rate on a host whose
   timers fire late (macOS: a 16-50 ms wait came 50-150 ms late). A wait of the safety monitor
   that ended past a heartbeat edge by more than half a period resynchronised the edge, so edges

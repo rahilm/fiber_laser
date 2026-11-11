@@ -136,6 +136,8 @@ def test_refused_start_after_arming_disarms_again(sim_win, app, dialogs, monkeyp
     monkeypatch.setattr(ctl, "start_job", lambda *a, **k: False)
     w._test_no_dialogs = False
     w.safety_ui.start()
+    assert w.safety_ui.wait_preflight(30)        # the pre-flight runs off the GUI thread
+    assert _until(app, lambda: [d for d in dialogs if d["kind"] == "box"], 20)   # armed by this Start
     assert _until(app, lambda: w.safety_ui._arm_token is None, 20)
     _pump(app, 0.2)
     assert not _armed(ctl)

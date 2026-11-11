@@ -44,6 +44,12 @@ def settle(app, sec: float = 0.4) -> None:
     loop.exec()
     for _ in range(5):
         app.processEvents()
+    # then until the layout is at rest: on a loaded host the dock policy's relayout was still
+    # pending after a fixed time
+    from test_responsive_layout import at_rest
+    for w in app.topLevelWidgets():
+        if w.isVisible() and getattr(w, "shell", None) is not None:
+            at_rest(w, app)
 
 
 def arrangement(w) -> dict:
