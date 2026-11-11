@@ -110,10 +110,11 @@ queue says "Checking the sheet's job…" and the window stays responsive: STOP o
 queue** in that time cancels the start (nothing moves, the sheet waits for a new confirmation).
 
 While the queue waits, the **Load this sheet** card shows, in large type, the material and
-thickness, the sheet size, the remnant id and the sheet number (n/N), with a picture of the
-sheet and its nest; below it the technology and nozzle on its layers, the part count and the
-orders on the sheet (customer · order: quantity × part). The live view shows that sheet, not the
-previous drawing. A red line on the card warns when the sheet does not match the technology.
+thickness, the sheet size, the remnant id and the sheet number (n/N); below it the technology
+and nozzle on its layers, the part count and the orders on the sheet (customer · order:
+quantity × part). The live view under the card shows that sheet and its nest, not the previous
+drawing; while the **Queue** tab is open instead, the card shows a small picture of the sheet.
+A red line on the card warns when the sheet does not match the technology.
 
 **Material check.** Before a sheet starts (from the queue or with Start), its material and
 thickness are compared with the technology on every layer it uses. A mismatch (a 1 mm aluminium

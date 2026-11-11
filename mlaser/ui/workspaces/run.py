@@ -178,6 +178,9 @@ class LoadSheetCard(QFrame):
     sheet does not match the technology (Import & orders track,
     :func:`mlaser.services.material_check.load_card`)."""
 
+    #: the picture's size (shown while the Queue tab hides the live view, which shows the sheet)
+    PICTURE = (160, 100)
+
     def __init__(self, window: Any) -> None:
         super().__init__()
         self.window_ = window
@@ -188,7 +191,7 @@ class LoadSheetCard(QFrame):
         lay = style.hbox(self, "dense")
         self.picture = QLabel()
         self.picture.setObjectName("run_load_picture")
-        self.picture.setFixedSize(220, 140)
+        self.picture.setFixedSize(*self.PICTURE)
         self.picture.setAlignment(Qt.AlignCenter)
         lay.addWidget(self.picture)
         col = QVBoxLayout()
@@ -250,7 +253,8 @@ class LoadSheetCard(QFrame):
         self.warning.setText("⚠ " + "\n⚠ ".join(mm) if mm else "")
         from .orders import parts_pixmap
         parts = [p for p in getattr(doc, "parts", []) if p.contours] if doc is not None else []
-        self.picture.setPixmap(parts_pixmap(parts, QSize(216, 136), self.palette(), data.get("rings")))
+        pw, ph = self.PICTURE
+        self.picture.setPixmap(parts_pixmap(parts, QSize(pw - 4, ph - 4), self.palette(), data.get("rings")))
 
 
 # ============================================================================== readout
@@ -329,9 +333,14 @@ class RunCanvas(QWidget):
     each part's number in the last job's cut order; a click on a part picks it (:attr:`pick`,
     "Start from part")."""
 
+    #: minimum height: as the shared canvas (CANVAS_MIN, a half-screen window); while the load
+    #: card above it asks for the next sheet (:class:`LoadSheetCard`)
+    MIN_H = 220
+    MIN_H_WAITING = 100
+
     def __init__(self) -> None:
         super().__init__()
-        self.setMinimumSize(260, 220)          # as the shared canvas (CANVAS_MIN): a half-screen window
+        self.setMinimumSize(260, self.MIN_H)
         self.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.document: Any = None
         self.sheet: Optional[tuple[float, float, float, float]] = None
@@ -572,6 +581,9 @@ class QueuePanel(QWidget):
         self.ws = ws
         w = ws.window
         v = QVBoxLayout(self)
+        # the tab pane's frame is the border: the default margins made the Queue tab taller
+        # than a short screen's room for it
+        v.setContentsMargins(style.SP1, style.SP1, style.SP1, style.SP1)
         from .approval import ApprovalPanel
         self.approval = ApprovalPanel(ws)            # submitted jobs waiting for the operator
         v.addWidget(self.approval)
@@ -591,7 +603,9 @@ class QueuePanel(QWidget):
         v.addWidget(self.totals)
         # the key column (Job) stretches; the others hide by priority when the view is narrow
         ColumnFitter(self.table, {0: 2, 2: 3, 3: 3, 4: 4, 5: 1, 6: 1, 7: 0, 8: 0, 9: -1}, stretch=1)
-        g = FlowLayout(uniform=True)
+        # each button at its own width: the uniform width of the widest item (the quantity box)
+        # put one button per row in a half-screen window, seven rows of them
+        g = FlowLayout(uniform=False)
         self.buttons: dict[str, QPushButton] = {}
         specs = (("add", "queue.btn.add", "Add job...", self.add_file),
                  ("up", "queue.btn.up", "Move up", lambda: self._move(-1)),
@@ -864,6 +878,12 @@ class OperatorScreen(QWidget):
         self.values = ReadoutRow(w)
         left.addWidget(self.values)
         body.addLayout(left, 1)
+        # only the page on top counts for the page's minimum height: the queue table's controls,
+        # wrapped at a narrow width, made the live view's column taller than a short screen
+        # (a QStackedWidget's minimum is its tallest page's)
+        self._tab_policies = {id(p): p.sizePolicy() for p in (self.canvas, self.queue_panel)}
+        self.tabs.currentChanged.connect(lambda _i: self._tab_minimums())
+        self._tab_minimums()
 
         # --- right: the big targets (ui/responsive.py ColumnsPanel): STOP, Hold / Start,
         # Frame / Dry run and Arm always shown in full; the breakpoint resume and the queue card
@@ -969,6 +989,17 @@ class OperatorScreen(QWidget):
         self.timer.timeout.connect(self.refresh)
         self._kind = ""
         self.status = RunStatus()
+
+    def _tab_minimums(self) -> None:
+        cur = self.tabs.currentWidget()
+        # the load card's picture of the sheet only when the live view (the same sheet and its
+        # nest, larger) is not on top: the card fits a half-screen window beside the controls
+        self.load_card.picture.setVisible(cur is not self.canvas)
+        for i in range(self.tabs.count()):
+            page = self.tabs.widget(i)
+            pol = self._tab_policies.get(id(page))
+            if pol is not None:
+                page.setSizePolicy(pol if page is cur else QSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored))
 
     # ------------------------------------------------------------------ actions
     def _ui(self, name: str) -> None:
@@ -1167,6 +1198,9 @@ class OperatorScreen(QWidget):
             self.load_card.show_card(load_card(ent, doc), doc, (ent.id, ent.done, ent.path, id(doc)), ent)
         if waiting != self.load_card.isVisibleTo(self):
             self.load_card.setVisible(waiting)
+            # while the card asks for the sheet, the live view below it (the same sheet) may be
+            # shorter: card and view fit a short screen beside the run controls
+            self.canvas.setMinimumHeight(RunCanvas.MIN_H_WAITING if waiting else RunCanvas.MIN_H)
         asking = r.state in ("confirm", "starting")
         b["confirm_sheet"].setVisible(asking)
         prio = 10 if asking else 1             # the operator must see "Sheet loaded: start"
