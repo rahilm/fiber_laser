@@ -401,6 +401,21 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   outputs.
 - The empty-canvas panel no longer covers the canvas bar in a short window.
 - macOS: the safety banner's Connect… button is no longer cut at its top and bottom.
+- `--smoke-test` now ends even when the start takes longer than its time (the program kept
+  running on slow Windows and macOS machines); connecting waits for a disconnect that was
+  queued while it waited.
+- An idle Machine page no longer keeps the processor busy (it re-set the same tooltips and
+  button states at every poll).
+- The simulator no longer reports "executing without data" at the end of a job.
+- Part list: following a select-all on the canvas no longer stalls with thousands of parts.
+- Workspace tool bars never hide commands behind the overflow chevron with the Windows style.
+- Nest: with a larger font the results column gives the parts and sheet columns room instead
+  of the page scrolling.
+- Report: its tabs scroll in a narrow window on macOS instead of widening the window.
+- Canvas bar: Fit drawing / Fit table show as icons when the view is too narrow for their names.
+- macOS: the start buttons on the empty canvas no longer overlap.
+- Python 3.14.0-3.14.4: the "no full garbage collection while a job streams" check knows the
+  incremental collector, which has no full collections to hold off.
 
 ## [0.1.0rc1]
 
