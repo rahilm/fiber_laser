@@ -235,6 +235,7 @@
   "camx.log.contours_before_after": "{title}: {before} -> {after} contours",
   "camx.log.copies.one": "{title}: {n} copy",
   "camx.log.copies.other": "{title}: {n} copies",
+  "camx.log.array_cancelled": "Array cancelled: nothing was added.",
   "camx.log.cut_length": "{title}: cut length {before} -> {after}",
   "camx.log.instances.one": "{title}: {n} instance",
   "camx.log.instances.other": "{title}: {n} instances",
