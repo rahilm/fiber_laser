@@ -893,11 +893,15 @@ class PartListPanel(QWidget):
             self._apply_selection(flags)
         finally:
             self._sync = False
-        rows = self.view.selectionModel().selectedRows()
+        # the selected rows from the flags just applied, not selectedRows(): that asks the model
+        # for every column's flags of every selected row (21,600 Python calls for a select-all
+        # of 2,700 parts, 1.4 s under the coverage tracer) only to find the first one
+        n = len(flags)
+        rows = [r for r, i in enumerate(self.model.view) if i < n and flags[i]]
         if rows:
             vis = self.view.viewport().rect()
-            if not any(vis.intersects(self.view.visualRect(r)) for r in rows[:200]):
-                self.view.scrollTo(min(rows, key=lambda ix: ix.row()), QAbstractItemView.PositionAtCenter)
+            if not any(vis.intersects(self.view.visualRect(self.model.index(r, 0))) for r in rows[:200]):
+                self.view.scrollTo(self.model.index(rows[0], 0), QAbstractItemView.PositionAtCenter)
         self._update_state()
 
     def _apply_selection(self, flags: list) -> None:
