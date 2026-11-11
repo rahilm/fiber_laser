@@ -252,6 +252,16 @@ def test_selection_sync_is_fast_at_2700_parts(win, app):
     from test_large_drawing import big_document
     win.set_document(big_document(2700))
     pump(app)
+    # the list's own share: measured once the new drawing's plan (toolpath, then the estimate,
+    # seconds of work in the suite's plan thread) is done, not against it
+    end = time.monotonic() + 120
+    while time.monotonic() < end:
+        tk = win.jobs.preview
+        if not win.jobs.pending and (tk is None or tk.done_event.is_set()):
+            break
+        app.processEvents()
+        time.sleep(0.01)
+    pump(app)
     pl = win.part_list
     m = pl.model
     for p in win.document.parts:

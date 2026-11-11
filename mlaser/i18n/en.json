@@ -1289,14 +1289,15 @@
   "nestws.btn.add_sheet": "Add sheet",
   "nestws.btn.cancel": "Cancel",
   "nestws.btn.import": "Import file...",
-  "nestws.btn.nest": "Nest ▶",
+  "nestws.best_run": "Run {n}, the best",
+  "nestws.btn.nest": "Nest",
   "nestws.btn.queue": "Send to queue",
   "nestws.btn.queue_all": "Send all sheets to the queue",
   "nestws.btn.remove": "Remove",
   "nestws.btn.technology": "Technology",
   "nestws.btn.to_drawing": "Copy sheet to drawing",
-  "nestws.btn.to_run": "Open sheet in Run ▶",
-  "nestws.btn.to_run_n": "Open sheet {n} of {total} in Run ▶",
+  "nestws.btn.to_run": "Open sheet in Run",
+  "nestws.btn.to_run_n": "Open sheet {n} of {total} in Run",
   "nestws.col.cut": "Cut",
   "nestws.col.engine": "Engine",
   "nestws.col.max": "Max",
@@ -1384,6 +1385,8 @@
   "nestws.rotp.quarter": "90° steps",
   "nestws.rotp.sheet": "sheet setting",
   "nestws.run_tip": "{engine}, spacing {spacing}, common line {cl}, part in part {pip}",
+  "nestws.tip.off": "off",
+  "nestws.tip.on": "on",
   "nestws.scrap.gaps": "in the gaps",
   "nestws.scrap.grid": "grid",
   "nestws.scrap.off": "off",
@@ -1711,7 +1714,7 @@
   "orders.ask.replace": "Replace the {n} parts in the Nest list?",
   "orders.btn.csv": "Import parts list...",
   "orders.btn.files": "Add drawings...",
-  "orders.btn.nest": "Load into Nest ▶",
+  "orders.btn.nest": "Load into Nest",
   "orders.btn.remove": "Remove",
   "orders.btn.template": "Template...",
   "orders.cmd.csv": "Import parts list",
@@ -3541,6 +3544,9 @@
   "review.fix.text": "text",
   "review.fix.tiny": "tiny objects",
   "review.fixed_what": "Fixed: {what}",
+  "review.item.a11y": "{message} ({state})",
+  "review.item.fixable": "Can be fixed",
+  "review.item.manual": "Needs a manual fix",
   "review.found.one": "{n} problem in {c} contours ({fix} can be fixed): {what}",
   "review.found.other": "{n} problems in {c} contours ({fix} can be fixed): {what}",
   "review.join_tol": "Join open ends closer than",
@@ -6016,6 +6022,9 @@
    "n",
    "sheet"
   ],
+  "nestws.best_run": [
+   "n"
+  ],
   "nestws.btn.to_run_n": [
    "n",
    "total"
@@ -6427,6 +6436,10 @@
   "repair.summary.item": [
    "n",
    "kind"
+  ],
+  "review.item.a11y": [
+   "message",
+   "state"
   ],
   "review.fixed_what": [
    "what"
