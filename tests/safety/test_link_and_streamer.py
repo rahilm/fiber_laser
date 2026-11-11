@@ -16,7 +16,6 @@ FIFO prefill                           whole FIFO, 5.4 s of motion              
 """
 from __future__ import annotations
 
-import gc
 import os
 import signal
 import subprocess
@@ -310,7 +309,7 @@ def test_host_preparation_lets_the_poller_run():
     real_of = S.WireJob.of.__func__
 
     def of(cls, j):
-        seen.append((responsive_holders(), sys.getswitchinterval(), gc.get_threshold()[2]))
+        seen.append((responsive_holders(), sys.getswitchinterval(), S.full_gc_held_off()))
         return real_of(cls, j)
     st = S.JobStreamer.__new__(S.JobStreamer)
     S.WireJob.of = classmethod(of)
@@ -319,7 +318,7 @@ def test_host_preparation_lets_the_poller_run():
     finally:
         S.WireJob.of = classmethod(real_of)
     assert seen and seen[0][0] >= 1 and seen[0][1] <= RESPONSIVE_SWITCH_S + 1e-9
-    assert seen[0][2] >= S.NO_FULL_GC_THRESHOLD                  # no full collection meanwhile
+    assert seen[0][2]                                            # no full collection meanwhile
 
 
 def test_child_startup_is_not_link_silence(make_ctl):

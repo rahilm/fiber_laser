@@ -68,12 +68,30 @@ def _steps(app, w, n: int = 12) -> list[float]:
     return out
 
 
+def _plan_delivered(app, w, timeout_s: float = 120.0) -> None:
+    """Pump until the document's plan (toolpath, then the estimate: seconds of work in the plan
+    thread on a slow runner, competing with the GUI thread for the GIL) is delivered: a resize
+    step is measured on its own, not against the plan."""
+    end = time.monotonic() + timeout_s
+    while time.monotonic() < end:
+        tk = w.jobs.preview
+        if not w.jobs.pending and (tk is None or tk.done_event.is_set()):
+            break
+        app.processEvents()
+        time.sleep(0.01)
+    tk = w.jobs.preview
+    assert not w.jobs.pending and (tk is None or tk.done_event.is_set()), "the drawing's plan did not finish"
+
+
 def _open_process(app, w, n_parts: int) -> None:
     from mlaser.model import Document
     w.set_document(big_document(n_parts) if n_parts else Document())
     _pump(app, 1.5)
+    _plan_delivered(app, w)
     w.shell.host.activate("process")
     _pump(app, 0.5)
+    _plan_delivered(app, w)
+    _pump(app, 0.3)                       # the delivered plan's estimate card and preview drawn
 
 
 def test_a_layout_pass_measures_each_form_once_per_width(win, app, monkeypatch):

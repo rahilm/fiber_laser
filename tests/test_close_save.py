@@ -395,6 +395,11 @@ def test_autosave_does_not_block_the_gui_thread(qapp):
     file_dir = _app_file_dir()
     w = _big_window(qapp)
     proj = w.extension("ext_project")
+    # the periodic autosave (every 120 s) may have started while the big drawing was planned (a
+    # slow runner, the coverage tracer: 80 s): that one ends first, the timer restarts from now
+    _max_gap_while(qapp, lambda: proj._autosave_busy, timeout_s=120.0)
+    assert not proj._autosave_busy
+    proj._arm()
     proj._dirty = True
     assert proj.autosave_async() is True
     with StallProbe() as probe:

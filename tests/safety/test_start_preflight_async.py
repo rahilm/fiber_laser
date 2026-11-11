@@ -160,13 +160,25 @@ def test_start_returns_at_once_and_stop_stays_live(sim_win, app, dialogs, monkey
     w.safety_ui.start()
     assert time.monotonic() - t0 < 1.0, "Start blocked the GUI thread"
     assert _until(app, entered.is_set, 30)
+    # the event loop keeps turning while the pre-flight is in flight: 20 turns, a 10 ms timer
+    # due at each (every turn sleeps 10 ms), no turn held up.  Counted per turn, not per
+    # wall-clock time: a turn is 40+ ms on a macOS runner (its sleep overshoots), not 10 ms.
     ticks = []
-    from PySide6.QtCore import QTimer
+    from PySide6.QtCore import Qt, QTimer
     tm = QTimer()
+    tm.setTimerType(Qt.PreciseTimer)
     tm.timeout.connect(lambda: ticks.append(time.monotonic()))
     tm.start(10)
-    _pump(app, 0.3)
-    assert len(ticks) >= 10, "the event loop was frozen during the pre-flight"
+    turns, longest = 0, 0.0
+    while turns < 20:
+        t1 = time.monotonic()
+        app.processEvents()
+        longest = max(longest, time.monotonic() - t1)
+        turns += 1
+        time.sleep(0.01)
+    assert entered.is_set() and not release.is_set()             # still in flight
+    assert longest < 0.3, f"the event loop was frozen during the pre-flight ({longest:.3f} s)"
+    assert len(ticks) >= turns - 1, f"the event loop was frozen during the pre-flight {len(ticks), turns}"
     w.safety_ui.stop()                               # the on-screen Stop, while checking
     release.set()
     assert w.safety_ui.wait_preflight(30)

@@ -16,7 +16,7 @@ import pytest
 
 pytest.importorskip("PySide6")
 
-from PySide6.QtCore import QTimer  # noqa: E402
+from PySide6.QtCore import Qt, QTimer  # noqa: E402
 from PySide6.QtWidgets import QApplication, QDialog, QMessageBox  # noqa: E402
 
 from mlaser.services.queue import JobQueue, QueueRunner  # noqa: E402
@@ -161,13 +161,25 @@ def test_sheet_start_returns_at_once_and_stop_drops_it(win, app, tmp_path, slow_
     assert time.monotonic() - t0 < 1.0, "the queue's start blocked the GUI thread"
     assert ws.runner.state == "starting" and ws.runner.checking
     assert wait(app, entered.is_set, 30) and win.safety_ui.preflight_busy
+    # the event loop keeps turning while the check is in flight: 20 turns, a 10 ms timer due at
+    # each (every turn sleeps 10 ms), no turn held up.  Counted per turn, not per wall-clock time:
+    # a turn of the loop is 40+ ms on a macOS runner (its sleep overshoots), not 10 ms.
     ticks: list = []
     tm = QTimer()
+    tm.setTimerType(Qt.PreciseTimer)
     tm.timeout.connect(lambda: ticks.append(1))
     tm.start(10)
-    pump(app, 0.3)
+    turns, longest = 0, 0.0
+    while turns < 20:
+        t1 = time.monotonic()
+        app.processEvents()
+        longest = max(longest, time.monotonic() - t1)
+        turns += 1
+        time.sleep(0.01)
     tm.stop()
-    assert len(ticks) >= 10, "the event loop was frozen while the sheet was checked"
+    assert entered.is_set() and not release.is_set() and ws.runner.checking   # still in flight
+    assert longest < 0.3, f"the event loop was frozen while the sheet was checked ({longest:.3f} s)"
+    assert len(ticks) >= turns - 1, f"the event loop was frozen while the sheet was checked {len(ticks), turns}"
     assert not scr.buttons["confirm_sheet"].isEnabled()           # one start at a time
     win.safety_ui.stop()                                           # the on-screen Stop
     release.set()

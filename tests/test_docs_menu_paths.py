@@ -77,14 +77,21 @@ def menu_tree():
             if a.menu() is not None:
                 walk(a.menu(), child)
 
+    # the Linux layout, the one the guides use, on every host: on macOS the Plugin manager,
+    # Settings and About sit in the application menu by design (menu_spec, their menu roles),
+    # and the guides say so next to the path ("macOS: the mlaser menu › Plugins…")
+    from mlaser.ui import native
+    from mlaser.ui.shell.menubar import MenuBar
+    mb = MenuBar(w.shell, plat=native.LINUX)
     try:
-        for a in w.shell.menubar.actions():
+        for a in mb.bar.actions():
             if a.menu() is not None:
                 walk(a.menu(), tree.setdefault(_norm(a.text()), {}))
         from PySide6.QtWidgets import QListWidget
         nav = w.findChild(QListWidget, "machine_nav")
         machine_pages = {_norm(nav.item(i).text()) for i in range(nav.count())}
     finally:
+        mb.bar.deleteLater()
         dispose(w)
     return tree, machine_pages
 
