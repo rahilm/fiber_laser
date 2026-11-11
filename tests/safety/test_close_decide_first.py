@@ -13,7 +13,7 @@ import time
 
 import pytest
 
-from safety_helpers import Watch, head_mm, rect_doc, start_and_run, stopped, wait_until
+from safety_helpers import SPEED, Watch, head_mm, rect_doc, start_and_run, stopped, wait_until
 
 pytest.importorskip("PySide6")
 
@@ -141,11 +141,17 @@ def test_declining_job_running_keeps_the_app_working_then_accepting_halts(qapp, 
     # job rightly runs on (decide first), for as long as the runner takes to show and answer it
     # (Windows CI: 24 mm from before the question to the halt, not from the answer)
     watch = []
-    _answer(w, QMessageBox.Yes, before_click=lambda: watch.append((Watch(sim), sim.state.fifo_running)))
+    _answer(w, QMessageBox.Yes,
+            before_click=lambda: watch.append((Watch(sim, from_halt=True), sim.state.fifo_running)))
     assert w.close() is True
     assert len(watch) == 1 and watch[0][1], "the job was not running when Yes was clicked"
     dt, travel = watch[0][0].until_safe(1.0)
-    assert dt is not None and dt < 0.5 and travel < 20.0
+    # the same 20 mm: the travel at the job's speed until the halt reached the card (measured,
+    # not the simulator's last integrated position: Windows CI read 22.5 mm from a late motion
+    # thread) plus the travel after it
+    delay = watch[0][0].halt_delay_s
+    assert delay is not None, "no stop command reached the card"
+    assert dt is not None and dt < 0.5 and SPEED * delay + travel < 20.0, (dt, delay, travel)
     assert closed == [1] and w.jobs._closed and _normal_exit(w) == "1"
     sim.stop()
 
