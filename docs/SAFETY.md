@@ -360,7 +360,10 @@ which the UI shows like a pre-flight refusal (`tests/safety/test_start_gate.py`)
   so a parent killed at any moment cannot leave the child blocked). The parent faults when the child dies or, once it has sent its first
   message, is silent for 0.5 s; the child's start-up (an interpreter start, often more than
   0.5 s on Windows) is bounded by `ProcessStreamer.startup_s` (20 s) instead, and the card
-  holds nothing of the job before the child has spoken. Hold and
+  holds nothing of the job before the child has spoken. The child says hello just before its
+  first request (after its preparation and its sockets); until then the parent keeps polling
+  the card itself and watches the link as when idle, so a dead link during the child's start-up
+  is still noticed, and nobody's silence counts against the 0.5 s streaming deadline. Hold and
   cancel are shared-memory flags: the pause hold is visible to the child before the stop goes
   out. `multiprocessing.freeze_support()` is called for frozen builds.
 * The job's packed wire reaches the child through a shared-memory block (`WireJob.share`), which
