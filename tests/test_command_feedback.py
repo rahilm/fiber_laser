@@ -94,8 +94,12 @@ def _window(app):
 
 
 def _snapshot(w, app):
+    # the log is counted by its appended lines (``_count_log``), never by ``blockCount``: an empty
+    # log has one block before and after its first line, and a full one (5,000 lines) keeps its
+    # count, so a command whose only answer was a log line passed or failed with the commands
+    # that ran before it (sort.grid, nest.run)
     return (tuple(a.isChecked() for a in w.ribbon.actions.values()), w.canvas.mode, w.shell.host.current,
-            w.log_panel.text.blockCount(), w.log_panel.alarms.rowCount(),
+            w.log_panel.alarms.rowCount(),
             frozenset(id(x) for x in app.topLevelWidgets() if x.isVisible()),
             tuple(d.isVisible() for d in w.findChildren(QDockWidget)),
             # a dock raised to the top of its tab group (the folded docks of a narrow window)
@@ -104,16 +108,33 @@ def _snapshot(w, app):
             bool(w.shell.palette is not None and w.shell.palette.isVisible()), w.user_mode)
 
 
-def _walk(app, events, with_doc: bool) -> list[str]:
+def _count_log(w, events) -> None:
+    """Every line appended to the log is an event (the log's text changes with each line)."""
+    w.log_panel.text.textChanged.connect(lambda: events.append("log"))
+
+
+#: the walk in independent shards: each on its own fresh window, spread over the xdist workers
+SHARDS = 8
+
+
+def _commands(w) -> list[str]:
+    return [c for c in sorted(w.ribbon.actions) if c not in SKIP]
+
+
+def _walk(app, events, with_doc: bool, shard: int = 0, shards: int = 1, only=None) -> list[str]:
     w = _window(app)
     sb = w.statusBar()
     sb.messageChanged.connect(lambda m: events.append("status") if m else None)
     w.docs.subscribe(lambda _kind: events.append("doc"))
+    _count_log(w, events)
+    # the motion question ("Home now?") is an answer too; it says no.  (A walk with the
+    # simulator connected by hw.connect_sim and no hw.disconnect after it asked silently.)
+    w.control.confirm_fn = lambda _key: (events.append("question"), False)[1]
     silent = []
     try:
-        for cmd in sorted(w.ribbon.actions):
-            if cmd in SKIP:
-                continue
+        cmds = list(only) if only is not None else _commands(w)[shard::shards]
+        assert cmds
+        for cmd in cmds:
             if with_doc:
                 w.set_document(ops.demo_document())
                 w.canvas.select_parts([])
@@ -134,6 +155,9 @@ def _walk(app, events, with_doc: bool) -> list[str]:
                     silent.append(cmd)
             if cmd.startswith("shell.mode_"):
                 w.set_user_mode("service")
+            if w.ctl.state().connected:          # every command starts offline (hw.connect_sim)
+                w.ctl.disconnect()
+                assert w.ctl.wait_commands(30) and not w.ctl.state().connected, cmd
             for x in app.topLevelWidgets():
                 if x is not w and x.isVisible() and x.isWindow():
                     x.close()
@@ -144,12 +168,38 @@ def _walk(app, events, with_doc: bool) -> list[str]:
     return silent
 
 
-def test_every_command_gives_feedback_on_an_empty_drawing(app, stubbed):
-    assert _walk(app, stubbed, with_doc=False) == []
+@pytest.mark.parametrize("shard", range(SHARDS))
+def test_every_command_gives_feedback_on_an_empty_drawing(app, stubbed, shard):
+    assert _walk(app, stubbed, with_doc=False, shard=shard, shards=SHARDS) == []
 
 
-def test_every_command_gives_feedback_without_a_selection(app, stubbed):
-    assert _walk(app, stubbed, with_doc=True) == []
+@pytest.mark.parametrize("shard", range(SHARDS))
+def test_every_command_gives_feedback_without_a_selection(app, stubbed, shard):
+    assert _walk(app, stubbed, with_doc=True, shard=shard, shards=SHARDS) == []
+
+
+@pytest.mark.parametrize("with_doc", [False, True])
+@pytest.mark.parametrize("cmd", ["sort.grid", "nest.run"])
+def test_a_log_line_is_feedback_whatever_ran_before(app, stubbed, cmd, with_doc):
+    """sort.grid and nest.run answer with a log line (nest.run also with its dock, unless that
+    is already in front).  Run first on a fresh window (an empty log: one block before and
+    after the first line) and after 5,000 lines (a full log keeps its block count) they were
+    reported silent depending on the commands run before them."""
+    assert _walk(app, stubbed, with_doc=with_doc, only=[cmd]) == []
+    w = _window(app)
+    try:
+        events: list[str] = []
+        _count_log(w, events)
+        w.log_panel.log("first")
+        assert w.log_panel.text.blockCount() == 1 and events == ["log"]
+        for i in range(5005):
+            w.log_panel.log(f"line {i}")
+        n = w.log_panel.text.blockCount()
+        events.clear()
+        w.log_panel.log("one more")
+        assert w.log_panel.text.blockCount() == n and events and set(events) == {"log"}
+    finally:
+        dispose(w)
 
 
 # --------------------------------------------------------------------------- safety
