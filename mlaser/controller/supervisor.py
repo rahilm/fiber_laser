@@ -534,12 +534,12 @@ class SafetySupervisor:
         """Seconds without a reply (see deadline_s); ``now`` is the monitor's wake-up time, so
         that a host stall during the tick itself is judged on the next tick."""
         now = self.clock.monotonic() if now is None else now
-        if self.streaming == "process":
-            return now - self.child_seen if self.child_seen else 0.0
+        if self.streaming == "process" and self.child_seen:
+            return now - self.child_seen
         mc = self._mc
         if mc is None or not mc.last_ok:
             return 0.0
-        if not self.streaming:
+        if not self.polling_streamer():
             if getattr(mc, "last_sent", 0.0) <= mc.last_ok:
                 # idle, and every request sent so far was answered: silence since the last reply
                 # is this host not asking (a GUI thread holding the GIL for seconds, e.g. while
@@ -553,9 +553,17 @@ class SafetySupervisor:
         """No reply for this long = link lost.  While the child process streams it owns the link
         and detects a loss itself (``link_deadline_ms``); the parent only watches the child's
         relays (``child_deadline_ms``, longer: the parent's GIL may be busy with the GUI)."""
-        if self.streaming == "process":
+        if self.streaming == "process" and self.child_seen:
             return self.child_deadline_ms / 1000.0
-        return (self.link_deadline_ms if self.streaming else self.idle_link_deadline_ms) / 1000.0
+        return (self.link_deadline_ms if self.polling_streamer() else self.idle_link_deadline_ms) / 1000.0
+
+    def polling_streamer(self) -> bool:
+        """A streamer owns the link (the poller rests).  Not yet while the streaming process
+        starts (``streaming == "process"`` before its hello, ``child_seen`` 0): the card has
+        nothing of the job, the parent keeps polling it and watches it as when idle, and the
+        child's start-up is bounded by ``ProcessStreamer.startup_s`` (CI, Windows: the parent
+        counted the child's start-up against the 0.5 s streaming deadline, "link lost")."""
+        return self.streaming == "thread" or (self.streaming == "process" and bool(self.child_seen))
 
     def _monitor(self) -> None:
         # Absolute deadlines: the link / retry tick (monitor_s) and each heartbeat edge.  A
@@ -597,7 +605,7 @@ class SafetySupervisor:
             # held the interpreter), the poller's requests timed out on the wall clock
             # without the card being at fault; while idle the card gets a full deadline
             # again from the end of the stall
-            if now - t0 - req > HOST_STALL_S and not self.streaming:
+            if now - t0 - req > HOST_STALL_S and not self.polling_streamer():
                 self._link_epoch = now
             if now < due:
                 continue                        # a slice before the deadline

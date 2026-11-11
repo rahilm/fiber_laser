@@ -661,6 +661,17 @@ def _child_guard(policy: dict, flags: dict):
 STREAM_PROTO = 2
 
 
+def _startup_delay() -> None:
+    """Tests only: ``MLASER_TEST_STREAM_START_DELAY_S`` seconds of extra start-up in the streaming
+    child (a loaded PC spawning a new interpreter), before it opens its sockets."""
+    try:
+        d = float(os.environ.get("MLASER_TEST_STREAM_START_DELAY_S", "") or 0.0)
+    except ValueError:
+        d = 0.0
+    if d > 0:
+        time.sleep(d)
+
+
 def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, evt_q,
                 flags: Optional[dict] = None, policy: Optional[dict] = None) -> None:
     """Entry point of the streaming process (spawned): own socket, own GIL, self-supervised."""
@@ -721,18 +732,33 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
         js.prepare(wj)
     except Exception:  # noqa: BLE001 - run_job prepares again and raises it there
         pass
-    try:
-        evt_q.put(("hello", hello))
-    except Exception:  # noqa: BLE001 - parent gone
-        return
     last = [0.0, 0.0]
     started = [False]
+    # the hello goes just before the job's first request (or before any earlier message): until
+    # then the parent keeps polling the card itself and the start-up bound (startup_s) applies;
+    # from the hello its stall and link watch count, and the next message is the card's status
+    # (CI, Windows: the sockets and the rest of the set-up after an early hello took 563 ms)
+    hello_lock = threading.Lock()
+    said = [False]
 
     def put(ev) -> None:
         try:
+            with hello_lock:
+                if not said[0]:
+                    said[0] = True
+                    evt_q.put(("hello", hello))
             evt_q.put(ev)
         except Exception:  # noqa: BLE001 - parent gone
             pass
+
+    def say_hello() -> None:
+        with hello_lock:
+            if not said[0]:
+                said[0] = True
+                try:
+                    evt_q.put(("hello", hello))
+                except Exception:  # noqa: BLE001 - parent gone (the watchdog halts)
+                    pass
 
     # --- ci-fixes: the self-halt runs to completion (begin) ---------------------------------
     # The watchdog (a daemon thread) runs the halt, and ``cancel.set()`` makes the main thread
@@ -832,10 +858,12 @@ def _child_main(cfg: dict, position_ppm: float, wj: WireJob, kw: dict, cmd_q, ev
     js.on_status = on_status
     wd = threading.Thread(target=watchdog, name="mlaser-stream-watchdog", daemon=True)
     try:
+        _startup_delay()                    # tests: a slow start-up (MLASER_TEST_STREAM_START_DELAY_S)
         mc.open()
         hmc.open()
         mc.last_ok = time.monotonic()
         wd.start()
+        say_hello()
         stats = js.run_job(wj, progress, cancel, lambda: bool(flags["hold"].value))
         b = asdict(js.buf)
         b.pop("samples", None)
