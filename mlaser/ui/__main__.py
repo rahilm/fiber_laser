@@ -249,9 +249,19 @@ def release_widgets(app) -> None:
     (the window has shut down: ``aboutToQuit``), while the QApplication and the interpreter are
     whole.  Left to the interpreter's exit, PySide6 destroys them with the QApplication in no
     fixed order (Python 3.14 CI: "double free or corruption" after the smoke test's clean end,
-    exit code -6).  The controllers are not widgets: the exit's halt (lifecycle) still runs."""
+    exit code -6).  The controllers are not widgets: the exit's halt (lifecycle) still runs.
+
+    First the window's event dispatchers and background calls are closed (:mod:`.qtbridge`):
+    the controller's threads still run (the queued disconnect publishes its events now), and a
+    delivery to a window being deleted ran the window's handlers on their thread (heap
+    corruption, exit codes -6 and -11)."""
     import shiboken6
-    for w in list(app.topLevelWidgets()):
+
+    from . import qtbridge
+    tops = [w for w in app.topLevelWidgets() if shiboken6.isValid(w)]
+    for w in tops:
+        qtbridge.close_children(w)
+    for w in tops:
         if shiboken6.isValid(w) and w.parent() is None:
             shiboken6.delete(w)
 
