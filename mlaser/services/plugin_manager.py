@@ -1335,7 +1335,7 @@ class PluginManager:
                     pass
             del inst[plugin_id]
             self._write_installed(inst)
-        self.disable(plugin_id, audit_event=False)
+        self.disable(plugin_id)            # audited (plugin_allowlist) when it was enabled or granted
         if self.granted_hosts(plugin_id):
             self.grant_hosts(plugin_id, remove=self.granted_hosts(plugin_id))
         if purge_data:
@@ -1393,7 +1393,7 @@ class PluginManager:
         same = rec["entry"] == old.get("entry") and rec["permissions"] == old.get("permissions")
         needs_enable = False
         if was_enabled and not same:
-            self.disable(plugin_id, audit_event=False)
+            self.disable(plugin_id)        # audited (plugin_allowlist), then plugin_update below
             needs_enable = True
         _audit("plugin_update", id=plugin_id, before=old.get("version"), version=rec["version"],
                sha256=rec["sha256"], kept_enabled=was_enabled and same, permissions=rec["permissions"])
@@ -1426,7 +1426,13 @@ class PluginManager:
                authority=list(self.config.get(AUTHORITY_KEY, [])), permissions=accepted.get(plugin_id))
         return {"id": plugin_id, "enabled": True, "authority": plugin_id in self.config.get(AUTHORITY_KEY, [])}
 
-    def disable(self, plugin_id: str, audit_event: bool = True) -> dict:
+    def disable(self, plugin_id: str) -> dict:
+        """Take the plugin out of the allowlist, its accepted permissions and the machine-authority
+        grants.  Every disable that changes one of them is audited (``plugin_allowlist``, with the
+        authority list after it), whoever asks: the Plugin manager, ``mlaser plugin disable``, an
+        uninstall, or an update whose entry point or permissions changed (a safety reason: the
+        operator has not accepted the new ones).  There is no unaudited variant; a disable of a
+        plugin that was neither enabled nor granted changes nothing and records nothing."""
         from .plugins import ACCEPTED_KEY, ALLOWLIST_KEY, AUTHORITY_KEY
         allow = dict(self.config.get(ALLOWLIST_KEY, {}) or {})
         before = sorted(allow)

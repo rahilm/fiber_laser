@@ -210,9 +210,12 @@ In the application:
 ## Plugin sections
 
 ```python
-proj = window.extension("ext_project")
-proj.register_section("technology", get=lambda: db.assignments(), set=db.load_assignments)
+ctx.register_project_section("myplugin", get=lambda: state.to_json(), set=state.load_json)
 ```
+
+A plugin that is not built in names its section after its id (`myplugin` or `myplugin.<part>`)
+and needs `permissions.document`. The built-ins use other names (the Orders workspace registers
+`orders`) and the well-known `technology` and `queue` below.
 
 `get()` returns JSON-able data. It may also contain model objects, nest objects, tuples or numpy
 arrays, which are encoded as described above. `set(value)` receives the loaded value when a
