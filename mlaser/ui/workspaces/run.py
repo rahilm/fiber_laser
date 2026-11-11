@@ -457,7 +457,7 @@ class RunCanvas(QWidget):
         try:
             p.setRenderHint(QPainter.Antialiasing, True)
             pal = self.palette()
-            p.fillRect(self.rect(), pal.color(QPalette.Base))
+            p.fillRect(self.rect(), QColor(CANVAS_COLORS["background"]))   # the Design canvas's (one background)
             if not self._paths:
                 p.setPen(pal.color(QPalette.PlaceholderText))
                 p.drawText(self.rect(), Qt.AlignCenter, tr(self.window(), "run.canvas.empty", "No job loaded"))

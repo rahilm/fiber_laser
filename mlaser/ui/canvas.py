@@ -67,11 +67,11 @@ def layer_color(index: int) -> QColor:
 # original's black drawing area, so a window without the shell looks as before.
 CANVAS_COLORS: dict[str, str] = {
     "background": "#000000", "table": "#606060", "axis_x": "#c04040", "axis_y": "#40c040",
-    "cut": "#d0d0d0", "gap": "#ff8000", "rapid": "#8080ff", "track": "#ff6060",
+    "cut": "#d0d0d0", "gap": "#7b818b", "rapid": "#8080ff", "track": "#ff6060",
     "unclosed": "#ff0000", "selected": "#ffffff", "start": "#ffffff", "index": "#ffd700",
     "bbox": "#707070", "arrow": "#ffffff", "head": "#ff4040", "marker": "#00ffff",
-    "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#b28cff", "kerf": "#ffc53d",
-    "pierce": "#ff4fa0", "preview": "#e6e600", "preview_alert": "#e53935",
+    "sim": "#ffffff", "lead_in": "#ff4fa0", "lead_out": "#c4a6ff", "kerf": "#ffc53d",
+    "pierce": "#22d3ee", "preview": "#e6e600", "preview_alert": "#e53935", "ruler": "#a3aab4",
 }
 # style-lint: end
 _DISPLAY_LAYER_COLORS: Optional[list[str]] = None
@@ -90,6 +90,42 @@ def display_layer_color(index: int) -> QColor:
 
 def _cc(role: str) -> QColor:
     return QColor(CANVAS_COLORS[role])
+
+
+#: the width of the canvas's thin lines (contours, table, axes, rapids, grid) in logical pixels:
+#: a cosmetic pen of width 0 is one *device* pixel, half as heavy on a 2x display (UI review
+#: 2026-11 #7); width 1 is one logical pixel on every display
+HAIRLINE = 1.0
+
+
+def hair_pen(color, style=Qt.SolidLine, width: float = HAIRLINE) -> QPen:
+    """A cosmetic pen (its width in screen pixels at any zoom)."""
+    pen = QPen(QColor(color), width, style)
+    pen.setCosmetic(True)
+    return pen
+
+
+#: how the planned toolpath's roles are drawn: (stacking value, width in pixels, line style).
+#: Every role differs from the others by its line style or a marker too, never by colour alone
+#: (UI review 2026-11 #8): rapids dashed, micro-joint gaps (laser off) dotted, the kerf path
+#: over a translucent band, a ring at each pierce point; the canvas bar's legend draws these
+#: very pens (:class:`_LegendSwatch`).
+TOOLPATH_STYLE: dict[str, tuple[float, float, Qt.PenStyle]] = {
+    "rapid": (0.4, HAIRLINE, Qt.DashLine),
+    "cut": (0.5, HAIRLINE, Qt.SolidLine),
+    "kerf": (1.5, 1.5, Qt.SolidLine),
+    "gap": (1.6, 2.0, Qt.DotLine),
+    "lead_out": (2.0, 2.0, Qt.SolidLine),
+    "lead_in": (2.1, 2.0, Qt.SolidLine),
+    "bad": (2.2, 2.0, Qt.SolidLine),
+}
+#: the kerf band's width in pixels, and the smallest kerf (on screen, in pixels) it is drawn at:
+#: below it the band, the compensated path and the drawing were one multicoloured stripe at a
+#: fitted zoom; the compensated path alone is drawn then
+KERF_BAND_PX = 6.0
+KERF_BAND_MIN_PX = 2.0
+#: the pierce ring's radius and pen width in pixels
+PIERCE_RING = (3.5, 1.6)
 
 
 class SelectionBand(QWidget):
@@ -439,9 +475,7 @@ class _RasterItem(QGraphicsItem):
             painter.setRenderHint(QPainter.SmoothPixmapTransform, px * lod < 1.0)
             painter.drawImage(self._rect, self._image)
         elif self._path is not None:
-            pen = QPen(self._color, 0)
-            pen.setCosmetic(True)
-            painter.setPen(pen)
+            painter.setPen(hair_pen(self._color))
             painter.drawPath(self._path)
 
 
@@ -545,6 +579,39 @@ class _LeadGlyph(QGraphicsItem):
         painter.drawLine(QPointF(0, 0), QPointF(x, y))
 
 
+def toolpath_pen(role: str, color=None) -> QPen:
+    """The pen of a toolpath role (:data:`TOOLPATH_STYLE`), for the canvas and its legend."""
+    _z, width, style = TOOLPATH_STYLE[role]
+    pen = hair_pen(color if color is not None else CANVAS_COLORS[role], style, width)
+    pen.setCapStyle(Qt.RoundCap)
+    return pen
+
+
+def kerf_band_pen(color) -> QPen:
+    bc = QColor(color)
+    bc.setAlpha(80)
+    pen = hair_pen(bc, Qt.SolidLine, KERF_BAND_PX)
+    pen.setCapStyle(Qt.RoundCap)
+    pen.setJoinStyle(Qt.RoundJoin)
+    return pen
+
+
+class _KerfBand(QGraphicsPathItem):
+    """The translucent band along the kerf-compensated path, drawn only at a zoom where the kerf
+    (``kerf`` mm) is at least :data:`KERF_BAND_MIN_PX` wide on screen."""
+
+    def __init__(self, path: QPainterPath, color, kerf: float) -> None:
+        super().__init__(path)
+        self.kerf = float(kerf)
+        self.setPen(kerf_band_pen(color))
+
+    def paint(self, painter, option, widget=None) -> None:
+        lod = QStyleOptionGraphicsItem.levelOfDetailFromTransform(painter.worldTransform())
+        if self.kerf * lod < KERF_BAND_MIN_PX:
+            return
+        super().paint(painter, option, widget)
+
+
 class _Ring(QGraphicsEllipseItem):
     """Fixed pixel-size ring (pierce point)."""
 
@@ -552,23 +619,99 @@ class _Ring(QGraphicsEllipseItem):
         super().__init__(-r, -r, 2 * r, 2 * r)
         self.setPos(x, y)
         self.setFlag(QGraphicsItem.ItemIgnoresTransformations)
-        pen = QPen(color, 1.6)
+        pen = QPen(color, PIERCE_RING[1])
         self.setPen(pen)
         self.setBrush(Qt.NoBrush)
         self.setZValue(5.4)
         self.setData(0, "toolpath.pierce")
 
 
+class _LegendSwatch(QWidget):
+    """A legend entry's sample: the toolpath role drawn with the canvas's own pen (a dashed
+    rapid, a dotted gap, the kerf path on its band, the pierce ring), not a coloured bar."""
+
+    W, H = 28, 12
+
+    def __init__(self, role: str) -> None:
+        super().__init__()
+        self.role = role
+        self.setFixedSize(self.W, self.H)
+        self.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+
+    def paintEvent(self, _ev) -> None:   # noqa: N802 - Qt
+        p = QPainter(self)
+        p.setRenderHint(QPainter.Antialiasing, True)
+        y = self.H / 2
+        if self.role == "pierce":
+            r, w = PIERCE_RING
+            p.setPen(QPen(_cc("pierce"), w))
+            p.setBrush(Qt.NoBrush)
+            p.drawEllipse(QPointF(self.W / 2, y), r, r)
+        else:
+            if self.role == "kerf":
+                p.setPen(kerf_band_pen(CANVAS_COLORS["kerf"]))
+                p.drawLine(QPointF(4, y), QPointF(self.W - 4, y))
+            p.setPen(toolpath_pen(self.role))
+            p.drawLine(QPointF(2, y), QPointF(self.W - 2, y))
+        p.end()
+
+
+class CanvasLegend(QWidget):
+    """The legend of the planned toolpath: one entry per role, its sample drawn with the real pen
+    (:class:`_LegendSwatch`) and its name; the entries wrap in a narrow bar."""
+
+    #: (role, label key), in the canvas's stacking order from the top
+    ENTRIES = (("lead_in", "canvas.legend.lead_in"), ("pierce", "canvas.legend.pierce"),
+               ("lead_out", "canvas.legend.lead_out"), ("kerf", "canvas.legend.kerf"),
+               ("gap", "canvas.legend.gap"), ("rapid", "canvas.legend.rapid"))
+
+    def __init__(self) -> None:
+        super().__init__()
+        from PySide6.QtWidgets import QHBoxLayout, QLabel
+        from .i18n import tr
+        from .responsive import FlowLayout
+        self.setObjectName("canvas_hud_legend")
+        lay = FlowLayout(self, justify=False, hspacing=SP2, vspacing=SP1 // 2)
+        lay.setContentsMargins(0, 0, 0, 0)
+        self.swatches: dict[str, _LegendSwatch] = {}
+        self.labels: dict[str, QLabel] = {}
+        for role, key in self.ENTRIES:
+            entry = QWidget()
+            entry.setObjectName(f"canvas_legend_{role}")
+            row = QHBoxLayout(entry)
+            row.setContentsMargins(0, 0, 0, 0)
+            row.setSpacing(SP1 // 2)
+            sw = _LegendSwatch(role)
+            lab = QLabel(tr(key))
+            row.addWidget(sw, 0, Qt.AlignVCenter)
+            row.addWidget(lab)
+            lay.addWidget(entry)
+            self.swatches[role], self.labels[role] = sw, lab
+
+    def text(self) -> str:
+        """The entries' names, in order (tests, the accessible description)."""
+        return " · ".join(lab.text() for lab in self.labels.values())   # i18n: ok (a list)
+
+    def refresh(self) -> None:
+        for sw in self.swatches.values():
+            sw.update()
+
+
 class CanvasHud(QFrame):
-    """The canvas's own bar (top left of the view): the **Toolpath** toggle with the colour
-    legend of the planned path, the plan state ("Computing toolpath…") and *Fit drawing* /
-    *Fit table*.  It adapts to the view: its row wraps in a narrow view, and the legend shows
-    only while the bar covers a small part of the drawing (:data:`AREA_SHARE`).  The arrow at
-    its start folds it to that arrow (and the plan state), so it covers the drawing no more;
-    the choice is remembered (``shell.canvas_hud_collapsed``)."""
+    """The canvas's own bar (top left of the view, past the rulers' corner): the **Toolpath**
+    toggle, the legend of the planned path (each role drawn with its real pen), the plan state
+    ("Computing toolpath…") and *Fit drawing* / *Fit table*.  It adapts to the view: its row
+    wraps in a narrow view.  The legend is folded behind its own arrow button: it opens by
+    itself only in a view at least :data:`LEGEND_AUTO_H` high where it covers a small part of
+    the drawing (:data:`AREA_SHARE`; UI review 2026-11 #7: it lay over the drawing being
+    inspected), and the button's choice holds for the session.  The arrow at the bar's start
+    folds the whole bar to that arrow (and the plan state), so it covers the drawing no more;
+    that choice is remembered (``shell.canvas_hud_collapsed``)."""
 
     #: the share of the view the bar may cover with its legend shown
     AREA_SHARE = 0.12
+    #: the legend opens by itself in a view at least this high (pixels)
+    LEGEND_AUTO_H = 700
     collapsedChanged = Signal(bool)
 
     def __init__(self, view: "CanvasView") -> None:
@@ -599,10 +742,15 @@ class CanvasHud(QFrame):
         self.toggle.setChecked(view.options.show_toolpath)
         self.toggle.toggled.connect(view.set_show_toolpath)
         lay.addWidget(self.toggle)
-        self.legend = QLabel()
-        self.legend.setObjectName("canvas_hud_legend")
-        self.legend.setTextFormat(Qt.RichText)
-        self.legend.setWordWrap(True)
+        self.legend_button = QToolButton()
+        self.legend_button.setObjectName("canvas_hud_legend_button")
+        self.legend_button.setAutoRaise(True)
+        self.legend_button.setCheckable(True)
+        self.legend_button.setFocusPolicy(Qt.TabFocus)
+        self.legend_button.clicked.connect(self._legend_clicked)
+        lay.addWidget(self.legend_button)
+        self._legend_choice: Optional[bool] = None     # the user's, this session
+        self.legend = CanvasLegend()
         self.status = QLabel()
         self.status.setObjectName("canvas_hud_status")
         lay.addWidget(self.status)
@@ -630,6 +778,26 @@ class CanvasHud(QFrame):
         tip = tr("canvas.hud.expand" if self.collapsed else "canvas.hud.collapse")
         self.fold.setToolTip(tip)
         self.fold.setAccessibleName(tip)
+        self._legend_look()
+
+    def _legend_look(self) -> None:
+        from .i18n import tr
+        on = self.legend.isVisibleTo(self) if hasattr(self, "legend") else False
+        self.legend_button.setChecked(on)
+        self.legend_button.setArrowType(Qt.UpArrow if on else Qt.DownArrow)
+        tip = tr("canvas.hud.legend_hide" if on else "canvas.hud.legend_show")
+        self.legend_button.setToolTip(tip)
+        self.legend_button.setAccessibleName(tip)
+
+    def _legend_clicked(self, _checked: bool = False) -> None:
+        self._legend_choice = not self.legend.isVisibleTo(self)
+        self.place()
+
+    def legend_wanted(self) -> bool:
+        """The legend open: the user's choice, else by itself in a tall view (see the class)."""
+        if self._legend_choice is not None:
+            return self._legend_choice
+        return self.view.height() >= self.LEGEND_AUTO_H
 
     def set_collapsed(self, on: bool) -> None:
         """Folded to its arrow (and the plan state while there is one), or the whole bar."""
@@ -637,7 +805,7 @@ class CanvasHud(QFrame):
         if on == self.collapsed:
             return
         self.collapsed = on
-        for w in (self.toggle, self.fit_drawing, self.fit_table):
+        for w in (self.toggle, self.legend_button, self.fit_drawing, self.fit_table):
             w.setVisible(not on)
         self._fold_look()
         self.place()
@@ -650,15 +818,12 @@ class CanvasHud(QFrame):
         fg = c["cut"]                      # the theme's drawing colour: readable on the canvas
         panel = QColor(bg)
         panel.setAlpha(225)
+        # opaque: nothing of the drawing (the head marker) shows through the bar's text
         self.setStyleSheet(
-            f"QFrame#canvas_hud {{ background: rgba({panel.red()},{panel.green()},{panel.blue()},225);"
+            f"QFrame#canvas_hud {{ background: rgb({panel.red()},{panel.green()},{panel.blue()});"
             f" border: 1px solid {c['table']}; border-radius: 6px; }}"
             f" QFrame#canvas_hud QLabel, QFrame#canvas_hud QCheckBox, QFrame#canvas_hud QToolButton {{ color: {fg}; }}")
-        items = (("lead_in", "canvas.legend.lead_in"), ("lead_out", "canvas.legend.lead_out"),
-                 ("kerf", "canvas.legend.kerf"), ("gap", "canvas.legend.gap"), ("rapid", "canvas.legend.rapid"))
-        self.legend.setText(" &nbsp; ".join(
-            f"<span style='color:{c[role]}; font-weight:bold'>&#9473;&#9473;</span>&nbsp;"  # i18n: ok (legend markup)
-            + tr(key).replace(" ", "&nbsp;") for role, key in items))
+        self.legend.refresh()
         self.legend.setToolTip(tr("canvas.legend.tip"))
         self.set_status(self.view.plan_state)
         self.place()
@@ -674,8 +839,10 @@ class CanvasHud(QFrame):
     def place(self) -> None:
         """Size and position for the view's current width (content-driven: the legend shows
         only when the whole bar fits)."""
-        avail = max(0, self.view.width() - 16)
-        self.legend.setVisible(self.view.options.show_toolpath and not self.collapsed)
+        inset = self.view.ruler_px() + 4 if self.view.options.show_rulers else 8
+        avail = max(0, self.view.width() - inset - 8)
+        self.legend_button.setVisible(self.view.options.show_toolpath and not self.collapsed)
+        self.legend.setVisible(self.view.options.show_toolpath and not self.collapsed and self.legend_wanted())
         lay = self.layout()
         lay.activate()
         # what surrounds the row: the layout's margins and the frame's own (the style sheet's
@@ -683,7 +850,7 @@ class CanvasHud(QFrame):
         lm, fm = lay.contentsMargins(), self.contentsMargins()
         pad = lm.left() + lm.right() + fm.left() + fm.right()
         w = min(max(lay.itemAt(0).sizeHint().width() + pad, 0), avail)
-        if self.legend.isVisible():
+        if self.legend.isVisibleTo(self):
             # the legend wraps to the bar's width (at most the row's when that is wider than
             # half the view: it then takes more lines, not more of the drawing)
             w = min(max(w, min(self.legend.sizeHint().width() + pad, max(w, avail // 2))), avail)
@@ -695,13 +862,15 @@ class CanvasHud(QFrame):
             return lay.heightForWidth(w - fm.left() - fm.right()) + fm.top() + fm.bottom()
         h = height()
         area = max(self.view.width() * self.view.height(), 1)
-        if self.legend.isVisible() and (h > self.view.height() // 3 or w * h > self.AREA_SHARE * area):
-            # the legend would cover too much of the drawing (a half-screen window): the
-            # toggle's tooltip and View › Show keep it reachable
+        if (self.legend.isVisibleTo(self) and self._legend_choice is None
+                and (h > self.view.height() // 3 or w * h > self.AREA_SHARE * area)):
+            # the legend would cover too much of the drawing (a half-screen window): it stays
+            # folded behind its button
             self.legend.setVisible(False)
             lay.activate()
             h = height()
-        self.setGeometry(8, 8, w, max(h, self.minimumSizeHint().height()))
+        self._legend_look()
+        self.setGeometry(inset, inset, w, max(h, self.minimumSizeHint().height()))
         self.raise_()
 
 
@@ -943,11 +1112,11 @@ class CanvasView(QGraphicsView):
     # ------------------------------------------------------------------ scene
     def _static_items(self) -> None:
         w, h = self.options.table_size
-        pen = QPen(_cc("table"), 0, Qt.DashLine)
+        pen = hair_pen(_cc("table"), Qt.DashLine)
         self._table = self._scene.addRect(QRectF(0, 0, w, h), pen)
         self._table.setZValue(-10)
-        ax = QPen(_cc("axis_x"), 0)
-        ay = QPen(_cc("axis_y"), 0)
+        ax = hair_pen(_cc("axis_x"))
+        ay = hair_pen(_cc("axis_y"))
         self._axes = [self._scene.addLine(0, 0, 60, 0, ax), self._scene.addLine(0, 0, 0, 60, ay)]
         for a in self._axes:
             a.setZValue(-9)
@@ -955,9 +1124,9 @@ class CanvasView(QGraphicsView):
     def apply_theme(self) -> None:
         """Re-read :data:`CANVAS_COLORS` / the display layer colours (theme change)."""
         self.setBackgroundBrush(_cc("background"))
-        self._table.setPen(QPen(_cc("table"), 0, Qt.DashLine))
-        self._axes[0].setPen(QPen(_cc("axis_x"), 0))
-        self._axes[1].setPen(QPen(_cc("axis_y"), 0))
+        self._table.setPen(hair_pen(_cc("table"), Qt.DashLine))
+        self._axes[0].setPen(hair_pen(_cc("axis_x")))
+        self._axes[1].setPen(hair_pen(_cc("axis_y")))
         if self._head is not None:
             self._head.setPen(QPen(_cc("head"), 1.5))
         if self._track is not None:
@@ -992,7 +1161,19 @@ class CanvasView(QGraphicsView):
         return [it for it in self._overlay if it.data(0) == "toolpath." + role]
 
     # ------------------------------------------------------------------ rulers / grid
+    #: the rulers' smallest thickness (pixels); a larger caption font makes them thicker
     RULER_PX = 18
+
+    @staticmethod
+    def ruler_font() -> QFont:
+        """The rulers' labels: the type scale's caption (UI review 2026-11 #7: a 0.75x font with
+        a 6 pt floor was outside the scale)."""
+        return font("caption")
+
+    def ruler_px(self) -> int:
+        """The rulers' thickness: room for a caption label above its tick."""
+        from PySide6.QtGui import QFontMetrics
+        return max(self.RULER_PX, QFontMetrics(self.ruler_font()).ascent() + 8)
 
     def ruler_steps(self) -> tuple[float, float]:
         """(major, minor) step in mm of the rulers and the grid at the current zoom."""
@@ -1003,7 +1184,7 @@ class CanvasView(QGraphicsView):
         if not self.options.show_grid:
             return
         major, _minor = self.ruler_steps()
-        pen = QPen(_cc("table"), 0, Qt.DotLine)
+        pen = hair_pen(_cc("table"), Qt.DotLine)
         painter.save()
         painter.setPen(pen)
         x = math.floor(rect.left() / major) * major
@@ -1319,18 +1500,18 @@ class CanvasView(QGraphicsView):
         major, minor = self.ruler_steps()
         xs, ys, unit = self.ruler_labels()
         vp = self.viewport().rect()
-        r = self.RULER_PX
+        r = self.ruler_px()
         bg = QColor(_cc("background"))
         bg.setAlpha(210)
-        fg = _cc("table").lighter(160)
+        # the theme's ruler colour (>= 4.5:1 on the canvas in every theme; the table's colour
+        # lightened was 1.2:1 on the light canvas)
+        fg = _cc("ruler")
         painter.save()
         painter.resetTransform()
         painter.setRenderHint(QPainter.Antialiasing, False)
         painter.fillRect(QRectF(0, 0, vp.width(), r), bg)
         painter.fillRect(QRectF(0, 0, r, vp.height()), bg)
-        f = QFont(painter.font())
-        f.setPointSizeF(max(6.0, f.pointSizeF() * 0.75))
-        painter.setFont(f)
+        painter.setFont(self.ruler_font())
         painter.setPen(QPen(fg, 1))
         painter.drawLine(QPointF(r, r), QPointF(vp.width(), r))
         painter.drawLine(QPointF(r, r), QPointF(r, vp.height()))
@@ -1654,40 +1835,37 @@ class CanvasView(QGraphicsView):
         self.toolpath_marks = marks
         self._drop_stale_overlay()
         show_tp = self.options.show_toolpath
-        for name, z, width, style, show in (
-                ("rapid", 0.4, 0, Qt.DashLine, self.options.show_move_path and show_tp),
-                ("cut", 0.5, 0, Qt.SolidLine, True),
-                ("kerf", 1.5, 1.5, Qt.SolidLine, show_tp),
-                ("gap", 1.6, 2.0, Qt.SolidLine, show_tp),
-                ("lead_out", 2.0, 2.0, Qt.SolidLine, show_tp),
-                ("lead_in", 2.1, 2.0, Qt.SolidLine, show_tp),
-                ("bad", 2.2, 2.0, Qt.SolidLine, True)):
+        shown = {"rapid": self.options.show_move_path and show_tp, "cut": True, "bad": True}
+        for name, (z, _width, _style) in TOOLPATH_STYLE.items():
             path = paths[name]
-            if not show or path.isEmpty():
+            if not shown.get(name, show_tp) or path.isEmpty():
                 continue
             color = CANVAS_COLORS["unclosed"] if name == "bad" else CANVAS_COLORS[name]
             if name == "kerf":
                 # the kerf: a translucent band along the compensated path (the material the beam
                 # removes), so it reads as "offset path" even where it lies on the drawing
-                band = QGraphicsPathItem(path)
-                bc = QColor(color)
-                bc.setAlpha(80)
-                bpen = QPen(bc, 6.0)
-                bpen.setCosmetic(True)
-                bpen.setCapStyle(Qt.RoundCap)
-                bpen.setJoinStyle(Qt.RoundJoin)
-                band.setPen(bpen)
+                band = _KerfBand(path, color, self._kerf_width())
                 band.setZValue(z - 0.05)
                 band.setData(0, "toolpath.kerf_band")
                 self._add_overlay(band)
             it = QGraphicsPathItem(path)
-            pen = QPen(QColor(color), width, style)
-            pen.setCosmetic(True)
-            pen.setCapStyle(Qt.RoundCap)
-            it.setPen(pen)
+            it.setPen(toolpath_pen(name, color))
             it.setZValue(z)
             it.setData(0, "toolpath." + name)
             self._add_overlay(it)
+
+    def _kerf_width(self) -> float:
+        """The widest kerf of the compensated contours (mm): the zoom at which the kerf band is
+        drawn (:class:`_KerfBand`)."""
+        doc = getattr(self, "document", None)
+        best = 0.0
+        for part in getattr(doc, "parts", None) or []:
+            pc = getattr(part, "craft", None)
+            for c in part.contours:
+                cr = c.craft if c.craft is not None else pc
+                if cr is not None and int(getattr(cr, "kerf_comp", -1)) in (0, 1):
+                    best = max(best, float(getattr(cr, "kerf_width", 0.0) or 0.0))
+        return best
 
     def _kerf_contours(self) -> set:
         """(part, contour) keys with kerf compensation (inside or outside, width > 0): their
@@ -1870,10 +2048,9 @@ class CanvasView(QGraphicsView):
             pen = pens.get(key)
             if pen is None:
                 if key[0]:
-                    pen = QPen(_cc("selected"), 1.5, Qt.DashLine)
+                    pen = hair_pen(_cc("selected"), Qt.DashLine, 1.5)
                 else:
-                    pen = QPen(QColor.fromRgba(key[1]), 0)
-                pen.setCosmetic(True)
+                    pen = hair_pen(QColor.fromRgba(key[1]))
                 pens[key] = pen
             it.setPen(pen)
             styles[k] = key
@@ -1960,8 +2137,7 @@ class CanvasView(QGraphicsView):
                 if lead is not None and lead.kind and len(pts) > 1 and not self.toolpath:
                     self._add_overlay(self._lead_item(pts, lead, _cc("lead_in")))
                 if o.show_move_path and prev_end is not None and not self.toolpath:
-                    pen = QPen(_cc("rapid"), 0, Qt.DashLine)
-                    pen.setCosmetic(True)
+                    pen = hair_pen(_cc("rapid"), Qt.DashLine)
                     ln = QGraphicsLineItem(prev_end[0], prev_end[1], sx, sy)
                     ln.setPen(pen)
                     ln.setZValue(0)
@@ -1973,9 +2149,7 @@ class CanvasView(QGraphicsView):
                 if part.contours:
                     x0, y0, x1, y1 = part.bbox()
                     r = QGraphicsRectItem(QRectF(x0, y0, x1 - x0, y1 - y0))
-                    pen = QPen(_cc("bbox"), 0, Qt.DotLine)
-                    pen.setCosmetic(True)
-                    r.setPen(pen)
+                    r.setPen(hair_pen(_cc("bbox"), Qt.DotLine))
                     self._add_overlay(r, follow=False)      # (the part as it is now)
 
     def _toolpath_markers(self):
@@ -1987,7 +2161,7 @@ class CanvasView(QGraphicsView):
             yield
             sx, sy = mk.start
             if mk.lead_length > 0:
-                self._add_overlay(_Ring(mk.pierce[0], mk.pierce[1], 3.5, _cc("pierce")))
+                self._add_overlay(_Ring(mk.pierce[0], mk.pierce[1], PIERCE_RING[0], _cc("pierce")))
                 self._add_overlay(_LeadGlyph(self, mk, lead_c))
             if o.show_start:
                 self._add_overlay(_Marker(sx, sy, 2.5, _cc("start")))
@@ -2063,9 +2237,7 @@ class CanvasView(QGraphicsView):
         path.moveTo(x0 + L * math.cos(a), y0 + L * math.sin(a))
         path.lineTo(x0, y0)
         it = QGraphicsPathItem(path)
-        pen = QPen(color.lighter(130), 0)
-        pen.setCosmetic(True)
-        it.setPen(pen)
+        it.setPen(hair_pen(color.lighter(130)))
         it.setZValue(2)
         return it
 
@@ -2373,6 +2545,35 @@ class CanvasView(QGraphicsView):
         if fn is None:
             return None
         return fn(*args)
+
+    def hover_text(self, sx: float, sy: float) -> str:
+        """The tooltip at scene point (sx, sy): the part there and its layer, so a layer is
+        never told by its colour alone (UI review 2026-11 #8: layers 1, 4 and 9 look alike to a
+        red-green colour-blind user).  Empty where there is no part."""
+        if self.document is None:
+            return ""
+        hit = self.pick(sx, sy)
+        if hit is None:
+            return ""
+        from .i18n import translator
+        part = self.document.parts[hit]
+        n = int(getattr(part.craft, "layer", 0))
+        name = str(getattr(part, "name", "") or "")
+        t = translator()
+        return t.format("canvas.tip.part", name=name, n=n) if name else t.format("canvas.tip.layer", n=n)
+
+    def viewportEvent(self, ev) -> bool:   # noqa: N802 - Qt
+        if ev.type() == QEvent.ToolTip and self.tool is None:
+            from PySide6.QtWidgets import QToolTip
+            sp = self.mapToScene(ev.pos())
+            text = self.hover_text(sp.x(), sp.y())
+            if text:
+                QToolTip.showText(ev.globalPos(), text, self.viewport())
+            else:
+                QToolTip.hideText()
+                ev.ignore()
+            return True
+        return super().viewportEvent(ev)
 
     def event(self, ev) -> bool:
         if self.tool is not None:

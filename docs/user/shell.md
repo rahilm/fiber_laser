@@ -118,16 +118,26 @@ Settings > Theme: **Light** (default), **Dark** and **High contrast** ("safety g
 white and yellow). The choice is remembered. Icons follow the theme. The canvas follows it as
 well: light background in the light theme, the original's black in the dark and high-contrast
 themes. Layer colours keep their hue but are darkened just enough to stay visible on a light
-canvas, and they stay distinguishable from each other:
+canvas, and they stay distinguishable from each other, also for red-green colour-blind users
+(deuteranopia and protanopia, about 1 in 12 men): two layers that differ by hue only, such as
+the green, yellow and red of layers 1, 4 and 9, are drawn at different lightness. Hovering a
+part on the canvas names its layer, so a layer is never told by its colour alone.
 
-| Theme | text / window | smallest layer contrast on the canvas | smallest difference between two layers (ΔE) |
-|---|---|---|---|
-| Light | 14.7 : 1 | 3.0 : 1 | 14.9 |
-| Dark | 13.0 : 1 | 4.8 : 1 | 20.8 |
-| High contrast | 21 : 1 | 4.8 : 1 | 20.8 |
+| Theme | text / window | smallest layer contrast on the canvas | smallest difference between two layers (ΔE) | the same for red-green colour-blind vision |
+|---|---|---|---|---|
+| Light | 14.7 : 1 | 3.0 : 1 | 16.2 | 10.5 |
+| Dark | 13.0 : 1 | 4.8 : 1 | 19.3 | 10.5 |
+| High contrast | 21 : 1 | 4.8 : 1 | 19.3 | 10.5 |
 
 (WCAG asks 4.5 : 1 for text and 3 : 1 for graphics.) The colour stored in your files does not
-change with the theme. The safety banners keep their fixed colours in every theme and always
+change with the theme.
+
+The planned toolpath's parts differ by line style as well as colour: rapids dashed, micro-joint
+gaps (laser off) dotted, the kerf-compensated path on a translucent band (shown where the kerf
+is at least 2 pixels wide), a ring at each pierce point. The legend in the canvas bar (the arrow
+after *Toolpath*) draws each one as it appears on the canvas; it opens by itself only in a tall
+canvas, so it does not cover the drawing. The rulers' numbers are in the theme's ruler colour
+and the caption font. The safety banners keep their fixed colours in every theme and always
 say their state in words.
 
 With the theme left at **System** (the default when nothing was chosen), mlaser follows the

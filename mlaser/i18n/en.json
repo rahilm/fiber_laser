@@ -266,6 +266,8 @@
   "canvas.fit_table_tip": "Zoom to the whole machine table",
   "canvas.hud.collapse": "Hide the canvas tools and legend (folded to this arrow)",
   "canvas.hud.expand": "Show the canvas tools: Toolpath, Fit drawing, Fit table, legend",
+  "canvas.hud.legend_hide": "Hide the toolpath legend",
+  "canvas.hud.legend_show": "Show the toolpath legend: what each colour and line style of the planned path means",
   "canvas.hud.toolpath": "Toolpath",
   "shell.view.canvas": "Canvas",
   "canvas.hud.toolpath_tip": "Show the planned toolpath on the drawing: lead-ins and lead-outs, the kerf-compensated path, micro-joint gaps, pierce points, cut direction and rapids",
@@ -273,9 +275,12 @@
   "canvas.legend.kerf": "Kerf path",
   "canvas.legend.lead_in": "Lead-in",
   "canvas.legend.lead_out": "Lead-out",
+  "canvas.legend.pierce": "Pierce",
   "canvas.legend.rapid": "Rapid",
-  "canvas.legend.tip": "Colours of the planned toolpath. The drawing keeps its layer colour underneath; a ring marks each pierce point.",
+  "canvas.legend.tip": "Colours and line styles of the planned toolpath. The drawing keeps its layer colour underneath; a ring marks each pierce point.",
   "canvas.plan.failed": "Toolpath failed: see the log",
+  "canvas.tip.layer": "Layer {n}",
+  "canvas.tip.part": "{name}: Layer {n}",
   "canvas.plan.planning": "Computing toolpath…",
   "canvas.plan.sim_none": "Nothing to simulate: the plan has no toolpath.",
   "canvas.plan.sim_wait": "Computing the toolpath before simulating…",
@@ -5644,6 +5649,13 @@
    "n"
   ],
   "layers.layer_n": [
+   "n"
+  ],
+  "canvas.tip.layer": [
+   "n"
+  ],
+  "canvas.tip.part": [
+   "name",
    "n"
   ],
   "layers.tip.technology": [

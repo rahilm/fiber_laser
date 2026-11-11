@@ -31,7 +31,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QColor, QPalette
 from PySide6.QtWidgets import QApplication
 
-from .contrast import adjust_palette, contrast
+from .contrast import adjust_palette, contrast, separate_for_cvd
 
 SYSTEM, LIGHT, DARK, HIGH_CONTRAST = "system", "light", "dark", "high_contrast"
 THEME_IDS = (SYSTEM, LIGHT, DARK, HIGH_CONTRAST)
@@ -55,15 +55,17 @@ THEMES: dict[str, dict[str, str]] = {
         "control_border": "#7d8590",
         # canvas
         "c_background": "#fbfbfa", "c_table": "#8b9099", "c_axis_x": "#c62828", "c_axis_y": "#2e7d32",
-        "c_cut": "#3a3f46", "c_gap": "#c2410c", "c_rapid": "#3b5bdb", "c_track": "#d62828",
-        "c_unclosed": "#d00000", "c_selected": "#101418", "c_start": "#101418", "c_index": "#8a5300",
+        "c_cut": "#3a3f46", "c_gap": "#4b5563", "c_rapid": "#3b5bdb", "c_track": "#d62828",
+        "c_unclosed": "#d00000", "c_selected": "#101418", "c_start": "#101418", "c_index": "#5c3a00",
         "c_bbox": "#7b818b", "c_arrow": "#101418", "c_head": "#d62828", "c_marker": "#0b7285",
-        "c_sim": "#101418",
-        # the planned toolpath: leads and the kerf-compensated path in their own colours
+        "c_sim": "#101418", "c_ruler": "#59616d",
         # the toolpath preview (preview_scrubber, Orders' sheet preview)
-        "c_preview_cut": "#b36b00", "c_preview_rapid": "#1f6fd1", "c_preview_head": "#d62828",
+        "c_preview_cut": "#d47200", "c_preview_rapid": "#1f6fd1", "c_preview_head": "#d62828",
         "c_preview_head_off": "#7b818b", "c_preview": "#8a6d00", "c_preview_alert": "#c62828",
-        "c_lead_in": "#c2187a", "c_lead_out": "#6d28d9", "c_kerf": "#a86b00", "c_pierce": "#c2187a",
+        # the planned toolpath: leads, the kerf-compensated path, gaps and pierce points in their
+        # own colours, every pair >= 10 ΔE apart for normal and red-green colour-blind vision
+        # (tests/test_canvas_visual.py), and in their own line style too (the legend shows it)
+        "c_lead_in": "#c2187a", "c_lead_out": "#4c1d95", "c_kerf": "#8f5c00", "c_pierce": "#0e7490",
     },
     DARK: {
         "danger": "#ef5350", "on_danger": "#ffffff", "danger_fill": "#c62828",
@@ -76,13 +78,13 @@ THEMES: dict[str, dict[str, str]] = {
         "disabled": "#6f7680", "rail": "#181a1d", "rail_checked": "#2f343b", "topbar": "#181a1d",
         "focus": "#7fb0ff", "link": "#7fb0ff", "placeholder": "#8b929c", "control_border": "#747c87",
         "c_background": "#000000", "c_table": "#606060", "c_axis_x": "#c04040", "c_axis_y": "#40c040",
-        "c_cut": "#d0d0d0", "c_gap": "#ff8000", "c_rapid": "#8080ff", "c_track": "#ff6060",
+        "c_cut": "#d0d0d0", "c_gap": "#7b818b", "c_rapid": "#8080ff", "c_track": "#ff6060",
         "c_unclosed": "#ff0000", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffd700",
         "c_bbox": "#707070", "c_arrow": "#ffffff", "c_head": "#ff4040", "c_marker": "#00ffff",
-        "c_sim": "#ffffff",
-        "c_preview_cut": "#ffb000", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
+        "c_sim": "#ffffff", "c_ruler": "#a3aab4",
+        "c_preview_cut": "#ff8a00", "c_preview_rapid": "#4da3ff", "c_preview_head": "#ff3030",
         "c_preview_head_off": "#c0c0c0", "c_preview": "#e6e600", "c_preview_alert": "#e53935",
-        "c_lead_in": "#ff4fa0", "c_lead_out": "#b28cff", "c_kerf": "#ffc53d", "c_pierce": "#ff4fa0",
+        "c_lead_in": "#ff4fa0", "c_lead_out": "#c4a6ff", "c_kerf": "#ffc53d", "c_pierce": "#22d3ee",
     },
     HIGH_CONTRAST: {      # "safety glasses": black, white, yellow; no greys for content
         "danger": "#ff5252", "on_danger": "#ffffff", "danger_fill": "#c62828",
@@ -95,13 +97,13 @@ THEMES: dict[str, dict[str, str]] = {
         "disabled": "#b0b0b0", "rail": "#000000", "rail_checked": "#ffd400", "topbar": "#000000",
         "focus": "#00e5ff", "link": "#00e5ff", "placeholder": "#d0d0d0", "control_border": "#ffffff",
         "c_background": "#000000", "c_table": "#bdbdbd", "c_axis_x": "#ff5252", "c_axis_y": "#69f0ae",
-        "c_cut": "#ffffff", "c_gap": "#ff9100", "c_rapid": "#82b1ff", "c_track": "#ff5252",
+        "c_cut": "#ffffff", "c_gap": "#ffffff", "c_rapid": "#82b1ff", "c_track": "#ff5252",
         "c_unclosed": "#ff1744", "c_selected": "#ffffff", "c_start": "#ffffff", "c_index": "#ffff00",
         "c_bbox": "#bdbdbd", "c_arrow": "#ffffff", "c_head": "#ff1744", "c_marker": "#00e5ff",
-        "c_sim": "#ffffff",
-        "c_preview_cut": "#ffd740", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
+        "c_sim": "#ffffff", "c_ruler": "#ffffff",
+        "c_preview_cut": "#ff6d00", "c_preview_rapid": "#82b1ff", "c_preview_head": "#ff1744",
         "c_preview_head_off": "#ffffff", "c_preview": "#ffff00", "c_preview_alert": "#ff5252",
-        "c_lead_in": "#ff40ff", "c_lead_out": "#c9a0ff", "c_kerf": "#ffd740", "c_pierce": "#ff40ff",
+        "c_lead_in": "#ff80ab", "c_lead_out": "#9e6bff", "c_kerf": "#ffd740", "c_pierce": "#00e5ff",
     },
 }
 #: the machine and laser state colours, (fill, text) per state and theme (ISA-101 style, UX audit
@@ -337,13 +339,28 @@ def canvas_colors(theme: str) -> dict[str, str]:
     return {k[2:]: v for k, v in t.items() if k.startswith("c_")}
 
 
+#: the smallest ΔE of two layer colours as drawn, for normal, deuteranope and protanope vision
+#: (UI review 2026-11 #8: layers 1, 4 and 9, green, yellow and red, looked alike to a deuteranope)
+LAYER_CVD_DELTA_E = 10.0
+_LAYER_COLORS_CACHE: dict[tuple, list[str]] = {}
+
+
 def layer_colors(theme: str, base: Optional[list[str]] = None) -> list[str]:
-    """The layer colours as drawn in ``theme`` (contrast-adjusted, distinguishable)."""
+    """The layer colours as drawn in ``theme``: contrast-adjusted against the canvas,
+    distinguishable, and apart in lightness where they differ by hue only for a red-green
+    colour-blind user (:func:`.contrast.separate_for_cvd`).  The document's colours (data, the
+    exported files) are not changed."""
     from .. import canvas
     cols = list(base or canvas.LAYER_COLORS)
     theme = effective(theme)
     bg = canvas_colors(theme)["background"]
-    return adjust_palette(cols, bg, LAYER_MIN_CONTRAST.get(theme, 3.0))
+    ratio = LAYER_MIN_CONTRAST.get(theme, 3.0)
+    key = (tuple(cols), bg, ratio)
+    hit = _LAYER_COLORS_CACHE.get(key)
+    if hit is None:
+        hit = separate_for_cvd(adjust_palette(cols, bg, ratio), bg, ratio, LAYER_CVD_DELTA_E)
+        _LAYER_COLORS_CACHE[key] = hit
+    return list(hit)
 
 
 def apply_canvas_theme(theme: str, view=None) -> None:
@@ -651,7 +668,8 @@ def contrast_report(theme: str) -> dict[str, float]:
     bg = canvas_colors(theme)["background"]
     for i, c in enumerate(layer_colors(theme)):
         out[f"layer{i}/canvas"] = contrast(c, bg)
-    for role in ("unclosed", "selected", "start", "index", "cut", "head", "lead_in", "lead_out", "kerf"):
+    for role in ("unclosed", "selected", "start", "index", "cut", "head", "lead_in", "lead_out", "kerf", "gap",
+                 "rapid", "pierce", "ruler"):
         out[f"{role}/canvas"] = contrast(canvas_colors(theme)[role], bg)
     return out
 
