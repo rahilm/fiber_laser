@@ -134,7 +134,21 @@ def test_layer_table_shows_up_to_four_rows_in_full(win, app):
     ws = _process(win, app)
     tb = ws.layers
     assert tb.rowCount() == 4
-    pump(app, 0.1)
+    # at rest first: the document's plan (another process) fills the estimate card, the page's
+    # columns change width and the rows follow from a queued call; read before that, a wrapped
+    # row was still at the height of the old width (Windows CI: 30 px for 33)
+    from test_responsive_layout import at_rest
+    at_rest(win, app)
+    last, same = None, 0
+    for _ in range(60):
+        pump(app, 0.02)
+        sig = (tb.viewport().size().toTuple(),
+               tuple(tb.columnWidth(c) for c in range(tb.columnCount())),
+               tuple(tb.rowHeight(r) for r in range(tb.rowCount())))
+        same = same + 1 if sig == last else 0
+        last = sig
+        if same >= 3:
+            break
     # four rows at least a text line each, whatever the page's width (a minimum that grew
     # with the wrapping pushed the Process page wider than the window, Windows CI)
     line = tb.fontMetrics().height()
