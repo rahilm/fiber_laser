@@ -179,7 +179,7 @@ class JobPartsTracker:
             order, marker_part = cut_order(plan)
             try:
                 key = self.key(doc) if doc is not None else ""
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - no document key: the cut-the-rest offer is withdrawn
                 key = ""
             job = LastJob(mode, name=name or "", doc_key=key, order=tuple(map_to_document(plan, order, doc)),
                           started=self.clock(), marker_part=tuple(marker_part))

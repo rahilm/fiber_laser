@@ -282,7 +282,7 @@ def icon_for_dist(dist: Any, entry: str, manifest: Optional[dict]) -> str:
     try:
         hit = next((f for f in (dist.files or ()) if str(f).replace("\\", "/") == want), None)
         return str(dist.locate_file(hit)) if hit is not None else ""
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no icon file: the plugin is shown without one
         return ""
 
 

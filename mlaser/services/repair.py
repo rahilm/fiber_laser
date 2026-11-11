@@ -116,7 +116,7 @@ class RepairReport:
 def _seg_len(s: Segment) -> float:
     try:
         return float(s.length())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - a segment without a length: its chord
         return math.dist(s.start, s.end)
 
 
@@ -323,7 +323,7 @@ def _text_family_ok() -> bool:
     try:
         from mlaser.io.dxf_import import _text_family
         return bool(_text_family())
-    except Exception:  # noqa: BLE001
+    except Exception:  # noqa: BLE001 - no text support: the repair says so
         return False
 
 

@@ -32,12 +32,15 @@ interlocks or the pre-flight changes: this is the order inside the checklist.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Callable, Optional
 
 from .engine import Procedure, Step, StepFailed
+
+log = logging.getLogger("mlaser.procedures.commissioning")
 
 PASS, WARN, FAIL, SKIP, PENDING = "pass", "warn", "fail", "skip", "pending"
 SCALE_TOL = 0.001                        # relative
@@ -218,8 +221,8 @@ class CommissioningProcedure(Procedure):
     def heartbeat_hold(self, hold: bool) -> None:
         try:
             self.machine.heartbeat_hold(bool(hold))
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception:  # noqa: BLE001 - the checklist goes on; the heartbeat keeps its own deadline (logged)
+            log.warning("commissioning: the heartbeat hold could not be set", exc_info=True)
 
     # ------------------------------------------------------------------ fixes
     def recheck_interlocks(self) -> CheckItem:

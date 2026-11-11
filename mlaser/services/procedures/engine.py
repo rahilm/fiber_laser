@@ -158,7 +158,7 @@ class Procedure:
         for fn in list(self.listeners):
             try:
                 fn(self)
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - a listener must not stop the procedure (logged)
                 log.exception("procedure listener failed")
 
     def check_cancel(self) -> None:
@@ -422,7 +422,7 @@ class Procedure:
         self.history.append(StepRecord(sid, "aborted", reason))
         try:
             self.on_abort()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the abort goes on (the halt went out before) (logged)
             log.exception("%s: on_abort failed", self.id)
         self.log(f"aborted at {sid} ({reason})")
         if notify:
@@ -436,7 +436,7 @@ class Procedure:
         self._halt(f"{self.id}: step {s.id} failed")
         try:
             self.on_abort()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - the failure goes on (the halt went out before) (logged)
             log.exception("%s: on_abort failed", self.id)
         self.log(f"step {s.id} failed: {e}")
         self._notify()

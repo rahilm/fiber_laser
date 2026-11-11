@@ -45,10 +45,12 @@ from .responsive import keep_min_size
 from ..machine.fault_text import headline, headline_id
 from .safety_texts import remedy
 from .style import TARGET_RUN
+# the Qt-free run rules (review arch A15): which run controls are enabled and why, the run
+# state, the alarm source; importable from here as before
+from .run_rules import (JOB_MODES, _ctl, _safety, _tr, _unknown_alarm, active_alarms,  # noqa: F401
+                        alarm_text, job_running, run_enabled, run_state)
 
 log = logging.getLogger("mlaser.ui.safety")
-
-JOB_MODES = ("process", "dry_run", "frame", "pause")
 
 class _StateColors(Mapping):
     """The safety colour table: (background, text) of every machine and laser state in the
@@ -86,35 +88,7 @@ def _trn(window, base: str, n: int, **values) -> str:
     return i18n.plural(base, n, **values)
 
 
-def _tr(window, key: str, default: str, **values) -> str:
-    """Catalogue text of ``key`` (``default`` without a catalogue), placeholders filled."""
-    tr = getattr(window, "tr_", None)
-    text = default
-    if tr is not None:
-        try:
-            if tr.has(key):
-                return tr.format(key, **values) if values else tr.tr(key)
-        except Exception:  # noqa: BLE001 - a broken catalogue never hides a safety text
-            pass
-    return text.format(**values) if values else text
 MIN_TARGET = TARGET_RUN
-
-
-def _ctl(w):
-    return getattr(w, "ctl", None)
-
-
-def _safety(ctl):
-    return ctl.safety() if ctl is not None else None
-
-
-def job_running(window) -> bool:
-    ctl = _ctl(window)
-    if ctl is None:
-        return False
-    if ctl.job_active():
-        return True
-    return ctl.state().mode in ("process", "dry_run", "frame")
 
 
 def job_locked(window, what: str = "") -> bool:
@@ -1083,111 +1057,6 @@ class RunBar(QToolBar):
             b.setAccessibleName(text)
 
 
-def active_alarms(window) -> list:
-    """The card's active alarms: THE alarm source of the run state, the banners, the status
-    chips and the run controls' enabling (``ctl.active_alarms``, re-read after every status and
-    after a reset; UX audit C2)."""
-    ctl = _ctl(window)
-    try:
-        return list(ctl.active_alarms or ()) if ctl is not None else []
-    except Exception:  # noqa: BLE001 - cannot tell: assume an alarm (review A14, restrictive)
-        log.warning("the controller's alarm list cannot be read: run controls held as for an alarm",
-                    exc_info=True)
-        return [_unknown_alarm()]
-
-
-def _unknown_alarm():
-    """Stands for alarms that cannot be read: Start, Frame and Dry run stay disabled ("Reset
-    the alarm first: alarm state unknown"), never the permissive "no alarm"."""
-    from ..controller.alarms import Alarm
-    return Alarm(0, "safety.alarm.unknown", "Alarm state unknown: the controller does not report it")
-
-
-def alarm_text(window, a) -> str:
-    """An alarm's text in the UI language."""
-    tr = getattr(window, "tr_", None)
-    return a.text(tr) if hasattr(a, "text") else str(a)
-
-
-def run_state(st, ms, alarms=(), need_home: bool = False) -> str:
-    """The machine's run state from the safety status ``st``, the machine state ``ms`` and the
-    card's active ``alarms``: ``fault`` > ``estop`` (an emergency-stop alarm) > ``alarm`` >
-    ``offline`` > ``hold`` > ``running`` > ``homing`` > ``moving`` (a go-to move or a jog) >
-    ``not_homed`` > ``ready``.  Never ``ready`` while an alarm is active (UX audit C2/C3/W3),
-    nor while the axes move (UX review 2026-11 #3)."""
-    if st is not None and st.banner == "FAULT":
-        return "fault"
-    alarms = list(alarms or ())
-    if any(getattr(a, "kind", "") == "estop" for a in alarms):
-        return "estop"
-    if alarms:
-        return "alarm"
-    if ms is None or not ms.connected:
-        return "offline"
-    if ms.mode == "pause":
-        return "hold"
-    if ms.mode in ("process", "dry_run", "frame"):
-        return "running"
-    if ms.mode == "origin":
-        return "homing"
-    if ms.mode == "jog":
-        return "moving"
-    if need_home:
-        return "not_homed"
-    return "ready"
-
-
-def run_enabled(window, st, ms, running: bool, alarms=None) -> list[tuple[str, bool, str]]:
-    """(run control, enabled, why not) for the run bar and the Run screen: one rule set.
-    STOP is always enabled.  ``alarms``: the card's active alarms (None: read from the
-    controller, :func:`active_alarms`): while one is active Start, Frame and Dry run are
-    disabled with "Reset the alarm first: <alarm>" (UX audit C4), and so is Arm while an
-    e-stop or servo alarm is active (C3); while the machine homes or makes a go-to move they are
-    disabled with "Homing in progress" / "The machine is moving" (UX review 2026-11 #3)."""
-    connected = bool(ms is not None and ms.connected)
-    fault = st is not None and st.banner == "FAULT"
-    paused = ms is not None and ms.mode == "pause"
-    dry = bool(getattr(st, "dry_run", False))
-    if alarms is None:
-        alarms = active_alarms(window)
-    alarms = list(alarms or ())
-    no_conn = _tr(window, "run.why.offline", "Connect the machine or the simulator first")
-    why_fault = _tr(window, "run.why.fault", "Reset the fault first")
-    why_running = _tr(window, "run.why.running", "Not while a job runs")
-    why_alarm = (_tr(window, "run.why.alarm", "Reset the alarm first: {alarm}", alarm=alarm_text(window, alarms[0]))
-                 if alarms else "")
-    from ..controller.alarms import DISARM_KINDS
-    arm_alarm = next((a for a in alarms if getattr(a, "kind", "") in DISARM_KINDS), None)
-    mode = getattr(ms, "mode", "") if ms is not None else ""
-    why_motion = {"origin": _tr(window, "run.why.homing", "Homing in progress"),
-                  "jog": _tr(window, "run.why.moving", "The machine is moving")}.get(mode, "")
-
-    def reason(*checks: tuple[bool, str]) -> tuple[bool, str]:
-        for bad, why in checks:
-            if bad:
-                return False, why
-        return True, ""
-    out = []
-    ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm),
-                     (running and not paused, why_running), (bool(why_motion), why_motion))
-    out.append(("start", ok, why))
-    ok, why = reason((not connected, no_conn), (not running, _tr(window, "run.why.no_job", "No job is running")))
-    out.append(("hold", ok, why))
-    out.append(("stop", True, ""))
-    for k in ("frame", "dry_run"):
-        ok, why = reason((not connected, no_conn), (fault, why_fault), (bool(alarms), why_alarm), (running, why_running),
-                         (bool(why_motion), why_motion))
-        out.append((k, ok, why))
-    armed = bool(getattr(st, "armed", False))
-    ok, why = reason((not connected, no_conn), (fault, why_fault),
-                     (dry, _tr(window, "run.why.laser_off", "Laser output is disabled (dry-run mode)")),
-                     (arm_alarm is not None and not armed,           # Disarm always stays possible
-                      _tr(window, "run.why.alarm", "Reset the alarm first: {alarm}",
-                          alarm=alarm_text(window, arm_alarm)) if arm_alarm is not None else ""))
-    out.append(("arm", ok, why))
-    return out
-
-
 # ============================================================================== controller
 class _KeyFilter(QObject):
     """Global Hold (Space) and Stop (Esc, F12) while a job runs."""
@@ -1378,7 +1247,7 @@ class SafetyUI(QObject):
         for un in self._subs:
             try:
                 un()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - an unsubscribe of the old controller: nothing left to undo
                 pass
         self._subs = []
         old = self._ctl
@@ -1469,7 +1338,8 @@ class SafetyUI(QObject):
             return run_status(ms if ms is not None else ctl.state(), st if st is not None else _safety(ctl),
                               list(alarms if alarms is not None else (ctl.active_alarms or [])),
                               getattr(self.w, "plan", None), 0.0, ctl.breakpoint, clock=self.clock)
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no status yet: the screens show their idle state (logged)
+            log.debug("run status cannot be read", exc_info=True)
             return None
 
     def _current_workspace(self) -> str:
@@ -1532,7 +1402,7 @@ class SafetyUI(QObject):
                 return None
             entries = list(q)
             return entries.index(nxt) + 1, len(entries), nxt.name
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no queue to show in the Start menu
             return None
 
     def run_queue(self) -> None:
@@ -1571,7 +1441,7 @@ class SafetyUI(QObject):
         st = _safety(ctl)
         try:
             ms = ctl.state()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - cannot read the state: shown as offline, run controls off
             ms = None
         alarms = active_alarms(self.w)          # the one alarm source (UX audit C2)
         from ..services.readiness import homing_needed
@@ -1699,7 +1569,7 @@ class SafetyUI(QObject):
         try:
             from ..nc.compiler import placed_document
             bb = placed_document(self.w.ctl.place(doc)).bbox()
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - no placement: the drawing's box (the controller checks the job)
             bb = doc.bbox() if hasattr(doc, "bbox") else None
         return None if bb in (None, (0, 0, 0, 0)) else bb
 
@@ -1780,15 +1650,26 @@ class SafetyUI(QObject):
         on it).  Without the services layer: the controller itself."""
         return getattr(self.w, "run_controls", None) or self.w.ctl
 
-    def start(self, selected_only: bool = False) -> None:
+    def start(self, selected_only: bool = False, then: Optional[Callable[[], None]] = None,
+              proceed: Optional[Callable[[], bool]] = None) -> None:
         """Start (or resume) the job; ``selected_only``: only the selected parts, asked for
-        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch."""
+        explicitly (the run bar's Start menu, ``run.start_selection``), never a hidden switch.
+
+        The check runs off the GUI thread (:meth:`_preflight_async`).  ``then()`` is called
+        once when this start was handled: handed to the job runner, refused, declined at the
+        arming question, or dropped by a Stop meanwhile (the job queue reads the result from
+        there, perf review 2026-11-09 finding 10).  ``proceed()``, asked once the check is
+        done and before the arming question: False drops the start (the queue was left)."""
         ctl, doc = self.w.ctl, self.w.document
+        finish = then if then is not None else (lambda: None)
         ms = ctl.state()
         if ms.mode == "pause" or ctl.breakpoint is not None:
             from .resume import resume
-            resume(ctl, "exact", doc)           # a breakpoint of another document is refused
-            self._after(_tr(self.w, "safety.refused.resume", "Resume refused"))
+            try:
+                resume(ctl, "exact", doc)           # a breakpoint of another document is refused
+                self._after(_tr(self.w, "safety.refused.resume", "Resume refused"))
+            finally:
+                finish()
             return
         st = _safety(ctl)
         emits = bool(ctl.laser_enabled)
@@ -1796,7 +1677,13 @@ class SafetyUI(QObject):
         arm_first = emits and st is not None and not st.armed and self._dialogs()
 
         def checked(ok: bool) -> None:
-            if not ok:
+            try:
+                go(ok)
+            finally:
+                finish()
+
+        def go(ok: bool) -> None:
+            if not ok or (proceed is not None and not proceed()):
                 return
             if arm_first:
                 # UX audit C1: the pre-flight check runs first, as if armed (an e-stop, a missing
@@ -1836,8 +1723,9 @@ class SafetyUI(QObject):
         (``ctl.preflight(job=...)``, as ``start_job`` checks it) and the cutting-strategy check.
         Back on the GUI thread the rest of :meth:`preflight_ok` runs (interlock warnings,
         plugins, the dialog) and ``then(ok)``.  A Stop or a halt meanwhile (the controller's
-        start generation moved) drops the start without a question.  Without the services
-        layer the check runs here, as before."""
+        start generation moved) drops the start without a question (``then(False)``), as does
+        a press while the previous one is still being checked.  ``then`` is called exactly
+        once.  Without the services layer the check runs here, as before."""
         w, ctl = self.w, self.w.ctl
         jobs, docs = getattr(w, "jobs", None), getattr(w, "docs", None)
         gen_fn = ctl.start_generation
@@ -1847,7 +1735,8 @@ class SafetyUI(QObject):
         checking = _tr(w, "run.checking", "Checking the job…")
         if self.preflight_busy:
             w.statusBar().showMessage(checking)
-            return                          # the previous Start is still being checked
+            then(False)                     # the previous Start is still being checked
+            return
         try:
             from ..services.jobs import build_request
             req = build_request(mode, docs, ctl, w.machine, w.cam_params, selected_only)
@@ -1879,17 +1768,26 @@ class SafetyUI(QObject):
             extra = list(augment_cutting(cut_win, rep, action, src, selected_only).issues[n:])
             return rep, extra
 
+        def decide(checked=None) -> None:
+            try:
+                ok = self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
+                                       checked=checked)
+            except Exception:  # noqa: BLE001 - a check that fails refuses (and then() still runs)
+                log.exception("pre-flight check failed: the start is refused")
+                ok = False
+            then(ok)
+
         def done(res, err) -> None:
             if w.statusBar().currentMessage() == checking:
                 w.statusBar().clearMessage()
             if err is not None:
                 log.error("pre-flight failed: %s", err)
-                then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed))
+                decide()
                 return
             if res is None or gen_fn() != gen:
-                return                      # stopped meanwhile: no start, no question
-            then(self.preflight_ok(action, doc, emits, selected_only=selected_only, assume_armed=assume_armed,
-                                   checked=res))
+                then(False)                 # stopped meanwhile: no start, no question
+                return
+            decide(res)
         if self._prep_call is None:
             self._prep_call = qtbridge.BackgroundCall(self, name="mlaser-preflight")
         # the press is answered at once: the check of a large job takes seconds
@@ -2068,7 +1966,8 @@ class SafetyUI(QObject):
         if b is not None and hasattr(b, "config"):
             try:
                 sio = b.config()
-            except Exception:  # noqa: BLE001
+            except Exception:  # noqa: BLE001 - no safety I/O configuration: readiness without its notices (logged)
+                log.debug("readiness: the safety I/O configuration cannot be read", exc_info=True)
                 sio = None
         return readiness(self.w.ctl, self.w.document, sio)
 

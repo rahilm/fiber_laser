@@ -55,7 +55,7 @@ def _text(a: Any) -> str:
     if callable(t):
         try:
             return str(t(None))
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001 - an alarm text that cannot be formatted: its plain form
             pass
     return str(a)
 
@@ -143,8 +143,8 @@ class AlarmHistory:
         for fn in list(self.listeners):
             try:
                 fn()
-            except Exception:  # noqa: BLE001
-                pass
+            except Exception:  # noqa: BLE001 - a listener must not stop the history (logged)
+                log.debug("alarm history listener failed", exc_info=True)
 
     # ------------------------------------------------------------------ persistence
     def load(self) -> None:
