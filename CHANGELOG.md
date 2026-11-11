@@ -107,6 +107,18 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - Tests: job tests run on a virtual clock and an in-memory simulator, in milliseconds.
 - CI: a documentation-only change skips the test matrix's steps (the checks stay green under
   their names) and still runs the docs checks.
+- Run: after a job, pick a contour in the live view (click it, or step with the arrow keys) and
+  cut just that contour again ("Cut contour c of part n again", also from the contour's
+  right-click / long-press / menu-key menu). It is planned as in the full job and starts like
+  any Start; the pre-flight check and the arming question say "This start cuts: 1 contour of
+  part n".
+- Settings › Appearance › Colour-blind-safe layer colours (off by default): layers are drawn
+  in an Okabe-Ito based palette; the drawing's own layer colours are kept and exported
+  unchanged.
+- Properties shows a clear empty state when nothing is selected.
+- Developer: the ruff lint check in CI is blocking; the tree is at 0 findings and
+  `tests/test_lint_clean.py` checks it locally. mypy now also checks the machine-control core
+  (`mlaser/machine`, `mlaser/devices`, `mlaser/controller`).
 
 ### Changed
 
@@ -320,6 +332,29 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - macOS: README and release notes explain opening an unsigned build on macOS 15 (Open Anyway)
   and the Local Network permission; the network self-test names that permission.
 - Python 3.14 classifier; PERFORMANCE.md re-measured with the machine and its load stated.
+- Canvas: every toolpath role (cut, rapids, leads, pierce, micro-joints, kerf, markers, cut
+  track, done, head) has its own colour in every theme, also for red-green colour-blind
+  vision, and its own line style; none is red or amber.
+- Run: the live view's legend wraps and moves away from the laser head, the head is always
+  drawn on top, and the part being cut has the same colour as on the Design canvas.
+- Section headers have one look everywhere: an arrow and a bold title, the same open or
+  folded, with no box.
+- The Run screen's tabs and the Process Drawing / Library switch use the workspace tab look;
+  Live view and Queue fit a half-screen window. The Run queue table has left-aligned headers,
+  right-aligned counts and an "empty queue" line.
+- Run readout: each value's unit is shown beside it, muted. A short readiness notice stays on
+  one line.
+- Machine › Setup: values sit next to their parameter names in a wide window.
+- Warnings and results in the wizards, the commissioning checklist, the laser test, the preview
+  scrubber and the command palette use the app's icons instead of font symbols.
+- Workspace menu: every workspace is listed under its plain name (Design, Process, Nest, Run,
+  Report, Machine).
+- A restored resume point is held like any breakpoint: the drawing is locked and Frame and Dry
+  run wait until it is resumed or stopped.
+- Internal: built-in extensions reach the main window through a typed context; a broken or
+  missing window part stops the extension at load (reported, interlocks block Start) instead
+  of silently disabling a feature. The pendant's Start and Frame always go through the
+  normal start path.
 
 ### Fixed
 
@@ -450,6 +485,17 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - Fixed a crash (segmentation fault during garbage collection) on Python 3.14.0-3.14.4, the
   system Python of Ubuntu 26.04: there mlaser runs garbage collection itself, without the
   interpreter's incremental collector.
+- Run: during a Stop, Start is no longer offered as "Continue", and Hold and the machine
+  panel's motion buttons follow the stopping job.
+- If the controller cannot report what the job is doing, the run controls are held as for a
+  running job (Hold and Stop stay available).
+- Diagnostics: the pulse jog is refused while the machine homes or jogs.
+- The machine state the screens read is one consistent snapshot; position, mode and outputs no
+  longer mix two status reads.
+- A USB pendant that is not open reports a read error, which stops any jog, instead of its
+  reader stopping silently.
+- A start or fault reset made while the card is disconnecting is refused cleanly; a jog stop
+  in that moment goes out on the halt channel.
 
 ## [0.1.0rc1]
 
