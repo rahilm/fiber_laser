@@ -1,6 +1,11 @@
 """Memory of a compiled job's wire, plain lists vs packed arrays (nc/packed.py), per hour of
 job; compile time; pickle vs shared-memory hand-off.  Usage: python -I bench_wire_memory.py [N parts]"""
-import gc, math, pickle, sys, time, tracemalloc
+import gc
+import math
+import pickle
+import sys
+import time
+import tracemalloc
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft, LeadParams
 from mlaser.nc import compiler as C

@@ -1,6 +1,9 @@
 """Large synthetic document: N parts (rect with circle hole) - CAM, ordering per mode, compile, canvas, undo snapshot.
 Usage: QT_QPA_PLATFORM=offscreen python -I bench_large.py N [compile 0/1]"""
-import sys, time, copy, math
+import sys
+import time
+import copy
+import math
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft, LeadParams
 from mlaser.cam.toolpath import CamParams, build_toolpath
@@ -49,7 +52,8 @@ img = QImage(1600, 1000, QImage.Format_ARGB32)
 def paint():
     p = QPainter(img); cv.render(p); p.end()
 cv.zoom_fit(); app.processEvents()
-for i in range(2): T(f"render viewport to QImage (fit) #{i}", paint)
+for i in range(2):
+    T(f"render viewport to QImage (fit) #{i}", paint)
 def repaint_zoom(f):
     cv.zoom(f); cv.viewport().repaint(); app.processEvents()
 T("zoom x4 + repaint", repaint_zoom, 4.0)

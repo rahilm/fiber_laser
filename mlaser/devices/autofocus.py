@@ -31,8 +31,6 @@ MainApp usage (AF view, FUN_004ef420 / FUN_00516d80 / FUN_004fbeb0 ...), observe
 """
 from __future__ import annotations
 
-from typing import Optional
-
 
 from .codecs import SERIAL_MODBUS
 from .modbus_rtu import RtuClient, RtuSimulator

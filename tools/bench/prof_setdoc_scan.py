@@ -1,5 +1,8 @@
 """cProfile MainWindow.set_document on a 5000-part engraving-scan document."""
-import sys, cProfile, pstats, io
+import sys
+import cProfile
+import pstats
+import io
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 import numpy as np
 from mlaser.engrave.raster import generate_gcode, RasterParams

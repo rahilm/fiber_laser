@@ -1,5 +1,10 @@
 """Benchmark: load .chf, compile_job phases, cProfile.  Usage: python -I bench_compile.py <file.chf|.dxf> [smooth 0/1] [profile 0/1]"""
-import sys, time, resource, math, cProfile, pstats, io
+import sys
+import time
+import resource
+import cProfile
+import pstats
+import io
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 path = sys.argv[1]
 smooth = sys.argv[2] != "0" if len(sys.argv) > 2 else True
@@ -24,9 +29,11 @@ d2 = C.placed_document(C.with_layers(doc, None)); prm = CamParams()
 t1 = time.perf_counter(); items = build_toolpath(d2, prm)
 t2 = time.perf_counter()
 pr = cProfile.Profile() if prof else None
-if pr: pr.enable()
+if pr:
+    pr.enable()
 job = C.compile_items(items, m, prm.origin, d2, False)
-if pr: pr.disable()
+if pr:
+    pr.disable()
 t3 = time.perf_counter()
 frames = job.frames(1)
 t4 = time.perf_counter()

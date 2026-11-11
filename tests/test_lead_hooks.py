@@ -8,7 +8,7 @@ import pytest
 from mlaser.toolpath import items as I
 from mlaser.cam.toolpath import CamParams, build_toolpath
 from mlaser.model import Arc, Contour, Craft, Document, LayerParams, Line, Part
-from mlaser.motion.interp import MotionConfig, estimate_time, plan_path, simulate
+from mlaser.motion.interp import MotionConfig, plan_path, simulate
 from mlaser.nc import Machine, compile_job
 
 
@@ -75,7 +75,7 @@ def test_app_window_loads_all_extensions():
     from PySide6.QtWidgets import QApplication
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import EXTENSIONS, MainWindow
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])   # held: the window needs a live QApplication
     w = MainWindow(DemoController(), extensions=EXTENSIONS)
     try:
         missing = [n for n in EXTENSIONS if n.rsplit(".", 1)[-1] not in w.extensions]
@@ -152,7 +152,7 @@ def test_sim_estimate_message_is_formatted():
     from mlaser.ui import docops
     from mlaser.ui.facade import DemoController
     from mlaser.ui.mainwindow import MainWindow
-    app = QApplication.instance() or QApplication([])
+    _app = QApplication.instance() or QApplication([])   # held: the window needs a live QApplication
     w = MainWindow(DemoController())
     try:
         w.set_document(docops.demo_document())

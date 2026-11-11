@@ -25,7 +25,7 @@ from typing import Iterable, Optional, Sequence
 from mlaser.model import Arc, Contour, Line, Part, Point, Segment
 
 from .intersect import (contour_crossings, curve_intersections, is_full_circle, locate_point,
-                        position_point, seg_distance, sub_contour, sub_segment)
+                        position_point, seg_distance, sub_contour)
 
 MERGE_TOL = 0.1     # GRP.ManualConnectGate default (pd368)
 
@@ -249,7 +249,6 @@ def trim_at(parts: list[Part], p: Point, tol: float) -> bool:
 def _extension_hits(s: Segment, at_end: bool, others: Iterable[Contour], max_len: float) -> Optional[Point]:
     """Nearest point where the prolongation of ``s`` beyond its end (or start) meets the other
     contours."""
-    tip = s.end if at_end else s.start
     best, best_d = None, math.inf
     for o in others:
         for t in o.segments:

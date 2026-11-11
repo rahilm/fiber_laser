@@ -15,7 +15,7 @@ Floyd-Steinberg) or float64 maths (halftone).
 from __future__ import annotations
 
 import math
-from typing import Optional, Union
+from typing import Union
 
 import numpy as np
 

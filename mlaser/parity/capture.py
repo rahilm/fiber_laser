@@ -35,7 +35,7 @@ import difflib
 import math
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Iterable, Optional, Sequence
+from typing import Optional, Sequence
 
 import numpy as np
 
@@ -669,7 +669,7 @@ def compile_rebuild(inp: RebuildInputs, machine, start_mm: tuple[float, float], 
     would stream it, with ``doc.extra["job_offset"]`` = ``offset_mm``."""
     from ..cam.toolpath import CamParams
     from ..model import Document
-    from ..nc import compile_frame, compile_items, compile_job
+    from ..nc import compile_frame, compile_job
     from ..nc.compiler import placed_document
     doc = doc if doc is not None else load_drawing(inp.drawing)
     extra = dict(doc.extra)

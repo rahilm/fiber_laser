@@ -1,6 +1,8 @@
 """build_toolpath per sort mode on N synthetic parts (rect + circular hole, line lead-in), best of 3.
 Usage: python -I bench_toolpath.py [N]"""
-import sys, time, math
+import sys
+import time
+import math
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 from mlaser.model import Document, Part, Contour, Line, Arc, Craft, LeadParams
 from mlaser.cam.toolpath import CamParams, build_toolpath

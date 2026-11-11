@@ -6,7 +6,7 @@ import pytest
 from vendor_samples import requires, vendor_file
 
 from mlaser.cam import flycut as F
-from mlaser.toolpath.items import CutArc, CutLine, LaserOff, LaserOn, Pierce, Rapid
+from mlaser.toolpath.items import CutArc, CutLine, LaserOff
 from mlaser.model import Arc, Contour, Document, Line, Part
 
 SAMPLE = Path(__file__).parent / "data" / "chf" / "sample_v9.chf"      # tools/make_test_chf.py

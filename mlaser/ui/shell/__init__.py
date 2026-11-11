@@ -32,7 +32,7 @@ from typing import Any, Optional
 
 from PySide6.QtCore import QByteArray, QEvent, QObject, QSize, Qt, QTimer
 from PySide6.QtGui import QAction, QActionGroup, QKeySequence, QShortcut
-from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QMessageBox, QToolButton,
+from PySide6.QtWidgets import (QApplication, QFileDialog, QInputDialog, QMessageBox,
                                QVBoxLayout, QWidget)
 
 from mlaser.services import usermodes as um

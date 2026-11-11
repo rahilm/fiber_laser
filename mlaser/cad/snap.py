@@ -21,7 +21,7 @@ from __future__ import annotations
 import math
 from typing import Iterable, Optional, Sequence
 
-from mlaser.model import Arc, Contour, Line, Part, Point
+from mlaser.model import Contour, Line, Part, Point
 
 from .intersect import is_full_circle
 
