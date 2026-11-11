@@ -124,6 +124,8 @@ class PropertiesPanel(QScrollArea):
         self.panel.layoutChanged.connect(self._min_changed)       # its minimum width is the dock's
         self.setWidget(self.panel)
         self._updating = False
+        self._stale = False                # a selection change not read yet (hidden panel)
+        self._cam_stale = False            # the CAM fields not read (Design shows none)
         self._preview_timer = QTimer(self)
         self._preview_timer.setSingleShot(True)
         self._preview_timer.setInterval(120)
@@ -443,6 +445,8 @@ class PropertiesPanel(QScrollArea):
         self._section_visibility()
         self._update_contours()
         self.panel.schedule()
+        if mode != "design" and self._cam_stale:      # the CAM fields were not read in Design
+            self.refresh()
 
     def _section_visibility(self) -> None:
         """The sections show while something is selected (the mode's ones: Design has no CAM
@@ -523,8 +527,10 @@ class PropertiesPanel(QScrollArea):
         doc = self.document
         t = self.tr_
         ci = self.contour_index()
-        # the parts' own override marks, read once per part (not once per part and value)
-        own_marks = [I.craft_overrides(p.craft) for p in sel] if ci is None else []
+        # the selection read once (not once per value): its layers, and which parts override
+        # which value; each value then costs one evaluation per layer and one per overriding
+        # part, not one per selected part (perf review 2026-11: 23-43 ms at 2,700 parts)
+        groups = _SelectionGroups(sel) if ci is None else None
         for vid, fld in self.inherit.items():
             if ci is not None:
                 p = sel[0]
@@ -534,18 +540,17 @@ class PropertiesPanel(QScrollArea):
                 source = I.source_label(doc, self.store, psrc, li, t)
                 fld.set_state(v, src == "contour", t.tr("inherit.src.contour"), source, parent_vid=None)
                 continue
-            vals = _effective_many(doc, self.store, vid, sel, own_marks)
-            parents = _effective_many(doc, self.store, vid, sel, None, upto=2)
-            own = [src == "part" for _v, src in vals]
+            assert groups is not None
+            first, n_own, several = groups.summary(doc, self.store, vid)
             li = sel[0].craft.layer
-            psrc = parents[0][1]
+            psrc = I.effective(doc, self.store, vid, layer=li, upto=2)[1]
             source = I.source_label(doc, self.store, psrc, li, t)
             mixed = ""
-            if len(sel) > 1 and (len({repr(v) for v, _s in vals}) > 1 or len(set(own)) > 1):
-                mixed = t.format("inherit.mixed", n=sum(own), total=len(sel))
+            if len(sel) > 1 and (several or 0 < n_own < len(sel)):
+                mixed = t.format("inherit.mixed", n=n_own, total=len(sel))
             here = t.tr("inherit.src.part") if len(sel) == 1 else t.format("inherit.src.parts", n=len(sel))
             parent_vid = ("layer." + vid) if psrc == "layer" else ("recipe." + vid) if psrc == "recipe" else None
-            fld.set_state(vals[0][0], all(own), here, source, parent_vid=parent_vid,
+            fld.set_state(first, n_own == len(sel), here, source, parent_vid=parent_vid,
                           parent_target=li if psrc == "layer" else I.recipe_of(doc, li, self.store), mixed=mixed)
 
     def _run(self, cmd: str) -> None:
@@ -582,8 +587,23 @@ class PropertiesPanel(QScrollArea):
         return out
 
     # ---------------------------------------------------------------- refresh
+    def selection_changed(self) -> None:
+        """The canvas selection changed: read it now while the panel is shown, else when it is
+        shown next (a panel hidden in a shown window, its dock closed or another workspace in
+        front, costs nothing per click; perf review 2026-11)."""
+        if self.isVisible() or not self.window().isVisible():
+            self.refresh()
+        else:
+            self._stale = True
+
+    def showEvent(self, ev) -> None:  # noqa: N802 - Qt API
+        if self._stale:
+            self.refresh()
+        super().showEvent(ev)
+
     def refresh(self) -> None:
         """Read the selection into the fields (no edit)."""
+        self._stale = False
         self._updating = True
         try:
             self._refresh()
@@ -662,6 +682,10 @@ class PropertiesPanel(QScrollArea):
             self.tech_label.setText(t("props.mixed"))
             self.layer_link.target = None
             self.by_id["layer"].set_summary(t("props.mixed"))
+        # Design shows Transform and Layer only: the CAM fields are read when Process shows them
+        self._cam_stale = self.mode == "design"
+        if self._cam_stale:
+            return
         # leads, kerf (of the first selected part, or its picked contour)
         c0 = self._target_crafts(sel[0])
         for name, lead in (("in", c0.lead_in), ("out", c0.lead_out)):
@@ -1006,6 +1030,62 @@ def _set_contour_kerf(d: Document, ci: int, k: int, w: float) -> None:
 def _same_lead(a: LeadParams, b: LeadParams) -> bool:
     return (int(a.kind), round(a.angle_deg, 6), round(a.length, 6), round(a.radius, 6)) == \
         (int(b.kind), round(b.angle_deg, 6), round(b.length, 6), round(b.radius, 6))
+
+
+class _SelectionGroups:
+    """A selection read once for the inherited values: the parts per layer and, per value id,
+    the parts that carry their own override mark for it.  :meth:`summary` then gives what the
+    panel shows for a value (the first part's value, how many parts have their own, whether
+    the values differ) from one evaluation per layer and one per overriding part; the same
+    results as :func:`_effective_many` over the whole selection."""
+
+    def __init__(self, parts: list) -> None:
+        from mlaser.services import inheritance as I
+
+        self.parts = parts
+        self.layer_count: dict = {}
+        self.own: dict[str, list[int]] = {}          # vid -> indices of parts with their own value
+        for k, p in enumerate(parts):
+            li = p.craft.layer
+            self.layer_count[li] = self.layer_count.get(li, 0) + 1
+            # the marks by their key (I.craft_overrides; the truth value of a craft's extra
+            # dict walks its legacy keys and cost more than the rest of the loop)
+            ex = p.craft.extra
+            marks = ex.get(I.OVERRIDES) if ex is not None else None
+            if isinstance(marks, (list, tuple)):
+                for vid in set(marks):
+                    self.own.setdefault(vid, []).append(k)
+
+    def summary(self, doc: Document, store: Any, vid: str) -> tuple[Any, int, bool]:
+        """(value of the first part, number of parts with their own value, values differ)."""
+        from mlaser.services import inheritance as I
+
+        craft_vid = not vid.startswith("GP.") and vid in I.CRAFT_IDS
+        own = self.own.get(vid, []) if craft_vid else []
+        per_layer: dict = {}
+
+        def layer_value(li: Any) -> Any:
+            r = per_layer.get(li)
+            if r is None:
+                r = per_layer[li] = I.effective(doc, store, vid, layer=li, upto=4)
+            return r[0]
+        own_set = set(own)
+        first = I.craft_get(self.parts[0].craft, vid) if 0 in own_set else layer_value(self.parts[0].craft.layer)
+        own_per_layer: dict = {}
+        for k in own:
+            li = self.parts[k].craft.layer
+            own_per_layer[li] = own_per_layer.get(li, 0) + 1
+        seen = {repr(first)}
+        for li, n in self.layer_count.items():
+            if n > own_per_layer.get(li, 0):
+                seen.add(repr(layer_value(li)))
+                if len(seen) > 1:
+                    return first, len(own), True
+        for k in own:
+            seen.add(repr(I.craft_get(self.parts[k].craft, vid)))
+            if len(seen) > 1:
+                return first, len(own), True
+        return first, len(own), False
 
 
 def _effective_many(doc: Document, store: Any, vid: str, parts: list, marks: Optional[list],

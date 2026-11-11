@@ -95,7 +95,7 @@ class ProcessExtension:
             pass
         self.scrubber.timeChanged.connect(self._time_changed)
         self.scrubber.need_timeline = lambda: self._build_timeline() if self.plan is not None else None
-        self.canvas.selectionChanged.connect(self.properties.refresh)
+        self.canvas.selectionChanged.connect(self.properties.selection_changed)
         ctx.on_document_changed(self._document_changed)
         ctx.on_plan(self._plan)
         self.closed = False
