@@ -138,6 +138,9 @@ class UiController(ConnectionPart, MotionPart, IOPart, JobRunnerPart, StartGateP
         # the job's phase, its one owner (machine.jobphase, arch A1): it replaced the flags
         # _job_starting, _job_live, _paused (held / stop in progress), _pausing and _job_mode
         self._lc = JobLifecycle()
+        # a Hold pressed in the start window: made when the window closes (parts/jobs.py)
+        self._hold_at_start = False
+        self._hold_at_start_lock = threading.Lock()
         self._poll_failing = False           # the status poll failed 3 times in a row
         self._stop_reason = ""
         self._job_emits = False
