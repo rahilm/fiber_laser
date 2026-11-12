@@ -147,23 +147,25 @@ jobs:
         if: env.RUN_TESTS == 'true'
         run: uv run --locked python tools/build_native.py --check
 
-      - name: Desktop time slices (Windows, experiment)
+      # The hosted Windows runner is a Windows Server: long, fixed time slices
+      # (Win32PrioritySeparation 2).  With a busy test worker on every CPU a thread that lost its
+      # CPU then waits 150-400 ms for it, which is longer than the real-time bounds the timing
+      # tests hold (the 150 ms link deadline, the 500 ms heartbeat, the GUI thread's 200 ms): a
+      # different one failed in most runs (2026-11-12).  The machines the application runs on
+      # are desktop editions (short, variable slices); this gives the runner theirs until it is
+      # discarded.  Only SYSTEM may set it (hence the scheduled task); never fails the job.
+      # tools/ci_sched_probe.py prints the measure before and after.
+      - name: Desktop time slices (Windows)
         if: env.RUN_TESTS == 'true' && runner.os == 'Windows'
         shell: pwsh
         run: |
-          "Win32PrioritySeparation (registry): $((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl').Win32PrioritySeparation)"
           uv run --locked --no-sync python tools/ci_sched_probe.py
-          uv run --locked --no-sync python tools/ci_sched_probe.py --desktop-quanta
-          if ($LASTEXITCODE -ne 0) {
-            $py = (uv run --locked --no-sync python -c "import sys; print(sys.executable)")
-            $env:MLASER_QUANTA_LOG = "$env:RUNNER_TEMP\quanta.log"
-            [Environment]::SetEnvironmentVariable("MLASER_QUANTA_LOG", $env:MLASER_QUANTA_LOG, "Machine")
-            schtasks /create /tn mlaser-quanta /ru SYSTEM /sc onstart /f /tr "`"$py`" `"$PWD\tools\ci_sched_probe.py`" --desktop-quanta"
-            schtasks /run /tn mlaser-quanta
-            Start-Sleep 8
-            schtasks /query /tn mlaser-quanta /v /fo list | Select-String "Last Result|Status|Task To Run"
-            if (Test-Path $env:MLASER_QUANTA_LOG) { "as SYSTEM: $(Get-Content $env:MLASER_QUANTA_LOG)" } else { "as SYSTEM: no log" }
-          }
+          $py = (uv run --locked --no-sync python -c "import sys; print(sys.executable)")
+          $log = "$env:RUNNER_TEMP\quanta.log"
+          schtasks /create /tn mlaser-quanta /ru SYSTEM /sc onstart /f /tr "`"$py`" `"$PWD\tools\ci_sched_probe.py`" --desktop-quanta `"$log`"" | Out-Null
+          schtasks /run /tn mlaser-quanta | Out-Null
+          foreach ($i in 1..30) { if (Test-Path $log) { break }; Start-Sleep 1 }
+          if (Test-Path $log) { "desktop time slices, status (0: set): $(Get-Content $log)" } else { "desktop time slices: not set (the task wrote no result)" }
           uv run --locked --no-sync python tools/ci_sched_probe.py
           exit 0
 

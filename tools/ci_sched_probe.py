@@ -8,12 +8,14 @@ Server with its default scheduling (the hosted runners), a few milliseconds on L
 
 This prints the measure for the machine it runs on: with ``cpu_count() + 2`` busy processes,
 
+* the longest time a busy thread of this process stood still (a thread that lost its CPU waits
+  for the others' time slices: the direct measure of the slice);
 * how late a 5 ms ``time.sleep`` returns (a thread woken by a timer: a heartbeat, a poll);
 * how long a UDP datagram takes to a thread of this process and back (a thread woken by a
   socket: the card simulator's reply).
 
     python tools/ci_sched_probe.py [seconds]
-    python tools/ci_sched_probe.py --desktop-quanta     (Windows: see desktop_quanta)
+    python tools/ci_sched_probe.py --desktop-quanta [result file]    (Windows: see desktop_quanta)
 """
 from __future__ import annotations
 
@@ -48,8 +50,15 @@ def measure(seconds: float = 3.0) -> dict:
     for p in procs:
         p.start()
     time.sleep(1.0)                                   # every spinner started (spawn on Windows)
+    gap = 0.0
+    last = time.perf_counter()
+    end = last + seconds / 3
+    while last < end:
+        now = time.perf_counter()
+        gap = max(gap, now - last)
+        last = now
     late: list[float] = []
-    end = time.monotonic() + seconds / 2
+    end = time.monotonic() + seconds / 3
     while time.monotonic() < end:
         t0 = time.perf_counter()
         time.sleep(0.005)
@@ -61,7 +70,7 @@ def measure(seconds: float = 3.0) -> dict:
     cli = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     cli.settimeout(2.0)
     rtt: list[float] = []
-    end = time.monotonic() + seconds / 2
+    end = time.monotonic() + seconds / 3
     while time.monotonic() < end:
         t0 = time.perf_counter()
         cli.sendto(b"x", srv.getsockname())
@@ -78,7 +87,7 @@ def measure(seconds: float = 3.0) -> dict:
     cli.close()
     for p in procs:
         p.join(seconds + 5)
-    return {"cpus": os.cpu_count(), "busy": n, "sleep_worst": max(late), "sleep_over_50ms": sum(x > 0.05 for x in late),
+    return {"cpus": os.cpu_count(), "busy": n, "gap_worst": gap, "sleep_worst": max(late), "sleep_over_50ms": sum(x > 0.05 for x in late),
             "sleeps": len(late), "udp_worst": max(rtt), "udp_over_50ms": sum(x > 0.05 for x in rtt), "udps": len(rtt)}
 
 
@@ -127,13 +136,14 @@ def main(argv: list[str]) -> int:
             return 0
         st = desktop_quanta()
         print(f"desktop time slices (Win32PrioritySeparation 0x26): status 0x{st:08X}" + ("" if st else ", done"))
-        log = os.environ.get("MLASER_QUANTA_LOG")
-        if log:
-            with open(log, "w") as f:
+        i = argv.index("--desktop-quanta")
+        if len(argv) > i + 1:                          # (run as SYSTEM by CI: no console to read)
+            with open(argv[i + 1], "w") as f:
                 f.write(f"0x{st:08X}\n")
         return 1 if st else 0
-    r = measure(float(argv[1]) if len(argv) > 1 else 3.0)
+    r = measure(float(argv[1]) if len(argv) > 1 else 4.5)
     print(f"scheduling probe: {r['cpus']} CPUs, {r['busy']} busy processes; "
+          f"a busy thread stood still for at worst {r['gap_worst'] * 1000:.0f} ms; "
           f"a 5 ms sleep returned at worst {r['sleep_worst'] * 1000:.0f} ms late "
           f"({r['sleep_over_50ms']} of {r['sleeps']} over 50 ms); "
           f"a UDP echo inside the process took at worst {r['udp_worst'] * 1000:.0f} ms "
