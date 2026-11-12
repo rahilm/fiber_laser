@@ -17,7 +17,6 @@ import sys
 import textwrap
 import threading
 import time
-import warnings
 
 import pytest
 
@@ -35,7 +34,11 @@ class _Cyc:
 
 
 def _alive() -> int:
-    return sum(1 for o in gc.get_objects() if type(o) is _Cyc)
+    # no collection while it counts: the list holds every object, garbage too, and a full
+    # collection the collector thread ran meanwhile found none of it (and the next one is a
+    # hundred young collections away: CI, Ubuntu's 3.14.4, nothing reclaimed in 20 s)
+    with _gcsafe.no_collections():
+        return sum(1 for o in gc.get_objects() if type(o) is _Cyc)
 
 
 def test_no_automatic_collection_is_an_increment_of_the_incremental_collector():
@@ -68,17 +71,9 @@ def test_no_automatic_collection_is_an_increment_of_the_incremental_collector():
     assert _alive() < 50_000, "the cyclic garbage was not collected"
 
 
-def test_old_cyclic_garbage_is_collected_without_an_explicit_collection(monkeypatch):
+def test_old_cyclic_garbage_is_collected_without_an_explicit_collection():
     """Garbage that survived young collections (it was alive for a while) is reclaimed by the
     full collections, as the generational collector does: memory does not grow without bound."""
-    if _gcsafe.full_held() or _gcsafe._pause[0]:
-        # an earlier test of this worker left a job streaming (stream.quiet_gc holds the full
-        # collections, by design) or a pause open: nothing was collected in 20 s (CI, Ubuntu's
-        # 3.14.4).  Reported, and this test measures the collector without what they left
-        warnings.warn(f"collections were held when the test began (pause {_gcsafe._pause[0]}): "
-                      f"{sorted(t.name for t in threading.enumerate())}", stacklevel=1)
-        monkeypatch.setattr(_gcsafe, "_holds", [])
-        monkeypatch.setattr(_gcsafe, "_pause", [0])
     gc.collect()
     base = _alive()
     keep: list[list] = []
@@ -90,7 +85,7 @@ def test_old_cyclic_garbage_is_collected_without_an_explicit_collection(monkeypa
             keep.pop(0)                               # ... then dies as old garbage
         rounds += 1
         time.sleep(0.002)
-        if rounds >= 60 and _alive() - base < 8 * 20_000:
+        if rounds >= 60 and rounds % 10 == 0 and _alive() - base < 8 * 20_000:
             break
     keep.clear()
     assert rounds >= 60
