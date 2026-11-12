@@ -205,6 +205,12 @@ def _isolated_config(tmp_path_factory, monkeypatch):
     _units.reset()
 
 
+def pytest_addoption(parser):
+    parser.addoption("--timing-groups", choices=("only", "skip"), default=None,
+                     help="run only the tests of the timing groups, or every other test (two runs "
+                          "that together are the whole selection; CI on Windows, docs/dev/TESTING.md)")
+
+
 @pytest.hookimpl(tryfirst=True)
 def pytest_collection_modifyitems(config, items):
     # tryfirst: the markers must be on the items before ``-m`` deselects (the mark plugin) and
@@ -237,6 +243,15 @@ def pytest_collection_modifyitems(config, items):
             # the parity areas share ../parity/out and depend on each other's output (jobcad ->
             # jobmainapp -> jobnc), so they run in order on one worker
             item.add_marker(pytest.mark.xdist_group(PARITY_GROUP))
+    # --timing-groups: the timing groups in a run of their own (few workers, an otherwise quiet
+    # machine) and the rest in another; decided here, with or without xdist
+    part = config.getoption("--timing-groups")
+    if part:
+        keep = [i for i in items if (timing_group(i) is not None) == (part == "only")]
+        if len(keep) != len(items):
+            kept = set(keep)
+            config.hook.pytest_deselected(items=[i for i in items if i not in kept])
+            items[:] = keep
 
 
 def pytest_sessionfinish(session, exitstatus):

@@ -78,8 +78,9 @@ jobs:
     # also when "changed files" failed: its output is then empty and every step runs
     if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
-    # the coverage job runs under the tracer (about 1.5x slower)
-    timeout-minutes: ${{ matrix.coverage && 60 || 40 }}
+    # the coverage job runs under the tracer (about 1.5x slower); Windows runs the timing
+    # groups in a step of their own
+    timeout-minutes: ${{ (matrix.coverage || matrix.os == 'windows-latest') && 60 || 40 }}
     strategy:
       fail-fast: false
       matrix:
@@ -165,7 +166,20 @@ jobs:
         # shows where it hangs instead of the job's 40 min cancellation)
         # coverage job: --cov measures mlaser in every xdist worker and in the spawned children
         # (pyproject.toml [tool.coverage.run]); the report is the next steps' work
-        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15 -o faulthandler_timeout=600 ${{ matrix.coverage && '--cov --cov-report=' || '' }}
+        # Windows: without the timing groups, which run in the next step
+        run: uv run --locked pytest -n auto --dist loadgroup ${{ runner.os == 'macOS' && '-v' || '-q' }} --durations=15 -o faulthandler_timeout=600 ${{ matrix.coverage && '--cov --cov-report=' || '' }} ${{ runner.os == 'Windows' && '--timing-groups=skip' || '' }}
+
+      # Windows: the timing groups (the tests that hold a real-time bound: the 150 ms link
+      # deadline, the streamer's heartbeat, the GUI thread's longest pause) in a run of their
+      # own, two workers on the runner's four CPUs.  Next to three workers of layout sweeps a
+      # thread on the hosted Windows runner stood still for 150-400 ms and a different timing
+      # test failed in most runs (2026-11-12; the bounds are the machine's and stay as they
+      # are).  Also runs when the step above failed: both results are shown.
+      - name: Timing tests (Windows; the timing groups on a quiet runner)
+        if: env.RUN_TESTS == 'true' && runner.os == 'Windows' && !cancelled()
+        env:
+          MLASER_FAULT_LOG: ${{ runner.temp }}/fault.log.timing
+        run: uv run --locked pytest -n 2 --dist loadgroup -q --durations=15 -o faulthandler_timeout=600 --timing-groups=only
 
       # branch coverage, no threshold yet (F5 of the 2026-11-09 review): the safety-critical
       # modules as a table in the job summary, the whole package as the "coverage" artifact

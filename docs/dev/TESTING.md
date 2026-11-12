@@ -248,6 +248,14 @@ bounds below keep their meaning. The other tests (unit, ui) spread over the rema
 Every marker of the default run is still collected and run; the golden and parity steps are
 unchanged. Without `-n` (or without pytest-xdist installed) nothing changes.
 
+On Windows CI runs the suite in two steps: `--timing-groups=skip` (every test of no timing group,
+`-n auto`) and then `--timing-groups=only` with `-n 2` (the timing groups alone, two workers on
+four CPUs). Together the two are the whole selection. On the hosted Windows runner a thread stood
+still for 150-400 ms next to three workers of layout sweeps, longer than the bounds the timing
+tests hold, and a different timing test failed in most runs (2026-11-12). The bounds are the
+machine's; the tests that hold them get a quiet runner instead. The option works on every
+platform and without xdist.
+
 The groups (`TIMING_GROUP`, `TIMING_GROUPS` in `tests/conftest.py`):
 
 | group | what | why it can run next to the others |
