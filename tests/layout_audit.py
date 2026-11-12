@@ -97,6 +97,26 @@ def is_list_area(a: QAbstractScrollArea) -> bool:
     return False
 
 
+def _cut_by(w: QWidget, top: QWidget) -> str:
+    """Which ancestors cut ``w`` (" (by Class#name WxH, ...)"), nearest first: the failure text
+    of a clip seen on one platform only names the widget that is too small."""
+    r = w.rect()
+    x, off, out = w, QPoint(0, 0), []
+    while x is not None and x is not top:
+        p = x.parentWidget()
+        if p is None:
+            break
+        off = off + x.pos()
+        cut = r.intersected(p.rect().translated(-off))
+        if cut != r:
+            out.append(f"{type(p).__name__}#{p.objectName()} {p.width()}x{p.height()} holding "
+                       f"{type(x).__name__}#{x.objectName()} {x.width()}x{x.height()} at {x.x()},{x.y()}"
+                       f" (minimum {x.minimumSizeHint().width()}/{x.minimumWidth()})")
+        r = cut
+        x = p
+    return f" (by {'; '.join(out)})" if out else ""
+
+
 def _scroll_ancestor(w: QWidget) -> QAbstractScrollArea | None:
     x = w.parentWidget()
     while x is not None:
@@ -250,7 +270,8 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
                 continue
         # cut by an ancestor that does not scroll
         if sa is None and (vis.width() < size.width() - TOL or vis.height() < size.height() - TOL):
-            add("clipped", w, f"cut by its parent: {vis.width()}x{vis.height()} of {size.width()}x{size.height()}")
+            add("clipped", w, f"cut by its parent: {vis.width()}x{vis.height()} of {size.width()}x{size.height()}"
+                + _cut_by(w, top))
     return out + overlaps(top)
 
 

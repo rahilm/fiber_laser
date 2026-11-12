@@ -667,6 +667,19 @@ def _sweep_sizes(win):
     return widths, heights
 
 
+def _window_note(win, s) -> str:
+    """What the window and its page ask for at a size with a violation (for a failure seen on
+    one platform only: is the window narrower than its layout needs?)."""
+    def wh(q) -> str:
+        return f"{q.width()}x{q.height()}"
+    c = win.centralWidget()
+    pol = getattr(getattr(win, "shell", None), "dock_policy", None)
+    folded = getattr(pol, "folded", None)
+    return (f"  ({wh(s)}: window minimum {wh(win.minimumSize())}, its layout's {wh(win.minimumSizeHint())}; "
+            f"page {wh(c.size())}, its minimum {wh(c.minimumSizeHint())}; docks "
+            f"{'folded, narrow=' + str(folded.get('narrow')) if folded is not None else 'side by side'})")
+
+
 #: the sweep's cases: one per workspace and height row, which xdist spreads over its workers (as
 #: one test the sweep took 8 minutes on one worker).  A workspace not named here (a plugin's) is
 #: swept by the "other" case, at every height.
@@ -704,6 +717,7 @@ def test_width_and_height_sweep(win, app, ws, row):
         assert ws in ids, f"workspace {ws} is not shown ({ids}): update SWEEP_WORKSPACES"
         todo = [ws]
     bad = []
+    notes: list[str] = []
     for ws_id in todo:
         host.activate(ws_id)
         _pump(app)
@@ -716,10 +730,12 @@ def test_width_and_height_sweep(win, app, ws, row):
                     continue          # the same size again (a screen that holds less)
                 seen.add((s.width(), s.height()))
                 rep.check("sweep", s, ws_id, win)
+                if any(not v["owner"] for v in rep.rows[-1]["violations"]):
+                    notes.append(_window_note(win, s))
                 bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws_id}")
     rep.write(f"sweep_{ws}_{row}")
     text = _fail_text(rep.rows)
-    assert not text and not bad, text + "\n" + "\n".join(bad)
+    assert not text and not bad, text + "\n" + "\n".join(bad + notes)
 
 
 @pytest.mark.parametrize("pt", [0, 10])

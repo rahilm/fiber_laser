@@ -292,7 +292,10 @@ def test_commissioning_wiring_test(sim_ctl, cfg, tmp_path):
             assert wait_for(lambda n=n: p.items["interlocks"].values.get("input") == n, 5.0)
             time.sleep(0.2)
             ctl.sim.set_input(n, alarm)
-            time.sleep(0.3)
+            # as the operator does: held until the wizard asks to release it (a fixed 0.3 s
+            # pulse was missed once by a starved macOS runner: "no_signal")
+            it = p.items["interlocks"]
+            wait_for(lambda n=n: it.detail == "wizard.comm.ilk_release" and it.values.get("input") == n, 5.0)
             ctl.sim.set_input(n, idle)
     t = threading.Thread(target=operator, daemon=True)
     t.start()
