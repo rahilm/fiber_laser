@@ -155,6 +155,10 @@ and `overlap` (siblings drawn over each other).
   *visible* extension button is a violation: the tool bar's actions do not fit and hide behind
   the chevron. A workspace tool bar goes icon-only first, then into two rows, and the page's
   minimum width is the wider of the two icon-only rows, so the window's minimum follows instead.
+  (Qt can leave the button visible with nothing behind it: `QToolBarLayout` shows it inside a
+  layout pass, a nested pass started by that `show()` finds the row fits and hides it before
+  it is visible, and it ends visible and marked hidden; no later pass hides it.
+  `workspace_host.unstick_extension` hides it; the audit reports it as "stuck".)
 * On a window server, a sample larger than the screen is not reachable: the window server keeps
   the window smaller than its minimum (the macOS runner's windows are at most 649 px high).
   Such samples are listed as "not reachable on this screen" in the report, not audited, and the
