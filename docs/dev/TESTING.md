@@ -360,7 +360,8 @@ halt latency, the heartbeat rate), the process streamer, GIL and scheduling effe
 on the UDP simulator in the timing groups.
 
 With xdist, `MLASER_FAULT_LOG=<file>` writes one file per worker (`<file>.gw0`, ...); CI's
-macOS crash step prints them all.
+"Fault logs" step prints them on every platform when the tests fail or the job is cancelled at
+its time limit (a worker that went down, a run that stands still).
 
 ## Timing-sensitive tests
 

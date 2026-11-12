@@ -219,10 +219,26 @@ jobs:
             echo "::endgroup::"
           done
 
+      # every platform: the Python stacks a native crash left, one file per xdist worker
+      # (tests/conftest.py, MLASER_FAULT_LOG), also when the job was cancelled at its time limit
+      # (Ubuntu / Python 3.14, 2026-11-12: a worker went down at 31 %, the run then stood at 98 %
+      # until the cancellation, and nothing said which test or where)
+      - name: Fault logs
+        if: env.RUN_TESTS == 'true' && (failure() || cancelled())
+        shell: bash
+        run: |
+          uv run --locked --no-sync python - <<'PY' || true
+          import glob, os
+          for f in sorted(glob.glob(os.path.join(os.environ["RUNNER_TEMP"], "fault.log*"))):
+              text = open(f, errors="replace").read()
+              print(f"== fault log {f}: {len(text)} bytes")
+              if text.strip():
+                  print(text)
+          PY
+
       - name: Crash diagnostics (macOS)
         if: env.RUN_TESTS == 'true' && (failure() && runner.os == 'macOS')
         run: |
-          for f in "$RUNNER_TEMP"/fault.log*; do echo "== fault log $f"; cat "$f" || true; done
           echo "== coverage trace (last commands)"; tail -5 "$RUNNER_TEMP/coverage.log" || true
           ls -lt ~/Library/Logs/DiagnosticReports/ | head -5 || true
           f=$(ls -t ~/Library/Logs/DiagnosticReports/*.ips 2>/dev/null | head -1)
