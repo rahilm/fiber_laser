@@ -46,9 +46,12 @@ def test_state_fields_agree_while_the_poll_writes(make_ctl):
     t = threading.Thread(target=writer, daemon=True)
     t.start()
     try:
+        # at least 0.3 s and more than ten reads (a slow runner: 3 to 9 reads in 0.3 s, each
+        # ``sleep(0)`` hands the GIL to the busy writer for a switch interval)
         end = time.monotonic() + 0.3
+        give_up = end + 10.0
         n = 0
-        while time.monotonic() < end:
+        while (time.monotonic() < end or n <= 10) and time.monotonic() < give_up:
             s = ctl.state()
             x = s.x
             time.sleep(0)                       # let the writer run between the two reads

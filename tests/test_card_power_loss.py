@@ -431,6 +431,7 @@ def test_no_panel_command_blocks_the_gui_when_the_card_loses_power(tmp_path, mon
         dispose(w)
 
 
+@pytest.mark.timing          # bounds how long the close holds the GUI thread
 @pytest.mark.parametrize("link", ["silent", "down"])
 def test_closing_the_window_with_the_card_off_is_prompt_and_still_halts(tmp_path, monkeypatch, link):
     from PySide6.QtWidgets import QApplication
