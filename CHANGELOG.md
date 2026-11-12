@@ -485,6 +485,9 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - Fixed a crash (segmentation fault during garbage collection) on Python 3.14.0-3.14.4, the
   system Python of Ubuntu 26.04: there mlaser runs garbage collection itself, without the
   interpreter's incremental collector.
+- Python 3.14.0-3.14.4: fixed an occasional crash of the window (segmentation fault in Qt's
+  timer handling). The garbage collection that mlaser runs itself on those interpreters freed Qt
+  objects on its own thread; it now runs on the main thread whenever Qt is loaded.
 - Run: during a Stop, Start is no longer offered as "Continue", and Hold and the machine
   panel's motion buttons follow the stopping job.
 - If the controller cannot report what the job is doing, the run controls are held as for a
