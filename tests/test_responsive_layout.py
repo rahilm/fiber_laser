@@ -733,6 +733,15 @@ def test_width_and_height_sweep(win, app, ws, row):
                 if any(not v["owner"] for v in rep.rows[-1]["violations"]):
                     notes.append(_window_note(win, s))
                 bad += _safety_targets(win, f"{s.width()}x{s.height()} {ws_id}")
+                # the page in the middle has its minimum width: a window minimum below what
+                # the docks around it need squeezed it (Process at its minimum size, the docks
+                # from under the page in the folded side group: 245 of 260 px here, 224 on
+                # Windows, where the canvas bar and the empty-state panel were cut)
+                c = win.centralWidget()
+                if c.width() < c.minimumSizeHint().width():
+                    bad.append(f"{s.width()}x{s.height()} {ws_id}: the page is {c.width()} px wide, its "
+                               f"minimum is {c.minimumSizeHint().width()}")
+                    notes.append(_window_note(win, s))
     rep.write(f"sweep_{ws}_{row}")
     text = _fail_text(rep.rows)
     assert not text and not bad, text + "\n" + "\n".join(bad + notes)

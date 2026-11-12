@@ -91,6 +91,14 @@ def test_every_workspace_names_its_interactive_elements(window, size):
         w.show_workspace(ws)
         _pump_for(0.3)
         total, missing = unnamed(w)
+        for _ in range(25):
+            # a workspace still settling: its tool bar steps down (labels off, a second row)
+            # when Qt's extension button shows, a few event-loop turns after the page (Windows
+            # CI, Process at 1100 px: the button was read in between).  One that stays fails
+            if not missing:
+                break
+            _pump_for(0.2)
+            total, missing = unnamed(w)
         assert total > 0
         if missing:
             problems[ws] = missing

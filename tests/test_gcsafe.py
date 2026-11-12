@@ -17,6 +17,7 @@ import sys
 import textwrap
 import threading
 import time
+import warnings
 
 import pytest
 
@@ -67,9 +68,17 @@ def test_no_automatic_collection_is_an_increment_of_the_incremental_collector():
     assert _alive() < 50_000, "the cyclic garbage was not collected"
 
 
-def test_old_cyclic_garbage_is_collected_without_an_explicit_collection():
+def test_old_cyclic_garbage_is_collected_without_an_explicit_collection(monkeypatch):
     """Garbage that survived young collections (it was alive for a while) is reclaimed by the
     full collections, as the generational collector does: memory does not grow without bound."""
+    if _gcsafe.full_held() or _gcsafe._pause[0]:
+        # an earlier test of this worker left a job streaming (stream.quiet_gc holds the full
+        # collections, by design) or a pause open: nothing was collected in 20 s (CI, Ubuntu's
+        # 3.14.4).  Reported, and this test measures the collector without what they left
+        warnings.warn(f"collections were held when the test began (pause {_gcsafe._pause[0]}): "
+                      f"{sorted(t.name for t in threading.enumerate())}", stacklevel=1)
+        monkeypatch.setattr(_gcsafe, "_holds", [])
+        monkeypatch.setattr(_gcsafe, "_pause", [0])
     gc.collect()
     base = _alive()
     keep: list[list] = []
@@ -85,7 +94,7 @@ def test_old_cyclic_garbage_is_collected_without_an_explicit_collection():
             break
     keep.clear()
     assert rounds >= 60
-    assert _alive() - base < 8 * 20_000, (rounds, _alive() - base)
+    assert _alive() - base < 8 * 20_000, (rounds, _alive() - base, dict(_gcsafe._counts), gc.get_threshold())
 
 
 def test_no_collections_pauses_them_and_restores():
