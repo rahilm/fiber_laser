@@ -294,6 +294,8 @@ class DockPolicy(QObject):
                        "shown": shown, "kept": kept,
                        "docks": [d for _a, gs, _o in arr for g in gs for d in g]}
         self._tried = None
+        if self.vfolded is not None:
+            self.vfolded["narrow"] = 0       # measured again for this arrangement
 
     def unfold(self) -> None:
         """The docks back in the arrangement :meth:`fold` recorded."""
@@ -475,9 +477,11 @@ class DockPolicy(QObject):
         # ``deficit``: folded for what the screen cap hid (not the window's own minimum): undone
         # when the side docks fold too and the side group then holds the bottom docks' minimum
         # widths against the page (a narrow window, :meth:`_squeezes_page`)
+        # ``narrow``: with the side docks folded too, the width the window turned out to need
+        # with their group holding the bottom docks' minimum widths (:meth:`update_min`)
         self.vfolded = {"arrangement": bottom, "need": need, "shown": shown, "head": head,
                         "docks": [d for _a, gs, _o in bottom for g in gs for d in g],
-                        "deficit": need > own}
+                        "deficit": need > own, "narrow": 0}
         self._tried = None
         return True
 
@@ -566,6 +570,17 @@ class DockPolicy(QObject):
             # what the folded docks and the page need (measured before folding: the layout's
             # own minimum still counts the docks side by side until it is laid out again)
             want_w = self.folded["narrow"]
+            v = self.vfolded
+            if v is not None:
+                # the docks from under the page joined the side group after that measure, and
+                # the group holds their minimum widths: where the page is left less than its
+                # minimum, the layout's minimum as it is laid out now, kept until the docks
+                # move again (Process at its minimum size: the preview's 313 px in a group
+                # measured at 177 cut the canvas bar and the empty-state panel, Windows CI)
+                c = self.w.centralWidget()
+                if c is not None and c.width() < c.minimumSizeHint().width():
+                    v["narrow"] = max(v["narrow"], self.w.minimumSizeHint().width())
+                want_w = max(want_w, v["narrow"])
         elif not self.user_arranged:
             f = self.fold_need()
             if f < self.w.minimumSizeHint().width():

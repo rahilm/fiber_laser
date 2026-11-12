@@ -499,6 +499,10 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - The app could crash on exit (segmentation fault or "malloc ... corrupted") when the card's
   disconnect finished while the window was being closed; window updates from the controller's
   threads are now dropped once the window is gone.
+- Process at the window's smallest size: with the panels folded to one side and the log and
+  preview moved up beside them, the window could be narrower than its content, which cut the
+  canvas bar's last button and the empty-drawing panel by a few pixels. The window's minimum
+  width now follows what that arrangement needs.
 
 ## [0.1.0rc1]
 
