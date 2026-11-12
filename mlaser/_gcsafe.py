@@ -19,7 +19,17 @@ objects that survived young collections since the last full one reach a quarter 
 survived it (CPython's rule), never while a hold says no (:func:`add_full_hold`;
 ``stream.quiet_gc``: no full collection while a job streams).  On every other interpreter
 nothing changes.  :func:`no_collections` replaces ``gc.disable()``/``gc.enable()`` around work
-that must not be interrupted by collections, on every interpreter."""
+that must not be interrupted by collections, on every interpreter.
+
+In a process that has loaded Qt the thread does not collect itself: it asks the main thread to
+(``Py_AddPendingCall``: the collection runs between two bytecodes of the main thread, where an
+automatic collection of the GUI thread's own allocations would).  A collection frees the Qt
+objects in the garbage it finds on the thread it runs on, and Qt cannot stop a QObject's timers
+from another thread: a QTimer in a reference cycle freed by the collector thread stayed in the
+GUI thread's timer list, and the next ``processEvents`` crashed sending its timer event
+(``QTimerInfoList::activateTimers``, ``sendThroughObjectEventFilters``; CI, Ubuntu's 3.14.4,
+2026-11-12: a test worker down in about one run of three).  The garbage of a process whose
+main thread runs no Python for a while waits until it does."""
 from __future__ import annotations
 
 import contextlib
@@ -27,6 +37,7 @@ import functools
 import gc
 import logging
 import os
+import sys
 import threading
 import time
 from typing import Callable, Iterator
@@ -121,16 +132,78 @@ def collect_step() -> int:
     return 2
 
 
+def due() -> bool:
+    """A young collection is due and nothing pauses the collector (what :func:`collect_step`
+    looks at first)."""
+    th0 = gc.get_threshold()[0]
+    return not _pause[0] and th0 > 0 and gc.get_count()[0] >= th0
+
+
+def qt_loaded() -> bool:
+    """This process has loaded Qt: its collections must run on the main thread (the module
+    documentation).  Never imports it."""
+    return "PySide6.QtCore" in sys.modules
+
+
+#: a collection the main thread was asked for and has not run yet (one at a time)
+_asked = [False]
+_pending_call: list = []
+
+
+def _main_thread_step(_arg: object = None) -> int:
+    """The pending call: one collector step on the main thread.  Always 0 (a pending call that
+    returns -1 raises in whatever the main thread was running)."""
+    _asked[0] = False
+    try:
+        collect_step()
+    except Exception:  # noqa: BLE001 - must not reach the main thread's code
+        log.exception("garbage collection step failed")
+    return 0
+
+
+def ask_main_thread() -> bool:
+    """Ask the main thread for one collector step (any thread; at most one request waits).
+    False: it could not be asked (no ``ctypes``, the interpreter's queue is full)."""
+    if _asked[0]:
+        return True
+    try:
+        if not _pending_call:
+            import ctypes
+            cb = ctypes.CFUNCTYPE(ctypes.c_int, ctypes.c_void_p)(_main_thread_step)
+            add = ctypes.pythonapi.Py_AddPendingCall
+            add.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+            add.restype = ctypes.c_int
+            _pending_call.extend((add, cb, ctypes.cast(cb, ctypes.c_void_p)))
+        add, _cb, ptr = _pending_call
+    except Exception:  # noqa: BLE001 - an interpreter without ctypes
+        return False
+    _asked[0] = True
+    if add(ptr, None) != 0:
+        _asked[0] = False
+        return False
+    return True
+
+
+def tick() -> None:
+    """One look of the collector thread: in a process with Qt the main thread is asked for the
+    step when a collection is due, otherwise the step runs here."""
+    if not qt_loaded() or threading.current_thread() is threading.main_thread():
+        collect_step()
+    elif due():
+        ask_main_thread()
+
+
 def _run() -> None:
     while True:
         time.sleep(POLL_S)
         try:
-            collect_step()
+            tick()
         except Exception:  # noqa: BLE001 - the collector thread must not die
             log.exception("garbage collection step failed")
 
 
 def _start_thread() -> None:
+    _asked[0] = False                   # (a forked child: the parent's request is not its own)
     threading.Thread(target=_run, name="mlaser-gc", daemon=True).start()
 
 

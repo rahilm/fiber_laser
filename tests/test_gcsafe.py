@@ -155,3 +155,97 @@ def test_a_worker_thread_collection_survives_gil_releasing_deallocators_on_the_g
     r = subprocess.run([sys.executable, "-c", _PROVOKE, REPO, "8"], capture_output=True,
                        text=True, timeout=120, env=env)
     assert r.returncode == 0 and "survived" in r.stdout, (r.returncode, r.stderr[-3000:])
+
+
+def _pump(done, seconds: float = 5.0) -> None:
+    """Run Python on this (the main) thread until ``done()``: pending calls run between its
+    bytecodes."""
+    deadline = time.monotonic() + seconds
+    while not done() and time.monotonic() < deadline:
+        time.sleep(0.001)
+
+
+def test_a_step_asked_from_a_thread_runs_on_the_main_thread(monkeypatch):
+    """Every interpreter and platform: ``ask_main_thread`` (``Py_AddPendingCall`` through
+    ctypes) runs the collector step on the main thread, one request at a time."""
+    ran: list[threading.Thread] = []
+    monkeypatch.setattr(_gcsafe, "collect_step", lambda: ran.append(threading.current_thread()) or -1)
+    asked: list[bool] = []
+    th = threading.Thread(target=lambda: asked.extend((_gcsafe.ask_main_thread(), _gcsafe.ask_main_thread())))
+    th.start()
+    th.join()
+    _pump(lambda: ran)
+    assert asked == [True, True]
+    assert ran == [threading.main_thread()], ran          # the second request joined the first
+    assert not _gcsafe._asked[0]
+
+
+@pytest.mark.parametrize("qt", [True, False])
+def test_the_collector_thread_leaves_the_collection_to_the_main_thread_of_a_qt_process(monkeypatch, qt):
+    """A collection frees Qt objects on the thread it runs on (a QTimer freed off the GUI
+    thread stays in its timer list): with Qt loaded the collector thread's look asks the main
+    thread, without Qt it collects itself; nothing is asked while no collection is due."""
+    ran: list[threading.Thread] = []
+    monkeypatch.setattr(_gcsafe, "collect_step", lambda: ran.append(threading.current_thread()) or -1)
+    monkeypatch.setattr(_gcsafe, "qt_loaded", lambda: qt)
+    monkeypatch.setattr(_gcsafe, "due", lambda: False)
+    th = threading.Thread(target=_gcsafe.tick)
+    th.start()
+    th.join()
+    _pump(lambda: ran, 0.05)
+    assert ran == ([] if qt else [th])
+    monkeypatch.setattr(_gcsafe, "due", lambda: True)
+    ran.clear()
+    th = threading.Thread(target=_gcsafe.tick)
+    th.start()
+    th.join()
+    _pump(lambda: ran)
+    assert ran == [threading.main_thread() if qt else th]
+
+
+_QT_TIMERS = textwrap.dedent("""
+    import os, sys, threading, time
+    sys.path.insert(0, sys.argv[1])
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    import mlaser  # noqa: F401
+    from PySide6.QtCore import QTimer
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+
+    class Holder:
+        pass
+
+    def cycle():
+        h = Holder()
+        h.timer = QTimer()
+        h.timer.timeout.connect(lambda: None)
+        h.timer.start(1)
+        h.me = h                       # only a collection frees it, with its running timer
+
+    stop = time.monotonic() + float(sys.argv[2])
+    where = set()
+
+    def note(phase, info):
+        where.add(threading.current_thread().name)
+
+    import gc
+    gc.callbacks.append(note)
+    while time.monotonic() < stop:
+        for _ in range(200):
+            cycle()
+        app.processEvents()
+    print("survived", sorted(where))
+""")
+
+
+def test_running_qt_timers_in_garbage_are_freed_on_the_gui_thread():
+    """The CI crash, provoked: QTimers that run and sit in reference cycles become garbage on
+    the GUI thread.  Collected by the collector thread (CPython 3.14.4 before the fix) Qt could
+    not stop their timers ("Timers cannot be stopped from another thread") and the next
+    ``processEvents`` crashed; every collection now runs on the main thread."""
+    pytest.importorskip("PySide6")
+    env = dict(os.environ, QT_QPA_PLATFORM="offscreen", PYTHONFAULTHANDLER="1")
+    r = subprocess.run([sys.executable, "-c", _QT_TIMERS, REPO, "4"], capture_output=True,
+                       text=True, timeout=120, env=env)
+    assert r.returncode == 0 and "survived ['MainThread']" in r.stdout, (r.returncode, r.stdout[-300:], r.stderr[-3000:])
+    assert "cannot be stopped from another thread" not in r.stderr
