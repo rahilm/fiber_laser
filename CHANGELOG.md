@@ -506,6 +506,10 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
 - **Safety**: a Hold pressed right after Start, before the job's first motion was sent, was
   dropped and the job ran on. The Hold is now kept and made as soon as the job runs; a Stop
   in that moment still wins.
+- A workspace tool bar could show its overflow button, disabled and with nothing behind it,
+  at every window width, and lose its labels and go into two rows for it (seen on Windows; a
+  Qt layout defect that leaves the button visible). The button is hidden again and the tool
+  bar keeps its labels.
 
 ## [0.1.0rc1]
 

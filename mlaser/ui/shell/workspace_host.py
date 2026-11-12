@@ -198,6 +198,25 @@ class CanvasSplitter(QSplitter):
         self.fit_orientation()
 
 
+def unstick_extension(tb: QToolBar) -> bool:
+    """Hide a tool bar's extension button that Qt left visible with nothing behind it; True
+    when it was stuck.
+
+    QToolBarLayout shows the button from inside its layout pass, and QWidget.show() activates
+    the parent layouts before it makes the widget visible.  When that nested pass finds that the
+    row fits after all (the page got its width, or fewer labels, meanwhile), it hides the button
+    that is not visible yet; show() then completes, and the button is visible *and* marked
+    hidden.  From then on every layout pass sees a hidden button and leaves it, and hide() is a
+    no-op: the chevron stays, disabled, at every width (Qt 6.12; Windows CI, each width of a
+    Design sweep, the row 260-1795 px wide with a size hint of 246)."""
+    ext = tb.findChild(QToolButton, "qt_toolbar_ext_button")
+    if ext is None or not (ext.isHidden() and ext.isVisible()):
+        return False
+    ext.setAttribute(Qt.WA_WState_Hidden, False)     # (hide() returns at once while it is set)
+    ext.hide()
+    return True
+
+
 class WorkspacePage(QWidget):
     """One workspace: toolbar + body (see the module docstring)."""
 
@@ -223,7 +242,7 @@ class WorkspacePage(QWidget):
         v.addWidget(self.toolbar)
         # whenever the extension button appears (the layout pass of a style that lays the
         # buttons out wider than their size hints, after the check fit_toolbar queued had
-        # already found none: Windows CI, every width of a sweep), the tool bar steps down
+        # already found none; or Qt left it stuck: unstick_extension), _no_overflow runs
         ext = self.toolbar.findChild(QToolButton, "qt_toolbar_ext_button")
         if ext is not None:
             ext.installEventFilter(self)
@@ -701,6 +720,9 @@ class WorkspacePage(QWidget):
         tb, tb2 = self.toolbar, self.toolbar2
 
         def over(t) -> bool:
+            # a button Qt left visible with nothing behind it is no overflow: it is hidden, and
+            # no label or row is given up for it
+            unstick_extension(t)
             if not t.isVisibleTo(self):
                 return False
             ext = t.findChild(QToolButton, "qt_toolbar_ext_button")

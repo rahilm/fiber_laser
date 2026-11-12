@@ -219,8 +219,12 @@ def audit(top: QWidget, skip=()) -> list[Violation]:
                 from PySide6.QtWidgets import QToolButton as _TB
                 btns = [b for b in tb.findChildren(_TB) if b is not w and b.isVisibleTo(tb)]
                 labelled = sum(1 for b in btns if b.toolButtonStyle() != _Qt.ToolButtonIconOnly)
+                behind = sum(1 for a in tb.actions() if a.isVisible() and not a.isSeparator()
+                             and tb.widgetForAction(a) is not None and tb.widgetForAction(a).isHidden())
                 detail = (f" (tool bar {tb.width()} px, its hint {tb.sizeHint().width()}, "
-                          f"{len(btns)} buttons shown, {labelled} with labels)")
+                          f"{len(btns)} buttons shown, {labelled} with labels, {behind} behind the button"
+                          # (Qt left it visible and marked hidden: workspace_host.unstick_extension)
+                          + (", the button stuck: nothing behind it" if w.isHidden() else "") + ")")
             add("clipped", tb or w, "tool bar overflows: actions hidden behind its extension button" + detail)
             continue
         if w.objectName() in QT_SUBCONTROLS:
