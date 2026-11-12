@@ -217,7 +217,15 @@ def test_run_legend_wraps_in_a_narrow_view(app, themed):
     themed(T.LIGHT)
     rc = _run_canvas(app, (260, 220), None)
     try:
-        rect, entries = rc.legend_layout()
+        # a font the entries do not fit one row with (Segoe UI 9 pt, Windows: they fit the
+        # view's minimum width in one row, and there is nothing to wrap)
+        f = rc.font()
+        for _ in range(20):
+            rect, entries = rc.legend_layout()
+            if len({round(y) for _x, y, *_ in entries}) >= 2:
+                break
+            f.setPointSizeF(f.pointSizeF() + 1)
+            rc.setFont(f)
         assert rect.width() <= rc.width() - 2 * 8 + 0.5
         assert len({round(y) for _x, y, *_ in entries}) >= 2          # two rows at least
     finally:
