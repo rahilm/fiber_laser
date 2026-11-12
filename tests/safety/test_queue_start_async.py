@@ -162,12 +162,12 @@ def test_sheet_start_returns_at_once_and_stop_drops_it(win, app, tmp_path, slow_
     assert ws.runner.state == "starting" and ws.runner.checking
     assert wait(app, entered.is_set, 30) and win.safety_ui.preflight_busy
     # the event loop keeps turning while the check is in flight: no turn held up, and no stretch
-    # without a timer beat longer than two consecutive turns (safety_helpers)
-    longest, gap, two_turns, beats = loop_heartbeat(app)
+    # without a timer beat longer than three consecutive turns (safety_helpers)
+    longest, gap, three_turns, beats = loop_heartbeat(app)
     assert entered.is_set() and not release.is_set() and ws.runner.checking   # still in flight
     assert longest < 0.3, f"the event loop was frozen while the sheet was checked ({longest:.3f} s)"
-    assert gap <= two_turns, (f"the event loop was frozen while the sheet was checked: no beat for "
-                              f"{gap * 1000:.0f} ms, two turns {two_turns * 1000:.0f} ms ({beats} beats)")
+    assert gap <= three_turns, (f"the event loop was frozen while the sheet was checked: no beat for "
+                                f"{gap * 1000:.0f} ms, three turns {three_turns * 1000:.0f} ms ({beats} beats)")
     assert not scr.buttons["confirm_sheet"].isEnabled()           # one start at a time
     win.safety_ui.stop()                                           # the on-screen Stop
     release.set()

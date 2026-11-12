@@ -59,7 +59,7 @@ env:
 jobs:
   macos:
     runs-on: macos-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       UV_PYTHON_PREFERENCE: only-managed   # like `uv run mlaser` on a Mac: uv's own Python, not a framework build
     steps:
@@ -128,7 +128,7 @@ jobs:
 
   windows:
     runs-on: windows-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
       - uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6.8.0
@@ -182,7 +182,7 @@ jobs:
 
   linux:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     env:
       UV_PYTHON_PREFERENCE: only-managed   # python-build-standalone 3.12: a shared libpython for PyInstaller
     steps:

@@ -46,15 +46,18 @@ def wait_until(pred, timeout: float, step: float = 0.002) -> float | None:
 
 def loop_heartbeat(app, turns: int = 20) -> tuple[float, float, float, int]:
     """Turn the event loop ``turns`` times (10 ms asleep after each) with a precise 10 ms timer
-    running: ``(longest turn, longest stretch without a beat, longest two consecutive turns,
+    running: ``(longest turn, longest stretch without a beat, longest three consecutive turns,
     beats)`` in seconds, measured with perf_counter.
 
-    A live loop gives a beat at every turn, so the longest stretch without one (from the timer's
-    start to the end of the last turn) is never longer than two consecutive turns: a beat may
-    fall just after one turn's processEvents.  Measured per turn, not per wall-clock time (a turn
-    is 40+ ms on a macOS runner, its sleep overshoots), and as a stretch, not as a count of beats:
-    the count depended on the timer's granularity (Windows: 15.6 ms ticks, a 10 ms timer
-    coalesced, 18 beats in 20 turns of a live loop)."""
+    A live loop delivers a beat at least at every second turn (the timer's period is the
+    turn's sleep: a beat due just after one turn's processEvents waits for the next turn, and
+    Windows delivers a 10 ms timer every 15.6 ms: 17-18 beats in 20 turns of a live loop, 21 ms
+    between two of them).  Two beats two turns apart lie within three consecutive turns (from
+    the start of the first one's processEvents to the end of the third's), so the longest
+    stretch without a beat is never longer than that.  Measured per turn, not per wall-clock
+    time (a turn is 40+ ms on a macOS runner, its sleep overshoots), and as a stretch, not as
+    a count of beats (the count depends on the timer's granularity).  (The bound was "two
+    turns", measured over one sleep only: Windows CI, 21 ms without a beat against 12 ms.)"""
     from PySide6.QtCore import Qt, QTimer
     ticks: list = []
     tm = QTimer()
@@ -72,9 +75,9 @@ def loop_heartbeat(app, turns: int = 20) -> tuple[float, float, float, int]:
     finally:
         tm.stop()
     longest = max(b - a for a, b in bounds)
-    # two consecutive turns: from the start of one turn to the end of the next (the first pair
-    # from the timer's start)
-    pairs = [bounds[i + 1][1] - (bounds[i][0] if i else t_start) for i in range(len(bounds) - 1)]
+    # three consecutive turns: from the start of one turn to the end of the next but one (the
+    # first from the timer's start)
+    pairs = [bounds[i + 2][1] - (bounds[i][0] if i else t_start) for i in range(len(bounds) - 2)]
     beats = [t_start] + [t for t in ticks if t <= bounds[-1][1]] + [bounds[-1][1]]
     gap = max(b - a for a, b in zip(beats, beats[1:]))
     return longest, gap, max(pairs), len(ticks)

@@ -201,6 +201,9 @@ def test_the_offer_is_withdrawn_with_its_reason(win, app):
     assert ws.parts.last.outcome == "running"
 
 
+# a real-time job on the card simulator: in a timing group, one test at a time (macOS CI under
+# load: no reply from the simulator for 3.1 s, "link lost", the job ended before its second part)
+@pytest.mark.timing
 def test_cut_remaining_on_the_simulator(win, app):
     """End to end: a real job on the simulator, STOP, then "Cut remaining parts": the new job
     has exactly the parts the first one did not finish, through Start's own path."""

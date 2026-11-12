@@ -163,12 +163,12 @@ def test_start_returns_at_once_and_stop_stays_live(sim_win, app, dialogs, monkey
     assert time.monotonic() - t0 < 1.0, "Start blocked the GUI thread"
     assert _until(app, entered.is_set, 30)
     # the event loop keeps turning while the pre-flight is in flight: no turn held up, and no
-    # stretch without a timer beat longer than two consecutive turns (safety_helpers)
-    longest, gap, two_turns, beats = loop_heartbeat(app)
+    # stretch without a timer beat longer than three consecutive turns (safety_helpers)
+    longest, gap, three_turns, beats = loop_heartbeat(app)
     assert entered.is_set() and not release.is_set()             # still in flight
     assert longest < 0.3, f"the event loop was frozen during the pre-flight ({longest:.3f} s)"
-    assert gap <= two_turns, (f"the event loop was frozen during the pre-flight: no beat for "
-                              f"{gap * 1000:.0f} ms, two turns {two_turns * 1000:.0f} ms ({beats} beats)")
+    assert gap <= three_turns, (f"the event loop was frozen during the pre-flight: no beat for "
+                                f"{gap * 1000:.0f} ms, three turns {three_turns * 1000:.0f} ms ({beats} beats)")
     w.safety_ui.stop()                               # the on-screen Stop, while checking
     release.set()
     assert w.safety_ui.wait_preflight(30)

@@ -150,6 +150,7 @@ TIMING_GROUPS = {
         "test_idle_timers", "test_integration", "test_large_drawing", "test_machine_workspace",
         "test_pipeline_perf", "test_plan_process", "test_responsive_layout", "test_responsive_perf", "test_services_jobs",
         "test_ws_cutting_strategy", "test_ws_run",
+        "test_run_screen_rest",       # (its one ``timing`` test: a job on the simulator)
     },
 }
 #: modules marked ``safety`` or ``sim`` (by directory or by name) that run in NO timing group: no
