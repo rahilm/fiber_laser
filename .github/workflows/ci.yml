@@ -147,6 +147,26 @@ jobs:
         if: env.RUN_TESTS == 'true'
         run: uv run --locked python tools/build_native.py --check
 
+      - name: Desktop time slices (Windows, experiment)
+        if: env.RUN_TESTS == 'true' && runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          "Win32PrioritySeparation (registry): $((Get-ItemProperty 'HKLM:\SYSTEM\CurrentControlSet\Control\PriorityControl').Win32PrioritySeparation)"
+          uv run --locked --no-sync python tools/ci_sched_probe.py
+          uv run --locked --no-sync python tools/ci_sched_probe.py --desktop-quanta
+          if ($LASTEXITCODE -ne 0) {
+            $py = (uv run --locked --no-sync python -c "import sys; print(sys.executable)")
+            $env:MLASER_QUANTA_LOG = "$env:RUNNER_TEMP\quanta.log"
+            [Environment]::SetEnvironmentVariable("MLASER_QUANTA_LOG", $env:MLASER_QUANTA_LOG, "Machine")
+            schtasks /create /tn mlaser-quanta /ru SYSTEM /sc onstart /f /tr "`"$py`" `"$PWD\tools\ci_sched_probe.py`" --desktop-quanta"
+            schtasks /run /tn mlaser-quanta
+            Start-Sleep 8
+            schtasks /query /tn mlaser-quanta /v /fo list | Select-String "Last Result|Status|Task To Run"
+            if (Test-Path $env:MLASER_QUANTA_LOG) { "as SYSTEM: $(Get-Content $env:MLASER_QUANTA_LOG)" } else { "as SYSTEM: no log" }
+          }
+          uv run --locked --no-sync python tools/ci_sched_probe.py
+          exit 0
+
       - name: "Tests (default suite: unit, ui, sim, safety; parity and golden deselected; C kernel default)"
         if: env.RUN_TESTS == 'true'
         # pytest-xdist: one worker per CPU; tests/conftest.py puts every safety and sim test in
