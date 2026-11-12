@@ -293,6 +293,7 @@ class JobRunnerPart(PartBase):
         # resume clears the breakpoint before this; Windows CI: "Ready", progress 0, 0.2 s after
         # Continue) until the worker's end (it showed "process" again after the end while the
         # worker thread was still finishing)
+        self._take_hold_at_start()               # (a Hold kept for a start that failed)
         if not self._lc.begin_start(mode, f"{mode} start"):
             self._gate_refuse(mode, f"the previous job is still being ended ({self._lc.phase.value})")
             return False
@@ -303,6 +304,15 @@ class JobRunnerPart(PartBase):
         finally:
             self._lc.end_start(started)
             self._refresh_mode()
+            # a Hold pressed in the start window is made now that the worker runs (a Stop
+            # meanwhile: the phase is STOPPING, the Hold does nothing)
+            if self._take_hold_at_start() and started:
+                self.pause()
+
+    def _take_hold_at_start(self) -> bool:
+        with self._hold_at_start_lock:
+            kept, self._hold_at_start = self._hold_at_start, False
+            return kept
 
     def _start_worker(self, job, mode, what, track, base_job, offset, after, emits, resume) -> bool:
         if emits is None:
@@ -640,6 +650,14 @@ class JobRunnerPart(PartBase):
         executed wire index as the breakpoint and write AutosaveParam.  ``"fifo"``: 103 := 3 and
         keep streaming (INFERRED phase-1 behaviour, exact continuation).  The hold is set before
         the stop is sent."""
+        if self._lc.phase is P.STARTING:
+            # a Hold in the start window (before the worker runs: 0.2-0.5 s on a slow machine,
+            # more with the spawned streamer) was dropped: the job ran on (Windows CI, a Hold
+            # right after Start).  It is kept, and _run_job makes it when the window closes
+            with self._hold_at_start_lock:
+                self._hold_at_start = True
+            if self._lc.phase is P.STARTING or not self._take_hold_at_start():
+                return                              # (closed meanwhile and not taken: made here)
         if not self._busy():
             return
         # hold first (shared with the child): RUNNING -> HOLDING / PAUSING in one locked step

@@ -162,6 +162,53 @@ def test_stop_holds_the_streamer_then_ends_the_phase(seam_ctl):
     assert {"stop", "process ended: stopped by operator"} <= halts, halts
 
 
+def test_a_hold_in_the_start_window_is_made_when_the_worker_runs(seam_ctl):
+    """A Hold pressed after Start and before the worker runs (the phase is STARTING, the worker
+    not alive) was dropped: the job ran on (Windows CI: a Hold right after Start, the machine
+    never held).  It is kept and made when the start window closes."""
+    ctl, clock = seam_ctl()
+    real, seen = ctl._start_worker, []
+
+    def start_worker(*a, **k):
+        seen.append((ctl.job_phase(), ctl._busy()))
+        ctl.pause()                                 # the operator's Hold, in the window
+        assert ctl.job_phase() is P.STARTING        # nothing yet: no worker to hold
+        return real(*a, **k)
+    ctl._start_worker = start_worker
+    ctl.start(rect_doc())
+    assert seen == [(P.STARTING, False)]
+    assert ctl.job_phase() in (P.PAUSING, P.AT_BREAKPOINT)     # (the Hold may finish inline)
+    clock.release()
+    assert ctl.wait_job(30)
+    assert ctl._lc.wait_for(lambda st: st.phase is P.IDLE, 30)
+    assert ctl.job_phase() is P.AT_BREAKPOINT and ctl.state().mode == "pause"
+    assert ctl.fsm.state == SafetyState.PAUSED
+
+
+def test_a_hold_kept_for_a_start_that_failed_or_was_stopped_holds_nothing(seam_ctl):
+    ctl, clock = seam_ctl()
+    real = ctl._start_worker
+
+    def refused(*a, **k):
+        ctl.pause()
+        return False
+    ctl._start_worker = refused
+    ctl.start(rect_doc())
+    assert ctl.job_phase() is P.IDLE and not ctl._hold_at_start
+
+    def stopped(*a, **k):
+        ctl.pause()
+        ctl.stop()                                  # Stop wins over the Hold kept before it
+        return real(*a, **k)
+    ctl._start_worker = stopped
+    ctl.start(rect_doc())
+    assert ctl.job_phase() in (P.STOPPING, P.IDLE) and not ctl._hold_at_start
+    clock.release()
+    assert ctl.wait_job(30)
+    assert ctl._lc.wait_for(lambda st: st.phase is P.IDLE, 30)
+    assert ctl.job_phase() is P.IDLE and ctl.breakpoint is None and ctl.state().mode == "ready"
+
+
 def test_fifo_hold_is_holding_and_a_stop_ends_it(seam_ctl):
     ctl, clock = seam_ctl(controller_kw=dict(pause_mode="fifo"))
     mid_job(ctl, clock, rect_doc())

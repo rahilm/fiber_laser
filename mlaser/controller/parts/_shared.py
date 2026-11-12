@@ -85,6 +85,8 @@ if TYPE_CHECKING:
         _worker: Optional[threading.Thread]
         _cancel: threading.Event
         _lc: JobLifecycle
+        _hold_at_start: bool
+        _hold_at_start_lock: threading.Lock
         _stop_reason: str
         _job_emits: bool
         _run_job_obj: Any                    # nc.Job streaming now (may be a resume job)

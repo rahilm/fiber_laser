@@ -503,6 +503,9 @@ always listed, with the reason. Machine-safety fixes are marked **Safety**.
   preview moved up beside them, the window could be narrower than its content, which cut the
   canvas bar's last button and the empty-drawing panel by a few pixels. The window's minimum
   width now follows what that arrangement needs.
+- **Safety**: a Hold pressed right after Start, before the job's first motion was sent, was
+  dropped and the job ran on. The Hold is now kept and made as soon as the job runs; a Stop
+  in that moment still wins.
 
 ## [0.1.0rc1]
 
